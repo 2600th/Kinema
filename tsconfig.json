@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "paths": {
+      "@core/*": ["./src/core/*"],
+      "@physics/*": ["./src/physics/*"],
+      "@character/*": ["./src/character/*"],
+      "@camera/*": ["./src/camera/*"],
+      "@level/*": ["./src/level/*"],
+      "@input/*": ["./src/input/*"],
+      "@interaction/*": ["./src/interaction/*"],
+      "@ui/*": ["./src/ui/*"],
+      "@renderer/*": ["./src/renderer/*"]
+    },
+    "baseUrl": "."
+  },
+  "include": ["src"]
+}

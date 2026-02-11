@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir \"D:\\\\Github\\\\Kinema\" /s /b)",
+      "WebSearch",
+      "WebFetch(domain:rapier.rs)",
+      "WebFetch(domain:github.com)",
+      "Bash(dir:*)",
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vite build:*)",
+      "Bash(npm show:*)",
+      "Bash(node -e:*)"
+    ]
+  }
+}
