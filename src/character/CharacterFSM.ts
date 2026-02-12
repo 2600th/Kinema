@@ -8,6 +8,7 @@ import { MoveState } from './states/MoveState';
 import { JumpState } from './states/JumpState';
 import { AirState } from './states/AirState';
 import { InteractState } from './states/InteractState';
+import { CrouchState } from './states/CrouchState';
 
 /**
  * Finite state machine runner for character states.
@@ -27,6 +28,7 @@ export class CharacterFSM {
     this.registerState(new JumpState(player));
     this.registerState(new AirState(player));
     this.registerState(new InteractState(player));
+    this.registerState(new CrouchState(player));
 
     // Start in idle
     this.currentState = this.states.get('idle')!;
@@ -58,6 +60,13 @@ export class CharacterFSM {
   /** Get current state ID. */
   get current(): StateId {
     return this.currentState.id;
+  }
+
+  /** Force a transition (used by buffered actions). */
+  requestState(nextId: StateId): void {
+    if (nextId !== this.currentState.id) {
+      this.transition(nextId);
+    }
   }
 
   private transition(nextId: StateId): void {

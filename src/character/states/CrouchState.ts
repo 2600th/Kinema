@@ -4,31 +4,27 @@ import { State } from './State';
 
 const _movement = new THREE.Vector3();
 
-export class MoveState extends State {
-  readonly id: StateId = 'move';
+export class CrouchState extends State {
+  readonly id: StateId = 'crouch';
 
   enter(): void {
-    // Could trigger run animation
+    // Crouch body adjustments are handled in PlayerController.
   }
 
   exit(): void {
-    // Cleanup
+    // No-op
   }
 
   handleInput(input: InputState, isGrounded: boolean): StateId | null {
     if (!isGrounded) return 'air';
-    if (input.crouch) return 'crouch';
     if (input.interactPressed) return 'interact';
     if (input.jumpPressed) return 'jump';
-
+    if (input.crouch) return null;
     const hasMovement = input.forward || input.backward || input.left || input.right;
-    if (!hasMovement) return 'idle';
-
-    return null;
+    return hasMovement ? 'move' : 'idle';
   }
 
   update(dt: number): void {
-    // Rotate mesh toward movement direction
     if (this.player.lastInputSnapshot) {
       const dir = this.player.computeMovementDirection(this.player.lastInputSnapshot);
       this.player.rotateToward(dir, dt);
@@ -37,10 +33,7 @@ export class MoveState extends State {
 
   getDesiredMovement(dt: number, input: InputState): THREE.Vector3 {
     const dir = this.player.computeMovementDirection(input);
-    const speed = input.sprint
-      ? this.player.config.moveSpeed * this.player.config.sprintMultiplier
-      : this.player.config.moveSpeed;
-
+    const speed = this.player.config.moveSpeed * this.player.config.crouchSpeedMultiplier;
     _movement.copy(dir).multiplyScalar(speed * dt);
     return _movement;
   }

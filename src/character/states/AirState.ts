@@ -16,9 +16,13 @@ export class AirState extends State {
   }
 
   handleInput(input: InputState, isGrounded: boolean): StateId | null {
-    if (!isGrounded) return null;
+    if (!isGrounded) {
+      if (input.interactPressed) return 'interact';
+      return null;
+    }
 
     // Landed
+    if (input.crouch) return 'crouch';
     const hasMovement = input.forward || input.backward || input.left || input.right;
     if (hasMovement) return 'move';
     return 'idle';

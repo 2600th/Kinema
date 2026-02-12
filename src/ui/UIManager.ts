@@ -16,17 +16,29 @@ export class UIManager implements Disposable {
   private unsubscribers: (() => void)[] = [];
 
   constructor(private eventBus: EventBus) {
-    const overlay = document.getElementById('ui-overlay')!;
+    let overlay = document.getElementById('ui-overlay');
+    if (!overlay) {
+      if (!document.body) {
+        throw new Error('[UIManager] Missing #ui-overlay and document.body is unavailable.');
+      }
+      overlay = document.createElement('div');
+      overlay.id = 'ui-overlay';
+      overlay.style.position = 'absolute';
+      overlay.style.inset = '0';
+      overlay.style.pointerEvents = 'none';
+      document.body.appendChild(overlay);
+      console.warn('[UIManager] #ui-overlay missing. Created fallback overlay element.');
+    }
 
     this.hud = new HUD(overlay);
     this.fadeScreen = new FadeScreen(overlay);
-    this.debugPanel = new DebugPanel(overlay);
+    this.debugPanel = new DebugPanel(overlay, this.eventBus);
 
     // Wire events
     this.unsubscribers.push(
       this.eventBus.on('interaction:focusChanged', ({ id, label }) => {
         if (id && label) {
-          this.hud.showPrompt(`Press E to ${label}`);
+          this.hud.showPrompt(label);
         } else {
           this.hud.hidePrompt();
         }
@@ -34,8 +46,38 @@ export class UIManager implements Disposable {
     );
 
     this.unsubscribers.push(
+      this.eventBus.on('interaction:blocked', ({ reason }) => {
+        this.hud.showStatus(reason, 1200);
+      }),
+    );
+
+    this.unsubscribers.push(
       this.eventBus.on('debug:toggle', () => {
         this.debugPanel.toggle();
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('objective:set', ({ text }) => {
+        this.hud.setObjective(text);
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('objective:completed', ({ text }) => {
+        this.hud.showStatus(`Objective complete: ${text}`);
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('checkpoint:activated', () => {
+        this.hud.showStatus('Checkpoint activated');
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('player:respawned', ({ reason }) => {
+        this.hud.showStatus(`Respawned (${reason})`);
       }),
     );
   }

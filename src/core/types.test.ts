@@ -5,6 +5,8 @@ describe('InputState', () => {
   it('NULL_INPUT has correct shape', () => {
     expect(NULL_INPUT.forward).toBe(false);
     expect(NULL_INPUT.backward).toBe(false);
+    expect(NULL_INPUT.crouch).toBe(false);
+    expect(NULL_INPUT.crouchPressed).toBe(false);
     expect(NULL_INPUT.jump).toBe(false);
     expect(NULL_INPUT.jumpPressed).toBe(false);
     expect(NULL_INPUT.interact).toBe(false);

@@ -2,6 +2,18 @@ import type * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { PlayerController } from '@character/PlayerController';
 
+export type InteractionMode = 'press' | 'hold';
+
+export interface InteractionSpec {
+  mode: InteractionMode;
+  holdDuration?: number;
+}
+
+export interface InteractionAccess {
+  allowed: boolean;
+  reason?: string;
+}
+
 /**
  * Interface for any object the player can interact with.
  */
@@ -13,6 +25,9 @@ export interface IInteractable {
   update(dt: number): void;
   onFocus(): void;
   onBlur(): void;
+  getInteractionSpec?(): InteractionSpec;
+  canInteract?(player: PlayerController): InteractionAccess;
+  getIgnoredColliderHandles?(): number[];
   interact(player: PlayerController): void;
   dispose(): void;
 }

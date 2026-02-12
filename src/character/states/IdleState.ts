@@ -17,6 +17,7 @@ export class IdleState extends State {
 
   handleInput(input: InputState, isGrounded: boolean): StateId | null {
     if (!isGrounded) return 'air';
+    if (input.crouch) return 'crouch';
     if (input.interactPressed) return 'interact';
     if (input.jumpPressed) return 'jump';
     if (input.forward || input.backward || input.left || input.right) return 'move';

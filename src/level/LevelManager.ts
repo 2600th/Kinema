@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import type { EventBus } from '@core/EventBus';
 import type { Disposable, SpawnPointData } from '@core/types';
+import type { GraphicsQuality } from '@core/UserSettings';
 import { COLLISION_GROUP_WORLD } from '@core/constants';
 import type { PhysicsWorld } from '@physics/PhysicsWorld';
 import { ColliderFactory } from '@physics/ColliderFactory';
@@ -11,6 +12,11 @@ import { LevelValidator } from './LevelValidator';
 
 const _lightGoalPos = new THREE.Vector3();
 const _lightGoalTarget = new THREE.Vector3();
+const DEFAULT_SPAWN_Y = 2;
+
+function createDefaultSpawnPoint(): SpawnPointData {
+  return { position: new THREE.Vector3(0, DEFAULT_SPAWN_Y, 0) };
+}
 
 /**
  * Manages level loading, scene traversal, collider creation, and cleanup.
@@ -25,9 +31,7 @@ export class LevelManager implements Disposable {
   private levelObjects: THREE.Object3D[] = [];
   private levelColliders: RAPIER.Collider[] = [];
   private levelBodies: RAPIER.RigidBody[] = [];
-  private spawnPoint: SpawnPointData = {
-    position: new THREE.Vector3(0, 2, 0),
-  };
+  private spawnPoint: SpawnPointData = createDefaultSpawnPoint();
   private movingPlatforms: Array<{
     mesh: THREE.Mesh;
     body: RAPIER.RigidBody;
@@ -57,6 +61,11 @@ export class LevelManager implements Disposable {
   private simTime = 0;
   private dirLight: THREE.DirectionalLight | null = null;
   private dirLightTarget: THREE.Object3D | null = null;
+  private dirLightHelper: THREE.DirectionalLightHelper | null = null;
+  private shadowCameraHelper: THREE.CameraHelper | null = null;
+  private lightDebugEnabled = false;
+  private shadowsEnabled = true;
+  private graphicsQuality: GraphicsQuality = 'high';
   private lightFollowPos = new THREE.Vector3(20, 30, 10);
   private lightTargetPos = new THREE.Vector3(0, 1, 0);
   private textureAnisotropy = 8;
@@ -83,12 +92,38 @@ export class LevelManager implements Disposable {
     return this.ladderZones;
   }
 
+  /** Allows runtime quality changes to update shadow map budgets. */
+  setGraphicsQuality(quality: GraphicsQuality): void {
+    this.graphicsQuality = quality;
+    this.applyDirectionalLightQuality();
+  }
+
+  setLightDebugEnabled(enabled: boolean): void {
+    this.lightDebugEnabled = enabled;
+    if (!enabled) {
+      this.removeLightHelpers();
+      return;
+    }
+    this.ensureLightHelpers();
+  }
+
+  setShadowsEnabled(enabled: boolean): void {
+    this.shadowsEnabled = enabled;
+    if (this.dirLight) {
+      this.dirLight.castShadow = enabled;
+      this.dirLight.shadow.autoUpdate = enabled;
+      this.dirLight.shadow.needsUpdate = enabled;
+    }
+  }
+
   /** Load a level by name. 'procedural' generates a test level. */
   async load(name: string): Promise<void> {
     // Unload current level first
     if (this.currentLevelName) {
       this.unload();
     }
+    // Always reset before each load so levels without spawnpoints are deterministic.
+    this.spawnPoint = createDefaultSpawnPoint();
 
     if (name === 'procedural') {
       this.buildProceduralLevel();
@@ -157,7 +192,9 @@ export class LevelManager implements Disposable {
     this.simTime = 0;
     this.dirLight = null;
     this.dirLightTarget = null;
+    this.removeLightHelpers();
     this.currentLevelName = null;
+    this.spawnPoint = createDefaultSpawnPoint();
 
     if (name) {
       this.eventBus.emit('level:unloaded', { name });
@@ -289,6 +326,8 @@ export class LevelManager implements Disposable {
     this.dirLight.shadow.camera.near = 1;
     this.dirLight.shadow.camera.far = 90;
     this.dirLight.shadow.camera.updateProjectionMatrix();
+    this.dirLightHelper?.update();
+    this.shadowCameraHelper?.update();
   }
 
   private async loadGLTF(name: string): Promise<void> {
@@ -324,12 +363,9 @@ export class LevelManager implements Disposable {
 
         case 'sensor': {
           if (!entry.mesh) break;
-          const sensor = this.colliderFactory.createSensor(entry.mesh);
-          this.levelColliders.push(sensor);
-          const parentBody = sensor.parent();
-          if (parentBody) {
-            this.levelBodies.push(parentBody);
-          }
+          const { collider, body } = this.colliderFactory.createSensor(entry.mesh);
+          this.levelColliders.push(collider);
+          this.levelBodies.push(body);
           break;
         }
 
@@ -369,6 +405,12 @@ export class LevelManager implements Disposable {
     const obstacleMat = new THREE.MeshStandardMaterial({ color: 0xb0c4de, roughness: 0.8 });
     const kinematicPlatformMat = new THREE.MeshStandardMaterial({ color: 0xffe4b5, roughness: 0.85 });
     const floatingPlatformMat = new THREE.MeshStandardMaterial({ color: 0xb0c4de, roughness: 0.72 });
+    // Reflective surface for SSR verification: low roughness, high metalness
+    const ssrTestMat = new THREE.MeshStandardMaterial({
+      color: 0x8899aa,
+      roughness: 0.15,
+      metalness: 0.85,
+    });
 
     // Broad floor
     const floor = new THREE.Mesh(new THREE.BoxGeometry(300, 5, 300), floorMat);
@@ -408,6 +450,17 @@ export class LevelManager implements Disposable {
     this.createSectionLabel('43.1 Deg', new THREE.Vector3(-10, 4.6, 10), 2.5, 0.95);
     this.createSectionLabel('62.7 Deg', new THREE.Vector3(-13.5, 7.1, 10), 2.5, 0.95);
 
+    // SSR test: reflective panel just above floor on the far side of the slopes (enable SSR in debug panel to see reflections)
+    const ssrTestPlane = new THREE.Mesh(new THREE.PlaneGeometry(4, 4), ssrTestMat);
+    ssrTestPlane.position.set(-6.5, -0.85, 17);
+    ssrTestPlane.rotation.x = -Math.PI / 2;
+    ssrTestPlane.name = 'SSR_test_reflective';
+    ssrTestPlane.receiveShadow = true;
+    this.scene.add(ssrTestPlane);
+    this.levelObjects.push(ssrTestPlane);
+    ssrTestPlane.updateWorldMatrix(true, false);
+    this.createSectionLabel('SSR reflection test', new THREE.Vector3(-6.5, 1.2, 17), 2.8, 0.9);
+
     // Step series
     const addStep = (name: string, size: THREE.Vector3, pos: THREE.Vector3) => {
       const step = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), stepMat);
@@ -429,6 +482,11 @@ export class LevelManager implements Disposable {
     this.createSectionLabel('Staircase test', new THREE.Vector3(7.5, 3.4, 10.4), 3.0, 1.05);
     this.createLadder('MainLadder', new THREE.Vector3(10.8, -0.9, 12.0), 4.2, obstacleMat);
     this.createSectionLabel('Ladder climb test', new THREE.Vector3(10.8, 4.5, 12.1), 3.0, 1.05);
+    this.createSectionLabel('Physics rope (press E)', new THREE.Vector3(-18, 7.6, 6), 4.1, 1.2);
+    this.createCrouchCourse(new THREE.Vector3(2.5, -1.0, -34), obstacleMat);
+    this.createSectionLabel('Crouch tunnel (hold C)', new THREE.Vector3(2.5, 2.15, -34), 3.9, 1.15);
+    this.createDoubleJumpCourse(new THREE.Vector3(24, -1.0, 17), stepMat);
+    this.createSectionLabel('Double jump lane', new THREE.Vector3(28, 4.7, 17), 3.7, 1.15);
 
     // Rigid body obstacle cluster.
     this.createDynamicBox('PushCubeS', new THREE.Vector3(15, 0, 0), new THREE.Vector3(1, 1, 1), obstacleMat);
@@ -509,7 +567,7 @@ export class LevelManager implements Disposable {
     );
     this.createSectionLabel('Kinematic Rotating Drum', new THREE.Vector3(-15, 3.2, -15), 4.2, 1.2);
 
-    this.spawnPoint = { position: new THREE.Vector3(0, 2.0, 0) };
+    this.spawnPoint = createDefaultSpawnPoint();
   }
 
   private createGroundGridTexture(): THREE.CanvasTexture {
@@ -620,6 +678,86 @@ export class LevelManager implements Disposable {
       step.updateWorldMatrix(true, false);
       this.levelColliders.push(this.colliderFactory.createTrimesh(step));
     }
+  }
+
+  private createCrouchCourse(base: THREE.Vector3, material: THREE.Material): void {
+    const roofY = base.y + 1.29;
+    const wallY = base.y + 0.66;
+    const gateY = base.y + 1.28;
+    this.createStaticColliderBox(
+      'CrouchRoof_col',
+      new THREE.Vector3(2.8, 0.14, 9.6),
+      new THREE.Vector3(base.x, roofY, base.z),
+      material,
+    );
+    this.createStaticColliderBox(
+      'CrouchWallL_col',
+      new THREE.Vector3(0.18, 1.32, 9.6),
+      new THREE.Vector3(base.x - 1.4, wallY, base.z),
+      material,
+    );
+    this.createStaticColliderBox(
+      'CrouchWallR_col',
+      new THREE.Vector3(0.18, 1.32, 9.6),
+      new THREE.Vector3(base.x + 1.4, wallY, base.z),
+      material,
+    );
+    this.createStaticColliderBox(
+      'CrouchCeilingGate_col',
+      new THREE.Vector3(2.8, 0.24, 0.36),
+      new THREE.Vector3(base.x, gateY, base.z - 5.04),
+      material,
+    );
+    this.createStaticColliderBox(
+      'CrouchCeilingGateOut_col',
+      new THREE.Vector3(2.8, 0.24, 0.36),
+      new THREE.Vector3(base.x, gateY, base.z + 5.04),
+      material,
+    );
+  }
+
+  private createDoubleJumpCourse(base: THREE.Vector3, material: THREE.Material): void {
+    this.createStaticColliderBox(
+      'DoubleJumpStep0_col',
+      new THREE.Vector3(3.2, 0.5, 3.2),
+      new THREE.Vector3(base.x, base.y + 0.25, base.z),
+      material,
+    );
+    this.createStaticColliderBox(
+      'DoubleJumpStep1_col',
+      new THREE.Vector3(2.8, 0.45, 2.8),
+      new THREE.Vector3(base.x + 3.2, base.y + 1.3, base.z),
+      material,
+    );
+    this.createStaticColliderBox(
+      'DoubleJumpStep2_col',
+      new THREE.Vector3(2.6, 0.45, 2.6),
+      new THREE.Vector3(base.x + 6.3, base.y + 2.9, base.z),
+      material,
+    );
+    this.createStaticColliderBox(
+      'DoubleJumpStep3_col',
+      new THREE.Vector3(3.8, 0.5, 3.8),
+      new THREE.Vector3(base.x + 10.2, base.y + 4.1, base.z),
+      material,
+    );
+  }
+
+  private createStaticColliderBox(
+    name: string,
+    size: THREE.Vector3,
+    position: THREE.Vector3,
+    material: THREE.Material,
+  ): void {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), material);
+    mesh.position.copy(position);
+    mesh.name = name;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    this.scene.add(mesh);
+    this.levelObjects.push(mesh);
+    mesh.updateWorldMatrix(true, false);
+    this.levelColliders.push(this.colliderFactory.createTrimesh(mesh));
   }
 
   private createLadder(
@@ -762,6 +900,10 @@ export class LevelManager implements Disposable {
     const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
       .setTranslation(position.x, position.y, position.z);
     const body = this.physicsWorld.world.createRigidBody(bodyDesc);
+    body.userData = {
+      kind: 'floating-platform',
+      moving: movingConfig != null,
+    };
     body.enableCcd(true);
     if (lockConfig) {
       body.setEnabledTranslations(!lockConfig.lockX, !lockConfig.lockY, !lockConfig.lockZ, true);
@@ -907,8 +1049,9 @@ export class LevelManager implements Disposable {
 
     const dirLight = new THREE.DirectionalLight(0xffffff, 3.0);
     dirLight.position.set(20, 30, 10);
-    dirLight.castShadow = true;
-    dirLight.shadow.mapSize.set(4096, 4096);
+    dirLight.castShadow = this.shadowsEnabled;
+    const shadowSize = this.getShadowMapSize();
+    dirLight.shadow.mapSize.set(shadowSize, shadowSize);
     dirLight.shadow.normalBias = 0.02;
     dirLight.shadow.bias = -0.00012;
     dirLight.shadow.camera.near = 1;
@@ -934,6 +1077,52 @@ export class LevelManager implements Disposable {
     this.dirLightTarget = lightTarget;
     this.lightFollowPos.copy(dirLight.position);
     this.lightTargetPos.copy(lightTarget.position);
+    this.applyDirectionalLightQuality();
+    if (this.lightDebugEnabled) {
+      this.ensureLightHelpers();
+    }
+  }
+
+  private getShadowMapSize(): number {
+    if (this.graphicsQuality === 'low') return 1024;
+    if (this.graphicsQuality === 'medium') return 2048;
+    return 4096;
+  }
+
+  private applyDirectionalLightQuality(): void {
+    if (!this.dirLight) return;
+    this.dirLight.castShadow = this.shadowsEnabled;
+    this.dirLight.shadow.autoUpdate = this.shadowsEnabled;
+    if (!this.shadowsEnabled) return;
+    const size = this.getShadowMapSize();
+    this.dirLight.shadow.mapSize.set(size, size);
+    this.dirLight.shadow.needsUpdate = true;
+    this.shadowCameraHelper?.update();
+  }
+
+  private ensureLightHelpers(): void {
+    if (!this.dirLight) return;
+    if (!this.dirLightHelper) {
+      this.dirLightHelper = new THREE.DirectionalLightHelper(this.dirLight, 2.2, 0xffcc66);
+      this.scene.add(this.dirLightHelper);
+    }
+    if (!this.shadowCameraHelper) {
+      this.shadowCameraHelper = new THREE.CameraHelper(this.dirLight.shadow.camera);
+      this.scene.add(this.shadowCameraHelper);
+    }
+  }
+
+  private removeLightHelpers(): void {
+    if (this.dirLightHelper) {
+      this.scene.remove(this.dirLightHelper);
+      this.dirLightHelper.dispose();
+      this.dirLightHelper = null;
+    }
+    if (this.shadowCameraHelper) {
+      this.scene.remove(this.shadowCameraHelper);
+      this.shadowCameraHelper.dispose();
+      this.shadowCameraHelper = null;
+    }
   }
 
   dispose(): void {

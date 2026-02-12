@@ -1,13 +1,5 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import type { Disposable } from '@core/types';
-import {
-  CC_OFFSET,
-  MAX_SLOPE_CLIMB_ANGLE,
-  MIN_SLOPE_SLIDE_ANGLE,
-  AUTOSTEP,
-  SNAP_TO_GROUND_DIST,
-  DEFAULT_PLAYER_CONFIG,
-} from '@core/constants';
 
 /**
  * Wraps Rapier world.
@@ -15,26 +7,13 @@ import {
  */
 export class PhysicsWorld implements Disposable {
   public readonly world: RAPIER.World;
-  public readonly characterController: RAPIER.KinematicCharacterController;
   public readonly eventQueue: RAPIER.EventQueue;
+  private lastStepMs = 0;
 
   private constructor() {
     // Use Rapier default world gravity.
     this.world = new RAPIER.World(new RAPIER.Vector3(0, -9.81, 0));
     this.eventQueue = new RAPIER.EventQueue(true);
-
-    // Create the shared character controller
-    this.characterController = this.world.createCharacterController(CC_OFFSET);
-    this.characterController.setMaxSlopeClimbAngle(MAX_SLOPE_CLIMB_ANGLE);
-    this.characterController.setMinSlopeSlideAngle(MIN_SLOPE_SLIDE_ANGLE);
-    this.characterController.enableAutostep(
-      AUTOSTEP.maxHeight,
-      AUTOSTEP.minWidth,
-      AUTOSTEP.includeDynamicBodies,
-    );
-    this.characterController.enableSnapToGround(SNAP_TO_GROUND_DIST);
-    this.characterController.setApplyImpulsesToDynamicBodies(true);
-    this.characterController.setCharacterMass(DEFAULT_PLAYER_CONFIG.mass);
   }
 
   /** Synchronous factory — call only after RAPIER.init() has resolved. */
@@ -44,7 +23,13 @@ export class PhysicsWorld implements Disposable {
 
   /** Step the simulation forward. */
   step(): void {
+    const start = performance.now();
     this.world.step(this.eventQueue);
+    this.lastStepMs = performance.now() - start;
+  }
+
+  getLastStepMs(): number {
+    return this.lastStepMs;
   }
 
   /** Shapecast from origin in direction. Returns hit info or null. */
@@ -125,6 +110,7 @@ export class PhysicsWorld implements Disposable {
   }
 
   dispose(): void {
+    this.eventQueue.free();
     this.world.free();
   }
 }

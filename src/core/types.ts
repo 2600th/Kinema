@@ -6,6 +6,8 @@ export interface InputState {
   readonly backward: boolean;
   readonly left: boolean;
   readonly right: boolean;
+  readonly crouch: boolean;
+  readonly crouchPressed: boolean;
   readonly jump: boolean;
   readonly jumpPressed: boolean;
   readonly interact: boolean;
@@ -22,6 +24,8 @@ export const NULL_INPUT: InputState = Object.freeze({
   backward: false,
   left: false,
   right: false,
+  crouch: false,
+  crouchPressed: false,
   jump: false,
   jumpPressed: false,
   interact: false,
@@ -41,6 +45,11 @@ export type StateId = string;
 /** Objects that tick at fixed 60Hz */
 export interface FixedUpdatable {
   fixedUpdate(dt: number): void;
+}
+
+/** Optional hook executed immediately after each physics step. */
+export interface PostPhysicsUpdatable {
+  postPhysicsUpdate(dt: number): void;
 }
 
 /** Objects that tick every render frame */
@@ -77,6 +86,12 @@ export interface PlayerConfig {
   floatingDampingC: number;
   floatingRayLength: number;
   floatingRayHitForgiveness: number;
+  coyoteTime: number;
+  jumpBufferTime: number;
+  maxAirJumps: number;
+  airJumpForceMultiplier: number;
+  crouchHeightOffset: number;
+  crouchSpeedMultiplier: number;
   slopeMaxAngle: number;
   slopeRayLength: number;
   slopeRayOriginOffset: number;
@@ -104,6 +119,8 @@ export interface CameraConfig {
   zoomSpeed: number;
   rotationDamping: number;
   positionDamping: number;
+  fovDamping: number;
+  sprintFovBoost: number;
   collisionOffset: number;
   collisionSpeed: number;
   spherecastRadius: number;
@@ -120,9 +137,38 @@ export interface EventMap {
   'input:state': InputState;
   'player:stateChanged': { previous: StateId; current: StateId };
   'player:grounded': boolean;
+  'player:respawned': { reason: string };
   'interaction:focusChanged': { id: string | null; label: string | null };
   'interaction:triggered': { id: string };
+  'interaction:blocked': { id: string; reason: string };
+  'checkpoint:activated': { id: string; position: { x: number; y: number; z: number } };
+  'objective:set': { id: string; text: string };
+  'objective:completed': { id: string; text: string };
   'level:loaded': { name: string };
   'level:unloaded': { name: string };
   'debug:toggle': undefined;
+  'debug:showColliders': boolean;
+  'debug:showLightHelpers': boolean;
+  'debug:postProcessing': boolean;
+  'debug:shadows': boolean;
+  'debug:cameraCollision': boolean;
+  'debug:exposure': number;
+  'debug:graphicsQuality': { quality: 'low' | 'medium' | 'high' };
+  'debug:aaMode': { mode: 'smaa' | 'fxaa' | 'taa' | 'none' };
+  'debug:ssaoEnabled': boolean;
+  'debug:ssaoRadius': number;
+  'debug:ssrEnabled': boolean;
+  'debug:ssrOpacity': number;
+  'debug:ssrResolutionScale': number;
+  'debug:bloomEnabled': boolean;
+  'debug:bloomStrength': number;
+  'debug:vignetteEnabled': boolean;
+  'debug:vignetteDarkness': number;
+  'debug:lutEnabled': boolean;
+  'debug:lutStrength': number;
+  'debug:ssgiEnabled': boolean;
+  'debug:ssgiPreset': 'low' | 'medium' | 'high';
+  'debug:ssgiRadius': number;
+  'debug:ssgiGiIntensity': number;
+  'debug:traaEnabled': boolean;
 }

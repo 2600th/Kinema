@@ -1,9 +1,16 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { COLLISION_GROUP_INTERACTABLE, COLLISION_GROUP_WORLD } from '@core/constants';
-import type { IInteractable } from '../Interactable';
+import type { IInteractable, InteractionAccess, InteractionSpec } from '../Interactable';
 import type { PhysicsWorld } from '@physics/PhysicsWorld';
 import type { PlayerController } from '@character/PlayerController';
+
+interface DoorOptions {
+  interactionMode?: 'press' | 'hold';
+  holdDuration?: number;
+  unlockCondition?: () => boolean;
+  lockedReason?: string;
+}
 
 /**
  * Sample interactable: a door that toggles open/closed.
@@ -32,15 +39,24 @@ export class Door implements IInteractable {
   private worldPos = new THREE.Vector3();
   private worldQuat = new THREE.Quaternion();
   private playerLocal = new THREE.Vector3();
+  private interactionMode: 'press' | 'hold';
+  private holdDuration: number;
+  private unlockCondition?: () => boolean;
+  private lockedReason: string;
 
   constructor(
     id: string,
     position: THREE.Vector3,
     scene: THREE.Scene,
     physicsWorld: PhysicsWorld,
+    options?: DoorOptions,
   ) {
     this.id = id;
     this.position = position.clone().add(new THREE.Vector3(0, 1.25, 0));
+    this.interactionMode = options?.interactionMode ?? 'press';
+    this.holdDuration = Math.max(options?.holdDuration ?? 0.85, 0.05);
+    this.unlockCondition = options?.unlockCondition;
+    this.lockedReason = options?.lockedReason ?? 'The door is locked';
 
     // Create door mesh
     const geom = new THREE.BoxGeometry(1.5, 2.5, 0.15);
@@ -79,6 +95,27 @@ export class Door implements IInteractable {
       .setFriction(0.8);
     this.doorCollider = physicsWorld.world.createCollider(doorColliderDesc, this.doorBody);
     this.physicsWorld = physicsWorld;
+  }
+
+  getInteractionSpec(): InteractionSpec {
+    if (this.interactionMode === 'hold') {
+      return { mode: 'hold', holdDuration: this.holdDuration };
+    }
+    return { mode: 'press' };
+  }
+
+  canInteract(_player: PlayerController): InteractionAccess {
+    if (this.unlockCondition && !this.unlockCondition()) {
+      return {
+        allowed: false,
+        reason: this.lockedReason,
+      };
+    }
+    return { allowed: true };
+  }
+
+  getIgnoredColliderHandles(): number[] {
+    return [this.collider.handle, this.doorCollider.handle];
   }
 
   update(dt: number): void {

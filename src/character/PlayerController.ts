@@ -1,7 +1,14 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import type { EventBus } from '@core/EventBus';
-import type { InputState, FixedUpdatable, Updatable, Disposable, SpawnPointData } from '@core/types';
+import type {
+  InputState,
+  FixedUpdatable,
+  PostPhysicsUpdatable,
+  Updatable,
+  Disposable,
+  SpawnPointData,
+} from '@core/types';
 import { DEFAULT_PLAYER_CONFIG } from '@core/constants';
 import type { PhysicsWorld } from '@physics/PhysicsWorld';
 import { ColliderFactory } from '@physics/ColliderFactory';
@@ -37,13 +44,18 @@ const _stepProbeLowOrigin = new THREE.Vector3();
 const _stepProbeHighOrigin = new THREE.Vector3();
 const _stepGroundProbeOrigin = new THREE.Vector3();
 const _ladderProbePoint = new THREE.Vector3();
+const _standProbeOrigin = new THREE.Vector3();
+const _standProbeDir = new THREE.Vector3();
+const _standProbeRight = new THREE.Vector3();
+const _worldUp = new THREE.Vector3(0, 1, 0);
 
 const _rapierDown = new RAPIER.Vector3(0, -1, 0);
+const _rapierUp = new RAPIER.Vector3(0, 1, 0);
 
 /**
  * Dynamic rigidbody player controller with floating and impulse movement.
  */
-export class PlayerController implements FixedUpdatable, Updatable, Disposable {
+export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Disposable {
   public readonly body: RAPIER.RigidBody;
   public readonly collider: RAPIER.Collider;
   public readonly mesh: THREE.Mesh;
@@ -59,8 +71,13 @@ export class PlayerController implements FixedUpdatable, Updatable, Disposable {
   private lastInput: InputState | null = null;
 
   private canJump = false;
+  private jumpBufferRemaining = 0;
+  private remainingAirJumps = this.config.maxAirJumps;
   private isOnMovingObject = false;
   private floatingDistance = this.config.capsuleRadius + this.config.floatHeight;
+  private standingCapsuleHalfHeight = this.config.capsuleHalfHeight;
+  private crouchedCapsuleHalfHeight = Math.max(0.16, this.config.capsuleHalfHeight - this.config.crouchHeightOffset);
+  private currentCapsuleHalfHeight = this.config.capsuleHalfHeight;
   private slopeAngle = 0;
   private actualSlopeAngle = 0;
   private currentGravityScale = 1;
@@ -69,9 +86,29 @@ export class PlayerController implements FixedUpdatable, Updatable, Disposable {
   private currentGroundBodyType: number | null = null;
   private ladderZones: readonly THREE.Box3[] = [];
   private onLadder = false;
+  private ropeAttached = false;
+  private isCrouched = false;
+  private crouchReleaseGraceSeconds = 0.18;
+  private crouchReleaseGraceRemaining = 0;
+  private crouchVisual = 0;
+  private respawnPoint: SpawnPointData | null = null;
 
   get lastInputSnapshot(): InputState | null {
     return this.lastInput;
+  }
+
+  get crouching(): boolean {
+    return this.isCrouched;
+  }
+
+  get isRopeAttached(): boolean {
+    return this.ropeAttached;
+  }
+
+  getCameraHeightOffset(): number {
+    // Camera needs a stronger crouch drop than the physics body offset
+    // so it can follow through low tunnels instead of staying above roofs.
+    return 0.95 * this.crouchVisual;
   }
 
   private colliderFactory: ColliderFactory;
@@ -141,6 +178,19 @@ export class PlayerController implements FixedUpdatable, Updatable, Disposable {
     this.currentGroundBody = null;
     this.currentGroundBodyType = null;
     this.onLadder = false;
+    this.jumpBufferRemaining = 0;
+    this.remainingAirJumps = this.config.maxAirJumps;
+    this.ropeAttached = false;
+    this.isCrouched = false;
+    this.crouchReleaseGraceRemaining = 0;
+    this.crouchVisual = 0;
+    this.mesh.scale.set(1, 1, 1);
+    this.currentCapsuleHalfHeight = this.standingCapsuleHalfHeight;
+    this.collider.setHalfHeight(this.standingCapsuleHalfHeight);
+    this.respawnPoint = {
+      position: spawn.position.clone(),
+      rotation: spawn.rotation?.clone(),
+    };
   }
 
   fixedUpdate(dt: number): void {
@@ -148,6 +198,11 @@ export class PlayerController implements FixedUpdatable, Updatable, Disposable {
     if (!input) return;
 
     this.prevPosition.copy(this.currPosition);
+    if (input.jumpPressed) {
+      this.jumpBufferRemaining = this.config.jumpBufferTime;
+    } else {
+      this.jumpBufferRemaining = Math.max(0, this.jumpBufferRemaining - dt);
+    }
 
     const pos = this.body.translation();
     const vel = this.body.linvel();
@@ -155,22 +210,45 @@ export class PlayerController implements FixedUpdatable, Updatable, Disposable {
     _currentVel.set(vel.x, vel.y, vel.z);
     this.verticalVelocity = _currentVel.y;
 
+    if (this.ropeAttached) {
+      this.jumpBufferRemaining = 0;
+      this.onLadder = false;
+      this.setCrouchedState(false);
+      this.floatingDistance = this.config.capsuleRadius + this.config.floatHeight;
+      this.remainingAirJumps = this.config.maxAirJumps;
+      const wasGrounded = this.isGrounded;
+      this.isGrounded = false;
+      this.canJump = false;
+      this.groundedGrace = 0;
+      if (wasGrounded) {
+        this.eventBus.emit('player:grounded', false);
+      }
+      if (this.fsm.current !== 'air') {
+        this.fsm.requestState('air');
+      }
+      return;
+    }
+
+    this.updateCrouchState(input.crouch, _currentPos, dt);
+    this.floatingDistance = this.getTargetFloatingDistance();
+
     const movementLocked = this.fsm.current === 'interact';
     const inLadderZone = this.isInsideLadder(_currentPos);
     const wantsLadder = !movementLocked && (input.forward || input.backward || input.jumpPressed || this.onLadder);
     this.onLadder = inLadderZone && wantsLadder;
     if (this.onLadder) {
+      this.setCrouchedState(false);
+      this.floatingDistance = this.config.capsuleRadius + this.config.floatHeight;
       const wasGrounded = this.isGrounded;
       this.isGrounded = true;
       this.canJump = true;
+      this.remainingAirJumps = this.config.maxAirJumps;
       if (this.isGrounded !== wasGrounded) {
         this.eventBus.emit('player:grounded', this.isGrounded);
       }
       this.fsm.handleInput(input, true);
       this.fsm.update(dt);
       this.handleLadderMovement(input);
-      const ladderPos = this.body.translation();
-      this.currPosition.set(ladderPos.x, ladderPos.y, ladderPos.z);
       return;
     }
     if (this.currentGravityScale === 0) {
@@ -179,6 +257,12 @@ export class PlayerController implements FixedUpdatable, Updatable, Disposable {
 
     this.fsm.handleInput(input, this.isGrounded);
     this.fsm.update(dt);
+    if (this.ropeAttached) {
+      if (this.fsm.current !== 'air') {
+        this.fsm.requestState('air');
+      }
+      return;
+    }
 
     const desiredInputDir = this.computeMovementDirection(input);
     if (desiredInputDir.lengthSq() > 0.0001) {
@@ -187,7 +271,7 @@ export class PlayerController implements FixedUpdatable, Updatable, Disposable {
 
     _rayOrigin.set(
       _currentPos.x,
-      _currentPos.y - this.config.capsuleHalfHeight,
+      _currentPos.y - this.currentCapsuleHalfHeight,
       _currentPos.z,
     );
 
@@ -234,7 +318,7 @@ export class PlayerController implements FixedUpdatable, Updatable, Disposable {
       floatingRayHit.timeOfImpact < this.floatingDistance + this.config.floatingRayHitForgiveness;
     const slopeAllowed = !slopeRayHit || this.actualSlopeAngle < this.config.slopeMaxAngle;
     if (closeToGround && slopeAllowed) {
-      this.groundedGrace = 0.08;
+      this.groundedGrace = this.config.coyoteTime;
     } else {
       this.groundedGrace = Math.max(0, this.groundedGrace - dt);
     }
@@ -242,6 +326,9 @@ export class PlayerController implements FixedUpdatable, Updatable, Disposable {
 
     const wasGrounded = this.isGrounded;
     this.isGrounded = this.canJump;
+    if (this.isGrounded) {
+      this.remainingAirJumps = this.config.maxAirJumps;
+    }
     if (this.isGrounded !== wasGrounded) {
       this.eventBus.emit('player:grounded', this.isGrounded);
     }
@@ -308,14 +395,27 @@ export class PlayerController implements FixedUpdatable, Updatable, Disposable {
 
     const movementLockedNow = this.fsm.current === 'interact';
     const hasMovement = !movementLockedNow && (input.forward || input.backward || input.left || input.right);
-    const run = input.sprint;
+    const run = input.sprint && !this.isCrouched;
     if (hasMovement) {
       this.applyMoveImpulse(run);
       this.applyStepAssist(desiredInputDir, run);
     }
 
-    if (!movementLockedNow && input.jumpPressed && this.canJump) {
-      this.applyJumpImpulse(run);
+    if (!movementLockedNow && this.jumpBufferRemaining > 0) {
+      if (this.canJump) {
+        this.fsm.requestState('jump');
+        this.applyJumpImpulse(run, false);
+        this.jumpBufferRemaining = 0;
+        this.groundedGrace = 0;
+        this.canJump = false;
+      } else if (this.remainingAirJumps > 0) {
+        this.fsm.requestState('jump');
+        this.applyJumpImpulse(false, true);
+        this.jumpBufferRemaining = 0;
+        this.remainingAirJumps -= 1;
+        this.groundedGrace = 0;
+        this.canJump = false;
+      }
     }
 
     if (floatingRayHit && this.canJump) {
@@ -325,7 +425,7 @@ export class PlayerController implements FixedUpdatable, Updatable, Disposable {
       this.body.applyImpulse(new RAPIER.Vector3(0, floatingForce, 0), false);
 
       const standingBody = floatingRayHit.collider.parent();
-      if (standingBody && floatingForce > 0) {
+      if (standingBody && floatingForce > 0 && this.shouldApplyGroundReaction(standingBody)) {
         standingBody.applyImpulseAtPoint(
           new RAPIER.Vector3(0, -floatingForce, 0),
           new RAPIER.Vector3(_standingForcePoint.x, _standingForcePoint.y, _standingForcePoint.z),
@@ -358,8 +458,11 @@ export class PlayerController implements FixedUpdatable, Updatable, Disposable {
       this.setGravityScale(falling ? this.config.fallingGravityScale : 1);
     }
 
-    const newPos = this.body.translation();
-    this.currPosition.set(newPos.x, newPos.y, newPos.z);
+  }
+
+  postPhysicsUpdate(_dt: number): void {
+    const pos = this.body.translation();
+    this.currPosition.set(pos.x, pos.y, pos.z);
   }
 
   private applyMoveImpulse(run: boolean): void {
@@ -385,7 +488,8 @@ export class PlayerController implements FixedUpdatable, Updatable, Disposable {
     _wantToMoveVel.set(_movingDirection.x * wantToMoveMag, 0, _movingDirection.z * wantToMoveMag);
     _rejectVel.copy(_currentVel).sub(_wantToMoveVel);
 
-    const targetSpeed = this.config.moveSpeed * (run ? this.config.sprintMultiplier : 1);
+    const crouchMult = this.isCrouched ? this.config.crouchSpeedMultiplier : 1;
+    const targetSpeed = this.config.moveSpeed * crouchMult * (run ? this.config.sprintMultiplier : 1);
     _moveAccNeeded.set(
       (_movingDirection.x * (targetSpeed + _movingObjectVelocityInCharacterDir.x) -
         (_currentVel.x -
@@ -426,7 +530,11 @@ export class PlayerController implements FixedUpdatable, Updatable, Disposable {
       true,
     );
 
-    if (this.currentGroundBody && this.currentGroundBodyType === 0) {
+    if (
+      this.currentGroundBody &&
+      this.currentGroundBodyType === 0 &&
+      this.shouldApplyGroundReaction(this.currentGroundBody)
+    ) {
       const groundMass = Math.max(this.currentGroundBody.mass(), 0.001);
       const massRatio = this.body.mass() / groundMass;
       const groundImpulse = _moveImpulse.clone().multiplyScalar(Math.min(1, 1 / massRatio)).negate();
@@ -438,8 +546,11 @@ export class PlayerController implements FixedUpdatable, Updatable, Disposable {
     }
   }
 
-  private applyJumpImpulse(run: boolean): void {
-    const jumpVel = (run ? this.config.sprintJumpMultiplier : 1) * this.config.jumpForce;
+  private applyJumpImpulse(run: boolean, airJump: boolean): void {
+    const jumpVel =
+      (run ? this.config.sprintJumpMultiplier : 1) *
+      this.config.jumpForce *
+      (airJump ? this.config.airJumpForceMultiplier : 1);
     _jumpVelocityVec.set(_currentVel.x, jumpVel, _currentVel.z);
     _jumpDirection
       .set(0, jumpVel * this.config.slopeJumpMultiplier, 0)
@@ -451,7 +562,7 @@ export class PlayerController implements FixedUpdatable, Updatable, Disposable {
       true,
     );
 
-    if (this.currentGroundBody) {
+    if (this.currentGroundBody && this.shouldApplyGroundReaction(this.currentGroundBody)) {
       const down = -jumpVel * this.config.jumpForceToGroundMultiplier * 0.5;
       this.currentGroundBody.applyImpulseAtPoint(
         new RAPIER.Vector3(0, down, 0),
@@ -473,12 +584,12 @@ export class PlayerController implements FixedUpdatable, Updatable, Disposable {
     const probeDist = this.config.capsuleRadius + (run ? 0.95 : 0.85);
     _stepProbeLowOrigin.set(
       _currentPos.x,
-      _currentPos.y - this.config.capsuleHalfHeight + 0.08,
+      _currentPos.y - this.currentCapsuleHalfHeight + 0.08,
       _currentPos.z,
     );
     _stepProbeHighOrigin.set(
       _currentPos.x,
-      _currentPos.y - this.config.capsuleHalfHeight + 0.68,
+      _currentPos.y - this.currentCapsuleHalfHeight + 0.68,
       _currentPos.z,
     );
 
@@ -529,7 +640,7 @@ export class PlayerController implements FixedUpdatable, Updatable, Disposable {
     // Ground probe ahead to keep capsule "stuck" to short stair runs/curbs while moving forward.
     _stepGroundProbeOrigin.set(
       _currentPos.x + _stepForward.x * (run ? 0.58 : 0.5),
-      _currentPos.y - this.config.capsuleHalfHeight + 0.75,
+      _currentPos.y - this.currentCapsuleHalfHeight + 0.75,
       _currentPos.z + _stepForward.z * (run ? 0.58 : 0.5),
     );
     const downHit = this.physicsWorld.castRay(
@@ -546,7 +657,7 @@ export class PlayerController implements FixedUpdatable, Updatable, Disposable {
     );
     if (downHit) {
       const groundAheadY = _stepGroundProbeOrigin.y - downHit.timeOfImpact;
-      const feetY = _currentPos.y - this.config.capsuleHalfHeight;
+      const feetY = _currentPos.y - this.currentCapsuleHalfHeight;
       const stepHeight = groundAheadY - feetY;
       const maxStepHeight = run ? 0.34 : 0.28;
       if (stepHeight > 0.02 && stepHeight <= maxStepHeight) {
@@ -565,7 +676,7 @@ export class PlayerController implements FixedUpdatable, Updatable, Disposable {
 
   private isInsideLadder(position: THREE.Vector3): boolean {
     _ladderProbePoint.copy(position);
-    _ladderProbePoint.y -= this.config.capsuleHalfHeight * 0.35;
+    _ladderProbePoint.y -= this.currentCapsuleHalfHeight * 0.35;
     for (const zone of this.ladderZones) {
       if (zone.containsPoint(_ladderProbePoint)) {
         return true;
@@ -591,11 +702,139 @@ export class PlayerController implements FixedUpdatable, Updatable, Disposable {
     if (input.jumpPressed) {
       this.onLadder = false;
       this.setGravityScale(1);
+      this.jumpBufferRemaining = 0;
+      this.remainingAirJumps = this.config.maxAirJumps;
       this.body.setLinvel(
         new RAPIER.Vector3(lv.x * 0.6, Math.max(this.config.jumpForce * 0.9, 3.2), lv.z * 0.6),
         true,
       );
     }
+  }
+
+  private getTargetFloatingDistance(): number {
+    return this.config.capsuleRadius + this.config.floatHeight;
+  }
+
+  private updateCrouchState(wantsCrouch: boolean, position: THREE.Vector3, dt: number): void {
+    if (wantsCrouch) {
+      this.crouchReleaseGraceRemaining = this.crouchReleaseGraceSeconds;
+      this.setCrouchedState(true);
+      return;
+    }
+    if (!this.isCrouched) {
+      this.crouchReleaseGraceRemaining = 0;
+      return;
+    }
+    const blocked = !this.canStandUp(position);
+    if (blocked) {
+      this.crouchReleaseGraceRemaining = this.crouchReleaseGraceSeconds;
+      this.setCrouchedState(true);
+      return;
+    }
+    if (this.crouchReleaseGraceRemaining > 0) {
+      this.crouchReleaseGraceRemaining = Math.max(0, this.crouchReleaseGraceRemaining - dt);
+      this.setCrouchedState(true);
+      return;
+    }
+    this.setCrouchedState(false);
+  }
+
+  private setCrouchedState(crouched: boolean): void {
+    if (this.isCrouched === crouched) return;
+    this.isCrouched = crouched;
+    if (!crouched) {
+      this.crouchReleaseGraceRemaining = 0;
+    }
+    const targetHalf = crouched ? this.crouchedCapsuleHalfHeight : this.standingCapsuleHalfHeight;
+    if (Math.abs(targetHalf - this.currentCapsuleHalfHeight) <= 0.0001) return;
+
+    const pos = this.body.translation();
+    const deltaHalf = this.currentCapsuleHalfHeight - targetHalf;
+    this.currentCapsuleHalfHeight = targetHalf;
+    this.collider.setHalfHeight(targetHalf);
+    this.body.setTranslation(new RAPIER.Vector3(pos.x, pos.y - deltaHalf, pos.z), true);
+    this.body.wakeUp();
+    this.currPosition.set(pos.x, pos.y - deltaHalf, pos.z);
+    this.prevPosition.set(pos.x, pos.y - deltaHalf, pos.z);
+    this.floatingDistance = this.getTargetFloatingDistance();
+  }
+
+  private canStandUp(position: THREE.Vector3): boolean {
+    const standDelta = this.standingCapsuleHalfHeight - this.currentCapsuleHalfHeight;
+    if (standDelta <= 0.001) return true;
+    const probeLength = standDelta * 2 + 0.04;
+    if (this.isStandProbeBlocked(position.x, position.y, position.z, probeLength)) {
+      return false;
+    }
+
+    const input = this.lastInput;
+    if (!input) return true;
+
+    _standProbeDir.copy(this.computeMovementDirection(input)).setY(0);
+    if (_standProbeDir.lengthSq() < 0.0001) {
+      return true;
+    }
+    _standProbeDir.normalize();
+    _standProbeRight.crossVectors(_standProbeDir, _worldUp).normalize();
+    const forward = this.config.capsuleRadius * 0.95;
+    const shoulder = this.config.capsuleRadius * 0.55;
+
+    if (
+      this.isStandProbeBlocked(
+        position.x + _standProbeDir.x * forward,
+        position.y,
+        position.z + _standProbeDir.z * forward,
+        probeLength,
+      )
+    ) {
+      return false;
+    }
+    if (
+      this.isStandProbeBlocked(
+        position.x + _standProbeDir.x * forward + _standProbeRight.x * shoulder,
+        position.y,
+        position.z + _standProbeDir.z * forward + _standProbeRight.z * shoulder,
+        probeLength,
+      )
+    ) {
+      return false;
+    }
+    if (
+      this.isStandProbeBlocked(
+        position.x + _standProbeDir.x * forward - _standProbeRight.x * shoulder,
+        position.y,
+        position.z + _standProbeDir.z * forward - _standProbeRight.z * shoulder,
+        probeLength,
+      )
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  private isStandProbeBlocked(x: number, y: number, z: number, probeLength: number): boolean {
+    _standProbeOrigin.set(
+      x,
+      y + this.currentCapsuleHalfHeight + this.config.capsuleRadius,
+      z,
+    );
+    const hit = this.physicsWorld.castRay(
+      new RAPIER.Vector3(_standProbeOrigin.x, _standProbeOrigin.y, _standProbeOrigin.z),
+      _rapierUp,
+      probeLength,
+      undefined,
+      this.body,
+      (c) => !c.isSensor(),
+    );
+    return hit != null;
+  }
+
+  private shouldApplyGroundReaction(body: RAPIER.RigidBody | null): boolean {
+    if (!body) return false;
+    const data = body.userData;
+    if (typeof data !== 'object' || data === null) return true;
+    const kind = (data as { kind?: unknown }).kind;
+    return kind !== 'floating-platform';
   }
 
   private setGravityScale(scale: number): void {
@@ -606,6 +845,11 @@ export class PlayerController implements FixedUpdatable, Updatable, Disposable {
 
   update(_dt: number, alpha: number): void {
     this.mesh.position.lerpVectors(this.prevPosition, this.currPosition, alpha);
+    const target = this.isCrouched ? 1 : 0;
+    this.crouchVisual += (target - this.crouchVisual) * 0.25;
+    const scaleY = 1 - this.crouchVisual * 0.28;
+    const scaleXZ = 1 + this.crouchVisual * 0.04;
+    this.mesh.scale.set(scaleXZ, scaleY, scaleXZ);
   }
 
   setInput(input: InputState): void {
@@ -614,6 +858,35 @@ export class PlayerController implements FixedUpdatable, Updatable, Disposable {
 
   setLadderZones(zones: readonly THREE.Box3[]): void {
     this.ladderZones = zones;
+  }
+
+  setRespawnPoint(spawn: SpawnPointData): void {
+    this.respawnPoint = {
+      position: spawn.position.clone(),
+      rotation: spawn.rotation?.clone(),
+    };
+  }
+
+  respawn(): void {
+    if (!this.respawnPoint) return;
+    this.spawn(this.respawnPoint);
+  }
+
+  attachToRope(): void {
+    this.ropeAttached = true;
+    this.onLadder = false;
+    this.setCrouchedState(false);
+    // Ensure rope dynamics are not amplified by carry-over fall gravity.
+    this.setGravityScale(1);
+    this.jumpBufferRemaining = 0;
+    this.remainingAirJumps = this.config.maxAirJumps;
+    if (this.fsm.current !== 'air') {
+      this.fsm.requestState('air');
+    }
+  }
+
+  detachFromRope(): void {
+    this.ropeAttached = false;
   }
 
   getCameraForward(): THREE.Vector3 {

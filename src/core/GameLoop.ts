@@ -1,5 +1,5 @@
 import { PHYSICS_TIMESTEP, MAX_FRAME_TIME } from './constants';
-import type { FixedUpdatable, Updatable } from './types';
+import type { FixedUpdatable, PostPhysicsUpdatable, Updatable } from './types';
 import type { RendererManager } from '@renderer/RendererManager';
 import type { PhysicsWorld } from '@physics/PhysicsWorld';
 
@@ -11,6 +11,7 @@ export class GameLoop {
   private accumulator = 0;
   private lastTime = 0;
   private fixedUpdatables: FixedUpdatable[] = [];
+  private postPhysicsUpdatables: PostPhysicsUpdatable[] = [];
   private updatables: Updatable[] = [];
 
   constructor(
@@ -20,6 +21,9 @@ export class GameLoop {
   ) {
     this.fixedUpdatables.push(game);
     this.updatables.push(game);
+    if (this.isPostPhysicsUpdatable(game)) {
+      this.postPhysicsUpdatables.push(game);
+    }
   }
 
   start(): void {
@@ -49,6 +53,9 @@ export class GameLoop {
         obj.fixedUpdate(PHYSICS_TIMESTEP);
       }
       this.physics.step();
+      for (const obj of this.postPhysicsUpdatables) {
+        obj.postPhysicsUpdate(PHYSICS_TIMESTEP);
+      }
       this.accumulator -= PHYSICS_TIMESTEP;
     }
 
@@ -61,5 +68,13 @@ export class GameLoop {
     }
 
     this.renderer.render();
+  }
+
+  private isPostPhysicsUpdatable(obj: unknown): obj is PostPhysicsUpdatable {
+    return (
+      typeof obj === 'object' &&
+      obj !== null &&
+      typeof (obj as { postPhysicsUpdate?: unknown }).postPhysicsUpdate === 'function'
+    );
   }
 }

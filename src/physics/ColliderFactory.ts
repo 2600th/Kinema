@@ -19,7 +19,10 @@ export class ColliderFactory {
     mesh.updateWorldMatrix(true, false);
 
     const geometry = mesh.geometry;
-    const posAttr = geometry.getAttribute('position') as THREE.BufferAttribute;
+    const posAttr = geometry.getAttribute('position') as THREE.BufferAttribute | undefined;
+    if (!posAttr || posAttr.itemSize < 3) {
+      throw new Error(`[ColliderFactory] Mesh "${mesh.name}" is missing valid position attribute.`);
+    }
     const index = geometry.getIndex();
 
     // Bake world transform into vertices
@@ -35,11 +38,27 @@ export class ColliderFactory {
 
     let indices: Uint32Array;
     if (index) {
-      indices = new Uint32Array(index.array);
+      const raw = Array.from(index.array as ArrayLike<number>).map((value) => Number(value));
+      const triangleIndexCount = raw.length - (raw.length % 3);
+      if (triangleIndexCount !== raw.length) {
+        console.warn(
+          `[ColliderFactory] Mesh "${mesh.name}" has ${raw.length} indices; truncating to ${triangleIndexCount} for valid triangles.`,
+        );
+      }
+      indices = Uint32Array.from(raw.slice(0, triangleIndexCount));
     } else {
       // Non-indexed geometry: generate sequential indices
-      indices = new Uint32Array(posAttr.count);
-      for (let i = 0; i < posAttr.count; i++) {
+      const triangleVertexCount = posAttr.count - (posAttr.count % 3);
+      if (triangleVertexCount < 3) {
+        throw new Error(`[ColliderFactory] Mesh "${mesh.name}" has too few vertices for a trimesh collider.`);
+      }
+      if (triangleVertexCount !== posAttr.count) {
+        console.warn(
+          `[ColliderFactory] Mesh "${mesh.name}" has ${posAttr.count} non-indexed vertices; truncating to ${triangleVertexCount} for valid triangles.`,
+        );
+      }
+      indices = new Uint32Array(triangleVertexCount);
+      for (let i = 0; i < triangleVertexCount; i++) {
         indices[i] = i;
       }
     }
@@ -53,7 +72,7 @@ export class ColliderFactory {
   }
 
   /** Create a sensor collider (trigger) from a mesh shape as a cuboid approximation. */
-  createSensor(mesh: THREE.Mesh): RAPIER.Collider {
+  createSensor(mesh: THREE.Mesh): { collider: RAPIER.Collider; body: RAPIER.RigidBody } {
     mesh.updateWorldMatrix(true, false);
 
     const box = new THREE.Box3().setFromObject(mesh);
@@ -66,7 +85,8 @@ export class ColliderFactory {
     const colliderDesc = RAPIER.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2)
       .setSensor(true);
 
-    return this.physicsWorld.world.createCollider(colliderDesc, body);
+    const collider = this.physicsWorld.world.createCollider(colliderDesc, body);
+    return { collider, body };
   }
 
   /** Create a capsule rigid body (dynamic). */

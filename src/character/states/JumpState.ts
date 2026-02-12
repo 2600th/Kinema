@@ -8,8 +8,7 @@ export class JumpState extends State {
   readonly id: StateId = 'jump';
 
   enter(): void {
-    // Apply jump impulse
-    this.player.verticalVelocity = this.player.config.jumpForce;
+    // Jump impulse is applied by PlayerController before entering this state.
   }
 
   exit(): void {

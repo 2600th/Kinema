@@ -10,6 +10,12 @@ import type { PlayerController } from '@character/PlayerController';
 import { ColliderFactory } from '@physics/ColliderFactory';
 import type { IInteractable } from './Interactable';
 
+interface HoldInteraction {
+  id: string;
+  elapsed: number;
+  duration: number;
+}
+
 /**
  * Manages proximity-based interaction detection.
  * Creates a sensor on the player and tracks nearby interactables.
@@ -17,11 +23,9 @@ import type { IInteractable } from './Interactable';
 export class InteractionManager implements FixedUpdatable, Disposable {
   private interactables = new Map<string, IInteractable>();
   private focusedId: string | null = null;
-  private insideIds = new Set<string>();
-
-  // Map collider handles to interactable IDs for fast lookup
-  private colliderToId = new Map<number, string>();
+  private focusedLabel: string | null = null;
   private playerSensor: RAPIER.Collider;
+  private holdInteraction: HoldInteraction | null = null;
 
   constructor(
     private physicsWorld: PhysicsWorld,
@@ -41,61 +45,31 @@ export class InteractionManager implements FixedUpdatable, Disposable {
   /** Register an interactable object. */
   register(interactable: IInteractable): void {
     this.interactables.set(interactable.id, interactable);
-    this.colliderToId.set(interactable.collider.handle, interactable.id);
   }
 
   /** Unregister an interactable object. */
   unregister(id: string): void {
     const interactable = this.interactables.get(id);
     if (interactable) {
-      this.colliderToId.delete(interactable.collider.handle);
       this.interactables.delete(id);
 
       if (this.focusedId === id) {
         interactable.onBlur();
         this.focusedId = null;
+        this.focusedLabel = null;
         this.eventBus.emit('interaction:focusChanged', { id: null, label: null });
       }
     }
   }
 
-  /** Check sensor overlaps, sort in-range targets by distance, and update focus. */
+  /** Update interactables and choose closest visible in-range target. */
   fixedUpdate(dt: number): void {
     for (const interactable of this.interactables.values()) {
       interactable.update(dt);
     }
 
-    const playerPos = this.player.position;
-    const sortedByDistance = Array.from(this.interactables.entries())
-      .map(([id, interactable]) => ({
-        id,
-        distance: playerPos.distanceTo(interactable.position),
-        position: interactable.position,
-      }))
-      .filter((e) => Number.isFinite(e.distance) && e.position != null)
-      .sort((a, b) => a.distance - b.distance);
-
-    const closestId =
-      sortedByDistance.length > 0 &&
-      sortedByDistance[0].distance <= INTERACTION_SENSOR_RADIUS + 0.1
-        ? sortedByDistance[0].id
-        : null;
-
-    // Update focus
-    if (closestId !== this.focusedId) {
-      if (this.focusedId) {
-        const prev = this.interactables.get(this.focusedId);
-        prev?.onBlur();
-      }
-      if (closestId) {
-        const next = this.interactables.get(closestId);
-        next?.onFocus();
-      }
-      this.focusedId = closestId;
-
-      const label = closestId ? this.interactables.get(closestId)?.label ?? null : null;
-      this.eventBus.emit('interaction:focusChanged', { id: closestId, label });
-    }
+    this.updateFocus(this.getClosestVisibleInteractableId(this.player.position));
+    this.updateHoldInteraction(dt);
   }
 
   /**
@@ -104,9 +78,14 @@ export class InteractionManager implements FixedUpdatable, Disposable {
    * Filters out occluded interactables (blocked by world geometry).
    */
   refreshFocusFromPosition(position: { x: number; y: number; z: number }): void {
-    const sorted = Array.from(this.interactables.entries())
+    this.updateFocus(this.getClosestVisibleInteractableId(position));
+  }
+
+  private getClosestVisibleInteractableId(position: { x: number; y: number; z: number }): string | null {
+    const candidates = Array.from(this.interactables.entries())
       .map(([id, ia]) => ({
         id,
+        interactable: ia,
         distance: Math.sqrt(
           (position.x - ia.position.x) ** 2 +
             (position.y - ia.position.y) ** 2 +
@@ -117,8 +96,52 @@ export class InteractionManager implements FixedUpdatable, Disposable {
       .filter((e) => e.distance <= INTERACTION_SENSOR_RADIUS + 0.1)
       .sort((a, b) => a.distance - b.distance);
 
-    const closestId = sorted.length > 0 ? sorted[0].id : null;
-    if (closestId === this.focusedId) return;
+    for (const candidate of candidates) {
+      if (this.isLineOfSightClear(position, candidate.interactable)) {
+        return candidate.id;
+      }
+    }
+
+    return null;
+  }
+
+  private isLineOfSightClear(
+    position: { x: number; y: number; z: number },
+    interactable: IInteractable,
+  ): boolean {
+    const ignoredHandles = interactable.getIgnoredColliderHandles?.() ?? [];
+    const isIgnoredHandle = (handle: number): boolean =>
+      handle === interactable.collider.handle || ignoredHandles.includes(handle);
+    const originY = position.y + INTERACTION_SENSOR_HALF_HEIGHT * 0.35;
+    const dx = interactable.position.x - position.x;
+    const dy = interactable.position.y - originY;
+    const dz = interactable.position.z - position.z;
+    const maxDistance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (!Number.isFinite(maxDistance) || maxDistance <= 0.001) {
+      return true;
+    }
+
+    const invLength = 1 / maxDistance;
+    const rayHit = this.physicsWorld.castRay(
+      { x: position.x, y: originY, z: position.z } as RAPIER.Vector3,
+      { x: dx * invLength, y: dy * invLength, z: dz * invLength } as RAPIER.Vector3,
+      maxDistance,
+      undefined,
+      this.player.body,
+      (collider) => !collider.isSensor() && !isIgnoredHandle(collider.handle),
+    );
+    return !rayHit || rayHit.timeOfImpact >= maxDistance - 0.01;
+  }
+
+  private updateFocus(closestId: string | null): void {
+    if (closestId === this.focusedId) {
+      const nextLabel = this.buildPromptLabel(closestId);
+      if (nextLabel !== this.focusedLabel) {
+        this.focusedLabel = nextLabel;
+        this.eventBus.emit('interaction:focusChanged', { id: closestId, label: nextLabel });
+      }
+      return;
+    }
 
     if (this.focusedId) {
       this.interactables.get(this.focusedId)?.onBlur();
@@ -127,7 +150,11 @@ export class InteractionManager implements FixedUpdatable, Disposable {
       this.interactables.get(closestId)?.onFocus();
     }
     this.focusedId = closestId;
-    const label = closestId ? this.interactables.get(closestId)?.label ?? null : null;
+    const label = this.buildPromptLabel(closestId);
+    this.focusedLabel = label;
+    if (!closestId) {
+      this.holdInteraction = null;
+    }
     this.eventBus.emit('interaction:focusChanged', { id: closestId, label });
   }
 
@@ -136,10 +163,73 @@ export class InteractionManager implements FixedUpdatable, Disposable {
     if (!this.focusedId) return;
 
     const target = this.interactables.get(this.focusedId);
-    if (target) {
-      target.interact(this.player);
-      this.eventBus.emit('interaction:triggered', { id: this.focusedId });
+    if (!target) return;
+
+    const access = target.canInteract?.(this.player);
+    if (access && !access.allowed) {
+      this.eventBus.emit('interaction:blocked', {
+        id: target.id,
+        reason: access.reason ?? 'Cannot interact right now',
+      });
+      return;
     }
+
+    const spec = target.getInteractionSpec?.();
+    if (spec?.mode === 'hold') {
+      const duration = Math.max(spec.holdDuration ?? 0.75, 0.05);
+      this.holdInteraction = {
+        id: target.id,
+        elapsed: 0,
+        duration,
+      };
+      return;
+    }
+
+    this.executeInteraction(target);
+  }
+
+  private executeInteraction(target: IInteractable): void {
+    target.interact(this.player);
+    this.eventBus.emit('interaction:triggered', { id: target.id });
+  }
+
+  private updateHoldInteraction(dt: number): void {
+    if (!this.holdInteraction) return;
+    if (!this.focusedId || this.holdInteraction.id !== this.focusedId) {
+      this.holdInteraction = null;
+      return;
+    }
+
+    const input = this.player.lastInputSnapshot;
+    if (!input?.interact) {
+      this.holdInteraction = null;
+      return;
+    }
+
+    const target = this.interactables.get(this.holdInteraction.id);
+    if (!target) {
+      this.holdInteraction = null;
+      return;
+    }
+
+    this.holdInteraction.elapsed += dt;
+    if (this.holdInteraction.elapsed >= this.holdInteraction.duration) {
+      this.holdInteraction = null;
+      this.executeInteraction(target);
+    }
+  }
+
+  private buildPromptLabel(id: string | null): string | null {
+    if (!id) return null;
+    const target = this.interactables.get(id);
+    if (!target) return null;
+    const access = target.canInteract?.(this.player);
+    if (access && !access.allowed) {
+      return access.reason ?? 'Locked';
+    }
+    const spec = target.getInteractionSpec?.();
+    const verb = spec?.mode === 'hold' ? 'Hold E to' : 'Press E to';
+    return `${verb} ${target.label}`;
   }
 
   dispose(): void {
@@ -147,6 +237,7 @@ export class InteractionManager implements FixedUpdatable, Disposable {
       this.interactables.get(this.focusedId)?.onBlur();
       this.eventBus.emit('interaction:focusChanged', { id: null, label: null });
       this.focusedId = null;
+      this.focusedLabel = null;
     }
 
     this.physicsWorld.removeCollider(this.playerSensor);
@@ -154,8 +245,6 @@ export class InteractionManager implements FixedUpdatable, Disposable {
     for (const interactable of this.interactables.values()) {
       interactable.dispose();
     }
-    this.insideIds.clear();
     this.interactables.clear();
-    this.colliderToId.clear();
   }
 }
