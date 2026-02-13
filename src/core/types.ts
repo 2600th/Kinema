@@ -156,7 +156,6 @@ export interface EventMap {
   'debug:graphicsQuality': { quality: 'low' | 'medium' | 'high' };
   'debug:aaMode': { mode: 'smaa' | 'fxaa' | 'taa' | 'none' };
   'debug:ssaoEnabled': boolean;
-  'debug:ssaoRadius': number;
   'debug:ssrEnabled': boolean;
   'debug:ssrOpacity': number;
   'debug:ssrResolutionScale': number;
@@ -166,9 +165,13 @@ export interface EventMap {
   'debug:vignetteDarkness': number;
   'debug:lutEnabled': boolean;
   'debug:lutStrength': number;
+  'debug:lutName': string;
   'debug:ssgiEnabled': boolean;
   'debug:ssgiPreset': 'low' | 'medium' | 'high';
   'debug:ssgiRadius': number;
   'debug:ssgiGiIntensity': number;
   'debug:traaEnabled': boolean;
+  'debug:envBackgroundIntensity': number;
+  'debug:envBackgroundBlurriness': number;
+  'debug:environment': string;
 }

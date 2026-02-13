@@ -17,7 +17,6 @@ import { CheckpointManager } from '@level/CheckpointManager';
 import { ObjectiveManager } from '@core/ObjectiveManager';
 import { AudioManager } from './audio/AudioManager';
 import { PhysicsDebugView } from '@physics/PhysicsDebugView';
-import type { AntiAliasingMode } from '@renderer/RendererManager';
 
 // Temp vector for speed calculation
 const _prevPos = new THREE.Vector3();
@@ -99,39 +98,13 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       const settings = this.settings.update({ graphicsQuality: quality });
       this.renderer.setGraphicsQuality(settings.graphicsQuality);
       this.levelManager.setGraphicsQuality(settings.graphicsQuality);
-      const debugFlags = this.renderer.getDebugFlags();
-      this.uiManager.debugPanel.syncRenderSettings({
-        postProcessingEnabled: debugFlags.postProcessingEnabled,
-        shadowsEnabled: debugFlags.shadowsEnabled,
-        graphicsQuality: debugFlags.graphicsQuality,
-        aaMode: debugFlags.aaMode as AntiAliasingMode,
-        exposure: debugFlags.exposure,
-        ssaoEnabled: debugFlags.ssaoEnabled,
-        ssaoRadius: debugFlags.ssaoRadius,
-        ssrEnabled: debugFlags.ssrEnabled,
-        ssrOpacity: debugFlags.ssrOpacity,
-        ssrResolutionScale: debugFlags.ssrResolutionScale,
-        bloomEnabled: debugFlags.bloomEnabled,
-        bloomStrength: debugFlags.bloomStrength,
-        vignetteEnabled: debugFlags.vignetteEnabled,
-        vignetteDarkness: debugFlags.vignetteDarkness,
-        lutEnabled: debugFlags.lutEnabled,
-        lutStrength: debugFlags.lutStrength,
-        ssgiEnabled: debugFlags.ssgiEnabled,
-        ssgiPreset: debugFlags.ssgiPreset,
-        ssgiRadius: debugFlags.ssgiRadius,
-        ssgiGiIntensity: debugFlags.ssgiGiIntensity,
-        traaEnabled: debugFlags.traaEnabled,
-      });
+      this.syncDebugPanel();
     });
     this.eventBus.on('debug:aaMode', ({ mode }) => {
       this.renderer.setAntiAliasingMode(mode);
     });
     this.eventBus.on('debug:ssaoEnabled', (enabled) => {
       this.renderer.setSsaoEnabled(enabled);
-    });
-    this.eventBus.on('debug:ssaoRadius', (radius) => {
-      this.renderer.setSsaoRadius(radius);
     });
     this.eventBus.on('debug:ssrEnabled', (enabled) => {
       this.renderer.setSsrEnabled(enabled);
@@ -160,6 +133,9 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     this.eventBus.on('debug:lutStrength', (strength) => {
       this.renderer.setLutStrength(strength);
     });
+    this.eventBus.on('debug:lutName', (name) => {
+      this.renderer.setLutName(name);
+    });
     this.eventBus.on('debug:ssgiEnabled', (enabled) => {
       this.renderer.setSsgiEnabled(enabled);
     });
@@ -175,31 +151,17 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     this.eventBus.on('debug:traaEnabled', (enabled) => {
       this.renderer.setTraaEnabled(enabled);
     });
-
-    const debugFlags = this.renderer.getDebugFlags();
-    this.uiManager.debugPanel.syncRenderSettings({
-      postProcessingEnabled: debugFlags.postProcessingEnabled,
-      shadowsEnabled: debugFlags.shadowsEnabled,
-      graphicsQuality: debugFlags.graphicsQuality,
-      aaMode: debugFlags.aaMode as AntiAliasingMode,
-      exposure: debugFlags.exposure,
-      ssaoEnabled: debugFlags.ssaoEnabled,
-      ssaoRadius: debugFlags.ssaoRadius,
-      ssrEnabled: debugFlags.ssrEnabled,
-      ssrOpacity: debugFlags.ssrOpacity,
-      ssrResolutionScale: debugFlags.ssrResolutionScale,
-      bloomEnabled: debugFlags.bloomEnabled,
-      bloomStrength: debugFlags.bloomStrength,
-      vignetteEnabled: debugFlags.vignetteEnabled,
-      vignetteDarkness: debugFlags.vignetteDarkness,
-      lutEnabled: debugFlags.lutEnabled,
-      lutStrength: debugFlags.lutStrength,
-      ssgiEnabled: debugFlags.ssgiEnabled,
-      ssgiPreset: debugFlags.ssgiPreset,
-      ssgiRadius: debugFlags.ssgiRadius,
-      ssgiGiIntensity: debugFlags.ssgiGiIntensity,
-      traaEnabled: debugFlags.traaEnabled,
+    this.eventBus.on('debug:envBackgroundIntensity', (intensity) => {
+      this.renderer.setBackgroundIntensity(intensity);
     });
+    this.eventBus.on('debug:envBackgroundBlurriness', (blurriness) => {
+      this.renderer.setBackgroundBlurriness(blurriness);
+    });
+    this.eventBus.on('debug:environment', (name) => {
+      void this.renderer.setEnvironment(name);
+    });
+
+    this.syncDebugPanel();
 
     // Debug toggle on backtick
     window.addEventListener('keydown', this._onDebugKeyDown);
@@ -288,6 +250,35 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     );
   }
 
+  /** Push current renderer state to the debug panel. */
+  private syncDebugPanel(): void {
+    const f = this.renderer.getDebugFlags();
+    this.uiManager.debugPanel.syncRenderSettings({
+      postProcessingEnabled: f.postProcessingEnabled,
+      shadowsEnabled: f.shadowsEnabled,
+      graphicsQuality: f.graphicsQuality,
+      aaMode: f.aaMode,
+      exposure: f.exposure,
+      ssaoEnabled: f.ssaoEnabled,
+      ssrEnabled: f.ssrEnabled,
+      ssrOpacity: f.ssrOpacity,
+      ssrResolutionScale: f.ssrResolutionScale,
+      bloomEnabled: f.bloomEnabled,
+      bloomStrength: f.bloomStrength,
+      vignetteEnabled: f.vignetteEnabled,
+      vignetteDarkness: f.vignetteDarkness,
+      lutEnabled: f.lutEnabled,
+      lutStrength: f.lutStrength,
+      lutName: f.lutName,
+      ssgiEnabled: f.ssgiEnabled,
+      ssgiPreset: f.ssgiPreset,
+      ssgiRadius: f.ssgiRadius,
+      ssgiGiIntensity: f.ssgiGiIntensity,
+      traaEnabled: f.traaEnabled,
+      envName: f.envName,
+    });
+  }
+
   private spawnInteractables(): void {
     const rope = new PhysicsRope(
       'rope1',
@@ -329,30 +320,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       const settings = this.settings.cycleGraphicsQuality();
       this.renderer.setGraphicsQuality(settings.graphicsQuality);
       this.levelManager.setGraphicsQuality(settings.graphicsQuality);
-      const debugFlags = this.renderer.getDebugFlags();
-      this.uiManager.debugPanel.syncRenderSettings({
-        postProcessingEnabled: debugFlags.postProcessingEnabled,
-        shadowsEnabled: debugFlags.shadowsEnabled,
-        graphicsQuality: debugFlags.graphicsQuality,
-        aaMode: debugFlags.aaMode as AntiAliasingMode,
-        exposure: debugFlags.exposure,
-        ssaoEnabled: debugFlags.ssaoEnabled,
-        ssaoRadius: debugFlags.ssaoRadius,
-        ssrEnabled: debugFlags.ssrEnabled,
-        ssrOpacity: debugFlags.ssrOpacity,
-        ssrResolutionScale: debugFlags.ssrResolutionScale,
-        bloomEnabled: debugFlags.bloomEnabled,
-        bloomStrength: debugFlags.bloomStrength,
-        vignetteEnabled: debugFlags.vignetteEnabled,
-        vignetteDarkness: debugFlags.vignetteDarkness,
-        lutEnabled: debugFlags.lutEnabled,
-        lutStrength: debugFlags.lutStrength,
-        ssgiEnabled: debugFlags.ssgiEnabled,
-        ssgiPreset: debugFlags.ssgiPreset,
-        ssgiRadius: debugFlags.ssgiRadius,
-        ssgiGiIntensity: debugFlags.ssgiGiIntensity,
-        traaEnabled: debugFlags.traaEnabled,
-      });
+      this.syncDebugPanel();
       console.log(`[Settings] graphicsQuality=${settings.graphicsQuality}`);
       return;
     }

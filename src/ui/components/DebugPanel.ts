@@ -1,6 +1,7 @@
 import Stats from 'three/addons/libs/stats.module.js';
 import type { EventBus } from '@core/EventBus';
 import type { Disposable, StateId } from '@core/types';
+import { LUT_NAMES, ENV_NAMES } from '@renderer/RendererManager';
 
 type GraphicsQuality = 'high' | 'medium' | 'low';
 type AntiAliasingMode = 'smaa' | 'fxaa' | 'taa' | 'none';
@@ -14,7 +15,6 @@ interface RenderSettingsSnapshot {
   aaMode: AntiAliasingMode;
   exposure: number;
   ssaoEnabled: boolean;
-  ssaoRadius: number;
   ssrEnabled: boolean;
   ssrOpacity: number;
   ssrResolutionScale: number;
@@ -24,11 +24,13 @@ interface RenderSettingsSnapshot {
   vignetteDarkness: number;
   lutEnabled: boolean;
   lutStrength: number;
+  lutName: string;
   ssgiEnabled: boolean;
   ssgiPreset: SSGIPreset;
   ssgiRadius: number;
   ssgiGiIntensity: number;
   traaEnabled: boolean;
+  envName: string;
 }
 
 /**
@@ -53,8 +55,8 @@ export class DebugPanel implements Disposable {
   private readonly checkboxControls = new Map<string, HTMLInputElement>();
   private readonly selectControls = new Map<string, HTMLSelectElement>();
   private readonly rangeControls = new Map<
-  string,
-  { input: HTMLInputElement; value: HTMLSpanElement; format: (value: number) => string }
+    string,
+    { input: HTMLInputElement; value: HTMLSpanElement; format: (value: number) => string }
   >();
   private graphsEnabled = true;
   private visible = false;
@@ -168,6 +170,45 @@ export class DebugPanel implements Disposable {
     ));
     controls.appendChild(runtimeSection);
 
+    const envSection = this.createSection('Environment');
+    envSection.appendChild(this.createRange(
+      'envBackgroundIntensity',
+      'Background Intensity',
+      0,
+      2,
+      0.05,
+      1.0,
+      'Indirect light contribution from the environment map.',
+      (value: number) => {
+        this.eventBus.emit('debug:envBackgroundIntensity', value);
+      },
+      (value: number) => value.toFixed(2),
+    ));
+    envSection.appendChild(this.createRange(
+      'envBackgroundBlurriness',
+      'Background Blur',
+      0,
+      1,
+      0.05,
+      0.5,
+      'Blur amount for the environment background.',
+      (value: number) => {
+        this.eventBus.emit('debug:envBackgroundBlurriness', value);
+      },
+      (value: number) => value.toFixed(2),
+    ));
+    envSection.appendChild(this.createSelect(
+      'envName',
+      'Environment',
+      [...ENV_NAMES],
+      'Royal Esplanade',
+      'Select an HDR environment map for lighting and background.',
+      (value) => {
+        this.eventBus.emit('debug:environment', value);
+      },
+    ));
+    controls.appendChild(envSection);
+
     const qualitySection = this.createSection('Quality');
     qualitySection.appendChild(this.createSelect(
       'graphics',
@@ -213,7 +254,7 @@ export class DebugPanel implements Disposable {
       0.4,
       1.8,
       0.01,
-      0.82,
+      0.75,
       'Adjusts tonemapping exposure/brightness.',
       (value) => {
         this.eventBus.emit('debug:exposure', value);
@@ -248,7 +289,7 @@ export class DebugPanel implements Disposable {
       1,
       25,
       0.5,
-      12,
+      10,
       'World-space sampling radius for SSGI.',
       (value) => {
         this.eventBus.emit('debug:ssgiRadius', value);
@@ -261,7 +302,7 @@ export class DebugPanel implements Disposable {
       0,
       100,
       1,
-      10,
+      20,
       'Indirect diffuse light intensity.',
       (value) => {
         this.eventBus.emit('debug:ssgiGiIntensity', value);
@@ -278,26 +319,13 @@ export class DebugPanel implements Disposable {
       },
     ));
     postFxSection.appendChild(this.createCheckbox(
-      'ssaoEnabled',
-      'SSAO / SSGI',
+      'gtaoEnabled',
+      'Ambient Occlusion',
       true,
-      'In TSL pipeline this toggles SSGI (screen-space global illumination). No separate SSAO pass; SSGI provides AO-style darkening.',
+      'GTAO ambient occlusion for Medium/Low tiers. In High tier, SSGI handles AO natively.',
       (value) => {
         this.eventBus.emit('debug:ssaoEnabled', value);
       },
-    ));
-    postFxSection.appendChild(this.createRange(
-      'ssaoRadius',
-      'SSGI radius',
-      2,
-      24,
-      1,
-      14,
-      'Controls SSGI sample radius (ambient occlusion–style effect in TSL).',
-      (value) => {
-        this.eventBus.emit('debug:ssaoRadius', value);
-      },
-      (value) => value.toFixed(0),
     ));
     postFxSection.appendChild(this.createCheckbox(
       'ssrEnabled',
@@ -387,6 +415,16 @@ export class DebugPanel implements Disposable {
         this.eventBus.emit('debug:lutEnabled', value);
       },
     ));
+    postFxSection.appendChild(this.createSelect(
+      'lutName',
+      'LUT Select',
+      [...LUT_NAMES],
+      'Cubicle 99',
+      'Select a 3D lookup table for color grading.',
+      (value) => {
+        this.eventBus.emit('debug:lutName', value);
+      },
+    ));
     postFxSection.appendChild(this.createRange(
       'lutStrength',
       'LUT strength',
@@ -419,8 +457,7 @@ export class DebugPanel implements Disposable {
     this.setRange('ssgiRadius', settings.ssgiRadius);
     this.setRange('ssgiGiIntensity', settings.ssgiGiIntensity);
     this.setCheckbox('traaEnabled', settings.traaEnabled);
-    this.setCheckbox('ssaoEnabled', settings.ssaoEnabled);
-    this.setRange('ssaoRadius', settings.ssaoRadius);
+    this.setCheckbox('gtaoEnabled', settings.ssaoEnabled);
     this.setCheckbox('ssrEnabled', settings.ssrEnabled);
     this.setRange('ssrOpacity', settings.ssrOpacity);
     this.setRange('ssrResolutionScale', settings.ssrResolutionScale);
@@ -430,6 +467,57 @@ export class DebugPanel implements Disposable {
     this.setRange('vignetteDarkness', settings.vignetteDarkness);
     this.setCheckbox('lutEnabled', settings.lutEnabled);
     this.setRange('lutStrength', settings.lutStrength);
+    this.setSelect('lutName', settings.lutName);
+    this.setSelect('envName', settings.envName);
+    this.updateVisibility(settings.graphicsQuality);
+  }
+
+  private updateVisibility(quality: GraphicsQuality): void {
+    const isHigh = quality === 'high';
+    const isMedium = quality === 'medium';
+    const isLow = quality === 'low';
+
+    // SSGI: High tier only (handles GI + reflections + AO in one pass)
+    this.setVisible('ssgiEnabled', isHigh);
+    this.setVisible('ssgiPreset', isHigh);
+    this.setVisible('ssgiRadius', isHigh);
+    this.setVisible('ssgiGiIntensity', isHigh);
+
+    // TRAA: Medium only (in High it's mandatory/always-on, in Low it's not used)
+    this.setVisible('traaEnabled', isMedium);
+
+    // SSR: Medium tier only (High uses SSGI, Low has no raymarching)
+    this.setVisible('ssrEnabled', isMedium);
+    this.setVisible('ssrOpacity', isMedium);
+    this.setVisible('ssrResolutionScale', isMedium);
+
+    // GTAO: Medium/Low only (High uses SSGI for AO)
+    this.setVisible('gtaoEnabled', isMedium || isLow);
+
+    // Bloom: High/Medium only
+    this.setVisible('bloomEnabled', isHigh || isMedium);
+    this.setVisible('bloomStrength', isHigh || isMedium);
+  }
+
+  private setVisible(key: string, visible: boolean): void {
+    // Check checkboxes
+    if (this.checkboxControls.has(key)) {
+      const el = this.checkboxControls.get(key)!.parentElement;
+      if (el) el.style.display = visible ? 'flex' : 'none';
+      return;
+    }
+    // Check ranges
+    if (this.rangeControls.has(key)) {
+      const el = this.rangeControls.get(key)!.input.parentElement;
+      if (el) el.style.display = visible ? 'grid' : 'none';
+      return;
+    }
+    // Check selects
+    if (this.selectControls.has(key)) {
+      const el = this.selectControls.get(key)!.parentElement;
+      if (el) el.style.display = visible ? 'flex' : 'none';
+      return;
+    }
   }
 
   tick(

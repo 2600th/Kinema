@@ -1,14 +1,45 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { LUT3dlLoader } from 'three/addons/loaders/LUT3dlLoader.js';
+import { LUTCubeLoader } from 'three/addons/loaders/LUTCubeLoader.js';
+import { LUTImageLoader } from 'three/addons/loaders/LUTImageLoader.js';
+import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import type { Disposable } from '@core/types';
 import type { GraphicsQuality } from '@core/UserSettings';
+
+/** LUT preset definitions: name -> { file, format } */
+const LUT_PRESETS: ReadonlyArray<{ name: string; file: string; format: 'cube' | '3dl' | 'image' }> = [
+  { name: 'Bourbon 64',          file: 'Bourbon 64.CUBE',          format: 'cube' },
+  { name: 'Chemical 168',        file: 'Chemical 168.CUBE',        format: 'cube' },
+  { name: 'Clayton 33',          file: 'Clayton 33.CUBE',          format: 'cube' },
+  { name: 'Cubicle 99',          file: 'Cubicle 99.CUBE',          format: 'cube' },
+  { name: 'Remy 24',             file: 'Remy 24.CUBE',             format: 'cube' },
+  { name: 'Presetpro-Cinematic', file: 'Presetpro-Cinematic.3dl',  format: '3dl' },
+  { name: 'NeutralLUT',          file: 'NeutralLUT.png',           format: 'image' },
+  { name: 'B&WLUT',              file: 'B&WLUT.png',               format: 'image' },
+  { name: 'NightLUT',            file: 'NightLUT.png',             format: 'image' },
+  { name: 'lut',                 file: 'lut.3dl',                  format: '3dl' },
+  { name: 'lut_v2',              file: 'lut_v2.3dl',               format: '3dl' },
+];
+export const LUT_NAMES: readonly string[] = LUT_PRESETS.map(p => p.name);
+
+/** Environment preset definitions: null file = procedural RoomEnvironment */
+const ENV_PRESETS: ReadonlyArray<{ name: string; file: string | null }> = [
+  { name: 'Room Environment', file: null },
+  { name: 'Sunrise',          file: 'blouberg_sunrise_2_1k.hdr' },
+  { name: 'Partly Cloudy',    file: 'kloofendal_48d_partly_cloudy_1k.hdr' },
+  { name: 'Venice Sunset',    file: 'venice_sunset_1k.hdr' },
+  { name: 'Royal Esplanade',  file: 'royal_esplanade_1k.hdr' },
+  { name: 'Studio',           file: 'studio_small_09_1k.hdr' },
+  { name: 'Night',            file: 'moonless_golf_1k.hdr' },
+];
+export const ENV_NAMES: readonly string[] = ENV_PRESETS.map(p => p.name);
 
 // WebGPU + TSL pipeline (dynamic import to allow fallback and avoid top-level side effects)
 type WebGPURenderer = import('three/webgpu').WebGPURenderer;
 type PostProcessing = import('three/webgpu').PostProcessing;
 // TSL nodes: use any for dynamic imports to avoid strict three/tsl type dependency
-type TSLPassNode = { setMRT(mrt: unknown): void; getTextureNode(name: string): unknown };
+type TSLPassNode = { setMRT(mrt: unknown): void; getTextureNode(name: string): unknown; getTexture(name: string): THREE.Texture };
 type TSLNode = unknown;
 
 export type AntiAliasingMode = 'smaa' | 'fxaa' | 'taa' | 'none';
@@ -25,16 +56,11 @@ export class RendererManager implements Disposable {
   public readonly scene: THREE.Scene;
   public readonly camera: THREE.PerspectiveCamera;
   private postProcessing: PostProcessing | null = null;
-  private scenePass: TSLPassNode | null = null;
+
+  // TSL Nodes
   private ssgiNode: InstanceType<typeof import('three/addons/tsl/display/SSGINode.js').default> | null = null;
-  private outputNodeTraaWithSSGI: TSLNode | null = null;
-  private outputNodeTraaNoSSGI: TSLNode | null = null;
-  private outputNodeSSGIOnly: TSLNode | null = null;
-  private outputNodeSceneOnly: TSLNode | null = null;
-  private outputNodeSceneBloom: TSLNode | null = null;
-  private outputNodeSSGIBloom: TSLNode | null = null;
-  private outputNodeTraaSceneBloom: TSLNode | null = null;
-  private outputNodeTraaSSGIBloom: TSLNode | null = null;
+
+
   private bloomNodes: Array<{ strength: { value: number } }> = [];
   private isWebGPUPipeline = false;
 
@@ -45,33 +71,42 @@ export class RendererManager implements Disposable {
   private vignetteEnabled = true;
   private lutEnabled = true;
   private lutStrength = 0.42;
+  private lutName = 'Cubicle 99';
   private lutReady = false;
-  private readonly lutLoader = new LUT3dlLoader();
+  private readonly lut3dlLoader = new LUT3dlLoader();
+  private readonly lutCubeLoader = new LUTCubeLoader();
+  private readonly lutImageLoader = new LUTImageLoader();
+  private readonly lutCache = new Map<string, THREE.Data3DTexture>();
   private graphicsQuality: GraphicsQuality = 'high';
   private environmentTarget: THREE.WebGLRenderTarget<THREE.Texture> | null = null;
+  private envName = 'Royal Esplanade';
+  private readonly envCache = new Map<string, THREE.WebGLRenderTarget<THREE.Texture>>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private createPmremGenerator: (() => any) | null = null;
+  private readonly hdrLoader = new HDRLoader();
   private postProcessingEnabled = true;
   private shadowsEnabled = true;
-  private toneExposure = 0.58;
+  private toneExposure = 0.75;
 
   private ssgiEnabled = true;
   private ssgiPreset: SSGIPreset = 'medium';
-  private ssgiRadius = 5;
-  private ssgiGiIntensity = 2;
+  private ssgiRadius = 10;
+  private ssgiGiIntensity = 20;
+  private gtaoEnabled = true;
+
   private traaEnabled = true;
   private bloomStrength = 0.02;
   private vignetteDarkness = 0.42;
   private ssrOpacity = 0.5;
-  private lutTexture: THREE.Data3DTexture | null = null;
+  private lutPassNode: {
+    lutNode: { value: THREE.Data3DTexture };
+    size: { value: number };
+    intensityNode: { value: number };
+  } | null = null;
   private postFXUniforms: {
     ssrOpacity: { value: number };
     vignetteDarkness: { value: number };
     lutIntensity: { value: number };
-  } | null = null;
-
-  /** Set in WebGPU init for SMAA/FXAA when applying AA mode. */
-  private _aaHelpers: {
-    smaa: (node: TSLNode) => TSLNode;
-    fxaa: (node: TSLNode) => TSLNode;
   } | null = null;
 
   private lastRenderStats = {
@@ -127,12 +162,12 @@ export class RendererManager implements Disposable {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = this.toneExposure;
-    (this.renderer as THREE.WebGLRenderer).info.autoReset = false;
+    (this.renderer as THREE.WebGLRenderer).info.autoReset = true;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.setClearColor(0xa9b9ee, 1);
 
-    void this.loadDefaultLut();
+    void this.batchLoadLuts();
     this.setGraphicsQuality('high');
   }
 
@@ -149,34 +184,52 @@ export class RendererManager implements Disposable {
 
     try {
       const { WebGPURenderer, PostProcessing } = await import('three/webgpu');
-      const { pass, mrt, output, diffuseColor, normalView, velocity, directionToColor } = await import('three/tsl');
+      const { pass, mrt, output, diffuseColor, normalView, velocity, directionToColor, renderOutput, texture3D, uniform } = await import('three/tsl');
       const { ssgi } = await import('three/addons/tsl/display/SSGINode.js');
+      const { ao: gtao } = await import('three/addons/tsl/display/GTAONode.js');
       const { traa } = await import('three/addons/tsl/display/TRAANode.js');
+      const { fxaa } = await import('three/addons/tsl/display/FXAANode.js');
+      const { lut3D } = await import('three/addons/tsl/display/Lut3DNode.js');
+      const { hashBlur } = await import('three/addons/tsl/display/hashBlur.js');
 
       const wgpuRenderer = new WebGPURenderer({
-        antialias: true,
+        antialias: false, // MSAA off — TRAA/FXAA in the post-processing pipeline handles AA
         alpha: false,
         powerPreference: 'high-performance',
-      }) as WebGPURenderer;
+        requiredLimits: {
+          // MRT with 5 color attachments exceeds the 32-byte default even with RGBA8Unorm
+          // on some targets (GPU alignment can pad each attachment to 8 bytes).
+          maxColorAttachmentBytesPerSample: 64,
+        },
+      } as any) as WebGPURenderer;
+      (wgpuRenderer as any).info.autoReset = true; // FIX: Ensure info is reset every frame to avoid stat accumulation
       wgpuRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       wgpuRenderer.setSize(window.innerWidth, window.innerHeight);
       wgpuRenderer.outputColorSpace = THREE.SRGBColorSpace;
-      wgpuRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+      wgpuRenderer.toneMapping = THREE.AgXToneMapping;
       wgpuRenderer.toneMappingExposure = this.toneExposure;
       wgpuRenderer.shadowMap.enabled = this.shadowsEnabled;
       wgpuRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
+      // DO NOT update this.renderer yet. Wait for successful init and graph build.
       await (wgpuRenderer as unknown as { init(): Promise<void> }).init();
 
       this.patchShadowNodeForToggle(wgpuRenderer);
 
-      const pmremGenerator = new (await import('three/webgpu')).PMREMGenerator(wgpuRenderer);
+      const { PMREMGenerator: PMREMGeneratorClass } = await import('three/webgpu');
+      const pmremGenerator = new PMREMGeneratorClass(wgpuRenderer);
       const envTarget = pmremGenerator.fromScene(new RoomEnvironment(), 0.04);
       this.environmentTarget = envTarget as unknown as THREE.WebGLRenderTarget<THREE.Texture>;
+      this.envCache.set('Room Environment', this.environmentTarget);
       this.scene.environment = this.environmentTarget.texture;
+      this.scene.background = this.environmentTarget.texture;
       this.scene.environmentIntensity = 0.55;
+      this.scene.backgroundIntensity = 1.0;
+      this.scene.backgroundBlurriness = 0.5;
       pmremGenerator.dispose();
+      this.createPmremGenerator = () => new PMREMGeneratorClass(this.renderer as any);
 
+      // Successful pipeline setup - NOW swap the renderer and set flag
       (this as { renderer: THREE.WebGLRenderer | WebGPURenderer }).renderer = wgpuRenderer;
       this.isWebGPUPipeline = true;
 
@@ -192,102 +245,182 @@ export class RendererManager implements Disposable {
         }),
       );
 
-      const { add, mix, uv, smoothstep, float, uniform, length: tslLength, max: tslMax, convertToTexture, sample, colorToDirection } = await import('three/tsl');
+      const { add, mix, uv, smoothstep, float, length: tslLength, max: tslMax, sample, colorToDirection, vec4: tslVec4 } = await import('three/tsl');
       const { bloom } = await import('three/addons/tsl/display/BloomNode.js');
       const { ssr } = await import('three/addons/tsl/display/SSRNode.js');
+
+      // Bandwidth optimization: 8-bit precision for targets that don't need float.
+      // Reduces MRT total from 40 bytes (5×RGBA16F) to 28 bytes (2×RGBA16F + 3×RGBA8).
+      scenePass.getTexture('diffuseColor').type = THREE.UnsignedByteType;
+      scenePass.getTexture('normal').type = THREE.UnsignedByteType;
+      scenePass.getTexture('metalrough').type = THREE.UnsignedByteType;
+
       const scenePassColor = scenePass.getTextureNode('output');
+      const scenePassDiffuse = scenePass.getTextureNode('diffuseColor');
       const scenePassDepth = scenePass.getTextureNode('depth');
       const scenePassNormal = scenePass.getTextureNode('normal');
       const scenePassVelocity = scenePass.getTextureNode('velocity');
       const scenePassMetalrough = scenePass.getTextureNode('metalrough');
+
       const metalnessNode = (scenePassMetalrough as TSLNode & { r: TSLNode }).r;
       const roughnessNode = (scenePassMetalrough as TSLNode & { g: TSLNode }).g;
-      // Decode MRT normals (directionToColor-encoded) to view-space vec3 for SSR/SSGI (official three.js pattern)
-      const sceneNormalDecoded = sample((uvNode: unknown) =>
-        colorToDirection((scenePassNormal as { sample: (u: unknown) => unknown }).sample(uvNode) as never),
-      ) as TSLNode;
-      const giNode = ssgi(scenePassColor as never, scenePassDepth as never, sceneNormalDecoded as never, this.camera);
-      const compositeWithSSGI = add(scenePassColor as never, giNode as never) as TSLNode;
-      this.outputNodeSceneOnly = scenePassColor as TSLNode;
-      this.outputNodeSSGIOnly = compositeWithSSGI;
-      const traaSceneOnly = traa(scenePassColor as never, scenePassDepth as never, scenePassVelocity as never, this.camera) as TSLNode;
-      const traaWithSSGI = traa(compositeWithSSGI as never, scenePassDepth as never, scenePassVelocity as never, this.camera) as TSLNode;
 
-      const bloomSceneInput = bloom(scenePassColor as never, this.bloomStrength, 0.4, 0.2) as TSLNode & { strength: { value: number } };
-      const bloomSSGINode = bloom(compositeWithSSGI as never, this.bloomStrength, 0.4, 0.2) as TSLNode & { strength: { value: number } };
-      this.bloomNodes = [bloomSceneInput, bloomSSGINode];
-      const bloomSceneOnly = add(scenePassColor as never, bloomSceneInput as never) as TSLNode;
-      const bloomSSGIOnly = add(compositeWithSSGI as never, bloomSSGINode as never) as TSLNode;
-      this.outputNodeSceneBloom = bloomSceneOnly;
-      this.outputNodeSSGIBloom = bloomSSGIOnly;
-      const traaSceneBloom = traa(bloomSceneOnly as never, scenePassDepth as never, scenePassVelocity as never, this.camera) as TSLNode;
-      const traaSSGIBloom = traa(bloomSSGIOnly as never, scenePassDepth as never, scenePassVelocity as never, this.camera) as TSLNode;
+      // START Post-FX Helper Construction
 
+      // Uniforms for dynamic adjustment
       const ssrOpacityUniform = uniform(this.ssrOpacity);
       const vignetteDarknessUniform = uniform(this.vignetteDarkness);
       const lutIntensityUniform = uniform(this.lutStrength);
-      this.lutTexture = new (await import('three')).Data3DTexture(new Uint8Array(4 * 2 * 2 * 2), 2, 2, 2);
-      this.lutTexture.format = (await import('three')).RGBAFormat;
-      this.lutTexture.type = (await import('three')).UnsignedByteType;
-      this.lutTexture.needsUpdate = true;
-      const applyPostFX = (colorInput: TSLNode): TSLNode => {
-        const ssrResult = ssr(
-          colorInput as never,
-          scenePassDepth as never,
-          sceneNormalDecoded as never,
-          metalnessNode as never,
-          roughnessNode as never,
-          this.camera,
-        );
-        const withSSR = mix(colorInput as never, ssrResult as never, ssrOpacityUniform as never) as TSLNode;
-        // Radial vignette: no darkening in center, smooth falloff toward edges (dist 0 at center, ~1.4 at corners)
+
+      // Placeholder 2x2x2 LUT for initial graph build (real LUT applied after batch load)
+      const placeholderLut = new THREE.Data3DTexture(new Uint8Array(4 * 2 * 2 * 2), 2, 2, 2);
+      placeholderLut.format = THREE.RGBAFormat;
+      placeholderLut.type = THREE.UnsignedByteType;
+      placeholderLut.needsUpdate = true;
+
+      // Shared Post-FX applicator (Vignette + LUT + Tone Mapping)
+      const applyFinalGrade = (colorInput: TSLNode): TSLNode => {
+        // 1. Scene Output (includes Tone Mapping and Color Space conversion)
+        const sceneOutput = renderOutput(colorInput as never);
+
+        // 2. Radial vignette
         const uvCoord = uv();
         const dist = (uvCoord as { sub: (n: number) => { mul: (n: number) => TSLNode } }).sub(0.5).mul(2);
         const vignetteFactor = smoothstep(float(0.5), float(1.15), tslLength(dist as never) as never) as TSLNode;
         const one = float(1);
         const dark = (vignetteDarknessUniform as { mul: (n: TSLNode) => TSLNode }).mul(vignetteFactor as never) as TSLNode;
         const mult = tslMax(float(0), (one as { sub: (n: TSLNode) => TSLNode }).sub(dark as TSLNode) as never) as TSLNode;
-        const withVignette = (withSSR as { mul: (n: TSLNode) => TSLNode }).mul(mult as TSLNode) as TSLNode;
-        // LUT strength: 3D LUT disabled (WebGPU binding); simple brightness/contrast grade so slider has effect
-        const contrast = float(1.2);
-        const graded = (withVignette as { mul: (n: TSLNode) => TSLNode }).mul(contrast as TSLNode) as TSLNode;
-        const withLUT = mix(withVignette as never, graded as never, lutIntensityUniform as never) as TSLNode;
-        return withLUT;
+        const withVignette = (sceneOutput as { mul: (n: TSLNode) => TSLNode }).mul(mult as TSLNode) as TSLNode;
+
+        // 3. LUT (Native TSL node) — capture node reference for runtime switching
+        const lutNode = lut3D(withVignette as never, texture3D(placeholderLut), placeholderLut.image.width, lutIntensityUniform as never);
+        this.lutPassNode = lutNode as unknown as {
+          lutNode: { value: THREE.Data3DTexture };
+          size: { value: number };
+          intensityNode: { value: number };
+        };
+        return lutNode as TSLNode;
       };
+
       this.postFXUniforms = {
         ssrOpacity: ssrOpacityUniform as { value: number },
         vignetteDarkness: vignetteDarknessUniform as { value: number },
         lutIntensity: lutIntensityUniform as { value: number },
       };
-      // PostFX (SSR, vignette, LUT) must receive sampleable texture nodes. TRAA returns a pass node; convertToTexture gets its output texture.
-      const postFXScene = applyPostFX(this.outputNodeSceneOnly!);
-      const postFXSceneBloom = applyPostFX(this.outputNodeSceneBloom!);
-      const postFXSSGI = applyPostFX(this.outputNodeSSGIOnly!);
-      const postFXSSGIBloom = applyPostFX(this.outputNodeSSGIBloom!);
-      this.outputNodeSceneOnly = postFXScene;
-      this.outputNodeSSGIOnly = postFXSSGI;
-      this.outputNodeSceneBloom = postFXSceneBloom;
-      this.outputNodeSSGIBloom = postFXSSGIBloom;
-      this.outputNodeTraaNoSSGI = applyPostFX(convertToTexture(traaSceneOnly as never) as TSLNode);
-      this.outputNodeTraaWithSSGI = applyPostFX(convertToTexture(traaWithSSGI as never) as TSLNode);
-      this.outputNodeTraaSceneBloom = applyPostFX(convertToTexture(traaSceneBloom as never) as TSLNode);
-      this.outputNodeTraaSSGIBloom = applyPostFX(convertToTexture(traaSSGIBloom as never) as TSLNode);
 
-      const { smaa } = await import('three/addons/tsl/display/SMAANode.js');
-      const { fxaa } = await import('three/addons/tsl/display/FXAANode.js');
-      this._aaHelpers = {
-        smaa: smaa as (node: TSLNode) => TSLNode,
-        fxaa: fxaa as (node: TSLNode) => TSLNode,
+      // Decoded normal sampler shared across tiers
+      const sceneNormalDecoded = sample((uvNode: unknown) =>
+        colorToDirection((scenePassNormal as { sample: (u: unknown) => unknown }).sample(uvNode) as never),
+      ) as TSLNode;
+
+      // Helper to build the graph based on quality
+      const buildPipeline = (quality: GraphicsQuality): TSLNode => {
+        this.bloomNodes = []; // Clear to prevent accumulation leak
+        let currentNode = scenePassColor;
+
+        // 1. Lighting / Reflections / GI
+        if (quality === 'high') {
+          // HIGH: SSGI handles GI + reflections + AO in a single unified pass.
+          // SSGI returns vec4(gi_rgb, ao_factor).
+          const giNode = ssgi(scenePassColor as never, scenePassDepth as never, sceneNormalDecoded as never, this.camera);
+          this.ssgiNode = giNode as unknown as InstanceType<typeof import('three/addons/tsl/display/SSGINode.js').default>;
+
+          if (this.ssgiEnabled) {
+            const gi = (giNode as TSLNode & { rgb: TSLNode }).rgb;
+            const ao = (giNode as TSLNode & { a: TSLNode }).a;
+            const sceneRgb = (scenePassColor as TSLNode & { rgb: TSLNode }).rgb;
+            const diffuseRgb = (scenePassDiffuse as TSLNode & { rgb: TSLNode }).rgb;
+            const sceneAlpha = (scenePassColor as TSLNode & { a: TSLNode }).a;
+
+            // Composite: direct_light * ao + diffuse * gi
+            currentNode = tslVec4(
+              add(
+                (sceneRgb as { mul: (n: TSLNode) => TSLNode }).mul(ao) as never,
+                (diffuseRgb as { mul: (n: TSLNode) => TSLNode }).mul(gi) as never,
+              ) as never,
+              sceneAlpha as never,
+            ) as TSLNode;
+          }
+
+        } else if (quality === 'medium') {
+          // MEDIUM: SSR + GTAO (separate passes, traditional console-era pipeline)
+          this.ssgiNode = null;
+
+          // SSR
+          if (this.ssrEnabled) {
+            const ssrResult = ssr(
+              scenePassColor as never,
+              scenePassDepth as never,
+              sceneNormalDecoded as never,
+              metalnessNode as never,
+              roughnessNode as never,
+              this.camera
+            ) as TSLNode;
+
+            const blurredSSR = hashBlur(ssrResult as never, roughnessNode as never, {
+              repeats: 4,
+              premultipliedAlpha: true
+            } as any) as TSLNode;
+
+            currentNode = mix(currentNode as never, blurredSSR as never, ssrOpacityUniform as never) as TSLNode;
+          }
+
+          // GTAO
+          if (this.gtaoEnabled) {
+            const aoResult = gtao(scenePassDepth as never, sceneNormalDecoded as never, this.camera);
+            // GTAO uses RedFormat — extract .r channel to avoid red tint
+            currentNode = (currentNode as { mul: (n: TSLNode) => TSLNode }).mul((aoResult as unknown as { r: TSLNode }).r);
+          }
+
+        } else {
+          // LOW: GTAO only — minimal fragment shader overhead
+          this.ssgiNode = null;
+
+          if (this.gtaoEnabled) {
+            const aoResult = gtao(scenePassDepth as never, sceneNormalDecoded as never, this.camera);
+            currentNode = (currentNode as { mul: (n: TSLNode) => TSLNode }).mul((aoResult as unknown as { r: TSLNode }).r);
+          }
+        }
+
+        // 2. Bloom (Medium/High only)
+        if (this.bloomEnabled && quality !== 'low') {
+          const bloomNode = bloom(currentNode as never, this.bloomStrength, 0.4, 0.2) as TSLNode & { strength: { value: number } };
+          this.bloomNodes.push(bloomNode);
+          currentNode = add(currentNode as never, bloomNode as never) as TSLNode;
+        }
+
+        // 3. Anti-aliasing
+        if (quality === 'high') {
+          // TRAA is mandatory in HIGH tier — it is the temporal denoiser for SSGI's
+          // low sample count. Without it, SSGI output is pure noise.
+          currentNode = traa(currentNode as never, scenePassDepth as never, scenePassVelocity as never, this.camera) as TSLNode;
+        } else if (quality === 'medium' && this.traaEnabled) {
+          // TRAA optional in MEDIUM for temporal smoothing of SSR
+          currentNode = traa(currentNode as never, scenePassDepth as never, scenePassVelocity as never, this.camera) as TSLNode;
+        } else if (quality === 'low') {
+          // FXAA for low tier — cheap edge smoothing
+          currentNode = fxaa(currentNode as never) as TSLNode;
+        }
+
+        // 4. Final Grading (Vignette + LUT + Tone Mapping)
+        currentNode = applyFinalGrade(currentNode);
+
+        return currentNode;
       };
 
-      const postProcessing = new PostProcessing(wgpuRenderer, this.outputNodeTraaWithSSGI as never);
-      this.postProcessing = postProcessing;
-      this.scenePass = scenePass;
-      this.ssgiNode = giNode as unknown as InstanceType<typeof import('three/addons/tsl/display/SSGINode.js').default>;
+      // Initialize with current quality
+      const initialGraph = buildPipeline(this.graphicsQuality);
 
-      this.applySSGIPreset(this.ssgiPreset);
-      this.updateSSGIControls();
-      this.applyQualitySettings();
+      const postProcessing = new PostProcessing(wgpuRenderer, initialGraph as never);
+      // We call renderOutput() manually in applyFinalGrade() — disable the automatic
+      // color transform to prevent double tone mapping + color space conversion.
+      (postProcessing as any).outputColorTransform = false;
+      this.postProcessing = postProcessing;
+
+      // Store the builder function so we can call it later
+      (this as any)._buildPipeline = buildPipeline;
+
+      this.applyQualitySettings(); // Will trigger re-build if needed or just update uniforms
 
       console.log('[RendererManager] WebGPU + TSL pipeline initialized');
     } catch (e) {
@@ -296,29 +429,38 @@ export class RendererManager implements Disposable {
       // Fallback: constructor already created a WebGLRenderer; we keep it and render via render().
       // When init() succeeds, WebGPURenderer may still use WebGL2 backend internally if WebGPU is unavailable.
       this.postProcessing = null;
-      this.scenePass = null;
       this.ssgiNode = null;
-      this.outputNodeSceneBloom = null;
-      this.outputNodeSSGIBloom = null;
-      this.outputNodeTraaSceneBloom = null;
-      this.outputNodeTraaSSGIBloom = null;
       this.bloomNodes = [];
       this.postFXUniforms = null;
       const pmremGenerator = new THREE.PMREMGenerator(this.renderer as THREE.WebGLRenderer);
       this.environmentTarget = pmremGenerator.fromScene(new RoomEnvironment(), 0.04);
+      this.envCache.set('Room Environment', this.environmentTarget);
       this.scene.environment = this.environmentTarget.texture;
+      this.scene.background = this.environmentTarget.texture;
       this.scene.environmentIntensity = 0.55;
+      this.scene.backgroundIntensity = 1.0;
+      this.scene.backgroundBlurriness = 0.5;
       pmremGenerator.dispose();
+      this.createPmremGenerator = () => new THREE.PMREMGenerator(this.renderer as THREE.WebGLRenderer);
     }
 
     const renderer = this.renderer as THREE.WebGLRenderer;
-    renderer.domElement.style.position = 'fixed';
-    renderer.domElement.style.inset = '0';
-    renderer.domElement.style.zIndex = '0';
-    document.body.appendChild(renderer.domElement);
+    if (renderer.domElement.parentElement !== document.body) {
+      renderer.domElement.style.position = 'fixed';
+      renderer.domElement.style.inset = '0';
+      renderer.domElement.style.zIndex = '0';
+      document.body.appendChild(renderer.domElement);
+    }
     window.addEventListener('resize', this._onResize);
     this.handleResize();
     console.log('[RendererManager] Initialized');
+
+    // Load the default HDR environment if it's not the procedural Room Environment
+    if (this.envName !== 'Room Environment') {
+      const defaultEnv = this.envName;
+      this.envName = ''; // Reset to bypass setEnvironment guard
+      void this.setEnvironment(defaultEnv);
+    }
   }
 
   get canvas(): HTMLCanvasElement {
@@ -331,7 +473,6 @@ export class RendererManager implements Disposable {
 
   /** Render one frame. */
   render(): void {
-    if (this.renderer.info?.reset) this.renderer.info.reset();
     if (this.postProcessingEnabled && this.isWebGPUPipeline && this.postProcessing) {
       this.postProcessing.render();
     } else {
@@ -339,7 +480,8 @@ export class RendererManager implements Disposable {
     }
     const info = this.renderer.info ?? (this.renderer as THREE.WebGLRenderer).info;
     if (info?.render) {
-      this.lastRenderStats.drawCalls = info.render.calls ?? 0;
+      // WebGPU Info uses `drawCalls` (per-frame), WebGL uses `calls` (also per-frame with autoReset).
+      this.lastRenderStats.drawCalls = (info.render as { drawCalls?: number }).drawCalls ?? info.render.calls ?? 0;
       this.lastRenderStats.triangles = info.render.triangles ?? 0;
       this.lastRenderStats.lines = info.render.lines ?? 0;
       this.lastRenderStats.points = info.render.points ?? 0;
@@ -353,7 +495,6 @@ export class RendererManager implements Disposable {
 
   setPostProcessingEnabled(enabled: boolean): void {
     this.postProcessingEnabled = enabled;
-    this.applyQualitySettings();
   }
 
   setShadowsEnabled(enabled: boolean): void {
@@ -366,7 +507,6 @@ export class RendererManager implements Disposable {
       const sm = this.renderer.shadowMap as { needsUpdate?: boolean };
       if (typeof sm.needsUpdate !== 'undefined') sm.needsUpdate = true;
     }
-    this.applyQualitySettings();
   }
 
   setExposure(value: number): void {
@@ -380,15 +520,55 @@ export class RendererManager implements Disposable {
     this.applyQualitySettings();
   }
 
-  setSsaoEnabled(enabled: boolean): void {
-    this.ssgiEnabled = enabled;
-    this.applyQualitySettings();
+  setBackgroundIntensity(value: number): void {
+    if (!Number.isFinite(value)) return;
+    this.scene.backgroundIntensity = THREE.MathUtils.clamp(value, 0, 2);
   }
 
-  setSsaoRadius(value: number): void {
+  setBackgroundBlurriness(value: number): void {
     if (!Number.isFinite(value)) return;
-    this.ssgiRadius = THREE.MathUtils.clamp(value, 2, 24);
-    this.updateSSGIControls();
+    this.scene.backgroundBlurriness = THREE.MathUtils.clamp(value, 0, 1);
+  }
+
+  async setEnvironment(name: string): Promise<void> {
+    if (this.envName === name) return;
+    this.envName = name;
+
+    // Check cache first
+    const cached = this.envCache.get(name);
+    if (cached) {
+      this.scene.environment = cached.texture;
+      this.scene.background = cached.texture;
+      return;
+    }
+
+    // Load HDR
+    const preset = ENV_PRESETS.find(p => p.name === name);
+    if (!preset?.file || !this.createPmremGenerator) return;
+
+    try {
+      const url = new URL(`../assets/env/${preset.file}`, import.meta.url).href;
+      const hdrTexture = await this.hdrLoader.loadAsync(url);
+      const pmrem = this.createPmremGenerator();
+      const envTarget = pmrem.fromEquirectangular(hdrTexture);
+      pmrem.dispose();
+      hdrTexture.dispose();
+
+      this.envCache.set(name, envTarget as unknown as THREE.WebGLRenderTarget<THREE.Texture>);
+
+      // Only apply if still the selected env (user might have switched during load)
+      if (this.envName === name) {
+        this.scene.environment = envTarget.texture;
+        this.scene.background = envTarget.texture;
+      }
+    } catch (err) {
+      console.warn(`[RendererManager] Failed to load environment: ${name}`, err);
+    }
+  }
+
+  setSsaoEnabled(enabled: boolean): void {
+    this.gtaoEnabled = enabled;
+    this.applyQualitySettings();
   }
 
   setSsrEnabled(enabled: boolean): void {
@@ -418,31 +598,96 @@ export class RendererManager implements Disposable {
     for (const node of this.bloomNodes) {
       node.strength.value = this.bloomStrength;
     }
-    this.applyQualitySettings();
   }
 
   setVignetteEnabled(enabled: boolean): void {
     this.vignetteEnabled = enabled;
-    this.applyQualitySettings();
+    if (this.postFXUniforms) {
+      this.postFXUniforms.vignetteDarkness.value = enabled ? this.vignetteDarkness : 0;
+    }
   }
 
   setVignetteDarkness(value: number): void {
     if (!Number.isFinite(value)) return;
     this.vignetteDarkness = THREE.MathUtils.clamp(value, 0, 0.8);
-    if (this.postFXUniforms) this.postFXUniforms.vignetteDarkness.value = this.vignetteDarkness;
-    this.applyQualitySettings();
+    if (this.postFXUniforms) this.postFXUniforms.vignetteDarkness.value = this.vignetteEnabled ? this.vignetteDarkness : 0;
   }
 
   setLutEnabled(enabled: boolean): void {
     this.lutEnabled = enabled;
-    this.applyQualitySettings();
+    if (this.postFXUniforms) {
+      this.postFXUniforms.lutIntensity.value = enabled ? this.lutStrength : 0;
+    }
   }
 
   setLutStrength(value: number): void {
     if (!Number.isFinite(value)) return;
     this.lutStrength = THREE.MathUtils.clamp(value, 0, 1);
     if (this.postFXUniforms) this.postFXUniforms.lutIntensity.value = this.lutEnabled ? this.lutStrength : 0;
-    this.applyQualitySettings();
+  }
+
+  setLutName(name: string): void {
+    if (this.lutName === name) return;
+    this.lutName = name;
+
+    const cached = this.lutCache.get(name);
+    if (cached && this.lutPassNode) {
+      this.lutPassNode.lutNode.value = cached;
+      this.lutPassNode.size.value = cached.image.width;
+      if (this.postProcessing) {
+        (this.postProcessing as { needsUpdate: boolean }).needsUpdate = true;
+      }
+    } else if (!cached) {
+      // LUT not yet loaded — attempt async load then apply
+      void this.loadSingleLut(name);
+    }
+  }
+
+  /** Load a single LUT by name (fallback for presets not yet cached). */
+  private async loadSingleLut(name: string): Promise<void> {
+    const preset = LUT_PRESETS.find(p => p.name === name);
+    if (!preset) {
+      console.warn(`[RendererManager] Unknown LUT: ${name}`);
+      return;
+    }
+    try {
+      const url = new URL(`../assets/postfx/${preset.file}`, import.meta.url).href;
+      const result = await this.loadLutByFormat(url, preset.format);
+      if (result) {
+        result.needsUpdate = true;
+        this.lutCache.set(name, result);
+        this.applyLutFromCache(name);
+      }
+    } catch (err) {
+      console.warn(`[RendererManager] Failed to load LUT: ${name}`, err);
+    }
+  }
+
+  /** Dispatch to the correct loader by format. */
+  private async loadLutByFormat(url: string, format: 'cube' | '3dl' | 'image'): Promise<THREE.Data3DTexture | null> {
+    let parsed: { texture3D?: THREE.Data3DTexture };
+    if (format === 'cube') {
+      parsed = await this.lutCubeLoader.loadAsync(url) as { texture3D?: THREE.Data3DTexture };
+    } else if (format === 'image') {
+      parsed = await this.lutImageLoader.loadAsync(url) as { texture3D?: THREE.Data3DTexture };
+    } else {
+      parsed = await this.lut3dlLoader.loadAsync(url) as { texture3D?: THREE.Data3DTexture };
+    }
+    return parsed.texture3D ?? null;
+  }
+
+  /** Apply a cached LUT to the live Lut3DNode (no pipeline rebuild). */
+  private applyLutFromCache(name: string): void {
+    const tex = this.lutCache.get(name);
+    if (!tex) return;
+    this.lutReady = true;
+    if (this.lutPassNode) {
+      this.lutPassNode.lutNode.value = tex;
+      this.lutPassNode.size.value = tex.image.width;
+      if (this.postProcessing) {
+        (this.postProcessing as { needsUpdate: boolean }).needsUpdate = true;
+      }
+    }
   }
 
   setSsgiEnabled(enabled: boolean): void {
@@ -453,7 +698,6 @@ export class RendererManager implements Disposable {
   setSsgiPreset(preset: SSGIPreset): void {
     this.ssgiPreset = preset;
     this.applySSGIPreset(preset);
-    this.applyQualitySettings();
   }
 
   setSsgiRadius(value: number): void {
@@ -510,7 +754,6 @@ export class RendererManager implements Disposable {
     graphicsQuality: GraphicsQuality;
     aaMode: AntiAliasingMode;
     ssaoEnabled: boolean;
-    ssaoRadius: number;
     ssrEnabled: boolean;
     ssrOpacity: number;
     ssrResolutionScale: number;
@@ -520,26 +763,22 @@ export class RendererManager implements Disposable {
     vignetteDarkness: number;
     lutEnabled: boolean;
     lutStrength: number;
+    lutName: string;
     lutReady: boolean;
     ssgiEnabled: boolean;
     ssgiPreset: SSGIPreset;
     ssgiRadius: number;
     ssgiGiIntensity: number;
     traaEnabled: boolean;
+    envName: string;
   }> {
-    const bloomStrength = this.bloomStrength;
-    const vignetteDarkness = this.vignetteDarkness;
-    const ssgiBudget = this.graphicsQuality === 'low' ? false : this.ssgiEnabled;
-    const traaBudget = this.graphicsQuality === 'low' ? false : this.traaEnabled;
-    const effectiveSsgi = !!(
-      this.postProcessingEnabled &&
-      this.isWebGPUPipeline &&
-      ssgiBudget
-    );
+    const ssgiBudget = this.graphicsQuality === 'high' && this.ssgiEnabled;
+    const effectiveSsgi = !!(this.postProcessingEnabled && this.isWebGPUPipeline && ssgiBudget);
+    // In HIGH tier, TRAA is mandatory (denoiser for SSGI). In MEDIUM, it's user-toggleable.
     const effectiveTraa = !!(
       this.postProcessingEnabled &&
       this.isWebGPUPipeline &&
-      traaBudget
+      (this.graphicsQuality === 'high' || (this.graphicsQuality === 'medium' && this.traaEnabled))
     );
     return {
       postProcessingEnabled: this.postProcessingEnabled,
@@ -547,88 +786,58 @@ export class RendererManager implements Disposable {
       exposure: this.toneExposure,
       graphicsQuality: this.graphicsQuality,
       aaMode: this.antiAliasingMode,
-      ssaoEnabled: this.ssgiEnabled,
-      ssaoRadius: this.ssgiRadius,
+      ssaoEnabled: this.gtaoEnabled,
       ssrEnabled: this.ssrEnabled,
       ssrOpacity: this.ssrOpacity,
       ssrResolutionScale: this.ssrResolutionScale,
       bloomEnabled: this.bloomEnabled,
-      bloomStrength,
+      bloomStrength: this.bloomStrength,
       vignetteEnabled: this.vignetteEnabled,
-      vignetteDarkness,
+      vignetteDarkness: this.vignetteDarkness,
       lutEnabled: this.lutEnabled,
       lutStrength: this.lutStrength,
+      lutName: this.lutName,
       lutReady: this.lutReady,
       ssgiEnabled: effectiveSsgi,
       ssgiPreset: this.ssgiPreset,
       ssgiRadius: this.ssgiRadius,
       ssgiGiIntensity: this.ssgiGiIntensity,
       traaEnabled: effectiveTraa,
+      envName: this.envName,
     };
   }
 
   /**
-   * Syncs quality state: post-FX uniforms, pixel ratio, shadows, SSGI/TRAA,
-   * selects the active output node (scene/bloom/SSGI/TRAA combination), sets
-   * postProcessing.needsUpdate, and runs handleResize().
+   * Syncs quality state: post-FX uniforms, pixel ratio, SSGI preset,
+   * rebuilds the TSL node graph for the current tier, and runs handleResize().
    */
   private applyQualitySettings(): void {
+    // 1. Sync uniforms (cheap — no graph rebuild)
     if (this.postFXUniforms) {
       this.postFXUniforms.ssrOpacity.value = this.ssrEnabled ? this.ssrOpacity : 0;
       this.postFXUniforms.vignetteDarkness.value = this.vignetteEnabled ? this.vignetteDarkness : 0;
       this.postFXUniforms.lutIntensity.value = this.lutEnabled ? this.lutStrength : 0;
     }
-    // Guardrails: cap pixel ratio by quality to avoid runaway GPU cost
+
+    // 2. Cap pixel ratio by quality to avoid runaway GPU cost
     const maxPR = this.graphicsQuality === 'low' ? 1 : this.graphicsQuality === 'medium' ? 1.5 : 2;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPR));
-
     this.renderer.shadowMap.enabled = true;
 
-    let ssgiBudget = this.ssgiEnabled;
-    let traaBudget = this.traaEnabled;
-    let effectivePreset = this.ssgiPreset;
-
-    if (this.graphicsQuality === 'low') {
-      ssgiBudget = false;
-      traaBudget = false;
-      effectivePreset = 'low';
-    } else {
-      effectivePreset = this.ssgiPreset;
-    }
-
+    // 3. Sync SSGI preset/controls if node exists
     if (this.ssgiNode) {
-      this.applySSGIPreset(effectivePreset);
+      this.applySSGIPreset(this.graphicsQuality === 'high' ? this.ssgiPreset : 'low');
       this.updateSSGIControls();
     }
-    if (this.postProcessing && this.scenePass && this.outputNodeTraaWithSSGI) {
-      const useSSGI = ssgiBudget && this.ssgiEnabled && this.postProcessingEnabled;
-      const useTRAA =
-        this.antiAliasingMode === 'taa' &&
-        traaBudget &&
-        this.traaEnabled &&
-        this.postProcessingEnabled;
-      const useBloom = this.bloomEnabled && this.postProcessingEnabled;
-      let out: TSLNode;
-      if (useBloom) {
-        if (useTRAA && useSSGI) out = this.outputNodeTraaSSGIBloom!;
-        else if (useTRAA && !useSSGI) out = this.outputNodeTraaSceneBloom!;
-        else if (!useTRAA && useSSGI) out = this.outputNodeSSGIBloom!;
-        else out = this.outputNodeSceneBloom!;
-      } else {
-        if (useTRAA && useSSGI) out = this.outputNodeTraaWithSSGI;
-        else if (useTRAA && !useSSGI) out = this.outputNodeTraaNoSSGI!;
-        else if (!useTRAA && useSSGI) out = this.outputNodeSSGIOnly!;
-        else out = this.outputNodeSceneOnly!;
-      }
-      if (this._aaHelpers) {
-        if (this.antiAliasingMode === 'smaa') {
-          out = this._aaHelpers.smaa(out);
-        } else if (this.antiAliasingMode === 'fxaa') {
-          out = this._aaHelpers.fxaa(out);
-        }
-      }
-      (this.postProcessing as { outputNode: TSLNode }).outputNode = out;
+
+    // 4. Rebuild the TSL node graph for the current tier
+    if (this.isWebGPUPipeline && this.postProcessing && (this as any)._buildPipeline) {
+      const newGraph = (this as any)._buildPipeline(this.graphicsQuality);
+      (this.postProcessing as { outputNode: TSLNode }).outputNode = newGraph;
       this.postProcessing.needsUpdate = true;
+
+      // Re-apply the cached LUT to the new Lut3DNode (rebuild creates a placeholder)
+      this.applyLutFromCache(this.lutName);
     }
 
     this.handleResize();
@@ -638,19 +847,26 @@ export class RendererManager implements Disposable {
     return this.graphicsQuality;
   }
 
-  private async loadDefaultLut(): Promise<void> {
-    try {
-      const source = new URL('../assets/postfx/lut_v2.3dl', import.meta.url).href;
-      const parsed = (await this.lutLoader.loadAsync(source)) as { texture3D?: THREE.Data3DTexture };
-      if (!parsed.texture3D) return;
-      this.lutTexture = parsed.texture3D;
-      parsed.texture3D.needsUpdate = true;
-      this.lutReady = true;
-      this.applyQualitySettings();
-    } catch (err) {
-      console.warn('[RendererManager] Failed to load LUT asset:', err);
-      this.lutReady = false;
-    }
+  /** Batch-load all LUT presets at startup. */
+  private async batchLoadLuts(): Promise<void> {
+    const loadPromises = LUT_PRESETS.map(async (preset) => {
+      try {
+        const url = new URL(`../assets/postfx/${preset.file}`, import.meta.url).href;
+        const tex = await this.loadLutByFormat(url, preset.format);
+        if (tex) {
+          tex.needsUpdate = true;
+          this.lutCache.set(preset.name, tex);
+        }
+      } catch (err) {
+        console.warn(`[RendererManager] Failed to load LUT: ${preset.name}`, err);
+      }
+    });
+
+    await Promise.all(loadPromises);
+    this.lutReady = this.lutCache.size > 0;
+    // Apply the default LUT once all are loaded
+    this.applyLutFromCache(this.lutName);
+    console.log(`[RendererManager] Loaded ${this.lutCache.size}/${LUT_PRESETS.length} LUTs`);
   }
 
   /** Set the animation loop callback. */
@@ -670,25 +886,23 @@ export class RendererManager implements Disposable {
   dispose(): void {
     window.removeEventListener('resize', this._onResize);
     this.setAnimationLoop(null);
-    this.environmentTarget?.dispose();
+    for (const target of this.envCache.values()) {
+      target.dispose();
+    }
+    this.envCache.clear();
+    this.createPmremGenerator = null;
     if (this.postProcessing && typeof (this.postProcessing as { dispose?: () => void }).dispose === 'function') {
       (this.postProcessing as { dispose: () => void }).dispose();
     }
     this.postProcessing = null;
-    this.scenePass = null;
     this.ssgiNode = null;
-    this.outputNodeTraaWithSSGI = null;
-    this.outputNodeTraaNoSSGI = null;
-    this.outputNodeSSGIOnly = null;
-    this.outputNodeSceneOnly = null;
-    this.outputNodeSceneBloom = null;
-    this.outputNodeSSGIBloom = null;
-    this.outputNodeTraaSceneBloom = null;
-    this.outputNodeTraaSSGIBloom = null;
     this.bloomNodes = [];
     this.postFXUniforms = null;
-    this.lutTexture?.dispose();
-    this.lutTexture = null;
+    this.lutPassNode = null;
+    for (const tex of this.lutCache.values()) {
+      tex.dispose();
+    }
+    this.lutCache.clear();
     this.renderer.dispose();
     if (this.renderer.domElement.parentElement) {
       this.renderer.domElement.parentElement.removeChild(this.renderer.domElement);

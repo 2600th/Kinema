@@ -86,7 +86,7 @@ function getStorage(): Storage | null {
 }
 
 export class UserSettingsStore {
-  private constructor(private state: UserSettings) {}
+  private constructor(private state: UserSettings) { }
 
   static load(): UserSettingsStore {
     const storage = getStorage();

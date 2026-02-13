@@ -10,7 +10,13 @@
       "Bash(npx tsc:*)",
       "Bash(npx vite build:*)",
       "Bash(npm show:*)",
-      "Bash(node -e:*)"
+      "Bash(node -e:*)",
+      "Bash(ls:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(npm run test:*)",
+      "Bash(npx vitest run:*)",
+      "Bash(curl:*)",
+      "Bash(findstr:*)"
     ]
   }
 }
