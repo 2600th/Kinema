@@ -9,7 +9,7 @@ import type {
   Disposable,
   SpawnPointData,
 } from '@core/types';
-import { DEFAULT_PLAYER_CONFIG } from '@core/constants';
+import { COLLISION_GROUP_WORLD_ONLY, DEFAULT_PLAYER_CONFIG } from '@core/constants';
 import type { PhysicsWorld } from '@physics/PhysicsWorld';
 import { ColliderFactory } from '@physics/ColliderFactory';
 import { CharacterFSM } from './CharacterFSM';
@@ -48,9 +48,20 @@ const _standProbeOrigin = new THREE.Vector3();
 const _standProbeDir = new THREE.Vector3();
 const _standProbeRight = new THREE.Vector3();
 const _worldUp = new THREE.Vector3(0, 1, 0);
+const _grabTarget = new THREE.Vector3();
+const _grabForward = new THREE.Vector3();
+const _carryTarget = new THREE.Vector3();
 
 const _rapierDown = new RAPIER.Vector3(0, -1, 0);
 const _rapierUp = new RAPIER.Vector3(0, 1, 0);
+
+interface CarryableObject {
+  readonly id: string;
+  readonly body: RAPIER.RigidBody;
+  readonly collider: RAPIER.Collider;
+  readonly mesh: THREE.Object3D;
+  readonly throwForce: number;
+}
 
 /**
  * Dynamic rigidbody player controller with floating and impulse movement.
@@ -81,6 +92,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   private slopeAngle = 0;
   private actualSlopeAngle = 0;
   private currentGravityScale = 1;
+  private active = true;
   private groundedGrace = 0;
   private currentGroundBody: RAPIER.RigidBody | null = null;
   private currentGroundBodyType: number | null = null;
@@ -92,9 +104,23 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   private crouchReleaseGraceRemaining = 0;
   private crouchVisual = 0;
   private respawnPoint: SpawnPointData | null = null;
+  private grabbedBody: RAPIER.RigidBody | null = null;
+  private grabbedBodyType: number | null = null;
+  private grabbedGravityScale: number | null = null;
+  private grabbedCollisionGroups: number | null = null;
+  private grabDistance = 1.2;
+  private grabOffsetY = 0;
+  private carriedObject: CarryableObject | null = null;
+  private carriedBodyType: number | null = null;
+  private carriedGravityScale: number | null = null;
+  private carriedCollisionGroups: number | null = null;
 
   get lastInputSnapshot(): InputState | null {
     return this.lastInput;
+  }
+
+  get isActive(): boolean {
+    return this.active;
   }
 
   get crouching(): boolean {
@@ -194,8 +220,11 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   }
 
   fixedUpdate(dt: number): void {
+    if (!this.active) return;
     const input = this.lastInput;
     if (!input) return;
+    let consumeInteractPressed = false;
+    let consumeJumpPressed = false;
 
     this.prevPosition.copy(this.currPosition);
     if (input.jumpPressed) {
@@ -203,6 +232,31 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     } else {
       this.jumpBufferRemaining = Math.max(0, this.jumpBufferRemaining - dt);
     }
+
+    if (this.grabbedBody && (input.jumpPressed || input.interactPressed)) {
+      consumeInteractPressed = input.interactPressed;
+      consumeJumpPressed = input.jumpPressed;
+      this.fsm.requestState('idle');
+    }
+
+    if (this.carriedObject) {
+      if (input.primaryPressed || input.interactPressed) {
+        this.throwCarried();
+        this.fsm.requestState(this.hasMovementInput(input) ? 'move' : 'idle');
+      } else if (input.crouchPressed) {
+        this.dropCarried();
+        this.fsm.requestState(this.hasMovementInput(input) ? 'move' : 'idle');
+      }
+    }
+
+    const inputForFsm: InputState =
+      consumeInteractPressed || consumeJumpPressed
+        ? {
+            ...input,
+            interactPressed: consumeInteractPressed ? false : input.interactPressed,
+            jumpPressed: consumeJumpPressed ? false : input.jumpPressed,
+          }
+        : input;
 
     const pos = this.body.translation();
     const vel = this.body.linvel();
@@ -255,7 +309,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       this.setGravityScale(1);
     }
 
-    this.fsm.handleInput(input, this.isGrounded);
+    this.fsm.handleInput(inputForFsm, this.isGrounded);
     this.fsm.update(dt);
     if (this.ropeAttached) {
       if (this.fsm.current !== 'air') {
@@ -264,7 +318,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       return;
     }
 
-    const desiredInputDir = this.computeMovementDirection(input);
+    const desiredInputDir = this.computeMovementDirection(inputForFsm);
     if (desiredInputDir.lengthSq() > 0.0001) {
       this.rotateToward(desiredInputDir, dt);
     }
@@ -395,13 +449,13 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
     const movementLockedNow = this.fsm.current === 'interact';
     const hasMovement = !movementLockedNow && (input.forward || input.backward || input.left || input.right);
-    const run = input.sprint && !this.isCrouched;
+    const run = this.fsm.current !== 'grab' && input.sprint && !this.isCrouched;
     if (hasMovement) {
       this.applyMoveImpulse(run);
       this.applyStepAssist(desiredInputDir, run);
     }
 
-    if (!movementLockedNow && this.jumpBufferRemaining > 0) {
+    if (!movementLockedNow && this.fsm.current !== 'grab' && this.jumpBufferRemaining > 0) {
       if (this.canJump) {
         this.fsm.requestState('jump');
         this.applyJumpImpulse(run, false);
@@ -458,9 +512,17 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       this.setGravityScale(falling ? this.config.fallingGravityScale : 1);
     }
 
+    if (this.grabbedBody) {
+      this.updateGrabbedBody();
+    }
+    if (this.carriedObject) {
+      this.updateCarriedObject();
+    }
+
   }
 
   postPhysicsUpdate(_dt: number): void {
+    if (!this.active) return;
     const pos = this.body.translation();
     this.currPosition.set(pos.x, pos.y, pos.z);
   }
@@ -489,7 +551,9 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     _rejectVel.copy(_currentVel).sub(_wantToMoveVel);
 
     const crouchMult = this.isCrouched ? this.config.crouchSpeedMultiplier : 1;
-    const targetSpeed = this.config.moveSpeed * crouchMult * (run ? this.config.sprintMultiplier : 1);
+    const grabMult = this.fsm.current === 'grab' ? this.config.crouchSpeedMultiplier : 1;
+    const targetSpeed =
+      this.config.moveSpeed * crouchMult * grabMult * (run ? this.config.sprintMultiplier : 1);
     _moveAccNeeded.set(
       (_movingDirection.x * (targetSpeed + _movingObjectVelocityInCharacterDir.x) -
         (_currentVel.x -
@@ -844,6 +908,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   }
 
   update(_dt: number, alpha: number): void {
+    if (!this.active) return;
     this.mesh.position.lerpVectors(this.prevPosition, this.currPosition, alpha);
     const target = this.isCrouched ? 1 : 0;
     this.crouchVisual += (target - this.crouchVisual) * 0.25;
@@ -854,6 +919,136 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
   setInput(input: InputState): void {
     this.lastInput = input;
+  }
+
+  setActive(active: boolean): void {
+    this.active = active;
+  }
+
+  setEnabled(enabled: boolean): void {
+    this.body.setEnabled(enabled);
+    this.mesh.visible = enabled;
+  }
+
+  startGrab(body: RAPIER.RigidBody, offset?: THREE.Vector3): void {
+    if (this.grabbedBody || this.carriedObject) return;
+    this.grabbedBody = body;
+    this.grabbedBodyType = body.bodyType();
+    this.grabbedGravityScale = body.gravityScale();
+    const collider = body.collider(0);
+    if (collider) {
+      const cg = collider as unknown as { collisionGroups?: () => number };
+      this.grabbedCollisionGroups = cg.collisionGroups ? cg.collisionGroups() : null;
+      collider.setCollisionGroups(COLLISION_GROUP_WORLD_ONLY);
+    } else {
+      this.grabbedCollisionGroups = null;
+    }
+    const bodyPos = body.translation();
+    const sourceOffset =
+      offset ?? new THREE.Vector3(bodyPos.x, bodyPos.y, bodyPos.z).sub(this.currPosition);
+    this.grabDistance = Math.min(2.5, Math.max(0.8, Math.sqrt(sourceOffset.x ** 2 + sourceOffset.z ** 2)));
+    this.grabOffsetY = sourceOffset.y;
+    body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
+    body.setGravityScale(0, true);
+    this.fsm.requestState('grab');
+  }
+
+  endGrab(): void {
+    if (!this.grabbedBody) return;
+    const body = this.grabbedBody;
+    const collider = body.collider(0);
+    if (collider && this.grabbedCollisionGroups != null) {
+      collider.setCollisionGroups(this.grabbedCollisionGroups);
+    }
+    const bodyType = this.grabbedBodyType ?? RAPIER.RigidBodyType.Dynamic;
+    body.setBodyType(bodyType, true);
+    body.setGravityScale(this.grabbedGravityScale ?? 1, true);
+    const forward = this.getCameraForward().setY(0).normalize();
+    body.applyImpulse(new RAPIER.Vector3(forward.x * 0.25, 0, forward.z * 0.25), true);
+    this.grabbedBody = null;
+    this.grabbedBodyType = null;
+    this.grabbedGravityScale = null;
+    this.grabbedCollisionGroups = null;
+    this.eventBus.emit('interaction:grabEnd', undefined);
+  }
+
+  startCarry(object: CarryableObject): void {
+    if (this.carriedObject || this.grabbedBody) return;
+    this.carriedObject = object;
+    this.carriedBodyType = object.body.bodyType();
+    this.carriedGravityScale = object.body.gravityScale();
+    const collider = object.collider as unknown as { collisionGroups?: () => number };
+    this.carriedCollisionGroups = collider.collisionGroups ? collider.collisionGroups() : null;
+    object.body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
+    object.body.setGravityScale(0, true);
+    object.collider.setCollisionGroups(COLLISION_GROUP_WORLD_ONLY);
+    this.fsm.requestState('carry');
+  }
+
+  throwCarried(): void {
+    if (!this.carriedObject) return;
+    const object = this.carriedObject;
+    this.releaseCarryBody();
+    const forward = this.getCameraForward().normalize();
+    const force = object.throwForce;
+    object.body.applyImpulse(new RAPIER.Vector3(forward.x * force, forward.y * force, forward.z * force), true);
+    this.eventBus.emit('interaction:throw', { direction: forward.clone(), force });
+  }
+
+  dropCarried(): void {
+    if (!this.carriedObject) return;
+    const object = this.carriedObject;
+    const forward = this.getCameraForward().setY(0).normalize();
+    _carryTarget.copy(this.currPosition).addScaledVector(forward, 0.8);
+    _carryTarget.y += this.currentCapsuleHalfHeight + 0.2;
+    this.releaseCarryBody();
+    object.body.setTranslation(new RAPIER.Vector3(_carryTarget.x, _carryTarget.y, _carryTarget.z), true);
+    object.body.setLinvel(new RAPIER.Vector3(0, 0, 0), true);
+    this.eventBus.emit('interaction:drop', undefined);
+  }
+
+  private releaseCarryBody(): void {
+    if (!this.carriedObject) return;
+    const object = this.carriedObject;
+    object.body.setBodyType(this.carriedBodyType ?? RAPIER.RigidBodyType.Dynamic, true);
+    object.body.setGravityScale(this.carriedGravityScale ?? 1, true);
+    if (this.carriedCollisionGroups != null) {
+      object.collider.setCollisionGroups(this.carriedCollisionGroups);
+    }
+    this.carriedObject = null;
+    this.carriedBodyType = null;
+    this.carriedGravityScale = null;
+    this.carriedCollisionGroups = null;
+  }
+
+  private updateGrabbedBody(): void {
+    if (!this.grabbedBody) return;
+    _grabForward.copy(this.getCameraForward()).setY(0);
+    if (_grabForward.lengthSq() < 0.0001) {
+      _grabForward.set(0, 0, -1);
+    } else {
+      _grabForward.normalize();
+    }
+    _grabTarget
+      .set(_currentPos.x, _currentPos.y, _currentPos.z)
+      .addScaledVector(_grabForward, this.grabDistance);
+    _grabTarget.y += this.grabOffsetY;
+    this.grabbedBody.setNextKinematicTranslation(new RAPIER.Vector3(_grabTarget.x, _grabTarget.y, _grabTarget.z));
+  }
+
+  private updateCarriedObject(): void {
+    if (!this.carriedObject) return;
+    _carryTarget.set(_currentPos.x, _currentPos.y + this.currentCapsuleHalfHeight + 0.4, _currentPos.z);
+    this.carriedObject.body.setNextKinematicTranslation(
+      new RAPIER.Vector3(_carryTarget.x, _carryTarget.y, _carryTarget.z),
+    );
+    this.carriedObject.mesh.position.copy(_carryTarget);
+    const rot = this.carriedObject.body.rotation();
+    this.carriedObject.mesh.quaternion.set(rot.x, rot.y, rot.z, rot.w);
+  }
+
+  private hasMovementInput(input: InputState): boolean {
+    return input.forward || input.backward || input.left || input.right;
   }
 
   setLadderZones(zones: readonly THREE.Box3[]): void {

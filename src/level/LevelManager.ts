@@ -6,6 +6,7 @@ import type { GraphicsQuality } from '@core/UserSettings';
 import { COLLISION_GROUP_WORLD } from '@core/constants';
 import type { PhysicsWorld } from '@physics/PhysicsWorld';
 import { ColliderFactory } from '@physics/ColliderFactory';
+import { SHOWCASE_LAYOUT, getShowcaseStationZ } from '@level/ShowcaseLayout';
 import { AssetLoader } from './AssetLoader';
 import { MeshParser } from './MeshParser';
 import { LevelValidator } from './LevelValidator';
@@ -90,6 +91,16 @@ export class LevelManager implements Disposable {
   /** Ladder trigger volumes for climb assist. */
   getLadderZones(): readonly THREE.Box3[] {
     return this.ladderZones;
+  }
+
+  /** Dynamic rigid bodies created by the level (for grab interactions). */
+  getDynamicBodies(): ReadonlyArray<{ mesh: THREE.Mesh; body: RAPIER.RigidBody }> {
+    return this.dynamicBodies;
+  }
+
+  /** Read-only list of level visuals for editor selection. */
+  getLevelObjects(): ReadonlyArray<THREE.Object3D> {
+    return this.levelObjects;
   }
 
   /** Allows runtime quality changes to update shadow map budgets. */
@@ -422,9 +433,100 @@ export class LevelManager implements Disposable {
     floor.updateWorldMatrix(true, false);
     this.levelColliders.push(this.colliderFactory.createTrimesh(floor));
 
-    // Rough plane section
-    const roughPlane = new THREE.Mesh(new THREE.BoxGeometry(22, 1, 22), obstacleMat);
-    roughPlane.position.set(10, -1.2, 10);
+    // === Showcase corridor (inspired by Unity/Unreal sample bays) ===
+    // Centered at world origin and used for *all* features (old + new).
+    const showcaseCenterZ = SHOWCASE_LAYOUT.centerZ;
+    const hallWidth = SHOWCASE_LAYOUT.hall.width;
+    const hallLength = SHOWCASE_LAYOUT.hall.length;
+    const hallFloorMat = new THREE.MeshStandardMaterial({ color: 0xdfe6ee, roughness: 0.88, metalness: 0.02 });
+    const hallWallMat = new THREE.MeshStandardMaterial({ color: 0x20232a, roughness: 0.7, metalness: 0.05 });
+    const bayMat = new THREE.MeshStandardMaterial({ color: 0x2b2f3a, roughness: 0.6, metalness: 0.05 });
+
+    const hallFloor = new THREE.Mesh(new THREE.BoxGeometry(hallWidth, 0.6, hallLength), hallFloorMat);
+    hallFloor.position.set(0, -1.3, showcaseCenterZ);
+    hallFloor.name = 'ShowcaseFloor_col';
+    hallFloor.receiveShadow = true;
+    this.scene.add(hallFloor);
+    this.levelObjects.push(hallFloor);
+    hallFloor.updateWorldMatrix(true, false);
+    this.levelColliders.push(this.colliderFactory.createTrimesh(hallFloor));
+
+    const wallThickness = 0.6;
+    const wallHeight = 7;
+    const leftWall = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, wallHeight, hallLength), hallWallMat);
+    leftWall.position.set(-hallWidth / 2 - wallThickness / 2, wallHeight / 2 - 1.0, showcaseCenterZ);
+    leftWall.name = 'ShowcaseWallL_col';
+    leftWall.receiveShadow = true;
+    this.scene.add(leftWall);
+    this.levelObjects.push(leftWall);
+    leftWall.updateWorldMatrix(true, false);
+    this.levelColliders.push(this.colliderFactory.createTrimesh(leftWall));
+
+    const rightWall = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, wallHeight, hallLength), hallWallMat);
+    rightWall.position.set(hallWidth / 2 + wallThickness / 2, wallHeight / 2 - 1.0, showcaseCenterZ);
+    rightWall.name = 'ShowcaseWallR_col';
+    rightWall.receiveShadow = true;
+    this.scene.add(rightWall);
+    this.levelObjects.push(rightWall);
+    rightWall.updateWorldMatrix(true, false);
+    this.levelColliders.push(this.colliderFactory.createTrimesh(rightWall));
+
+    const endWall = new THREE.Mesh(new THREE.BoxGeometry(hallWidth + wallThickness * 2, wallHeight, wallThickness), hallWallMat);
+    endWall.position.set(0, wallHeight / 2 - 1.0, showcaseCenterZ - hallLength / 2 - wallThickness / 2);
+    endWall.name = 'ShowcaseWallEnd_col';
+    endWall.receiveShadow = true;
+    this.scene.add(endWall);
+    this.levelObjects.push(endWall);
+    endWall.updateWorldMatrix(true, false);
+    this.levelColliders.push(this.colliderFactory.createTrimesh(endWall));
+
+    // Bay pedestals (grid stations) along the corridor.
+    const bayZ = [
+      getShowcaseStationZ('steps'),
+      getShowcaseStationZ('slopes'),
+      getShowcaseStationZ('ladder'),
+      getShowcaseStationZ('crouch'),
+      getShowcaseStationZ('doubleJump'),
+      getShowcaseStationZ('grab'),
+      getShowcaseStationZ('throw'),
+      getShowcaseStationZ('door'),
+      getShowcaseStationZ('vehicles'),
+      getShowcaseStationZ('rope'),
+      getShowcaseStationZ('platforms'),
+    ];
+    bayZ.forEach((z, i) => {
+      const pedestal = new THREE.Mesh(new THREE.BoxGeometry(hallWidth - 6, 0.35, 14), bayMat);
+      pedestal.position.set(0, -0.85, z);
+      pedestal.receiveShadow = true;
+      pedestal.name = `ShowcaseBay${i}_col`;
+      this.scene.add(pedestal);
+      this.levelObjects.push(pedestal);
+      pedestal.updateWorldMatrix(true, false);
+      this.levelColliders.push(this.colliderFactory.createTrimesh(pedestal));
+    });
+
+    // Spawn the player at the corridor entrance.
+    this.spawnPoint = {
+      position: new THREE.Vector3(0, 2, showcaseCenterZ + hallLength / 2 - 6),
+      rotation: new THREE.Euler(0, Math.PI, 0),
+    };
+
+    // Station Z coordinates used below.
+    const zSteps = getShowcaseStationZ('steps');
+    const zSlopes = getShowcaseStationZ('slopes');
+    const zLadder = getShowcaseStationZ('ladder');
+    const zCrouch = getShowcaseStationZ('crouch');
+    const zDoubleJump = getShowcaseStationZ('doubleJump');
+    const zGrab = getShowcaseStationZ('grab');
+    const zThrow = getShowcaseStationZ('throw');
+    const zDoor = getShowcaseStationZ('door');
+    const zVehicles = getShowcaseStationZ('vehicles');
+    const zRope = getShowcaseStationZ('rope');
+    const zPlatforms = getShowcaseStationZ('platforms');
+
+    // Rough plane section (materials + footing). Kept inside the showcase corridor.
+    const roughPlane = new THREE.Mesh(new THREE.BoxGeometry(14, 1, 14), obstacleMat);
+    roughPlane.position.set(12, -1.2, zSteps + 2);
     roughPlane.rotation.set(-0.08, 0.12, 0.06);
     roughPlane.name = 'RoughPlane_col';
     roughPlane.receiveShadow = true;
@@ -433,11 +535,11 @@ export class LevelManager implements Disposable {
     roughPlane.updateWorldMatrix(true, false);
     this.levelColliders.push(this.colliderFactory.createTrimesh(roughPlane));
 
-    // Slope lane: ~23.5, 43.1, 62.7 degrees
+    // Slope lane: ~23.5, 43.1, 62.7 degrees (showcase station)
     const slopeAngles = [23.5, 43.1, 62.7];
     slopeAngles.forEach((deg, i) => {
       const slope = new THREE.Mesh(new THREE.BoxGeometry(8, 0.4, 14), slopeMat);
-      slope.position.set(-6.5 - i * 3.5, 0.6 + i * 0.65, 10);
+      slope.position.set(-12 - i * 3.5, 0.6 + i * 0.65, zSlopes);
       slope.rotation.x = -(deg * Math.PI) / 180;
       slope.name = `Slope${Math.round(deg)}_col`;
       slope.receiveShadow = true;
@@ -446,20 +548,21 @@ export class LevelManager implements Disposable {
       slope.updateWorldMatrix(true, false);
       this.levelColliders.push(this.colliderFactory.createTrimesh(slope));
     });
-    this.createSectionLabel('23.5 Deg', new THREE.Vector3(-6.5, 3.1, 10), 2.5, 0.95);
-    this.createSectionLabel('43.1 Deg', new THREE.Vector3(-10, 4.6, 10), 2.5, 0.95);
-    this.createSectionLabel('62.7 Deg', new THREE.Vector3(-13.5, 7.1, 10), 2.5, 0.95);
+    this.createSectionLabel('0.B  Slopes', new THREE.Vector3(0, 3.4, zSlopes + 6), 4.0, 1.2);
+    this.createSectionLabel('23.5°', new THREE.Vector3(-12, 3.1, zSlopes), 2.2, 0.9);
+    this.createSectionLabel('43.1°', new THREE.Vector3(-15.5, 4.6, zSlopes), 2.2, 0.9);
+    this.createSectionLabel('62.7°', new THREE.Vector3(-19, 7.1, zSlopes), 2.2, 0.9);
 
     // SSR test: reflective panel just above floor on the far side of the slopes (enable SSR in debug panel to see reflections)
     const ssrTestPlane = new THREE.Mesh(new THREE.PlaneGeometry(4, 4), ssrTestMat);
-    ssrTestPlane.position.set(-6.5, -0.85, 17);
+    ssrTestPlane.position.set(12, -0.85, zSlopes + 8);
     ssrTestPlane.rotation.x = -Math.PI / 2;
     ssrTestPlane.name = 'SSR_test_reflective';
     ssrTestPlane.receiveShadow = true;
     this.scene.add(ssrTestPlane);
     this.levelObjects.push(ssrTestPlane);
     ssrTestPlane.updateWorldMatrix(true, false);
-    this.createSectionLabel('SSR reflection test', new THREE.Vector3(-6.5, 1.2, 17), 2.8, 0.9);
+    this.createSectionLabel('SSR reflection test', new THREE.Vector3(12, 1.2, zSlopes + 8), 3.1, 0.95);
 
     // Step series
     const addStep = (name: string, size: THREE.Vector3, pos: THREE.Vector3) => {
@@ -472,39 +575,46 @@ export class LevelManager implements Disposable {
       step.updateWorldMatrix(true, false);
       this.levelColliders.push(this.colliderFactory.createTrimesh(step));
     };
-    addStep('Step0_col', new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(0, -0.93, 5));
-    addStep('Step1_col', new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(0, -0.93, 6));
-    addStep('Step2_col', new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(0, -0.93, 7));
-    addStep('Step3_col', new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(0, -0.93, 8));
-    addStep('Step4_col', new THREE.Vector3(4, 0.2, 4), new THREE.Vector3(0, -0.9, 11));
-    this.createSectionLabel('Steps (autostep lane)', new THREE.Vector3(0, 1.4, 6.8), 3.6, 1.2);
-    this.createStaircase(new THREE.Vector3(7.5, -1.0, 6.0), 10, 0.14, 0.78, 4.8, stepMat);
-    this.createSectionLabel('Staircase test', new THREE.Vector3(7.5, 3.4, 10.4), 3.0, 1.05);
-    this.createLadder('MainLadder', new THREE.Vector3(10.8, -0.9, 12.0), 4.2, obstacleMat);
-    this.createSectionLabel('Ladder climb test', new THREE.Vector3(10.8, 4.5, 12.1), 3.0, 1.05);
-    this.createSectionLabel('Physics rope (press E)', new THREE.Vector3(-18, 7.6, 6), 4.1, 1.2);
-    this.createCrouchCourse(new THREE.Vector3(2.5, -1.0, -34), obstacleMat);
-    this.createSectionLabel('Crouch tunnel (hold C)', new THREE.Vector3(2.5, 2.15, -34), 3.9, 1.15);
-    this.createDoubleJumpCourse(new THREE.Vector3(24, -1.0, 17), stepMat);
-    this.createSectionLabel('Double jump lane', new THREE.Vector3(28, 4.7, 17), 3.7, 1.15);
+    addStep('Step0_col', new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(-8, -0.93, zSteps - 6));
+    addStep('Step1_col', new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(-8, -0.93, zSteps - 5));
+    addStep('Step2_col', new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(-8, -0.93, zSteps - 4));
+    addStep('Step3_col', new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(-8, -0.93, zSteps - 3));
+    addStep('Step4_col', new THREE.Vector3(4, 0.2, 4), new THREE.Vector3(-8, -0.9, zSteps));
+    this.createSectionLabel('0.A  Steps & Autostep', new THREE.Vector3(0, 1.8, zSteps + 3), 6.2, 1.6);
+    this.createStaircase(new THREE.Vector3(8, -1.0, zSteps - 6), 10, 0.14, 0.78, 4.8, stepMat);
+    this.createSectionLabel('Staircase', new THREE.Vector3(8, 3.4, zSteps - 2), 2.6, 1.0);
+    this.createLadder('MainLadder', new THREE.Vector3(14, -0.9, zLadder), 4.2, obstacleMat);
+    this.createSectionLabel('0.C  Ladder', new THREE.Vector3(14, 4.5, zLadder + 0.1), 3.2, 1.1);
+    // Legacy rope label replaced by the showcase labels below.
+    this.createCrouchCourse(new THREE.Vector3(0, -1.0, zCrouch), obstacleMat);
+    this.createSectionLabel('0.D  Crouch tunnel\nHold C', new THREE.Vector3(0, 2.15, zCrouch), 5.0, 1.45);
+    this.createDoubleJumpCourse(new THREE.Vector3(-6, -1.0, zDoubleJump), stepMat);
+    this.createSectionLabel('0.E  Double jump', new THREE.Vector3(-2, 4.7, zDoubleJump), 4.4, 1.35);
 
-    // Rigid body obstacle cluster.
-    this.createDynamicBox('PushCubeS', new THREE.Vector3(15, 0, 0), new THREE.Vector3(1, 1, 1), obstacleMat);
-    this.createDynamicBox('PushCubeM', new THREE.Vector3(15, 0, -2), new THREE.Vector3(1.5, 1.5, 1.5), obstacleMat);
-    this.createDynamicBox('PushCubeL', new THREE.Vector3(15, 0, -5), new THREE.Vector3(2, 2, 2), obstacleMat);
-    this.createDynamicBox('PushCubeTinyA', new THREE.Vector3(15, 1, 2), new THREE.Vector3(0.5, 0.5, 0.5), obstacleMat);
-    this.createDynamicBox('PushCubeTinyB', new THREE.Vector3(15.1, 0, 2), new THREE.Vector3(0.5, 0.5, 0.5), obstacleMat);
-    this.createSectionLabel('mass: 1', new THREE.Vector3(15, 1.9, 0), 2.0, 0.85);
-    this.createSectionLabel('mass: 3.375', new THREE.Vector3(15, 2.4, -2), 2.2, 0.9);
-    this.createSectionLabel('mass: 8', new THREE.Vector3(15, 2.8, -5), 2.0, 0.85);
-    this.createSpinningToy(new THREE.Vector3(15, 5, -10), obstacleMat);
-    this.createSectionLabel('mass: 1.24', new THREE.Vector3(15, 2.1, -10), 2.0, 0.85);
+    // Showcase cluster (physics interactions + vehicles). Kept away from the moving platform suites.
+    this.createSectionLabel('1.A  Grab & Pull\nPress E to grab/release', new THREE.Vector3(0, 2.3, zGrab), 7.6, 1.85);
+    this.createSectionLabel('1.B  Pick Up & Throw\nE to pick up • LMB to throw • C to drop', new THREE.Vector3(0, 2.3, zThrow), 8.4, 1.95);
+    this.createSectionLabel('1.C  Door / Beacon\nPress E near objects', new THREE.Vector3(0, 2.3, zDoor), 7.6, 1.85);
+    this.createSectionLabel('1.D  Vehicles\nE to enter/exit', new THREE.Vector3(0, 2.3, zVehicles), 6.8, 1.75);
+    this.createSectionLabel('1.E  Physics Rope\nPress E to attach', new THREE.Vector3(-10, 6.2, zRope), 6.8, 1.75);
+
+    const grabbableMat = new THREE.MeshStandardMaterial({ color: 0x4fc3f7, roughness: 0.55, metalness: 0.05 });
+    this.createDynamicBox('PushCubeS', new THREE.Vector3(0, 0, zGrab + 2), new THREE.Vector3(1, 1, 1), grabbableMat, { grabbable: true });
+    this.createDynamicBox('PushCubeM', new THREE.Vector3(0, 0, zGrab), new THREE.Vector3(1.5, 1.5, 1.5), grabbableMat, { grabbable: true });
+    this.createDynamicBox('PushCubeL', new THREE.Vector3(0, 0, zGrab - 3), new THREE.Vector3(2, 2, 2), grabbableMat, { grabbable: true });
+    this.createDynamicBox('PushCubeTinyA', new THREE.Vector3(3.5, 0, zGrab), new THREE.Vector3(0.5, 0.5, 0.5), obstacleMat, { grabbable: false });
+    this.createDynamicBox('PushCubeTinyB', new THREE.Vector3(-3.5, 0, zGrab), new THREE.Vector3(0.5, 0.5, 0.5), obstacleMat, { grabbable: false });
+    this.createSectionLabel('mass: 1', new THREE.Vector3(0, 2.0, zGrab + 2), 2.0, 0.85);
+    this.createSectionLabel('mass: 3.4', new THREE.Vector3(0, 2.45, zGrab), 2.0, 0.85);
+    this.createSectionLabel('mass: 8', new THREE.Vector3(0, 2.9, zGrab - 3), 2.0, 0.85);
+    this.createSpinningToy(new THREE.Vector3(14, 2.5, zGrab - 2), obstacleMat);
+    this.createSectionLabel('Dynamic toy', new THREE.Vector3(14, 2.1, zGrab - 2), 2.6, 0.95);
 
     // Kinematic platform suite.
     this.createKinematicPlatform(
       'SideMovePlatform',
       new THREE.Vector3(5, 0.2, 5),
-      new THREE.Vector3(-12, -0.5, -10),
+      new THREE.Vector3(-12, -0.5, zPlatforms + 6),
       'x',
       0.5,
       5,
@@ -513,7 +623,7 @@ export class LevelManager implements Disposable {
     this.createKinematicPlatform(
       'ElevatePlatform',
       new THREE.Vector3(5, 0.2, 5),
-      new THREE.Vector3(-25, 2, 0),
+      new THREE.Vector3(0, 2, zPlatforms + 6),
       'yRotate',
       0.5,
       2,
@@ -522,52 +632,53 @@ export class LevelManager implements Disposable {
     this.createKinematicPlatform(
       'RotatePlatform',
       new THREE.Vector3(5, 0.2, 5),
-      new THREE.Vector3(-25, -0.5, -10),
+      new THREE.Vector3(12, -0.5, zPlatforms + 6),
       'rotateY',
       0.5,
       0,
       kinematicPlatformMat,
     );
-    this.createSectionLabel('Kinematic Moving Platform', new THREE.Vector3(-12, 3.2, -10), 4.2, 1.25);
-    this.createSectionLabel('Kinematic Elevating Platform', new THREE.Vector3(-25, 3.3, 0), 4.4, 1.25);
-    this.createSectionLabel('Kinematic Rotating Platform', new THREE.Vector3(-25, 3.2, -10), 4.3, 1.25);
+    this.createSectionLabel('0.F  Moving platforms', new THREE.Vector3(0, 3.4, zPlatforms + 14), 6.2, 1.6);
+    this.createSectionLabel('Move', new THREE.Vector3(-12, 3.2, zPlatforms + 6), 2.4, 0.95);
+    this.createSectionLabel('Elevate', new THREE.Vector3(0, 3.3, zPlatforms + 6), 2.8, 0.95);
+    this.createSectionLabel('Rotate', new THREE.Vector3(12, 3.2, zPlatforms + 6), 2.6, 0.95);
     // Floating platform set (same behavior pattern as FloatingPlatform.jsx).
     this.createFloatingPlatform(
       'FloatingPlatformA',
       new THREE.Vector3(5, 0.2, 5),
-      new THREE.Vector3(0, 5, -10),
+      new THREE.Vector3(-8, 5, zPlatforms - 8),
       floatingPlatformMat,
     );
     this.createFloatingPlatform(
       'FloatingPlatformB',
       new THREE.Vector3(5, 0.2, 5),
-      new THREE.Vector3(7, 5, -10),
+      new THREE.Vector3(8, 5, zPlatforms - 8),
       floatingPlatformMat,
       { lockX: true, lockY: false, lockZ: true, rotX: false, rotY: true, rotZ: false },
     );
     this.createFloatingPlatform(
       'FloatingMovingPlatform',
       new THREE.Vector3(2.5, 0.2, 2.5),
-      new THREE.Vector3(0, 5, -17),
+      new THREE.Vector3(0, 5, zPlatforms - 18),
       floatingPlatformMat,
       undefined,
       { minX: -5, maxX: 10, speedX: 2 },
     );
-    this.createSectionLabel('Floating Platform push to move', new THREE.Vector3(-1.4, 8.0, -10), 4.4, 1.3);
-    this.createSectionLabel('Floating Platform push to rotate', new THREE.Vector3(8.4, 8.0, -10), 4.6, 1.3);
-    this.createSectionLabel('Floating & Moving Platform', new THREE.Vector3(0, 8.0, -17), 4.2, 1.25);
+    this.createSectionLabel('Floating (push)', new THREE.Vector3(-8, 8.0, zPlatforms - 8), 3.6, 1.1);
+    this.createSectionLabel('Floating (rotate)', new THREE.Vector3(8, 8.0, zPlatforms - 8), 3.9, 1.1);
+    this.createSectionLabel('Floating + moving', new THREE.Vector3(0, 8.0, zPlatforms - 18), 3.8, 1.1);
     this.createKinematicDrum(
       'RotatingDrum',
-      new THREE.Vector3(-15, -1, -15),
+      new THREE.Vector3(0, -1, zPlatforms - 26),
       1.0,
       10.0,
       'rotateX',
       0.5,
       kinematicPlatformMat,
     );
-    this.createSectionLabel('Kinematic Rotating Drum', new THREE.Vector3(-15, 3.2, -15), 4.2, 1.2);
+    this.createSectionLabel('Rotating drum', new THREE.Vector3(0, 3.2, zPlatforms - 26), 3.6, 1.1);
 
-    this.spawnPoint = createDefaultSpawnPoint();
+    // spawnPoint is set to the showcase corridor near the top of this method.
   }
 
   private createGroundGridTexture(): THREE.CanvasTexture {
@@ -633,12 +744,14 @@ export class LevelManager implements Disposable {
     position: THREE.Vector3,
     size: THREE.Vector3,
     material: THREE.Material,
+    options?: { grabbable?: boolean },
   ): void {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), material);
     mesh.position.copy(position);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.name = `${name}_dyn`;
+    mesh.userData.grabbable = options?.grabbable === true;
     this.scene.add(mesh);
     this.levelObjects.push(mesh);
 
@@ -993,25 +1106,78 @@ export class LevelManager implements Disposable {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     ctx.clearRect(0, 0, logicalWidth, logicalHeight);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-    ctx.fillRect(panelPad, 86, logicalWidth - panelPad * 2, logicalHeight - 172);
-    ctx.strokeStyle = 'rgba(20, 20, 24, 0.85)';
-    ctx.lineWidth = 6;
-    ctx.strokeRect(panelPad, 86, logicalWidth - panelPad * 2, logicalHeight - 172);
-    const baseFontPx = 84;
-    ctx.font = `700 ${baseFontPx}px Segoe UI, Arial, sans-serif`;
-    ctx.textAlign = 'center';
+    // Dark panel with warm accent border (closer to Unity/Unreal sample signage).
+    const panelX = panelPad;
+    const panelY = 86;
+    const panelW = logicalWidth - panelPad * 2;
+    const panelH = logicalHeight - 172;
+    ctx.fillStyle = 'rgba(18, 19, 24, 0.92)';
+    ctx.fillRect(panelX, panelY, panelW, panelH);
+    ctx.strokeStyle = 'rgba(255, 170, 50, 0.92)';
+    ctx.lineWidth = 8;
+    ctx.strokeRect(panelX, panelY, panelW, panelH);
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(panelX + 10, panelY + 10, panelW - 20, panelH - 20);
+
+    const lines = text.split('\n').map((s) => s.trim()).filter(Boolean);
+    const header = lines[0] ?? '';
+    const headerMatch = header.match(/^(\S+)\s+(.*)$/);
+    const headerCode = headerMatch?.[1] ?? null;
+    const headerTitle = headerMatch?.[2] ?? header;
+    const bodyLines = lines.slice(1);
+
+    const headerFontPx = 86;
+    const bodyFontPx = bodyLines.length > 0 ? 60 : 76;
+    const headerLineHeight = headerFontPx * 1.05;
+    const bodyLineHeight = bodyFontPx * 1.05;
+
+    // Measure widths to compute a single horizontal scale factor.
     ctx.textBaseline = 'middle';
-    const availableTextWidth = logicalWidth - panelPad * 2 - 64;
-    const textWidth = Math.max(1, ctx.measureText(text).width);
-    const scaleFactor = Math.min(1, availableTextWidth / textWidth);
+    ctx.textAlign = 'left';
+    const contentX = panelX + 56;
+    const availableTextWidth = panelX + panelW - contentX - 56;
+    ctx.font = `800 ${headerFontPx}px Segoe UI, Arial, sans-serif`;
+    const headerWidth =
+      headerCode && headerTitle
+        ? ctx.measureText(`${headerCode}  ${headerTitle}`).width
+        : ctx.measureText(headerTitle).width;
+    ctx.font = `600 ${bodyFontPx}px Segoe UI, Arial, sans-serif`;
+    const bodyWidths = bodyLines.map((l) => ctx.measureText(l).width);
+    const maxLineWidth = Math.max(1, headerWidth, ...bodyWidths);
+    const scaleFactor = Math.min(1, availableTextWidth / maxLineWidth);
+
+    const totalHeight = headerLineHeight + bodyLineHeight * bodyLines.length;
+    const startY = (logicalHeight - totalHeight) / 2 + headerLineHeight / 2;
+
     ctx.save();
-    ctx.translate(logicalWidth / 2, logicalHeight / 2);
+    ctx.translate(contentX, 0);
     ctx.scale(scaleFactor, 1);
-    ctx.fillStyle = '#101014';
-    ctx.shadowColor = 'rgba(255,255,255,0.35)';
-    ctx.shadowBlur = 1.2;
-    ctx.fillText(text, 0, 0);
+    ctx.shadowColor = 'rgba(0,0,0,0.55)';
+    ctx.shadowBlur = 10;
+
+    // Header: draw "code" in accent + title in white.
+    ctx.font = `800 ${headerFontPx}px Segoe UI, Arial, sans-serif`;
+    if (headerCode) {
+      const code = `${headerCode}`;
+      const codeWidth = ctx.measureText(`${code}  `).width;
+      ctx.fillStyle = '#ffb24a';
+      ctx.fillText(code, 0, startY);
+      ctx.fillStyle = '#f3f6ff';
+      ctx.fillText(`  ${headerTitle}`, codeWidth, startY);
+    } else {
+      ctx.fillStyle = '#f3f6ff';
+      ctx.fillText(headerTitle, 0, startY);
+    }
+
+    // Body: smaller, slightly muted.
+    ctx.shadowBlur = 6;
+    ctx.font = `600 ${bodyFontPx}px Segoe UI, Arial, sans-serif`;
+    ctx.fillStyle = 'rgba(233, 238, 250, 0.92)';
+    const bodyStartY = startY + headerLineHeight / 2 + bodyLineHeight / 2;
+    for (let i = 0; i < bodyLines.length; i += 1) {
+      ctx.fillText(bodyLines[i], 0, bodyStartY + i * bodyLineHeight);
+    }
     ctx.restore();
 
     const texture = new THREE.CanvasTexture(canvas);

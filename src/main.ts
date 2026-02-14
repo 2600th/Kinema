@@ -37,6 +37,10 @@ async function bootstrap(): Promise<void> {
   const { InteractionManager } = await import('@interaction/InteractionManager');
   const { UIManager } = await import('@ui/UIManager');
   const { UserSettingsStore } = await import('@core/UserSettings');
+  const { AudioManager } = await import('@audio/AudioManager');
+  const { VehicleManager } = await import('@vehicle/VehicleManager');
+  const { EditorManager } = await import('@editor/EditorManager');
+  const { MenuManager } = await import('@ui/menus/MenuManager');
   const { Game } = await import('./Game');
 
   const settings = UserSettingsStore.load();
@@ -44,6 +48,9 @@ async function bootstrap(): Promise<void> {
   const renderer = new RendererManager();
   await renderer.init();
   renderer.setGraphicsQuality(settings.value.graphicsQuality);
+  renderer.setAntiAliasingMode(settings.value.aaMode);
+  renderer.setResolutionScale(settings.value.resolutionScale);
+  renderer.setShadowsEnabled(settings.value.shadowsEnabled);
   console.log('[Kinema] Renderer initialized');
 
   const eventBus = new EventBus();
@@ -53,6 +60,7 @@ async function bootstrap(): Promise<void> {
   inputManager.setGamepadTuning(settings.value.gamepadDeadzone, settings.value.gamepadCurve);
   const levelManager = new LevelManager(renderer.scene, physicsWorld, eventBus, renderer.maxAnisotropy);
   levelManager.setGraphicsQuality(settings.value.graphicsQuality);
+  levelManager.setShadowsEnabled(settings.value.shadowsEnabled);
   const playerController = new PlayerController(physicsWorld, renderer.scene, eventBus);
   const camera = new OrbitFollowCamera(renderer.camera, playerController, physicsWorld, eventBus);
   camera.setMouseSensitivity(settings.value.mouseSensitivity);
@@ -62,6 +70,8 @@ async function bootstrap(): Promise<void> {
   renderer.camera.updateProjectionMatrix();
   const interactionManager = new InteractionManager(physicsWorld, playerController, eventBus);
   const uiManager = new UIManager(eventBus);
+  const audioManager = new AudioManager(eventBus, playerController, inputManager, settings);
+  const vehicleManager = new VehicleManager(eventBus, playerController, camera, interactionManager);
 
   const game = new Game(
     renderer,
@@ -74,14 +84,55 @@ async function bootstrap(): Promise<void> {
     interactionManager,
     uiManager,
     settings,
+    vehicleManager,
+    audioManager,
   );
 
   const gameLoop = new GameLoop(game, renderer, physicsWorld);
+  const editorManager = new EditorManager(
+    renderer,
+    physicsWorld,
+    eventBus,
+    gameLoop,
+    levelManager,
+    playerController,
+    interactionManager,
+  );
+  game.setEditorManager(editorManager);
 
-  // Load the test level and start
-  await levelManager.load('procedural');
-  playerController.spawn(levelManager.getSpawnPoint());
-  gameLoop.start();
+  const musicUrl = new URL('./assets/audio/ambient-1.ogg', import.meta.url).href;
+  let levelLoaded = false;
+
+  const startGame = async (): Promise<void> => {
+    if (levelLoaded) return;
+    await levelManager.load('procedural');
+    playerController.spawn(levelManager.getSpawnPoint());
+    game.setupLevel();
+    audioManager.playMusic(musicUrl, 2.0);
+    levelLoaded = true;
+  };
+
+  const returnToMainMenu = async (): Promise<void> => {
+    if (!levelLoaded) return;
+    gameLoop.stop();
+    game.teardownLevel();
+    levelManager.unload();
+    audioManager.stopMusic(1.5);
+    levelLoaded = false;
+  };
+
+  const menuManager = new MenuManager(
+    eventBus,
+    gameLoop,
+    renderer,
+    settings,
+    inputManager,
+    camera,
+    audioManager,
+    startGame,
+    returnToMainMenu,
+  );
+  menuManager.showMainMenu();
 
   console.log('[Kinema] Game started');
 }

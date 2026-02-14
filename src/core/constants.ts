@@ -105,6 +105,7 @@ export const INTERACTION_SENSOR_HALF_HEIGHT = 1.0;
  * Bits: 0=world, 1=player, 2=playerSensor, 3=interactable.
  */
 export const COLLISION_GROUP_WORLD = (1 << 16) | 3; // membership world, filter: world+player
+export const COLLISION_GROUP_WORLD_ONLY = (1 << 16) | 1; // membership world, filter: world only
 export const COLLISION_GROUP_PLAYER = (2 << 16) | 1; // membership player, filter: world
 export const COLLISION_GROUP_PLAYER_SENSOR = (4 << 16) | 8; // membership playerSensor, filter: interactable
 export const COLLISION_GROUP_INTERACTABLE = (8 << 16) | 4; // membership interactable, filter: playerSensor

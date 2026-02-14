@@ -26,6 +26,7 @@ export class InteractionManager implements FixedUpdatable, Disposable {
   private focusedLabel: string | null = null;
   private playerSensor: RAPIER.Collider;
   private holdInteraction: HoldInteraction | null = null;
+  private enabled = true;
 
   constructor(
     private physicsWorld: PhysicsWorld,
@@ -64,6 +65,7 @@ export class InteractionManager implements FixedUpdatable, Disposable {
 
   /** Update interactables and choose closest visible in-range target. */
   fixedUpdate(dt: number): void {
+    if (!this.enabled) return;
     for (const interactable of this.interactables.values()) {
       interactable.update(dt);
     }
@@ -78,6 +80,7 @@ export class InteractionManager implements FixedUpdatable, Disposable {
    * Filters out occluded interactables (blocked by world geometry).
    */
   refreshFocusFromPosition(position: { x: number; y: number; z: number }): void {
+    if (!this.enabled) return;
     this.updateFocus(this.getClosestVisibleInteractableId(position));
   }
 
@@ -160,6 +163,7 @@ export class InteractionManager implements FixedUpdatable, Disposable {
 
   /** Trigger interaction on the focused interactable. */
   triggerInteraction(): void {
+    if (!this.enabled) return;
     if (!this.focusedId) return;
 
     const target = this.interactables.get(this.focusedId);
@@ -246,5 +250,14 @@ export class InteractionManager implements FixedUpdatable, Disposable {
       interactable.dispose();
     }
     this.interactables.clear();
+  }
+
+  setEnabled(enabled: boolean): void {
+    if (this.enabled === enabled) return;
+    this.enabled = enabled;
+    if (!enabled) {
+      this.updateFocus(null);
+      this.holdInteraction = null;
+    }
   }
 }

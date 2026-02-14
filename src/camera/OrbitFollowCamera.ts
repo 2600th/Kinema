@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import type { EventBus } from '@core/EventBus';
-import type { Updatable, Disposable } from '@core/types';
+import type { Updatable, Disposable, InputState } from '@core/types';
+import type { CameraConfig } from '@core/types';
 import { DEFAULT_CAMERA_CONFIG } from '@core/constants';
 import type { PhysicsWorld } from '@physics/PhysicsWorld';
 import type { PlayerController } from '@character/PlayerController';
@@ -23,7 +24,8 @@ export class OrbitFollowCamera implements Updatable, Disposable {
   private targetPitch = 0;
   private currentDistance = DEFAULT_CAMERA_CONFIG.distance;
   private targetDistance = DEFAULT_CAMERA_CONFIG.distance;
-  private config = DEFAULT_CAMERA_CONFIG;
+  private config = { ...DEFAULT_CAMERA_CONFIG };
+  private defaultConfig = { ...DEFAULT_CAMERA_CONFIG };
   private baseFov: number;
   private mouseSensitivity = DEFAULT_CAMERA_CONFIG.mouseSensitivity;
   private invertY = false;
@@ -31,8 +33,10 @@ export class OrbitFollowCamera implements Updatable, Disposable {
   private pivotPosition = new THREE.Vector3();
   private readonly camFollowMult = 11;
   private readonly ropeCameraMinDistance = 4.2;
-
-  private sphereShape: RAPIER.Shape;
+  private target: THREE.Object3D | null = null;
+  private targetBody: RAPIER.RigidBody | null = null;
+  private targetHeightOverride: number | null = null;
+  private inputProvider: (() => InputState | null) | null = null;
 
   constructor(
     private camera: THREE.PerspectiveCamera,
@@ -40,7 +44,6 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     private physicsWorld: PhysicsWorld,
     _eventBus: EventBus,
   ) {
-    this.sphereShape = new RAPIER.Ball(this.config.spherecastRadius);
     this.baseFov = this.camera.fov;
   }
 
@@ -74,6 +77,43 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     this.collisionEnabled = enabled;
   }
 
+  setTarget(
+    object: THREE.Object3D,
+    options?: { body?: RAPIER.RigidBody; heightOffset?: number; inputProvider?: () => InputState | null },
+  ): void {
+    this.target = object;
+    this.targetBody = options?.body ?? null;
+    this.targetHeightOverride = options?.heightOffset ?? null;
+    this.inputProvider = options?.inputProvider ?? null;
+  }
+
+  snapToTarget(): void {
+    const targetPos = this.target ? this.target.position : this.player.position;
+    const crouchCameraOffset = this.target ? 0 : this.player.getCameraHeightOffset();
+    const heightOffset = this.targetHeightOverride ?? this.config.heightOffset;
+    _pivotPos.set(targetPos.x, targetPos.y + heightOffset - crouchCameraOffset, targetPos.z);
+    this.pivotPosition.copy(_pivotPos);
+    this.targetDistance = this.config.distance;
+    this.currentDistance = this.config.distance;
+  }
+
+  resetTarget(): void {
+    this.target = null;
+    this.targetBody = null;
+    this.targetHeightOverride = null;
+    this.inputProvider = null;
+  }
+
+  applyCameraConfig(overrides: Partial<CameraConfig>): void {
+    this.config = { ...this.config, ...overrides };
+    this.targetDistance = this.config.distance;
+  }
+
+  resetCameraConfig(): void {
+    this.config = { ...this.defaultConfig };
+    this.targetDistance = this.config.distance;
+  }
+
   /** Process wheel input for camera zoom. */
   handleZoomInput(mouseWheelDelta: number): void {
     if (mouseWheelDelta === 0) return;
@@ -97,9 +137,10 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     this.pitch += (this.targetPitch - this.pitch) * rotationDamp;
 
     // Pivot at player head height
-    const playerPos = this.player.position;
-    const crouchCameraOffset = this.player.getCameraHeightOffset();
-    _pivotPos.set(playerPos.x, playerPos.y + this.config.heightOffset - crouchCameraOffset, playerPos.z);
+    const targetPos = this.target ? this.target.position : this.player.position;
+    const crouchCameraOffset = this.target ? 0 : this.player.getCameraHeightOffset();
+    const heightOffset = this.targetHeightOverride ?? this.config.heightOffset;
+    _pivotPos.set(targetPos.x, targetPos.y + heightOffset - crouchCameraOffset, targetPos.z);
     if (this.pivotPosition.lengthSq() < 0.0001) {
       this.pivotPosition.copy(_pivotPos);
     } else {
@@ -112,30 +153,26 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     _idealDir.setFromSpherical(_spherical);
 
     // Detect collision along desired distance
-    const ropeAttached = this.player.isRopeAttached;
+    const ropeAttached = this.target ? false : this.player.isRopeAttached;
     let desiredDistance = ropeAttached
       ? Math.max(this.targetDistance, this.ropeCameraMinDistance)
       : this.targetDistance;
     const origin = new RAPIER.Vector3(this.pivotPosition.x, this.pivotPosition.y, this.pivotPosition.z);
-    const rot = new RAPIER.Quaternion(0, 0, 0, 1);
     const dir = new RAPIER.Vector3(_idealDir.x, _idealDir.y, _idealDir.z);
-    const shapeHit = this.collisionEnabled && !ropeAttached
-      ? this.physicsWorld.castShape(
-          origin,
-          rot,
-          dir,
-          this.sphereShape,
-          desiredDistance,
-          undefined,
-          this.player.body,
-        )
-      : null;
-    if (shapeHit && shapeHit.time_of_impact < desiredDistance) {
-      const hitDistance = shapeHit.time_of_impact - this.config.spherecastRadius * 0.92;
-      desiredDistance = Math.max(
-        this.config.zoomMinDistance,
-        Math.min(desiredDistance, hitDistance),
-      );
+    const rayHit =
+      this.collisionEnabled && !ropeAttached
+        ? this.physicsWorld.castRay(
+            origin,
+            dir,
+            desiredDistance,
+            undefined,
+            this.targetBody ?? this.player.body,
+            (c) => !c.isSensor(),
+          )
+        : null;
+    if (rayHit && rayHit.timeOfImpact < desiredDistance) {
+      const hitDistance = rayHit.timeOfImpact - this.config.spherecastRadius * 0.92;
+      desiredDistance = Math.max(this.config.zoomMinDistance, Math.min(desiredDistance, hitDistance));
     }
 
     // Prevent abrupt camera pops when stepping very close to walls/doors.
@@ -157,7 +194,7 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     const positionDamp = 1 - Math.exp(-this.config.positionDamping * dt);
     this.camera.position.lerp(_targetPos, positionDamp);
 
-    const input = this.player.lastInputSnapshot;
+    const input = this.target ? this.inputProvider?.() ?? null : this.player.lastInputSnapshot;
     const sprinting =
       !!input &&
       input.sprint &&

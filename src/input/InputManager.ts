@@ -1,5 +1,6 @@
 import type { EventBus } from '@core/EventBus';
 import type { InputState, Disposable } from '@core/types';
+import { NULL_INPUT } from '@core/types';
 
 const GAMEPAD_MOVE_THRESHOLD = 0.25;
 const GAMEPAD_LOOK_SPEED = 18;
@@ -26,14 +27,17 @@ export class InputManager implements Disposable {
   private prevInteract = false;
   private prevJump = false;
   private prevCrouch = false;
+  private prevPrimary = false;
   private mouseDX = 0;
   private mouseDY = 0;
   private mouseWheel = 0;
   private mouseDown = false;
+  private mousePrimary = false;
   private locked = false;
   private rawMouseInput = false;
   private gamepadDeadzone = 0.12;
   private gamepadCurve = 1.4;
+  private inputSuppressed = false;
 
   private _onKeyDown = this.handleKeyDown.bind(this);
   private _onKeyUp = this.handleKeyUp.bind(this);
@@ -56,21 +60,35 @@ export class InputManager implements Disposable {
     canvas.addEventListener('wheel', this._onWheel, { passive: false });
     canvas.addEventListener('click', this._onClick);
     document.addEventListener('pointerlockchange', this._onPointerLockChange);
+
+    this.eventBus.on('menu:opened', () => {
+      this.inputSuppressed = true;
+    });
+    this.eventBus.on('menu:closed', () => {
+      this.inputSuppressed = false;
+    });
   }
 
   /** Snapshot current input state, reset deltas, emit event. */
   poll(): InputState {
+    if (this.inputSuppressed) {
+      this.eventBus.emit('input:state', NULL_INPUT);
+      return NULL_INPUT;
+    }
     const gamepad = this.readGamepadState();
 
     const crouch = (this.locked && (this.keys.has('KeyC') || this.keys.has('ControlLeft'))) || gamepad.crouch;
     const crouchPressed = crouch && !this.prevCrouch;
     const jump = (this.locked && this.keys.has('Space')) || gamepad.jump;
     const interact = (this.locked && this.keys.has('KeyE')) || gamepad.interact;
+    const primary = (this.locked && this.mousePrimary) || gamepad.interact;
     this.prevCrouch = crouch;
     const jumpPressed = jump && !this.prevJump;
     const interactPressed = interact && !this.prevInteract;
+    const primaryPressed = primary && !this.prevPrimary;
     this.prevJump = jump;
     this.prevInteract = interact;
+    this.prevPrimary = primary;
 
     const state: InputState = Object.freeze({
       forward: (this.locked && (this.keys.has('KeyW') || this.keys.has('ArrowUp'))) || gamepad.forward,
@@ -83,6 +101,8 @@ export class InputManager implements Disposable {
       jumpPressed,
       interact,
       interactPressed,
+      primary,
+      primaryPressed,
       sprint: (this.locked && (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight'))) || gamepad.sprint,
       mouseDeltaX: this.mouseDX + gamepad.lookX * GAMEPAD_LOOK_SPEED,
       mouseDeltaY: this.mouseDY + gamepad.lookY * GAMEPAD_LOOK_SPEED,
@@ -122,6 +142,12 @@ export class InputManager implements Disposable {
     if (['Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyE', 'KeyC', 'ControlLeft'].includes(e.code)) {
       e.preventDefault();
     }
+    if (e.code === 'Escape') {
+      this.eventBus.emit('menu:toggle', undefined);
+    }
+    if (e.code === 'F1') {
+      this.eventBus.emit('editor:toggle', undefined);
+    }
   }
 
   private handleKeyUp(e: KeyboardEvent): void {
@@ -140,12 +166,18 @@ export class InputManager implements Disposable {
     this.mouseWheel += e.deltaY;
   }
 
-  private handleMouseDown(): void {
+  private handleMouseDown(e: MouseEvent): void {
     this.mouseDown = true;
+    if (e.button === 0) {
+      this.mousePrimary = true;
+    }
   }
 
-  private handleMouseUp(): void {
+  private handleMouseUp(e: MouseEvent): void {
     this.mouseDown = false;
+    if (e.button === 0) {
+      this.mousePrimary = false;
+    }
   }
 
   private handleClick(): void {
@@ -172,6 +204,8 @@ export class InputManager implements Disposable {
       this.prevInteract = false;
       this.prevJump = false;
       this.prevCrouch = false;
+      this.prevPrimary = false;
+      this.mousePrimary = false;
       this.mouseDown = false;
     }
   }

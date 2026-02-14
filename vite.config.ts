@@ -24,6 +24,9 @@ export default defineConfig({
       '@interaction': resolve(__dirname, 'src/interaction'),
       '@ui': resolve(__dirname, 'src/ui'),
       '@renderer': resolve(__dirname, 'src/renderer'),
+      '@audio': resolve(__dirname, 'src/audio'),
+      '@vehicle': resolve(__dirname, 'src/vehicle'),
+      '@editor': resolve(__dirname, 'src/editor'),
     },
   },
   build: {

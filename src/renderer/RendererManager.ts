@@ -87,6 +87,7 @@ export class RendererManager implements Disposable {
   private postProcessingEnabled = true;
   private shadowsEnabled = true;
   private toneExposure = 0.75;
+  private resolutionScale = 1;
 
   private ssgiEnabled = true;
   private ssgiPreset: SSGIPreset = 'medium';
@@ -394,12 +395,16 @@ export class RendererManager implements Disposable {
           // TRAA is mandatory in HIGH tier — it is the temporal denoiser for SSGI's
           // low sample count. Without it, SSGI output is pure noise.
           currentNode = traa(currentNode as never, scenePassDepth as never, scenePassVelocity as never, this.camera) as TSLNode;
-        } else if (quality === 'medium' && this.traaEnabled) {
-          // TRAA optional in MEDIUM for temporal smoothing of SSR
-          currentNode = traa(currentNode as never, scenePassDepth as never, scenePassVelocity as never, this.camera) as TSLNode;
+        } else if (quality === 'medium') {
+          if (this.antiAliasingMode === 'taa' && this.traaEnabled) {
+            currentNode = traa(currentNode as never, scenePassDepth as never, scenePassVelocity as never, this.camera) as TSLNode;
+          } else if (this.antiAliasingMode === 'fxaa' || this.antiAliasingMode === 'smaa') {
+            currentNode = fxaa(currentNode as never) as TSLNode;
+          }
         } else if (quality === 'low') {
-          // FXAA for low tier — cheap edge smoothing
-          currentNode = fxaa(currentNode as never) as TSLNode;
+          if (this.antiAliasingMode !== 'none') {
+            currentNode = fxaa(currentNode as never) as TSLNode;
+          }
         }
 
         // 4. Final Grading (Vignette + LUT + Tone Mapping)
@@ -517,6 +522,12 @@ export class RendererManager implements Disposable {
 
   setAntiAliasingMode(mode: AntiAliasingMode): void {
     this.antiAliasingMode = mode;
+    this.applyQualitySettings();
+  }
+
+  setResolutionScale(value: number): void {
+    if (!Number.isFinite(value)) return;
+    this.resolutionScale = THREE.MathUtils.clamp(value, 0.5, 1);
     this.applyQualitySettings();
   }
 
@@ -821,7 +832,7 @@ export class RendererManager implements Disposable {
 
     // 2. Cap pixel ratio by quality to avoid runaway GPU cost
     const maxPR = this.graphicsQuality === 'low' ? 1 : this.graphicsQuality === 'medium' ? 1.5 : 2;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPR));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPR) * this.resolutionScale);
     this.renderer.shadowMap.enabled = true;
 
     // 3. Sync SSGI preset/controls if node exists

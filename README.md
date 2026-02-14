@@ -10,6 +10,12 @@
 - **Rope traversal** — Attach from ground or mid-air; swing with `W A S D`, climb with `Shift + W/S`, jump off or drop with `Space` / `C`.
 - **Orbit follow camera** — Collision-aware (shapecast), zoom, damping, sprint FOV boost, and rope-aware behavior.
 - **Interaction system** — Proximity and line-of-sight filtering, hold-to-interact, lock conditions; framework for doors, beacons, ropes, etc.
+- **Physics object interactions** — Grab/pull crates and barrels, pick up small objects, and throw them.
+- **Vehicles** — A drivable car and a flyable drone with camera handoff and input routing.
+- **Showcase level** — A centered, labeled corridor that contains all features (old + new) in non-overlapping stations for quick testing.
+- **Menus & settings** — Main menu, pause menu, and settings with persistent graphics/audio controls.
+- **Level editor** — In-game edit mode with free camera, gizmos, snapping, asset browser, and save/load.
+- **Ambient audio** — Background music with Web Audio mixing and volume controls.
 - **Gameplay** — Checkpoints/respawn, objective tracking, HUD prompts and status messages.
 - **Debug panel** — FPS, physics/render metrics, and grouped controls for quality, environment, post-processing, and input tuning.
 - **Rendering** — Three-tier TSL post-processing when WebGPU is available: **High** (SSGI + TRAA + bloom), **Medium** (SSR + GTAO + TRAA + bloom), **Low** (GTAO + FXAA). HDR environment maps, 11 LUT color grades. Falls back to WebGL2 otherwise.
@@ -43,11 +49,13 @@ Vite will start a local server (typically `http://localhost:5173`). Open that UR
 
 ### 3. Focus the game and play
 
+- **Click "Play"** in the main menu to load the level.
 - **Click the canvas** so the page can capture the pointer (required for mouse look and pointer lock).
 - Move with **W A S D**, look with the **mouse**, jump with **Space**, interact with **E**.
 - Press **`` ` ``** (backtick) to open or close the **debug panel** for graphics and tuning.
+- Press **ESC** to open the pause menu; **F1** toggles the in-game editor.
 
-That's enough to run the project and try the procedural test level (slopes, rope, steps, beacon, door).
+That's enough to run the project and try the **procedural showcase corridor** (steps, slopes + SSR test, ladder, crouch/double-jump lanes, grab/pull, throwables, door/beacon, rope, vehicles, and moving platforms).
 
 ---
 
@@ -74,9 +82,11 @@ That's enough to run the project and try the procedural test level (slopes, rope
 | Mouse wheel | Zoom camera |
 | `Space` | Jump / double jump |
 | `Shift` | Sprint |
-| `C` or `Left Ctrl` | Crouch |
-| `E` | Interact (e.g. door, beacon, rope) |
+| `C` or `Left Ctrl` | Crouch / drop carried object |
+| `E` | Interact / grab / enter vehicles |
+| Left mouse | Throw carried object |
 | `` ` `` | Toggle debug panel |
+| `F1` | Toggle editor mode |
 
 ### On the rope (after attaching with `E`)
 
@@ -89,6 +99,28 @@ That's enough to run the project and try the procedural test level (slopes, rope
 | `C` or `Left Ctrl` | Drop from rope |
 
 You can attach to the rope with `E` from the ground or in the air when in range.
+
+### Vehicles
+
+| Input | Action |
+|-------|--------|
+| `E` | Enter/exit vehicle |
+| `W A S D` | Drive/strafe |
+| Mouse | Drone yaw/pitch |
+| `Shift` | Drone speed boost |
+| `Space` | Drone up / car handbrake |
+| `C` | Drone down |
+
+### Editor mode
+
+| Input | Action |
+|-------|--------|
+| Left mouse | Select object / place asset |
+| `W` / `E` / `R` | Translate / rotate / scale gizmo |
+| `G` | Toggle grid |
+| `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
+| `Esc` | Cancel placement |
+| `Delete` / `Backspace` | Remove selected object |
 
 ### Runtime tuning (hotkeys)
 
@@ -242,6 +274,9 @@ Source lives under `src/`. Imports use **path aliases** so you don't rely on lon
 | `@interaction` | `src/interaction` |
 | `@ui` | `src/ui` |
 | `@renderer` | `src/renderer` |
+| `@audio` | `src/audio` |
+| `@vehicle` | `src/vehicle` |
+| `@editor` | `src/editor` |
 
 Example: `import { EventBus } from '@core/EventBus';` instead of `import { EventBus } from '../../core/EventBus';`.
 
@@ -254,6 +289,9 @@ src/
   assets/
     env/                  HDR environment maps (.hdr)
     postfx/               LUT color grading files (.CUBE, .3dl, .png)
+    audio/                Ambient music tracks (.ogg / .mp3)
+    models/               Editor GLB assets
+    sprites/              Editor sprite textures
   audio/                  Gameplay audio (AudioManager)
   camera/                 Orbit follow camera and collision (OrbitFollowCamera)
   character/              Player controller and FSM states
@@ -274,10 +312,12 @@ src/
   level/                  Level load/unload, procedural level, colliders, assets
     LevelManager.ts       Level lifecycle: load, unload, lighting, shadows
     CheckpointManager.ts  Checkpoint zones and respawn point updates
+    ShowcaseLayout.ts     Shared showcase corridor layout (station Z positions)
   physics/
     PhysicsWorld.ts       Rapier world wrapper (zero gravity — custom gravity in player)
     ColliderFactory.ts    Collider creation helpers
     PhysicsDebugView.ts   Wireframe debug renderer for Rapier colliders
+  editor/                 In-game level editor
   renderer/
     RendererManager.ts    WebGPU/WebGL renderer, TSL pipeline, MRT, all post-FX
   ui/
@@ -286,21 +326,23 @@ src/
       DebugPanel.ts       Runtime debug overlay with all tunable controls
       HUD.ts              Gameplay HUD (prompts, objectives, status)
       FadeScreen.ts       Screen fade transitions
+    menus/                Main, pause, and settings menus
+  vehicle/                Vehicle controllers and manager
 ```
 
 ### Bootstrap flow
 
-`main.ts` initializes Rapier WASM, then constructs the renderer, physics world, input, level manager, player, camera, interaction, and UI, wires them via `EventBus`, and starts the game loop after loading the `procedural` level.
+`main.ts` initializes Rapier WASM, then constructs the renderer, physics world, input, level manager, player, camera, interaction, UI, audio, vehicles, and editor. The game loop starts after the main menu calls "Play" and the `procedural` level (centered showcase corridor) is loaded.
 
 ```
 main.ts
   → RAPIER.init()
   → new RendererManager() → renderer.init() (WebGPU attempt, WebGL fallback)
   → new PhysicsWorld(), InputManager, LevelManager, PlayerController, OrbitFollowCamera
-  → new InteractionManager, UIManager
+  → new InteractionManager, UIManager, AudioManager, VehicleManager
   → new Game(all systems) — wires EventBus listeners, spawns interactables/checkpoints
-  → levelManager.load('procedural')
-  → new GameLoop(game, physicsWorld, renderer) → starts animation loop
+  → new GameLoop(game, physicsWorld, renderer)
+  → new EditorManager, MenuManager → menu waits for "Play"
 ```
 
 ---
@@ -371,6 +413,7 @@ The project uses a **kinematic character controller** pattern:
 | Issue | What to try |
 |-------|-------------|
 | Controls don't respond | Click the canvas to focus it and enable pointer lock. |
+np| No background music | Add `src/assets/audio/ambient-1.ogg` or update `main.ts`; a procedural fallback loop is used if the file is missing. |
 | Rope climb doesn't work | Hold **Shift** and then press **W** or **S** (climb is Shift + W/S). |
 | Very bright or "washed out" image | Lower **Exposure** and/or **SSGI GI intensity** in the debug panel. Try a different environment map. |
 | Anti-aliasing looks different per tier | Each quality tier uses a fixed AA method: **High** = TRAA, **Medium** = TRAA (toggle), **Low** = FXAA. Switch tiers with **F6** or the debug panel. |

@@ -2,23 +2,29 @@ import type { PlayerController } from '@character/PlayerController';
 import type { EventBus } from '@core/EventBus';
 import type { Disposable, FixedUpdatable } from '@core/types';
 import type { InputManager } from '@input/InputManager';
+import type { UserSettingsStore } from '@core/UserSettings';
 
 /**
- * Lightweight procedural audio layer.
- * Uses WebAudio tones/noise so gameplay feedback works without external assets.
+ * WebAudio manager for music and procedural SFX.
  */
 export class AudioManager implements FixedUpdatable, Disposable {
   private context: AudioContext | null = null;
   private masterGain: GainNode | null = null;
-  private ambientGain: GainNode | null = null;
-  private ambientOsc: OscillatorNode | null = null;
+  private musicGain: GainNode | null = null;
+  private sfxGain: GainNode | null = null;
+  private currentTrack: AudioBufferSourceNode | null = null;
+  private currentTrackGain: GainNode | null = null;
+  private musicCache = new Map<string, AudioBuffer>();
+  private fallbackBuffer: AudioBuffer | null = null;
   private unsubscribers: Array<() => void> = [];
   private footstepTimer = 0;
+  private ducked = false;
 
   constructor(
     private eventBus: EventBus,
     private player: PlayerController,
     private inputManager: InputManager,
+    private settings: UserSettingsStore,
   ) {
     if (typeof window === 'undefined') return;
 
@@ -36,14 +42,21 @@ export class AudioManager implements FixedUpdatable, Disposable {
     }
 
     this.masterGain = this.context.createGain();
-    this.masterGain.gain.value = 0.28;
+    this.musicGain = this.context.createGain();
+    this.sfxGain = this.context.createGain();
     this.masterGain.connect(this.context.destination);
-    this.createAmbientBed();
+    this.musicGain.connect(this.masterGain);
+    this.sfxGain.connect(this.masterGain);
+
+    this.setMasterVolume(this.settings.value.masterVolume);
+    this.setMusicVolume(this.settings.value.musicVolume);
+    this.setSfxVolume(this.settings.value.sfxVolume);
+
     this.bindEvents();
   }
 
   fixedUpdate(dt: number): void {
-    if (!this.context || !this.masterGain) return;
+    if (!this.context || !this.sfxGain) return;
     if (this.context.state !== 'running') {
       if (this.inputManager.isLocked) {
         void this.context.resume();
@@ -68,18 +81,62 @@ export class AudioManager implements FixedUpdatable, Disposable {
     this.footstepTimer = 0.42 - speedN * 0.2;
   }
 
+  playMusic(url: string, fadeInSec = 2.0): void {
+    void this.startTrack(url, fadeInSec, true);
+  }
+
+  stopMusic(fadeOutSec = 1.5): void {
+    if (!this.context || !this.currentTrack || !this.currentTrackGain) return;
+    const now = this.context.currentTime;
+    this.currentTrackGain.gain.cancelScheduledValues(now);
+    this.currentTrackGain.gain.setValueAtTime(this.currentTrackGain.gain.value, now);
+    this.currentTrackGain.gain.linearRampToValueAtTime(0, now + fadeOutSec);
+    const track = this.currentTrack;
+    window.setTimeout(() => {
+      try {
+        track.stop();
+      } catch {
+        // ignore
+      }
+      track.disconnect();
+    }, fadeOutSec * 1000 + 40);
+    this.currentTrack = null;
+    this.currentTrackGain = null;
+  }
+
+  crossfadeTo(url: string, durationSec = 2.0): void {
+    void this.startTrack(url, durationSec, false);
+  }
+
+  setMasterVolume(value: number): void {
+    if (!this.masterGain) return;
+    this.masterGain.gain.value = clamp(value, 0, 1);
+  }
+
+  setMusicVolume(value: number): void {
+    if (!this.musicGain) return;
+    this.musicGain.gain.value = clamp(value, 0, 1);
+  }
+
+  setSfxVolume(value: number): void {
+    if (!this.sfxGain) return;
+    this.sfxGain.gain.value = clamp(value, 0, 1);
+  }
+
   dispose(): void {
     for (const unsub of this.unsubscribers) {
       unsub();
     }
     this.unsubscribers = [];
-    if (this.ambientOsc) {
-      this.ambientOsc.stop();
-      this.ambientOsc.disconnect();
-      this.ambientOsc = null;
-    }
-    this.ambientGain?.disconnect();
-    this.ambientGain = null;
+    this.currentTrack?.stop();
+    this.currentTrack?.disconnect();
+    this.currentTrack = null;
+    this.currentTrackGain?.disconnect();
+    this.currentTrackGain = null;
+    this.musicGain?.disconnect();
+    this.musicGain = null;
+    this.sfxGain?.disconnect();
+    this.sfxGain = null;
     this.masterGain?.disconnect();
     this.masterGain = null;
     if (this.context) {
@@ -125,18 +182,133 @@ export class AudioManager implements FixedUpdatable, Disposable {
         this.playTone(170, 0.12, 'sawtooth', 0.05, 0.08);
       }),
     );
+    this.unsubscribers.push(
+      this.eventBus.on('audio:masterVolume', (value) => {
+        this.setMasterVolume(value);
+      }),
+    );
+    this.unsubscribers.push(
+      this.eventBus.on('audio:musicVolume', (value) => {
+        this.setMusicVolume(value);
+      }),
+    );
+    this.unsubscribers.push(
+      this.eventBus.on('audio:sfxVolume', (value) => {
+        this.setSfxVolume(value);
+      }),
+    );
+    this.unsubscribers.push(
+      this.eventBus.on('menu:opened', ({ screen }) => {
+        if (screen !== 'pause') return;
+        if (this.ducked) return;
+        this.ducked = true;
+        if (this.musicGain) {
+          this.musicGain.gain.value *= 0.3;
+        }
+      }),
+    );
+    this.unsubscribers.push(
+      this.eventBus.on('menu:closed', () => {
+        if (!this.ducked) return;
+        this.ducked = false;
+        this.setMusicVolume(this.settings.value.musicVolume);
+      }),
+    );
   }
 
-  private createAmbientBed(): void {
-    if (!this.context || !this.masterGain) return;
-    this.ambientGain = this.context.createGain();
-    this.ambientGain.gain.value = 0.015;
-    this.ambientGain.connect(this.masterGain);
-    this.ambientOsc = this.context.createOscillator();
-    this.ambientOsc.type = 'sine';
-    this.ambientOsc.frequency.value = 48;
-    this.ambientOsc.connect(this.ambientGain);
-    this.ambientOsc.start();
+  private async startTrack(url: string, fadeSec: number, stopPrevious: boolean): Promise<void> {
+    if (!this.context || !this.musicGain) return;
+    if (this.context.state !== 'running') {
+      try {
+        await this.context.resume();
+      } catch {
+        // ignore
+      }
+    }
+    const buffer = await this.loadBuffer(url);
+    if (!buffer) return;
+
+    const source = this.context.createBufferSource();
+    source.buffer = buffer;
+    source.loop = true;
+    const gainNode = this.context.createGain();
+    gainNode.gain.value = 0;
+    source.connect(gainNode);
+    gainNode.connect(this.musicGain);
+
+    const now = this.context.currentTime;
+    gainNode.gain.setValueAtTime(0, now);
+    gainNode.gain.linearRampToValueAtTime(1, now + Math.max(0.1, fadeSec));
+    source.start();
+
+    if (stopPrevious && this.currentTrack && this.currentTrackGain) {
+      this.stopMusic(fadeSec);
+    } else if (this.currentTrack && this.currentTrackGain) {
+      this.currentTrackGain.gain.cancelScheduledValues(now);
+      this.currentTrackGain.gain.setValueAtTime(this.currentTrackGain.gain.value, now);
+      this.currentTrackGain.gain.linearRampToValueAtTime(0, now + Math.max(0.1, fadeSec));
+      const old = this.currentTrack;
+      window.setTimeout(() => {
+        try {
+          old.stop();
+        } catch {
+          // ignore
+        }
+        old.disconnect();
+      }, fadeSec * 1000 + 40);
+    }
+
+    this.currentTrack = source;
+    this.currentTrackGain = gainNode;
+  }
+
+  private async loadBuffer(url: string): Promise<AudioBuffer | null> {
+    if (!this.context) return null;
+    const cached = this.musicCache.get(url);
+    if (cached) return cached;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Audio fetch failed: ${res.status}`);
+      const data = await res.arrayBuffer();
+      const buffer = await this.context.decodeAudioData(data);
+      this.musicCache.set(url, buffer);
+      return buffer;
+    } catch {
+      const fallback = this.createFallbackAmbientBuffer();
+      if (fallback) {
+        this.musicCache.set(url, fallback);
+        return fallback;
+      }
+      return null;
+    }
+  }
+
+  private createFallbackAmbientBuffer(): AudioBuffer | null {
+    if (!this.context) return null;
+    if (this.fallbackBuffer) return this.fallbackBuffer;
+    const sampleRate = this.context.sampleRate;
+    const duration = 4;
+    const length = Math.floor(sampleRate * duration);
+    const buffer = this.context.createBuffer(2, length, sampleRate);
+    const fadeSamples = Math.max(1, Math.floor(sampleRate * 0.08));
+    for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
+      const data = buffer.getChannelData(channel);
+      for (let i = 0; i < length; i += 1) {
+        const t = i / sampleRate;
+        const lfo = 0.5 + 0.5 * Math.sin(t * Math.PI * 0.5);
+        const tone = Math.sin(2 * Math.PI * 110 * t) * 0.03 + Math.sin(2 * Math.PI * 220 * t) * 0.015;
+        const noise = (Math.random() * 2 - 1) * 0.01;
+        let value = (tone + noise) * lfo;
+        if (i < fadeSamples) {
+          value *= i / fadeSamples;
+        } else if (i > length - fadeSamples) {
+          value *= (length - i) / fadeSamples;
+        }
+        data[i] = value;
+      }
+    }
+    this.fallbackBuffer = buffer;
+    return buffer;
   }
 
   private playFootstep(planarSpeed: number): void {
@@ -151,7 +323,7 @@ export class AudioManager implements FixedUpdatable, Disposable {
     gain: number,
     delay = 0,
   ): void {
-    if (!this.context || !this.masterGain || this.context.state !== 'running') return;
+    if (!this.context || !this.sfxGain || this.context.state !== 'running') return;
     const when = this.context.currentTime + delay;
     const osc = this.context.createOscillator();
     const amp = this.context.createGain();
@@ -161,7 +333,7 @@ export class AudioManager implements FixedUpdatable, Disposable {
     amp.gain.exponentialRampToValueAtTime(gain, when + 0.015);
     amp.gain.exponentialRampToValueAtTime(0.0001, when + duration);
     osc.connect(amp);
-    amp.connect(this.masterGain);
+    amp.connect(this.sfxGain);
     osc.start(when);
     osc.stop(when + duration + 0.02);
   }

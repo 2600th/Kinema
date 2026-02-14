@@ -23,7 +23,10 @@
       "@input/*": ["./src/input/*"],
       "@interaction/*": ["./src/interaction/*"],
       "@ui/*": ["./src/ui/*"],
-      "@renderer/*": ["./src/renderer/*"]
+      "@renderer/*": ["./src/renderer/*"],
+      "@audio/*": ["./src/audio/*"],
+      "@vehicle/*": ["./src/vehicle/*"],
+      "@editor/*": ["./src/editor/*"]
     },
     "baseUrl": "."
   },

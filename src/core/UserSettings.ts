@@ -1,4 +1,5 @@
 export type GraphicsQuality = 'low' | 'medium' | 'high';
+export type AntiAliasingMode = 'smaa' | 'fxaa' | 'taa' | 'none';
 
 export interface UserSettings {
   mouseSensitivity: number;
@@ -7,7 +8,13 @@ export interface UserSettings {
   gamepadDeadzone: number;
   gamepadCurve: number;
   graphicsQuality: GraphicsQuality;
+  aaMode: AntiAliasingMode;
+  resolutionScale: number;
+  shadowsEnabled: boolean;
   cameraFov: number;
+  masterVolume: number;
+  musicVolume: number;
+  sfxVolume: number;
 }
 
 const STORAGE_KEY = 'kinema.user-settings.v1';
@@ -20,6 +27,10 @@ const MIN_GAMEPAD_CURVE = 0.6;
 const MAX_GAMEPAD_CURVE = 3.0;
 const MIN_CAMERA_FOV = 50;
 const MAX_CAMERA_FOV = 90;
+const MIN_RESOLUTION_SCALE = 0.5;
+const MAX_RESOLUTION_SCALE = 1.0;
+const MIN_VOLUME = 0;
+const MAX_VOLUME = 1;
 
 export const DEFAULT_USER_SETTINGS: Readonly<UserSettings> = Object.freeze({
   mouseSensitivity: 0.002,
@@ -28,7 +39,13 @@ export const DEFAULT_USER_SETTINGS: Readonly<UserSettings> = Object.freeze({
   gamepadDeadzone: 0.12,
   gamepadCurve: 1.4,
   graphicsQuality: 'high',
+  aaMode: 'taa',
+  resolutionScale: 1,
+  shadowsEnabled: true,
   cameraFov: 65,
+  masterVolume: 0.8,
+  musicVolume: 0.5,
+  sfxVolume: 0.7,
 });
 
 function clamp(value: number, min: number, max: number): number {
@@ -70,10 +87,38 @@ function parseSettings(raw: unknown): UserSettings {
       MAX_GAMEPAD_CURVE,
     ),
     graphicsQuality: quality,
+    aaMode:
+      value.aaMode === 'smaa' || value.aaMode === 'fxaa' || value.aaMode === 'taa' || value.aaMode === 'none'
+        ? value.aaMode
+        : DEFAULT_USER_SETTINGS.aaMode,
+    resolutionScale: clamp(
+      Number.isFinite(value.resolutionScale)
+        ? (value.resolutionScale as number)
+        : DEFAULT_USER_SETTINGS.resolutionScale,
+      MIN_RESOLUTION_SCALE,
+      MAX_RESOLUTION_SCALE,
+    ),
+    shadowsEnabled:
+      typeof value.shadowsEnabled === 'boolean' ? value.shadowsEnabled : DEFAULT_USER_SETTINGS.shadowsEnabled,
     cameraFov: clamp(
       Number.isFinite(value.cameraFov) ? (value.cameraFov as number) : DEFAULT_USER_SETTINGS.cameraFov,
       MIN_CAMERA_FOV,
       MAX_CAMERA_FOV,
+    ),
+    masterVolume: clamp(
+      Number.isFinite(value.masterVolume) ? (value.masterVolume as number) : DEFAULT_USER_SETTINGS.masterVolume,
+      MIN_VOLUME,
+      MAX_VOLUME,
+    ),
+    musicVolume: clamp(
+      Number.isFinite(value.musicVolume) ? (value.musicVolume as number) : DEFAULT_USER_SETTINGS.musicVolume,
+      MIN_VOLUME,
+      MAX_VOLUME,
+    ),
+    sfxVolume: clamp(
+      Number.isFinite(value.sfxVolume) ? (value.sfxVolume as number) : DEFAULT_USER_SETTINGS.sfxVolume,
+      MIN_VOLUME,
+      MAX_VOLUME,
     ),
   };
 }

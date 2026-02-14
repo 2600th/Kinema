@@ -1,4 +1,7 @@
 import type * as THREE from 'three';
+import type * as RAPIER from '@dimforge/rapier3d-compat';
+import type { VehicleController } from '@vehicle/VehicleController';
+import type { ThrowableObject } from '@interaction/interactables/ThrowableObject';
 
 /** Frozen snapshot of input state — safe to read from any system */
 export interface InputState {
@@ -12,6 +15,8 @@ export interface InputState {
   readonly jumpPressed: boolean;
   readonly interact: boolean;
   readonly interactPressed: boolean;
+  readonly primary: boolean;
+  readonly primaryPressed: boolean;
   readonly sprint: boolean;
   readonly mouseDeltaX: number;
   readonly mouseDeltaY: number;
@@ -30,6 +35,8 @@ export const NULL_INPUT: InputState = Object.freeze({
   jumpPressed: false,
   interact: false,
   interactPressed: false,
+  primary: false,
+  primaryPressed: false,
   sprint: false,
   mouseDeltaX: 0,
   mouseDeltaY: 0,
@@ -141,11 +148,21 @@ export interface EventMap {
   'interaction:focusChanged': { id: string | null; label: string | null };
   'interaction:triggered': { id: string };
   'interaction:blocked': { id: string; reason: string };
+  'interaction:grabStart': { body: RAPIER.RigidBody; offset: THREE.Vector3 };
+  'interaction:grabEnd': undefined;
+  'interaction:pickUp': { object: ThrowableObject };
+  'interaction:throw': { direction: THREE.Vector3; force: number };
+  'interaction:drop': undefined;
   'checkpoint:activated': { id: string; position: { x: number; y: number; z: number } };
   'objective:set': { id: string; text: string };
   'objective:completed': { id: string; text: string };
   'level:loaded': { name: string };
   'level:unloaded': { name: string };
+  'vehicle:enter': { vehicle: VehicleController };
+  'vehicle:exit': { position: THREE.Vector3 };
+  'menu:toggle': undefined;
+  'menu:opened': { screen: string };
+  'menu:closed': undefined;
   'debug:toggle': undefined;
   'debug:showColliders': boolean;
   'debug:showLightHelpers': boolean;
@@ -174,4 +191,13 @@ export interface EventMap {
   'debug:envBackgroundIntensity': number;
   'debug:envBackgroundBlurriness': number;
   'debug:environment': string;
+  'editor:toggle': undefined;
+  'editor:objectSelected': { id: string } | null;
+  'editor:objectAdded': { id: string };
+  'editor:objectRemoved': { id: string };
+  'editor:saved': { name: string };
+  'editor:loaded': { name: string };
+  'audio:musicVolume': number;
+  'audio:sfxVolume': number;
+  'audio:masterVolume': number;
 }

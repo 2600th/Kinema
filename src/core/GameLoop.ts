@@ -13,6 +13,8 @@ export class GameLoop {
   private fixedUpdatables: FixedUpdatable[] = [];
   private postPhysicsUpdatables: PostPhysicsUpdatable[] = [];
   private updatables: Updatable[] = [];
+  private running = false;
+  private simulationEnabled = true;
 
   constructor(
     game: FixedUpdatable & Updatable,
@@ -29,10 +31,23 @@ export class GameLoop {
   start(): void {
     this.lastTime = performance.now() / 1000;
     this.renderer.setAnimationLoop(this.tick.bind(this));
+    this.running = true;
   }
 
   stop(): void {
     this.renderer.setAnimationLoop(null);
+    this.running = false;
+  }
+
+  isRunning(): boolean {
+    return this.running;
+  }
+
+  setSimulationEnabled(enabled: boolean): void {
+    this.simulationEnabled = enabled;
+    if (!enabled) {
+      this.accumulator = 0;
+    }
   }
 
   private tick(_timestamp: DOMHighResTimeStamp): void {
@@ -48,15 +63,19 @@ export class GameLoop {
     this.accumulator += dt;
 
     // Fixed physics steps
-    while (this.accumulator >= PHYSICS_TIMESTEP) {
-      for (const obj of this.fixedUpdatables) {
-        obj.fixedUpdate(PHYSICS_TIMESTEP);
+    if (this.simulationEnabled) {
+      while (this.accumulator >= PHYSICS_TIMESTEP) {
+        for (const obj of this.fixedUpdatables) {
+          obj.fixedUpdate(PHYSICS_TIMESTEP);
+        }
+        this.physics.step();
+        for (const obj of this.postPhysicsUpdatables) {
+          obj.postPhysicsUpdate(PHYSICS_TIMESTEP);
+        }
+        this.accumulator -= PHYSICS_TIMESTEP;
       }
-      this.physics.step();
-      for (const obj of this.postPhysicsUpdatables) {
-        obj.postPhysicsUpdate(PHYSICS_TIMESTEP);
-      }
-      this.accumulator -= PHYSICS_TIMESTEP;
+    } else {
+      this.accumulator = 0;
     }
 
     // Interpolation alpha

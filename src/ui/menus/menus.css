@@ -1,0 +1,134 @@
+:root {
+  --menu-bg: rgba(10, 10, 15, 0.85);
+  --menu-accent: #4fc3f7;
+  --menu-text: #e0e0e0;
+}
+
+.menu-overlay {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: var(--menu-bg);
+  backdrop-filter: blur(12px);
+  z-index: 1200;
+  font-family: 'Segoe UI', Arial, sans-serif;
+  color: var(--menu-text);
+}
+
+.menu-overlay.active {
+  display: flex;
+}
+
+.menu-screen {
+  min-width: 320px;
+  max-width: 520px;
+  padding: 28px 32px;
+  border-radius: 16px;
+  background: rgba(20, 20, 30, 0.82);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+  transform: translateY(10px);
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.menu-screen.active {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.menu-title {
+  font-size: 28px;
+  margin: 0 0 18px 0;
+  letter-spacing: 0.5px;
+}
+
+.menu-button {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 12px 16px;
+  border: none;
+  border-radius: 12px;
+  background: rgba(79, 195, 247, 0.18);
+  color: var(--menu-text);
+  font-size: 16px;
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.menu-button:hover {
+  background: rgba(79, 195, 247, 0.3);
+  box-shadow: 0 0 14px rgba(79, 195, 247, 0.35);
+}
+
+.menu-button:active {
+  transform: scale(0.98);
+}
+
+.menu-row {
+  display: flex;
+  gap: 10px;
+}
+
+.menu-row .menu-button {
+  flex: 1;
+}
+
+.menu-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.menu-tab {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--menu-text);
+  cursor: pointer;
+}
+
+.menu-tab.active {
+  background: rgba(79, 195, 247, 0.3);
+  border-color: rgba(79, 195, 247, 0.6);
+}
+
+.menu-section {
+  display: none;
+}
+
+.menu-section.active {
+  display: block;
+}
+
+.menu-field {
+  margin: 10px 0;
+}
+
+.menu-field label {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 6px;
+  color: rgba(224, 224, 224, 0.85);
+}
+
+.menu-field input[type="range"] {
+  width: 100%;
+}
+
+.menu-field input[type="checkbox"] {
+  margin-right: 8px;
+}
+
+.menu-select {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--menu-text);
+}
