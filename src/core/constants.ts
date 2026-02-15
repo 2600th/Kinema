@@ -36,7 +36,9 @@ export const DEFAULT_PLAYER_CONFIG: PlayerConfig = {
   capsuleRadius: 0.3,
   capsuleHalfHeight: 0.35,
   floatHeight: 0.3,
-  moveSpeed: 3.5,
+  // Default movement matches the old sprint speed.
+  // Sprint remains a true 2x boost.
+  moveSpeed: 7,
   turnSpeed: 15,
   sprintMultiplier: 2,
   jumpForce: 4,

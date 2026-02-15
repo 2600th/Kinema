@@ -41,7 +41,18 @@ export class UIManager implements Disposable {
           this.hud.showPrompt(label);
         } else {
           this.hud.hidePrompt();
+          this.hud.setHoldProgress(null);
         }
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('interaction:holdProgress', (payload) => {
+        if (!payload) {
+          this.hud.setHoldProgress(null);
+          return;
+        }
+        this.hud.setHoldProgress(payload.progress);
       }),
     );
 

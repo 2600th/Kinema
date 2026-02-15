@@ -28,11 +28,11 @@ export class VehicleSeat implements IInteractable {
   }
 
   onFocus(): void {
-    // Optional: highlight vehicle or seat
+    this.setHighlighted(true);
   }
 
   onBlur(): void {
-    // Optional: remove highlight
+    this.setHighlighted(false);
   }
 
   interact(_player: PlayerController): void {
@@ -41,6 +41,35 @@ export class VehicleSeat implements IInteractable {
 
   dispose(): void {
     // Seat collider managed by level/vehicle managers.
+  }
+
+  private readonly originalMaterials = new WeakMap<THREE.Material, { emissive?: number; emissiveIntensity?: number }>();
+
+  private setHighlighted(enabled: boolean): void {
+    const root = this.vehicle.mesh;
+    root.traverse((node) => {
+      const m = node as THREE.Mesh;
+      if (!m.isMesh) return;
+      const materials = Array.isArray(m.material) ? m.material : [m.material];
+      for (const mat of materials) {
+        const std = mat as THREE.MeshStandardMaterial;
+        if (!('emissive' in std)) continue;
+        if (!this.originalMaterials.has(mat)) {
+          this.originalMaterials.set(mat, {
+            emissive: (std.emissive as THREE.Color | undefined)?.getHex?.(),
+            emissiveIntensity: (std.emissiveIntensity as number | undefined),
+          });
+        }
+        if (enabled) {
+          (std.emissive as THREE.Color).setHex(0x66ffcc);
+          std.emissiveIntensity = 0.28;
+        } else {
+          const original = this.originalMaterials.get(mat);
+          (std.emissive as THREE.Color).setHex(original?.emissive ?? 0x000000);
+          std.emissiveIntensity = original?.emissiveIntensity ?? 0;
+        }
+      }
+    });
   }
 
   private syncPosition(): void {

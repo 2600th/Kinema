@@ -7,7 +7,7 @@ import type { RendererManager } from '@renderer/RendererManager';
 import type { PhysicsWorld } from '@physics/PhysicsWorld';
 import type { InputManager } from '@input/InputManager';
 import type { LevelManager } from '@level/LevelManager';
-import { getShowcaseStationZ } from '@level/ShowcaseLayout';
+import { getShowcaseBayTopY, getShowcaseStationZ } from '@level/ShowcaseLayout';
 import type { PlayerController } from '@character/PlayerController';
 import type { OrbitFollowCamera } from '@camera/OrbitFollowCamera';
 import type { InteractionManager } from '@interaction/InteractionManager';
@@ -53,6 +53,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
   private runtimeInteractables: Array<{ id: string; dispose: () => void }> = [];
   private throwableObjects = new Map<number, ThrowableObject>();
   private carriedThrowable: ThrowableObject | null = null;
+  private rope: PhysicsRope | null = null;
 
   constructor(
     private renderer: RendererManager,
@@ -118,6 +119,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       this.settings.update({ shadowsEnabled: enabled });
       this.renderer.setShadowsEnabled(enabled);
       this.levelManager.setShadowsEnabled(enabled);
+      this.syncDebugPanel();
     });
     this.eventBus.on('debug:cameraCollision', (enabled) => {
       this.camera.setCollisionEnabled(enabled);
@@ -125,10 +127,14 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     this.eventBus.on('debug:exposure', (value) => {
       this.renderer.setExposure(value);
     });
-    this.eventBus.on('debug:graphicsQuality', ({ quality }) => {
-      const settings = this.settings.update({ graphicsQuality: quality });
-      this.renderer.setGraphicsQuality(settings.graphicsQuality);
-      this.levelManager.setGraphicsQuality(settings.graphicsQuality);
+    this.eventBus.on('debug:graphicsProfile', ({ profile }) => {
+      const settings = this.settings.update({ graphicsProfile: profile });
+      this.renderer.setGraphicsProfile(settings.graphicsProfile);
+      this.levelManager.setGraphicsProfile(settings.graphicsProfile);
+      this.syncDebugPanel();
+    });
+    this.eventBus.on('debug:aoOnly', (enabled) => {
+      this.renderer.setAoOnlyView(enabled);
       this.syncDebugPanel();
     });
     this.eventBus.on('debug:aaMode', ({ mode }) => {
@@ -168,18 +174,6 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     this.eventBus.on('debug:lutName', (name) => {
       this.renderer.setLutName(name);
     });
-    this.eventBus.on('debug:ssgiEnabled', (enabled) => {
-      this.renderer.setSsgiEnabled(enabled);
-    });
-    this.eventBus.on('debug:ssgiPreset', (preset) => {
-      this.renderer.setSsgiPreset(preset);
-    });
-    this.eventBus.on('debug:ssgiRadius', (radius) => {
-      this.renderer.setSsgiRadius(radius);
-    });
-    this.eventBus.on('debug:ssgiGiIntensity', (intensity) => {
-      this.renderer.setSsgiGiIntensity(intensity);
-    });
     this.eventBus.on('debug:traaEnabled', (enabled) => {
       this.renderer.setTraaEnabled(enabled);
     });
@@ -191,6 +185,10 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     });
     this.eventBus.on('debug:environment', (name) => {
       void this.renderer.setEnvironment(name);
+    });
+    this.eventBus.on('debug:showShadowFrustums', (enabled) => {
+      this.levelManager.setShadowDebugEnabled(enabled);
+      this.syncDebugPanel();
     });
 
     this.syncDebugPanel();
@@ -211,7 +209,8 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     }
 
     // Apply mouse deltas to camera (consumed here, not in render loop)
-    this.camera.handleMouseInput(input.mouseDeltaX, input.mouseDeltaY);
+    const lookMode = this.vehicleManager.getCameraLookMode();
+    this.camera.handleMouseInput(input.mouseDeltaX, lookMode === 'yawOnly' ? 0 : input.mouseDeltaY);
     this.camera.handleZoomInput(input.mouseWheelDelta);
 
     // Update dynamic level elements (moving platforms, etc.)
@@ -220,9 +219,10 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     // Interaction detection first — ensures focus is current before player FSM runs
     this.interactionManager.fixedUpdate(dt);
 
-    if (this.vehicleManager.isActive()) {
-      this.vehicleManager.fixedUpdate(dt);
-    } else {
+    // Always tick vehicles: active vehicle control OR parked vehicle behaviors (e.g., drone auto-landing).
+    this.vehicleManager.fixedUpdate(dt);
+
+    if (!this.vehicleManager.isActive()) {
       // Feed input + camera yaw to player
       this.playerController.cameraYaw = this.camera.getYaw();
       this.playerController.setLadderZones(this.levelManager.getLadderZones());
@@ -242,7 +242,12 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     if (!this.vehicleManager.isActive()) {
       this.playerController.postPhysicsUpdate(dt);
     }
+    this.levelManager.postPhysicsUpdate(dt);
     this.vehicleManager.postPhysicsUpdate(dt);
+    this.rope?.postPhysicsUpdate();
+    for (const throwable of this.throwableObjects.values()) {
+      throwable.postPhysicsUpdate();
+    }
 
     // Speed calculation (for debug)
     if (this.vehicleManager.isActive()) {
@@ -287,8 +292,13 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     if (!this.vehicleManager.isActive()) {
       this.playerController.update(dt, alpha);
       this.levelManager.updateLighting(this.playerController.position);
-    } else {
-      this.vehicleManager.update(dt, alpha);
+    }
+    this.levelManager.update(dt, alpha);
+    // Always update vehicles (active + parked) so parked drone/vehicles visually follow physics.
+    this.vehicleManager.update(dt, alpha);
+    this.rope?.renderUpdate(alpha);
+    for (const throwable of this.throwableObjects.values()) {
+      throwable.renderUpdate(alpha);
     }
     this.physicsDebugView.update();
 
@@ -320,8 +330,9 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     this.uiManager.debugPanel.syncRenderSettings({
       postProcessingEnabled: f.postProcessingEnabled,
       shadowsEnabled: f.shadowsEnabled,
-      graphicsQuality: f.graphicsQuality,
+      graphicsProfile: f.graphicsProfile,
       aaMode: f.aaMode,
+      aoOnly: f.aoOnly,
       exposure: f.exposure,
       ssaoEnabled: f.ssaoEnabled,
       ssrEnabled: f.ssrEnabled,
@@ -334,12 +345,9 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       lutEnabled: f.lutEnabled,
       lutStrength: f.lutStrength,
       lutName: f.lutName,
-      ssgiEnabled: f.ssgiEnabled,
-      ssgiPreset: f.ssgiPreset,
-      ssgiRadius: f.ssgiRadius,
-      ssgiGiIntensity: f.ssgiGiIntensity,
       traaEnabled: f.traaEnabled,
       envName: f.envName,
+      shadowFrustums: this.levelManager.getShadowDebugEnabled(),
     });
   }
 
@@ -365,20 +373,22 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
 
   private spawnInteractables(): void {
     // Showcase station Z positions (must match the procedural showcase layout in LevelManager).
+    const bayTopY = getShowcaseBayTopY();
     const zDoor = getShowcaseStationZ('door');
-    const zRope = getShowcaseStationZ('rope');
+    const zMovement = getShowcaseStationZ('movement');
     const rope = new PhysicsRope(
       'rope1',
-      new THREE.Vector3(-10, 5.2, zRope),
+      new THREE.Vector3(-14, bayTopY + 6.2, zMovement + 2),
       this.renderer.scene,
       this.physicsWorld,
       this.playerController,
     );
+    this.rope = rope;
     this.interactionManager.register(rope);
 
     const beacon = new ObjectiveBeacon(
       'beacon1',
-      new THREE.Vector3(4, -1, zDoor),
+      new THREE.Vector3(4, bayTopY, zDoor),
       this.renderer.scene,
       this.physicsWorld,
     );
@@ -386,7 +396,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
 
     const door = new Door(
       'door1',
-      new THREE.Vector3(0, -1, zDoor),
+      new THREE.Vector3(0, bayTopY, zDoor),
       this.renderer.scene,
       this.physicsWorld,
     );
@@ -403,7 +413,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     // Place checkpoint in the showcase corridor.
     this.checkpointManager.addCheckpoint(
       'showcase-checkpoint',
-      new THREE.Vector3(10, 0.1, getShowcaseStationZ('door')),
+      new THREE.Vector3(10, getShowcaseBayTopY() + 0.12, getShowcaseStationZ('door')),
       2.2,
     );
   }
@@ -415,7 +425,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       const id = `grab-${index}`;
       const collider = entry.body.collider(0);
       if (!collider) return;
-      const grab = new GrabbableObject(id, entry.body, collider, this.eventBus);
+      const grab = new GrabbableObject(id, entry.body, collider, this.eventBus, entry.mesh);
       this.interactionManager.register(grab);
       this.runtimeInteractables.push(grab);
     });
@@ -424,33 +434,42 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
   private spawnThrowableObjects(): void {
     const mat = new THREE.MeshStandardMaterial({ color: 0x9d7b52, roughness: 0.7 });
     const zThrow = getShowcaseStationZ('throw');
+    const bayTopY = getShowcaseBayTopY();
     const placements = [
       // Showcase lane (kept away from moving platforms).
-      { shape: 'sphere', pos: new THREE.Vector3(-3, 0.5, zThrow + 2), size: 0.3, force: 8 },
-      { shape: 'sphere', pos: new THREE.Vector3(-1, 0.5, zThrow), size: 0.25, force: 7 },
-      { shape: 'box', pos: new THREE.Vector3(1, 0.5, zThrow + 2), size: 0.35, force: 9 },
-      { shape: 'box', pos: new THREE.Vector3(3, 0.5, zThrow), size: 0.45, force: 10 },
-      { shape: 'cylinder', pos: new THREE.Vector3(-3, 0.5, zThrow - 2), size: 0.25, force: 8 },
-      { shape: 'cylinder', pos: new THREE.Vector3(3, 0.5, zThrow - 2), size: 0.28, force: 9 },
+      { shape: 'sphere', pos: new THREE.Vector3(-3, 0, zThrow + 2), size: 0.3, force: 8 },
+      { shape: 'sphere', pos: new THREE.Vector3(-1, 0, zThrow), size: 0.25, force: 7 },
+      { shape: 'box', pos: new THREE.Vector3(1, 0, zThrow + 2), size: 0.35, force: 8 },
+      { shape: 'box', pos: new THREE.Vector3(3, 0, zThrow), size: 0.45, force: 9 },
+      { shape: 'cylinder', pos: new THREE.Vector3(-3, 0, zThrow - 2), size: 0.25, force: 7.5 },
+      { shape: 'cylinder', pos: new THREE.Vector3(3, 0, zThrow - 2), size: 0.28, force: 8.5 },
     ] as const;
 
     placements.forEach((entry, index) => {
       const id = `throw-${index}`;
       const mesh = this.createThrowableMesh(entry.shape, entry.size, mat);
-      mesh.position.copy(entry.pos);
+      // Place on top of the bay pedestal (consistent with procedural stage height).
+      let halfHeight = entry.size;
+      if (entry.shape === 'cylinder') {
+        halfHeight = entry.size * 0.6;
+      }
+      mesh.position.set(entry.pos.x, bayTopY + halfHeight + 0.04, entry.pos.z);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       this.renderer.scene.add(mesh);
 
       const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
-        .setTranslation(entry.pos.x, entry.pos.y, entry.pos.z);
+        .setTranslation(mesh.position.x, mesh.position.y, mesh.position.z);
       const body = this.physicsWorld.world.createRigidBody(bodyDesc);
+      // Prevent tunneling when thrown at high speed.
+      body.enableCcd(true);
 
       let colliderDesc: RAPIER.ColliderDesc;
       if (entry.shape === 'sphere') {
         colliderDesc = RAPIER.ColliderDesc.ball(entry.size);
       } else if (entry.shape === 'cylinder') {
-        colliderDesc = RAPIER.ColliderDesc.cylinder(entry.size * 1.2, entry.size * 0.6);
+        // Rapier cylinder uses (halfHeight, radius). Match the Three mesh.
+        colliderDesc = RAPIER.ColliderDesc.cylinder(entry.size * 0.6, entry.size * 0.6);
       } else {
         colliderDesc = RAPIER.ColliderDesc.cuboid(entry.size, entry.size, entry.size);
       }
@@ -485,8 +504,19 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
 
   private spawnVehicles(): void {
     const zVehicles = getShowcaseStationZ('vehicles');
-    const drone = new DroneController('drone-1', new THREE.Vector3(-6, 1.6, zVehicles), this.physicsWorld, this.renderer.scene);
-    const car = new CarController('car-1', new THREE.Vector3(6, -0.6, zVehicles), this.physicsWorld, this.renderer.scene);
+    const bayTopY = getShowcaseBayTopY();
+    const drone = new DroneController(
+      'drone-1',
+      new THREE.Vector3(-6, bayTopY + 2.2, zVehicles),
+      this.physicsWorld,
+      this.renderer.scene,
+    );
+    const car = new CarController(
+      'car-1',
+      new THREE.Vector3(6, bayTopY + 0.42, zVehicles),
+      this.physicsWorld,
+      this.renderer.scene,
+    );
     this.vehicleManager.register(drone);
     this.vehicleManager.register(car);
 
@@ -518,6 +548,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
   }
 
   private clearRuntimeInteractables(): void {
+    this.rope = null;
     for (const interactable of this.runtimeInteractables) {
       this.interactionManager.unregister(interactable.id);
       if (interactable instanceof ThrowableObject) {
@@ -542,11 +573,11 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     }
     if (e.code === 'F6') {
       e.preventDefault();
-      const settings = this.settings.cycleGraphicsQuality();
-      this.renderer.setGraphicsQuality(settings.graphicsQuality);
-      this.levelManager.setGraphicsQuality(settings.graphicsQuality);
+      const settings = this.settings.cycleGraphicsProfile();
+      this.renderer.setGraphicsProfile(settings.graphicsProfile);
+      this.levelManager.setGraphicsProfile(settings.graphicsProfile);
       this.syncDebugPanel();
-      console.log(`[Settings] graphicsQuality=${settings.graphicsQuality}`);
+      console.log(`[Settings] graphicsProfile=${settings.graphicsProfile}`);
       return;
     }
     if (e.code === 'F7') {

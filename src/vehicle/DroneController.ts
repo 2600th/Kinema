@@ -15,27 +15,41 @@ const _currQuat = new THREE.Quaternion();
 const _desiredVel = new THREE.Vector3();
 const _currVel = new THREE.Vector3();
 const _yawQuat = new THREE.Quaternion();
+const _tiltQuat = new THREE.Quaternion();
+const _tiltEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 
 export class DroneController implements VehicleController {
   readonly id: string;
   readonly body: RAPIER.RigidBody;
   readonly mesh: THREE.Object3D;
   readonly exitOffset = new THREE.Vector3(1.2, 0, 0);
+  readonly cameraLookMode = 'yawOnly' as const;
   readonly cameraConfig = {
     distance: 8,
-    heightOffset: 3,
+    heightOffset: 2.4,
     pitchMin: -1.5,
   };
 
   private input: InputState | null = null;
   private yaw = 0;
-  private pitch = 0;
   private hasPose = false;
   private verticalSuppressSeconds = 0;
+  private controlYaw: number | null = null;
+  private visualPitch = 0;
+  private visualRoll = 0;
+  private hoverTargetY: number | null = null;
 
   private readonly moveSpeed = 10;
-  private readonly verticalSpeed = 6;
-  private readonly responsiveness = 12; // higher = snappier
+  private readonly responsiveness = 14; // higher = snappier
+  private readonly yawResponsiveness = 16;
+  private readonly groundRayMax = 250;
+  private readonly defaultHoverHeight = 4.2; // meters above ground (feel target)
+  private readonly hoverMinHeight = 1.8;
+  private readonly hoverMaxHeight = 22;
+  private readonly hoverK = 6.5; // height -> desired vertical speed
+  private readonly hoverMaxVerticalSpeed = 10;
+  private readonly hoverAdjustPerLookDelta = 0.006; // meters per mouseDeltaY unit (includes gamepad look)
+  private readonly hoverAdjustSpeedKeyboard = 7.5; // m/s via Space/C when piloting
 
   constructor(
     id: string,
@@ -48,15 +62,21 @@ export class DroneController implements VehicleController {
     const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
       .setTranslation(position.x, position.y, position.z);
     this.body = this.physicsWorld.world.createRigidBody(bodyDesc);
-    this.body.setLinearDamping(2.4);
-    this.body.setAngularDamping(2.2);
-    // Keep the drone visible and stable (no drift) until a player enters it.
-    this.body.setGravityScale(0, true);
+    this.body.enableCcd(true);
+    this.body.setLinearDamping(2.8);
+    this.body.setAngularDamping(3.2);
+    // Parked drone uses normal gravity (it will settle on the ground).
+    // WHY: Any "auto-landing/parking" logic has proven brittle across Rapier builds.
+    this.body.setGravityScale(1, true);
     this.body.setLinvel(new RAPIER.Vector3(0, 0, 0), true);
     this.body.setAngvel(new RAPIER.Vector3(0, 0, 0), true);
+    // Keep it upright; yaw is driven explicitly while piloting.
+    this.body.setEnabledRotations(false, true, false, true);
 
     const colliderDesc = RAPIER.ColliderDesc.cuboid(0.6, 0.2, 0.6)
-      .setDensity(1.0);
+      .setDensity(1.0)
+      .setFriction(1.2)
+      .setRestitution(0.02);
     this.physicsWorld.world.createCollider(colliderDesc, this.body);
 
     const geom = new THREE.BoxGeometry(1.2, 0.3, 1.2);
@@ -71,24 +91,43 @@ export class DroneController implements VehicleController {
 
   enter(_input: InputState): void {
     this.input = _input;
-    // "Fake" great-feel flight: disable gravity while piloting and directly control velocity.
-    // This avoids hover drift and makes vertical movement consistent across frame rates.
+    this.hoverTargetY = null;
+    // Great-feel flight: disable gravity while piloting and directly control velocity.
     this.body.setGravityScale(0, true);
+    // Prevent mid-air sleeping from "freezing" the drone.
+    this.setBodyCanSleep(false);
+    this.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
     this.body.setLinvel(new RAPIER.Vector3(0, 0, 0), true);
+    this.body.setAngvel(new RAPIER.Vector3(0, 0, 0), true);
+    this.body.setEnabledRotations(false, true, false, true);
     // Avoid "enter" inheriting a stuck jump/crouch for a couple frames.
     this.verticalSuppressSeconds = 0.25;
-    const rot = this.body.rotation();
-    const euler = new THREE.Euler().setFromQuaternion(new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w), 'YXZ');
-    this.yaw = euler.y;
-    this.pitch = euler.x;
+    // Align to the camera yaw (if available) so controls feel consistent.
+    if (this.controlYaw != null) {
+      this.yaw = this.controlYaw;
+    }
+
+    // Rise to a readable "default" hover height when entering the drone.
+    // This makes takeoff consistent even if the drone was parked on the ground.
+    const p = this.body.translation();
+    this.hoverTargetY = this.computeDefaultHoverY(p.x, p.y, p.z, true);
   }
 
   exit(): SpawnPointData {
     const pos = this.body.translation();
     this.input = null;
-    this.body.setGravityScale(0, true);
-    this.body.setLinvel(new RAPIER.Vector3(0, 0, 0), true);
+    this.visualPitch = 0;
+    this.visualRoll = 0;
+    this.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
+    this.body.setGravityScale(1, true);
+    // Let the drone settle naturally; allow sleeping once it comes to rest.
+    this.setBodyCanSleep(true);
+    this.body.setEnabledRotations(false, true, false, true);
+    // Ensure gravity is applied immediately.
+    const lv = this.body.linvel();
+    this.body.setLinvel(new RAPIER.Vector3(lv.x, Math.min(lv.y, 0), lv.z), true);
     this.body.setAngvel(new RAPIER.Vector3(0, 0, 0), true);
+    this.body.wakeUp();
     return {
       position: new THREE.Vector3(pos.x, pos.y, pos.z).add(this.exitOffset),
     };
@@ -98,17 +137,23 @@ export class DroneController implements VehicleController {
     this.input = input;
   }
 
+  setControlYaw(yaw: number): void {
+    if (!Number.isFinite(yaw)) return;
+    this.controlYaw = yaw;
+  }
+
   fixedUpdate(_dt: number): void {
     if (!this.input) return;
     const input = this.input;
 
     this.verticalSuppressSeconds = Math.max(0, this.verticalSuppressSeconds - _dt);
 
-    this.yaw -= input.mouseDeltaX * 0.002;
-    this.pitch -= input.mouseDeltaY * 0.002;
-    this.pitch = THREE.MathUtils.clamp(this.pitch, -1.2, 1.2);
-
-    _quat.setFromEuler(new THREE.Euler(this.pitch, this.yaw, 0, 'YXZ'));
+    // Mouse look is owned by OrbitFollowCamera. Drive drone yaw from camera yaw.
+    if (this.controlYaw != null) {
+      const nextYaw = dampAngle(this.yaw, this.controlYaw, this.yawResponsiveness, _dt);
+      this.yaw = nextYaw;
+    }
+    _quat.setFromEuler(new THREE.Euler(0, this.yaw, 0, 'YXZ'));
     this.body.setRotation(toRapierQuat(_quat), true);
 
     const moveX = (input.right ? 1 : 0) - (input.left ? 1 : 0);
@@ -122,7 +167,34 @@ export class DroneController implements VehicleController {
     _right.set(1, 0, 0).applyQuaternion(_yawQuat);
 
     const targetSpeed = this.moveSpeed * (input.sprint ? 1.5 : 1.0);
-    _desiredVel.set(0, moveY * this.verticalSpeed, 0);
+
+    // Altitude control:
+    // - On enter we set a default hover altitude above ground.
+    // - While piloting, mouse/stick Y nudges the hover target up/down.
+    // - Space/C also nudges the target for keyboard-only play.
+    const p = this.body.translation();
+    if (this.hoverTargetY == null) {
+      this.hoverTargetY = this.computeDefaultHoverY(p.x, p.y, p.z, false);
+    }
+    const groundY = this.getGroundY(p.x, p.y, p.z);
+    if (this.verticalSuppressSeconds <= 0) {
+      // Look up (mouse/stick up) => ascend. Look down => descend.
+      const lookAdjust = -input.mouseDeltaY * this.hoverAdjustPerLookDelta;
+      this.hoverTargetY += lookAdjust;
+      this.hoverTargetY += moveY * this.hoverAdjustSpeedKeyboard * _dt;
+    }
+    if (groundY != null) {
+      const minY = groundY + this.getBodyGroundClearance() + this.hoverMinHeight;
+      const maxY = groundY + this.getBodyGroundClearance() + this.hoverMaxHeight;
+      this.hoverTargetY = THREE.MathUtils.clamp(this.hoverTargetY, minY, maxY);
+    }
+    const desiredVelY = THREE.MathUtils.clamp(
+      (this.hoverTargetY - p.y) * this.hoverK,
+      -this.hoverMaxVerticalSpeed,
+      this.hoverMaxVerticalSpeed,
+    );
+
+    _desiredVel.set(0, desiredVelY, 0);
     _desiredVel.addScaledVector(_forward, moveZ * targetSpeed);
     _desiredVel.addScaledVector(_right, moveX * targetSpeed);
 
@@ -131,6 +203,13 @@ export class DroneController implements VehicleController {
     const t = 1 - Math.exp(-this.responsiveness * _dt);
     _currVel.lerp(_desiredVel, t);
     this.body.setLinvel(new RAPIER.Vector3(_currVel.x, _currVel.y, _currVel.z), true);
+
+    // Visual bank (mesh-only) for better feel/readability.
+    const targetPitch = THREE.MathUtils.clamp(-moveZ * 0.12, -0.22, 0.22);
+    const targetRoll = THREE.MathUtils.clamp(-moveX * 0.18, -0.32, 0.32);
+    const bankT = 1 - Math.exp(-10 * _dt);
+    this.visualPitch += (targetPitch - this.visualPitch) * bankT;
+    this.visualRoll += (targetRoll - this.visualRoll) * bankT;
   }
 
   postPhysicsUpdate(_dt: number): void {
@@ -154,6 +233,10 @@ export class DroneController implements VehicleController {
     if (!this.hasPose) return;
     this.mesh.position.lerpVectors(_prevPos, _currPos, alpha);
     this.mesh.quaternion.slerpQuaternions(_prevQuat, _currQuat, alpha);
+    // Apply mesh-only banking after base interpolation so physics stays stable.
+    _tiltEuler.set(this.visualPitch, 0, this.visualRoll);
+    _tiltQuat.setFromEuler(_tiltEuler);
+    this.mesh.quaternion.multiply(_tiltQuat);
   }
 
   dispose(): void {
@@ -162,4 +245,43 @@ export class DroneController implements VehicleController {
     ((this.mesh as THREE.Mesh).material as THREE.Material)?.dispose();
     this.physicsWorld.removeBody(this.body);
   }
+
+  private setBodyCanSleep(canSleep: boolean): void {
+    // rapier3d-compat types don't expose this on all versions; guard at runtime.
+    const b = this.body as unknown as { setCanSleep?: (v: boolean) => void };
+    b.setCanSleep?.(canSleep);
+  }
+
+  private getBodyGroundClearance(): number {
+    // Collider is cuboid(0.6, 0.2, 0.6) so half-height is 0.2.
+    return 0.2 + 0.04;
+  }
+
+  private getGroundY(x: number, y: number, z: number): number | null {
+    const hit = this.physicsWorld.castRay(
+      new RAPIER.Vector3(x, y, z),
+      new RAPIER.Vector3(0, -1, 0),
+      this.groundRayMax,
+      undefined,
+      this.body,
+      (c) => !c.isSensor(),
+    );
+    if (!hit) return null;
+    return y - hit.timeOfImpact;
+  }
+
+  private computeDefaultHoverY(x: number, y: number, z: number, riseOnly: boolean): number {
+    const groundY = this.getGroundY(x, y, z);
+    if (groundY == null) return y;
+    const desired = groundY + this.getBodyGroundClearance() + this.defaultHoverHeight;
+    return riseOnly ? Math.max(y, desired) : desired;
+  }
+}
+
+function dampAngle(current: number, target: number, lambda: number, dt: number): number {
+  // Damped move along the shortest angular distance.
+  const twoPi = Math.PI * 2;
+  const delta = ((((target - current) % twoPi) + Math.PI * 3) % twoPi) - Math.PI;
+  const t = 1 - Math.exp(-lambda * dt);
+  return current + delta * t;
 }

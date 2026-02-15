@@ -39,7 +39,6 @@ async function bootstrap(): Promise<void> {
   const { UserSettingsStore } = await import('@core/UserSettings');
   const { AudioManager } = await import('@audio/AudioManager');
   const { VehicleManager } = await import('@vehicle/VehicleManager');
-  const { EditorManager } = await import('@editor/EditorManager');
   const { MenuManager } = await import('@ui/menus/MenuManager');
   const { Game } = await import('./Game');
 
@@ -47,7 +46,7 @@ async function bootstrap(): Promise<void> {
 
   const renderer = new RendererManager();
   await renderer.init();
-  renderer.setGraphicsQuality(settings.value.graphicsQuality);
+  renderer.setGraphicsProfile(settings.value.graphicsProfile);
   renderer.setAntiAliasingMode(settings.value.aaMode);
   renderer.setResolutionScale(settings.value.resolutionScale);
   renderer.setShadowsEnabled(settings.value.shadowsEnabled);
@@ -59,7 +58,7 @@ async function bootstrap(): Promise<void> {
   inputManager.setRawMouseInput(settings.value.rawMouseInput);
   inputManager.setGamepadTuning(settings.value.gamepadDeadzone, settings.value.gamepadCurve);
   const levelManager = new LevelManager(renderer.scene, physicsWorld, eventBus, renderer.maxAnisotropy);
-  levelManager.setGraphicsQuality(settings.value.graphicsQuality);
+  levelManager.setGraphicsProfile(settings.value.graphicsProfile);
   levelManager.setShadowsEnabled(settings.value.shadowsEnabled);
   const playerController = new PlayerController(physicsWorld, renderer.scene, eventBus);
   const camera = new OrbitFollowCamera(renderer.camera, playerController, physicsWorld, eventBus);
@@ -89,18 +88,41 @@ async function bootstrap(): Promise<void> {
   );
 
   const gameLoop = new GameLoop(game, renderer, physicsWorld);
-  const editorManager = new EditorManager(
-    renderer,
-    physicsWorld,
-    eventBus,
-    gameLoop,
-    levelManager,
-    playerController,
-    interactionManager,
-  );
-  game.setEditorManager(editorManager);
+  let editorManager: import('@editor/EditorManager').EditorManager | null = null;
+  const unsubEditorBootstrap = eventBus.on('editor:toggle', () => {
+    // First toggle: lazy-load the editor module, then let EditorManager own future toggles.
+    void (async () => {
+      if (editorManager) return;
+      unsubEditorBootstrap();
+      const { EditorManager } = await import('@editor/EditorManager');
+      editorManager = new EditorManager(
+        renderer,
+        physicsWorld,
+        eventBus,
+        gameLoop,
+        levelManager,
+        playerController,
+        interactionManager,
+      );
+      game.setEditorManager(editorManager);
+      editorManager.toggle();
+    })();
+  });
 
-  const musicUrl = new URL('./assets/audio/ambient-1.ogg', import.meta.url).href;
+  const musicUrl = (() => {
+    const raw = (import.meta as unknown as { env?: Record<string, unknown> }).env?.VITE_MUSIC_URL;
+    if (typeof raw !== 'string' || raw.trim().length === 0) return null;
+    const trimmed = raw.trim();
+    // If relative to this module, resolve as file-relative. Otherwise treat as a normal URL/path.
+    if (trimmed.startsWith('.')) {
+      try {
+        return new URL(trimmed, import.meta.url).href;
+      } catch {
+        return trimmed;
+      }
+    }
+    return trimmed;
+  })();
   let levelLoaded = false;
 
   const startGame = async (): Promise<void> => {
@@ -108,7 +130,9 @@ async function bootstrap(): Promise<void> {
     await levelManager.load('procedural');
     playerController.spawn(levelManager.getSpawnPoint());
     game.setupLevel();
-    audioManager.playMusic(musicUrl, 2.0);
+    if (musicUrl) {
+      audioManager.playMusic(musicUrl, 2.0);
+    }
     levelLoaded = true;
   };
 

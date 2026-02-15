@@ -5,7 +5,7 @@ import { LUTCubeLoader } from 'three/addons/loaders/LUTCubeLoader.js';
 import { LUTImageLoader } from 'three/addons/loaders/LUTImageLoader.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import type { Disposable } from '@core/types';
-import type { GraphicsQuality } from '@core/UserSettings';
+import type { GraphicsProfile } from '@core/UserSettings';
 
 /** LUT preset definitions: name -> { file, format } */
 const LUT_PRESETS: ReadonlyArray<{ name: string; file: string; format: 'cube' | '3dl' | 'image' }> = [
@@ -44,12 +44,9 @@ type TSLNode = unknown;
 
 export type AntiAliasingMode = 'smaa' | 'fxaa' | 'taa' | 'none';
 
-/** SSGI quality preset: sliceCount, stepCount (with temporal filtering). */
-export type SSGIPreset = 'low' | 'medium' | 'high';
-
 /**
  * Wraps the renderer, scene, camera, and TSL post-processing chain.
- * Uses WebGPURenderer (WebGPU with WebGL2 fallback) and PostProcessing with SSGI + TRAA.
+ * Uses WebGPURenderer (WebGPU with WebGL2 fallback) and a TSL post-processing graph.
  */
 export class RendererManager implements Disposable {
   public readonly renderer: THREE.WebGLRenderer | WebGPURenderer;
@@ -57,8 +54,9 @@ export class RendererManager implements Disposable {
   public readonly camera: THREE.PerspectiveCamera;
   private postProcessing: PostProcessing | null = null;
 
-  // TSL Nodes
-  private ssgiNode: InstanceType<typeof import('three/addons/tsl/display/SSGINode.js').default> | null = null;
+  // SSRNode exists only in medium tier, but we keep a reference for parameter sync/debugging.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private ssrNode: any | null = null;
 
 
   private bloomNodes: Array<{ strength: { value: number } }> = [];
@@ -77,7 +75,7 @@ export class RendererManager implements Disposable {
   private readonly lutCubeLoader = new LUTCubeLoader();
   private readonly lutImageLoader = new LUTImageLoader();
   private readonly lutCache = new Map<string, THREE.Data3DTexture>();
-  private graphicsQuality: GraphicsQuality = 'high';
+  private graphicsProfile: GraphicsProfile = 'cinematic';
   private environmentTarget: THREE.WebGLRenderTarget<THREE.Texture> | null = null;
   private envName = 'Royal Esplanade';
   private readonly envCache = new Map<string, THREE.WebGLRenderTarget<THREE.Texture>>();
@@ -88,11 +86,9 @@ export class RendererManager implements Disposable {
   private shadowsEnabled = true;
   private toneExposure = 0.75;
   private resolutionScale = 1;
+  private aoOnlyView = false;
+  private aoOnlyOutputNode: TSLNode | null = null;
 
-  private ssgiEnabled = true;
-  private ssgiPreset: SSGIPreset = 'medium';
-  private ssgiRadius = 10;
-  private ssgiGiIntensity = 20;
   private gtaoEnabled = true;
 
   private traaEnabled = true;
@@ -129,9 +125,27 @@ export class RendererManager implements Disposable {
         const nodeBuilder = ro.getNodeBuilderState();
         const self = this as unknown as { getNodeFrameForRender: (r: unknown) => { updateBeforeNode: (x: unknown) => void } };
         for (const node of nodeBuilder.updateBeforeNodes) {
-          const n = node as { isShadowNode?: boolean; shadowMap?: unknown; light?: { castShadow?: boolean } };
-          if (n.isShadowNode === true && (n.shadowMap == null || !n.light?.castShadow)) continue;
-          self.getNodeFrameForRender(renderObject).updateBeforeNode(node);
+          const n = node as {
+            isShadowNode?: boolean;
+            shadowMap?: { depthTexture?: unknown } | null;
+            light?: { castShadow?: boolean };
+          };
+          if (n.isShadowNode === true) {
+            // If shadows are disabled, skip shadow updates entirely.
+            if (wgpuRenderer.shadowMap?.enabled === false) continue;
+            // If the light isn't casting shadows, skip.
+            if (!n.light?.castShadow) continue;
+            // If the shadow resources aren't ready yet, skip this frame (prevents null depthTexture crash).
+            if (!n.shadowMap || !n.shadowMap.depthTexture) continue;
+          }
+          try {
+            self.getNodeFrameForRender(renderObject).updateBeforeNode(node);
+          } catch (e) {
+            // Some renderer builds can temporarily have a null shadowMap/depthTexture while shadows are being
+            // re-enabled. Skipping the shadow update for this frame prevents a fatal render crash (black screen).
+            if (n.isShadowNode === true) continue;
+            throw e;
+          }
         }
       };
     } catch {
@@ -169,7 +183,7 @@ export class RendererManager implements Disposable {
     this.renderer.setClearColor(0xa9b9ee, 1);
 
     void this.batchLoadLuts();
-    this.setGraphicsQuality('high');
+    this.setGraphicsProfile('cinematic');
   }
 
   /**
@@ -185,13 +199,33 @@ export class RendererManager implements Disposable {
 
     try {
       const { WebGPURenderer, PostProcessing } = await import('three/webgpu');
-      const { pass, mrt, output, diffuseColor, normalView, velocity, directionToColor, renderOutput, texture3D, uniform } = await import('three/tsl');
-      const { ssgi } = await import('three/addons/tsl/display/SSGINode.js');
+      const {
+        sample,
+        pass,
+        mrt,
+        output,
+        diffuseColor,
+        normalView,
+        velocity,
+        vec2,
+        vec3,
+        vec4,
+        metalness,
+        roughness,
+        screenUV,
+        builtinAOContext,
+        directionToColor,
+        colorToDirection,
+        renderOutput,
+        texture3D,
+        uniform,
+      } = await import('three/tsl');
       const { ao: gtao } = await import('three/addons/tsl/display/GTAONode.js');
       const { traa } = await import('three/addons/tsl/display/TRAANode.js');
       const { fxaa } = await import('three/addons/tsl/display/FXAANode.js');
+      const { smaa } = await import('three/addons/tsl/display/SMAANode.js');
       const { lut3D } = await import('three/addons/tsl/display/Lut3DNode.js');
-      const { hashBlur } = await import('three/addons/tsl/display/hashBlur.js');
+      // NOTE: hashBlur is intentionally not used; SSRNode already supports roughness-based blur via mips.
 
       const wgpuRenderer = new WebGPURenderer({
         antialias: false, // MSAA off — TRAA/FXAA in the post-processing pipeline handles AA
@@ -207,7 +241,8 @@ export class RendererManager implements Disposable {
       wgpuRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       wgpuRenderer.setSize(window.innerWidth, window.innerHeight);
       wgpuRenderer.outputColorSpace = THREE.SRGBColorSpace;
-      wgpuRenderer.toneMapping = THREE.AgXToneMapping;
+      // Keep tone mapping consistent with the WebGL fallback path for a stable "look".
+      wgpuRenderer.toneMapping = THREE.ACESFilmicToneMapping;
       wgpuRenderer.toneMappingExposure = this.toneExposure;
       wgpuRenderer.shadowMap.enabled = this.shadowsEnabled;
       wgpuRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -234,33 +269,47 @@ export class RendererManager implements Disposable {
       (this as { renderer: THREE.WebGLRenderer | WebGPURenderer }).renderer = wgpuRenderer;
       this.isWebGPUPipeline = true;
 
-      const scenePass = pass(this.scene, this.camera) as TSLPassNode;
-      const { vec2, metalness, roughness } = await import('three/tsl');
+      // --- Pre-pass (opaque-only): normals + velocity + depth for AO/TRAA/SSR ---
+      // WHY: AO computed from a transparent-inclusive depth buffer will "project" occlusion onto sprites/UI.
+      // three.js reference: webgpu_postprocessing_ao example uses a prePass with transparent=false.
+      const prePass = pass(this.scene, this.camera) as unknown as TSLPassNode & { transparent?: boolean; getLinearDepthNode?: () => unknown; getTextureNode: (name?: string) => unknown; getTexture: (name?: string) => THREE.Texture };
+      prePass.transparent = false;
+      prePass.setMRT(
+        mrt({
+          output: directionToColor(normalView),
+          velocity,
+        }),
+      );
+
+      const prePassNormalDecoded = sample((uvNode: unknown) =>
+        colorToDirection((prePass.getTextureNode('output') as { sample: (u: unknown) => unknown }).sample(uvNode) as never),
+      ) as TSLNode;
+      const prePassDepth = prePass.getTextureNode('depth');
+      const prePassVelocity = prePass.getTextureNode('velocity');
+
+      // Bandwidth optimization: 8-bit normals
+      prePass.getTexture('output').type = THREE.UnsignedByteType;
+
+      // --- Scene pass (full scene color; includes transparent sprites/UI) ---
+      const scenePass = pass(this.scene, this.camera) as TSLPassNode & { contextNode?: unknown; getTextureNode: (name: string) => unknown; getTexture: (name: string) => THREE.Texture };
       scenePass.setMRT(
         mrt({
           output,
           diffuseColor,
-          normal: directionToColor(normalView),
-          velocity,
           metalrough: vec2(metalness, roughness),
         }),
       );
 
-      const { add, mix, uv, smoothstep, float, length: tslLength, max: tslMax, sample, colorToDirection, vec4: tslVec4 } = await import('three/tsl');
+      const { add, uv, smoothstep, float, length: tslLength, max: tslMax, vec4: tslVec4 } = await import('three/tsl');
       const { bloom } = await import('three/addons/tsl/display/BloomNode.js');
       const { ssr } = await import('three/addons/tsl/display/SSRNode.js');
 
       // Bandwidth optimization: 8-bit precision for targets that don't need float.
       // Reduces MRT total from 40 bytes (5×RGBA16F) to 28 bytes (2×RGBA16F + 3×RGBA8).
       scenePass.getTexture('diffuseColor').type = THREE.UnsignedByteType;
-      scenePass.getTexture('normal').type = THREE.UnsignedByteType;
       scenePass.getTexture('metalrough').type = THREE.UnsignedByteType;
 
       const scenePassColor = scenePass.getTextureNode('output');
-      const scenePassDiffuse = scenePass.getTextureNode('diffuseColor');
-      const scenePassDepth = scenePass.getTextureNode('depth');
-      const scenePassNormal = scenePass.getTextureNode('normal');
-      const scenePassVelocity = scenePass.getTextureNode('velocity');
       const scenePassMetalrough = scenePass.getTextureNode('metalrough');
 
       const metalnessNode = (scenePassMetalrough as TSLNode & { r: TSLNode }).r;
@@ -309,114 +358,125 @@ export class RendererManager implements Disposable {
         lutIntensity: lutIntensityUniform as { value: number },
       };
 
-      // Decoded normal sampler shared across tiers
-      const sceneNormalDecoded = sample((uvNode: unknown) =>
-        colorToDirection((scenePassNormal as { sample: (u: unknown) => unknown }).sample(uvNode) as never),
-      ) as TSLNode;
+      // --- GTAO (computed from opaque pre-pass) + injected via AO context ---
+      const aoPass = gtao(prePassDepth as never, prePassNormalDecoded as never, this.camera) as unknown as {
+        resolutionScale: number;
+        useTemporalFiltering: boolean;
+        getTextureNode: () => { sample: (u: unknown) => unknown };
+      };
+      aoPass.resolutionScale = this.graphicsProfile === 'performance' ? 0.5 : 0.5;
+      aoPass.useTemporalFiltering = true;
 
-      // Helper to build the graph based on quality
-      const buildPipeline = (quality: GraphicsQuality): TSLNode => {
+      const aoSample = (aoPass.getTextureNode() as { sample: (u: unknown) => unknown }).sample(screenUV);
+      // AO-only debug view (grayscale). Mirrors the example's AO-only output.
+      // https://threejs.org/examples/?q=ao#webgpu_postprocessing_ao
+      this.aoOnlyOutputNode = vec4(vec3((aoSample as unknown as { r: unknown }).r as never), float(1) as never) as unknown as TSLNode;
+      // Attach AO to the scene shading pipeline (three.js official pattern).
+      // When disabled, provide a neutral AO factor of 1.
+      scenePass.contextNode = builtinAOContext(
+        this.gtaoEnabled ? ((aoSample as unknown as { r: unknown }).r as never) : (float(1) as never),
+      );
+
+      // Helper to build the graph based on graphics profile.
+      // NOTE: SSGI is intentionally not used. It does not behave well with transparent sprites/UI in this project.
+      const buildPipeline = (profile: GraphicsProfile): TSLNode => {
         this.bloomNodes = []; // Clear to prevent accumulation leak
+        this.ssrNode = null;
         let currentNode = scenePassColor;
 
-        // 1. Lighting / Reflections / GI
-        if (quality === 'high') {
-          // HIGH: SSGI handles GI + reflections + AO in a single unified pass.
-          // SSGI returns vec4(gi_rgb, ao_factor).
-          const giNode = ssgi(scenePassColor as never, scenePassDepth as never, sceneNormalDecoded as never, this.camera);
-          this.ssgiNode = giNode as unknown as InstanceType<typeof import('three/addons/tsl/display/SSGINode.js').default>;
+        // Helper: preserve alpha while manipulating RGB.
+        const keepAlphaWithRgb = (base: TSLNode, rgb: TSLNode): TSLNode =>
+          tslVec4(rgb as never, (base as unknown as { a: TSLNode }).a as never) as TSLNode;
 
-          if (this.ssgiEnabled) {
-            const gi = (giNode as TSLNode & { rgb: TSLNode }).rgb;
-            const ao = (giNode as TSLNode & { a: TSLNode }).a;
-            const sceneRgb = (scenePassColor as TSLNode & { rgb: TSLNode }).rgb;
-            const diffuseRgb = (scenePassDiffuse as TSLNode & { rgb: TSLNode }).rgb;
-            const sceneAlpha = (scenePassColor as TSLNode & { a: TSLNode }).a;
+        const currentRgb = (): TSLNode => (currentNode as unknown as { rgb: TSLNode }).rgb;
 
-            // Composite: direct_light * ao + diffuse * gi
-            currentNode = tslVec4(
-              add(
-                (sceneRgb as { mul: (n: TSLNode) => TSLNode }).mul(ao) as never,
-                (diffuseRgb as { mul: (n: TSLNode) => TSLNode }).mul(gi) as never,
-              ) as never,
-              sceneAlpha as never,
-            ) as TSLNode;
+        // 1) Reflections (SSR) — run against opaque pre-pass depth/normal.
+        if (this.ssrEnabled && profile !== 'performance') {
+          const ssrNode = ssr(
+            scenePassColor as never,
+            prePassDepth as never,
+            prePassNormalDecoded as never,
+            metalnessNode as never,
+            roughnessNode as never,
+            this.camera,
+          ) as TSLNode;
+
+          (ssrNode as unknown as { resolutionScale: number }).resolutionScale = this.ssrResolutionScale;
+          const u = ssrNode as unknown as {
+            maxDistance: { value: number };
+            thickness: { value: number };
+            quality: { value: number };
+          };
+          if (profile === 'cinematic') {
+            u.maxDistance.value = 24;
+            u.thickness.value = 0.22;
+            u.quality.value = 0.65;
+          } else {
+            // balanced
+            u.maxDistance.value = 18;
+            u.thickness.value = 0.18;
+            u.quality.value = 0.5;
           }
+          this.ssrNode = ssrNode;
 
-        } else if (quality === 'medium') {
-          // MEDIUM: SSR + GTAO (separate passes, traditional console-era pipeline)
-          this.ssgiNode = null;
+          // Mask reflections to avoid noisy speckles on rough / barely-metal surfaces.
+          const metalMask = smoothstep(float(0.12), float(0.35), metalnessNode as never) as TSLNode;
+          const roughMask = (float(1) as { sub: (n: TSLNode) => TSLNode }).sub(
+            smoothstep(float(0.35), float(0.85), roughnessNode as never) as TSLNode,
+          ) as TSLNode;
+          const reflectMask = (metalMask as { mul: (n: TSLNode) => TSLNode }).mul(roughMask as TSLNode) as TSLNode;
 
-          // SSR
-          if (this.ssrEnabled) {
-            const ssrResult = ssr(
-              scenePassColor as never,
-              scenePassDepth as never,
-              sceneNormalDecoded as never,
-              metalnessNode as never,
-              roughnessNode as never,
-              this.camera
-            ) as TSLNode;
+          const reflectTerm = ((ssrNode as unknown as { mul: (n: TSLNode) => TSLNode })
+            .mul(ssrOpacityUniform as never) as { mul: (n: TSLNode) => TSLNode })
+            .mul(reflectMask as never) as unknown as { rgb: TSLNode };
 
-            const blurredSSR = hashBlur(ssrResult as never, roughnessNode as never, {
-              repeats: 4,
-              premultipliedAlpha: true
-            } as any) as TSLNode;
-
-            currentNode = mix(currentNode as never, blurredSSR as never, ssrOpacityUniform as never) as TSLNode;
-          }
-
-          // GTAO
-          if (this.gtaoEnabled) {
-            const aoResult = gtao(scenePassDepth as never, sceneNormalDecoded as never, this.camera);
-            // GTAO uses RedFormat — extract .r channel to avoid red tint
-            currentNode = (currentNode as { mul: (n: TSLNode) => TSLNode }).mul((aoResult as unknown as { r: TSLNode }).r);
-          }
-
-        } else {
-          // LOW: GTAO only — minimal fragment shader overhead
-          this.ssgiNode = null;
-
-          if (this.gtaoEnabled) {
-            const aoResult = gtao(scenePassDepth as never, sceneNormalDecoded as never, this.camera);
-            currentNode = (currentNode as { mul: (n: TSLNode) => TSLNode }).mul((aoResult as unknown as { r: TSLNode }).r);
-          }
+          const nextRgb = add(currentRgb() as never, reflectTerm.rgb as never) as TSLNode;
+          currentNode = keepAlphaWithRgb(currentNode, nextRgb);
         }
 
-        // 2. Bloom (Medium/High only)
-        if (this.bloomEnabled && quality !== 'low') {
+        // 2) Bloom (Balanced/Cinematic)
+        if (this.bloomEnabled && profile !== 'performance') {
           const bloomNode = bloom(currentNode as never, this.bloomStrength, 0.4, 0.2) as TSLNode & { strength: { value: number } };
           this.bloomNodes.push(bloomNode);
-          currentNode = add(currentNode as never, bloomNode as never) as TSLNode;
+          const bloomRgb = (bloomNode as unknown as { rgb: TSLNode }).rgb;
+          const nextRgb = add(currentRgb() as never, bloomRgb as never) as TSLNode;
+          currentNode = keepAlphaWithRgb(currentNode, nextRgb);
         }
 
-        // 3. Anti-aliasing
-        if (quality === 'high') {
-          // TRAA is mandatory in HIGH tier — it is the temporal denoiser for SSGI's
-          // low sample count. Without it, SSGI output is pure noise.
-          currentNode = traa(currentNode as never, scenePassDepth as never, scenePassVelocity as never, this.camera) as TSLNode;
-        } else if (quality === 'medium') {
-          if (this.antiAliasingMode === 'taa' && this.traaEnabled) {
-            currentNode = traa(currentNode as never, scenePassDepth as never, scenePassVelocity as never, this.camera) as TSLNode;
-          } else if (this.antiAliasingMode === 'fxaa' || this.antiAliasingMode === 'smaa') {
+        // 3) Anti-aliasing
+        switch (this.antiAliasingMode) {
+          case 'none':
+            break;
+          case 'smaa':
+            // Official usage pattern: `smaa( node )` (see webgpu_postprocessing_ssr).
+            currentNode = smaa(currentNode as never) as TSLNode;
+            break;
+          case 'fxaa':
             currentNode = fxaa(currentNode as never) as TSLNode;
-          }
-        } else if (quality === 'low') {
-          if (this.antiAliasingMode !== 'none') {
-            currentNode = fxaa(currentNode as never) as TSLNode;
-          }
+            break;
+          case 'taa':
+          default:
+            // In this project, "taa" maps to TRAA when enabled (temporal reprojection AA).
+            // If disabled, fall back to FXAA so the mode still has an effect.
+            currentNode = this.traaEnabled
+              ? (traa(currentNode as never, prePassDepth as never, prePassVelocity as never, this.camera) as TSLNode)
+              : (fxaa(currentNode as never) as TSLNode);
+            break;
         }
 
-        // 4. Final Grading (Vignette + LUT + Tone Mapping)
+        // 4) Final Grading (Vignette + LUT + Tone Mapping)
         currentNode = applyFinalGrade(currentNode);
 
         return currentNode;
       };
 
-      // Initialize with current quality
-      const initialGraph = buildPipeline(this.graphicsQuality);
+      // Initialize with current profile
+      const initialGraph = buildPipeline(this.graphicsProfile);
 
-      const postProcessing = new PostProcessing(wgpuRenderer, initialGraph as never);
+      const postProcessing = new PostProcessing(
+        wgpuRenderer,
+        (this.aoOnlyView && this.aoOnlyOutputNode ? this.aoOnlyOutputNode : initialGraph) as never,
+      );
       // We call renderOutput() manually in applyFinalGrade() — disable the automatic
       // color transform to prevent double tone mapping + color space conversion.
       (postProcessing as any).outputColorTransform = false;
@@ -434,7 +494,6 @@ export class RendererManager implements Disposable {
       // Fallback: constructor already created a WebGLRenderer; we keep it and render via render().
       // When init() succeeds, WebGPURenderer may still use WebGL2 backend internally if WebGPU is unavailable.
       this.postProcessing = null;
-      this.ssgiNode = null;
       this.bloomNodes = [];
       this.postFXUniforms = null;
       const pmremGenerator = new THREE.PMREMGenerator(this.renderer as THREE.WebGLRenderer);
@@ -493,21 +552,85 @@ export class RendererManager implements Disposable {
     }
   }
 
-  setGraphicsQuality(quality: GraphicsQuality): void {
-    this.graphicsQuality = quality;
+  setGraphicsProfile(profile: GraphicsProfile): void {
+    this.graphicsProfile = profile;
+    this.applyGraphicsProfileDefaults(profile);
     this.applyQualitySettings();
+  }
+
+  private applyGraphicsProfileDefaults(profile: GraphicsProfile): void {
+    // These defaults define the 3 player-facing profiles.
+    // They intentionally do NOT touch persisted settings like resolutionScale or aaMode.
+    if (profile === 'performance') {
+      this.gtaoEnabled = false;
+      this.ssrEnabled = false;
+      this.traaEnabled = false;
+      this.bloomEnabled = false;
+      this.bloomStrength = 0.0;
+      this.vignetteEnabled = false;
+      this.lutEnabled = true;
+      this.lutStrength = 0.28;
+      // Keep SSR params in a safe baseline if user enables it manually.
+      this.ssrOpacity = 0.35;
+      this.ssrResolutionScale = 0.45;
+      return;
+    }
+
+    if (profile === 'balanced') {
+      this.gtaoEnabled = true;
+      this.ssrEnabled = false;
+      this.traaEnabled = true;
+      this.bloomEnabled = true;
+      this.bloomStrength = 0.02;
+      this.vignetteEnabled = true;
+      this.vignetteDarkness = 0.38;
+      this.lutEnabled = true;
+      this.lutStrength = 0.38;
+      this.ssrOpacity = 0.45;
+      this.ssrResolutionScale = 0.55;
+      return;
+    }
+
+    // cinematic
+    this.gtaoEnabled = true;
+    this.ssrEnabled = true;
+    this.traaEnabled = true;
+    this.bloomEnabled = true;
+    this.bloomStrength = 0.035;
+    this.vignetteEnabled = true;
+    this.vignetteDarkness = 0.42;
+    this.lutEnabled = true;
+    this.lutStrength = 0.42;
+    this.ssrOpacity = 0.6;
+    this.ssrResolutionScale = 0.75;
   }
 
   setPostProcessingEnabled(enabled: boolean): void {
     this.postProcessingEnabled = enabled;
   }
 
+  setAoOnlyView(enabled: boolean): void {
+    this.aoOnlyView = enabled;
+    // Fast path: if WebGPU post-processing exists, just swap the output node.
+    // (applyQualitySettings will also re-apply this on rebuild.)
+    if (this.isWebGPUPipeline && this.postProcessing && this.aoOnlyOutputNode) {
+      if (enabled) {
+        (this.postProcessing as { outputNode: TSLNode }).outputNode = this.aoOnlyOutputNode;
+      } else if ((this as any)._buildPipeline) {
+        (this.postProcessing as { outputNode: TSLNode }).outputNode = (this as any)._buildPipeline(this.graphicsProfile);
+        // Toggling AO-only off rebuilds the graph; re-apply the cached LUT to the new Lut3DNode.
+        this.applyLutFromCache(this.lutName);
+      }
+      this.postProcessing.needsUpdate = true;
+    }
+  }
+
   setShadowsEnabled(enabled: boolean): void {
     this.shadowsEnabled = enabled;
-    // Keep renderer.shadowMap.enabled always true to avoid WebGPU ShadowNode seeing null depthTexture when toggling back on.
-    // Toggling lights' castShadow (via LevelManager) controls whether shadows are actually cast.
-    this.renderer.shadowMap.enabled = true;
-    if (enabled && this.postProcessing) {
+    // Use renderer.shadowMap.enabled as the global shadow toggle.
+    // LevelManager keeps light.castShadow stable to avoid WebGPU "destroyed texture" hazards.
+    this.renderer.shadowMap.enabled = enabled;
+    if (this.postProcessing) {
       (this.postProcessing as { needsUpdate: boolean }).needsUpdate = true;
       const sm = this.renderer.shadowMap as { needsUpdate?: boolean };
       if (typeof sm.needsUpdate !== 'undefined') sm.needsUpdate = true;
@@ -596,6 +719,7 @@ export class RendererManager implements Disposable {
   setSsrResolutionScale(value: number): void {
     if (!Number.isFinite(value)) return;
     this.ssrResolutionScale = THREE.MathUtils.clamp(value, 0.25, 1);
+    this.applyQualitySettings();
   }
 
   setBloomEnabled(enabled: boolean): void {
@@ -701,69 +825,23 @@ export class RendererManager implements Disposable {
     }
   }
 
-  setSsgiEnabled(enabled: boolean): void {
-    this.ssgiEnabled = enabled;
-    this.applyQualitySettings();
-  }
-
-  setSsgiPreset(preset: SSGIPreset): void {
-    this.ssgiPreset = preset;
-    this.applySSGIPreset(preset);
-  }
-
-  setSsgiRadius(value: number): void {
-    if (!Number.isFinite(value)) return;
-    this.ssgiRadius = THREE.MathUtils.clamp(value, 1, 25);
-    this.updateSSGIControls();
-  }
-
-  setSsgiGiIntensity(value: number): void {
-    if (!Number.isFinite(value)) return;
-    this.ssgiGiIntensity = THREE.MathUtils.clamp(value, 0, 100);
-    this.updateSSGIControls();
-  }
-
   setTraaEnabled(enabled: boolean): void {
     this.traaEnabled = enabled;
     this.applyQualitySettings();
-  }
-
-  private applySSGIPreset(preset: SSGIPreset): void {
-    if (!this.ssgiNode) return;
-    const u = this.ssgiNode as { sliceCount: { value: number }; stepCount: { value: number } };
-    if (preset === 'low') {
-      u.sliceCount.value = 1;
-      u.stepCount.value = 12;
-    } else if (preset === 'medium') {
-      u.sliceCount.value = 2;
-      u.stepCount.value = 8;
-    } else {
-      u.sliceCount.value = 3;
-      u.stepCount.value = 16;
-    }
-  }
-
-  private updateSSGIControls(): void {
-    if (!this.ssgiNode) return;
-    const u = this.ssgiNode as {
-      radius: { value: number };
-      giIntensity: { value: number };
-    };
-    u.radius.value = this.ssgiRadius;
-    u.giIntensity.value = this.ssgiGiIntensity;
   }
 
   getRenderStats(): Readonly<{ drawCalls: number; triangles: number; lines: number; points: number }> {
     return this.lastRenderStats;
   }
 
-  /** Returns current flags; SSGI/TRAA reflect *effective* state (after quality budget) so UI stays in sync. */
+  /** Returns current flags (effective state). */
   getDebugFlags(): Readonly<{
     postProcessingEnabled: boolean;
     shadowsEnabled: boolean;
     exposure: number;
-    graphicsQuality: GraphicsQuality;
+    graphicsProfile: GraphicsProfile;
     aaMode: AntiAliasingMode;
+    aoOnly: boolean;
     ssaoEnabled: boolean;
     ssrEnabled: boolean;
     ssrOpacity: number;
@@ -776,27 +854,17 @@ export class RendererManager implements Disposable {
     lutStrength: number;
     lutName: string;
     lutReady: boolean;
-    ssgiEnabled: boolean;
-    ssgiPreset: SSGIPreset;
-    ssgiRadius: number;
-    ssgiGiIntensity: number;
     traaEnabled: boolean;
     envName: string;
   }> {
-    const ssgiBudget = this.graphicsQuality === 'high' && this.ssgiEnabled;
-    const effectiveSsgi = !!(this.postProcessingEnabled && this.isWebGPUPipeline && ssgiBudget);
-    // In HIGH tier, TRAA is mandatory (denoiser for SSGI). In MEDIUM, it's user-toggleable.
-    const effectiveTraa = !!(
-      this.postProcessingEnabled &&
-      this.isWebGPUPipeline &&
-      (this.graphicsQuality === 'high' || (this.graphicsQuality === 'medium' && this.traaEnabled))
-    );
+    const effectiveTraa = !!(this.postProcessingEnabled && this.isWebGPUPipeline && this.traaEnabled);
     return {
       postProcessingEnabled: this.postProcessingEnabled,
       shadowsEnabled: this.shadowsEnabled,
       exposure: this.toneExposure,
-      graphicsQuality: this.graphicsQuality,
+      graphicsProfile: this.graphicsProfile,
       aaMode: this.antiAliasingMode,
+      aoOnly: this.aoOnlyView,
       ssaoEnabled: this.gtaoEnabled,
       ssrEnabled: this.ssrEnabled,
       ssrOpacity: this.ssrOpacity,
@@ -809,18 +877,13 @@ export class RendererManager implements Disposable {
       lutStrength: this.lutStrength,
       lutName: this.lutName,
       lutReady: this.lutReady,
-      ssgiEnabled: effectiveSsgi,
-      ssgiPreset: this.ssgiPreset,
-      ssgiRadius: this.ssgiRadius,
-      ssgiGiIntensity: this.ssgiGiIntensity,
       traaEnabled: effectiveTraa,
       envName: this.envName,
     };
   }
 
   /**
-   * Syncs quality state: post-FX uniforms, pixel ratio, SSGI preset,
-   * rebuilds the TSL node graph for the current tier, and runs handleResize().
+   * Syncs post-FX uniforms, pixel ratio budget, rebuilds the node graph, and resizes.
    */
   private applyQualitySettings(): void {
     // 1. Sync uniforms (cheap — no graph rebuild)
@@ -829,22 +892,21 @@ export class RendererManager implements Disposable {
       this.postFXUniforms.vignetteDarkness.value = this.vignetteEnabled ? this.vignetteDarkness : 0;
       this.postFXUniforms.lutIntensity.value = this.lutEnabled ? this.lutStrength : 0;
     }
+    if (this.ssrNode) {
+      // Keep SSR resolution scale in sync with runtime controls.
+      (this.ssrNode as unknown as { resolutionScale: number }).resolutionScale = this.ssrResolutionScale;
+    }
 
-    // 2. Cap pixel ratio by quality to avoid runaway GPU cost
-    const maxPR = this.graphicsQuality === 'low' ? 1 : this.graphicsQuality === 'medium' ? 1.5 : 2;
+    // 2. Cap pixel ratio by profile to avoid runaway GPU cost
+    const maxPR = this.graphicsProfile === 'performance' ? 1 : this.graphicsProfile === 'balanced' ? 1.5 : 2;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPR) * this.resolutionScale);
     this.renderer.shadowMap.enabled = true;
 
-    // 3. Sync SSGI preset/controls if node exists
-    if (this.ssgiNode) {
-      this.applySSGIPreset(this.graphicsQuality === 'high' ? this.ssgiPreset : 'low');
-      this.updateSSGIControls();
-    }
-
-    // 4. Rebuild the TSL node graph for the current tier
+    // 3. Rebuild the TSL node graph for the current profile
     if (this.isWebGPUPipeline && this.postProcessing && (this as any)._buildPipeline) {
-      const newGraph = (this as any)._buildPipeline(this.graphicsQuality);
-      (this.postProcessing as { outputNode: TSLNode }).outputNode = newGraph;
+      const finalGraph = (this as any)._buildPipeline(this.graphicsProfile) as TSLNode;
+      const outputNode = this.aoOnlyView && this.aoOnlyOutputNode ? this.aoOnlyOutputNode : finalGraph;
+      (this.postProcessing as { outputNode: TSLNode }).outputNode = outputNode;
       this.postProcessing.needsUpdate = true;
 
       // Re-apply the cached LUT to the new Lut3DNode (rebuild creates a placeholder)
@@ -854,8 +916,8 @@ export class RendererManager implements Disposable {
     this.handleResize();
   }
 
-  getGraphicsQuality(): GraphicsQuality {
-    return this.graphicsQuality;
+  getGraphicsProfile(): GraphicsProfile {
+    return this.graphicsProfile;
   }
 
   /** Batch-load all LUT presets at startup. */
@@ -906,7 +968,6 @@ export class RendererManager implements Disposable {
       (this.postProcessing as { dispose: () => void }).dispose();
     }
     this.postProcessing = null;
-    this.ssgiNode = null;
     this.bloomNodes = [];
     this.postFXUniforms = null;
     this.lutPassNode = null;

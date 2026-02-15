@@ -9,7 +9,18 @@ export interface VehicleController extends FixedUpdatable, PostPhysicsUpdatable,
   readonly mesh: THREE.Object3D;
   readonly exitOffset: THREE.Vector3;
   readonly cameraConfig: Partial<CameraConfig>;
+  /**
+   * Controls how the orbit camera consumes look input while this vehicle is active.
+   * - full: normal orbit (yaw + pitch)
+   * - yawOnly: consume X for yaw, keep pitch stable (use look Y for vehicle-specific controls)
+   */
+  readonly cameraLookMode?: 'full' | 'yawOnly';
   enter(input: InputState): void;
   exit(): SpawnPointData;
   setInput(input: InputState): void;
+  /**
+   * Optional: when implemented, the vehicle can steer relative to the player's camera.
+   * The orbit camera always owns raw mouse look; vehicles can follow the camera yaw.
+   */
+  setControlYaw?(yaw: number): void;
 }

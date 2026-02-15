@@ -46,6 +46,9 @@ export class PhysicsRope implements IInteractable {
   private readonly segmentBodies: RAPIER.RigidBody[] = [];
   private readonly segmentColliders: RAPIER.Collider[] = [];
   private readonly segmentMeshes: THREE.Mesh[] = [];
+  private readonly prevSegmentPos: THREE.Vector3[] = [];
+  private readonly currSegmentPos: THREE.Vector3[] = [];
+  private hasPose = false;
   private readonly joints: RAPIER.ImpulseJoint[] = [];
   private readonly jointBallMaterial: THREE.MeshStandardMaterial;
   private readonly ropeTopY: number;
@@ -104,6 +107,8 @@ export class PhysicsRope implements IInteractable {
     anchorMesh.position.copy(anchorPosition);
     this.root.add(anchorMesh);
     this.segmentMeshes.push(anchorMesh);
+    this.prevSegmentPos.push(anchorPosition.clone());
+    this.currSegmentPos.push(anchorPosition.clone());
 
     let prevBody: RAPIER.RigidBody = this.anchorBody;
     for (let i = 0; i < this.segmentCount; i++) {
@@ -134,6 +139,8 @@ export class PhysicsRope implements IInteractable {
       mesh.position.set(anchorPosition.x, y, anchorPosition.z);
       this.root.add(mesh);
       this.segmentMeshes.push(mesh);
+      this.prevSegmentPos.push(mesh.position.clone());
+      this.currSegmentPos.push(mesh.position.clone());
 
       const joint = physicsWorld.world.createImpulseJoint(
         RAPIER.JointData.spherical(
@@ -195,12 +202,7 @@ export class PhysicsRope implements IInteractable {
       );
     }
 
-    for (let i = 0; i < this.segmentBodies.length; i++) {
-      const body = this.segmentBodies[i];
-      const mesh = this.segmentMeshes[i + 1];
-      const p = body.translation();
-      mesh.position.set(p.x, p.y, p.z);
-    }
+    // Segment meshes are updated with render interpolation in renderUpdate(alpha).
 
     this.climbStepCooldown = Math.max(0, this.climbStepCooldown - _dt);
 
@@ -212,6 +214,37 @@ export class PhysicsRope implements IInteractable {
 
     this.updateInteractionPositionFromAttachedSegment();
     this.handleAttachedInput(this.attachedPlayer.lastInputSnapshot);
+  }
+
+  postPhysicsUpdate(): void {
+    // Capture physics poses for smooth render interpolation.
+    // Mesh snapping at fixed-step (60Hz) produces jitter when the camera/player are interpolated each frame.
+    const a = this.anchorBody.translation();
+    if (!this.hasPose) {
+      this.prevSegmentPos[0].set(a.x, a.y, a.z);
+      this.currSegmentPos[0].set(a.x, a.y, a.z);
+      for (let i = 0; i < this.segmentBodies.length; i++) {
+        const p = this.segmentBodies[i].translation();
+        this.prevSegmentPos[i + 1].set(p.x, p.y, p.z);
+        this.currSegmentPos[i + 1].set(p.x, p.y, p.z);
+      }
+      this.hasPose = true;
+      return;
+    }
+    this.prevSegmentPos[0].copy(this.currSegmentPos[0]);
+    this.currSegmentPos[0].set(a.x, a.y, a.z);
+    for (let i = 0; i < this.segmentBodies.length; i++) {
+      const p = this.segmentBodies[i].translation();
+      this.prevSegmentPos[i + 1].copy(this.currSegmentPos[i + 1]);
+      this.currSegmentPos[i + 1].set(p.x, p.y, p.z);
+    }
+  }
+
+  renderUpdate(alpha: number): void {
+    if (!this.hasPose) return;
+    for (let i = 0; i < this.segmentMeshes.length; i++) {
+      this.segmentMeshes[i].position.lerpVectors(this.prevSegmentPos[i], this.currSegmentPos[i], alpha);
+    }
   }
 
   onFocus(): void {

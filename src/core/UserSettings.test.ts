@@ -46,25 +46,25 @@ describe('UserSettingsStore', () => {
       rawMouseInput: true,
       gamepadDeadzone: 1,
       gamepadCurve: 0.1,
-      graphicsQuality: 'low',
+      graphicsProfile: 'performance',
     });
 
     const loaded = UserSettingsStore.load();
     expect(loaded.value.invertY).toBe(true);
     expect(loaded.value.rawMouseInput).toBe(true);
-    expect(loaded.value.graphicsQuality).toBe('low');
+    expect(loaded.value.graphicsProfile).toBe('performance');
     expect(loaded.value.mouseSensitivity).toBeLessThanOrEqual(0.01);
     expect(loaded.value.cameraFov).toBeGreaterThanOrEqual(50);
     expect(loaded.value.gamepadDeadzone).toBeLessThanOrEqual(0.4);
     expect(loaded.value.gamepadCurve).toBeGreaterThanOrEqual(0.6);
   });
 
-  it('cycles graphics quality order low -> medium -> high', () => {
+  it('cycles graphics profiles in order', () => {
     const settings = UserSettingsStore.load();
-    settings.update({ graphicsQuality: 'low' });
-    expect(settings.cycleGraphicsQuality().graphicsQuality).toBe('medium');
-    expect(settings.cycleGraphicsQuality().graphicsQuality).toBe('high');
-    expect(settings.cycleGraphicsQuality().graphicsQuality).toBe('low');
+    settings.update({ graphicsProfile: 'performance' });
+    expect(settings.cycleGraphicsProfile().graphicsProfile).toBe('balanced');
+    expect(settings.cycleGraphicsProfile().graphicsProfile).toBe('cinematic');
+    expect(settings.cycleGraphicsProfile().graphicsProfile).toBe('performance');
   });
 });
 

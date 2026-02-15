@@ -30,6 +30,10 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
     return this.active !== null;
   }
 
+  getCameraLookMode(): 'full' | 'yawOnly' {
+    return this.active?.cameraLookMode ?? 'full';
+  }
+
   setInput(input: InputState): void {
     this.lastInput = input;
     if (this.active) {
@@ -43,7 +47,17 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
   }
 
   fixedUpdate(dt: number): void {
-    this.active?.fixedUpdate(dt);
+    if (this.active?.setControlYaw) {
+      this.active.setControlYaw(this.camera.getYaw());
+    }
+    if (this.active) {
+      this.active.fixedUpdate(dt);
+      return;
+    }
+    // Keep parked vehicles simulating (e.g., drone auto-landing).
+    for (const vehicle of this.vehicles.values()) {
+      vehicle.fixedUpdate(dt);
+    }
   }
 
   postPhysicsUpdate(dt: number): void {
@@ -58,7 +72,14 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
   }
 
   update(dt: number, alpha: number): void {
-    this.active?.update(dt, alpha);
+    if (this.active) {
+      this.active.update(dt, alpha);
+      return;
+    }
+    // Keep parked vehicle visuals smooth (e.g., drone auto-landing).
+    for (const vehicle of this.vehicles.values()) {
+      vehicle.update(dt, alpha);
+    }
   }
 
   dispose(): void {

@@ -157,6 +157,7 @@ export class InteractionManager implements FixedUpdatable, Disposable {
     this.focusedLabel = label;
     if (!closestId) {
       this.holdInteraction = null;
+      this.eventBus.emit('interaction:holdProgress', null);
     }
     this.eventBus.emit('interaction:focusChanged', { id: closestId, label });
   }
@@ -186,6 +187,7 @@ export class InteractionManager implements FixedUpdatable, Disposable {
         elapsed: 0,
         duration,
       };
+      this.eventBus.emit('interaction:holdProgress', { id: target.id, progress: 0 });
       return;
     }
 
@@ -201,12 +203,14 @@ export class InteractionManager implements FixedUpdatable, Disposable {
     if (!this.holdInteraction) return;
     if (!this.focusedId || this.holdInteraction.id !== this.focusedId) {
       this.holdInteraction = null;
+      this.eventBus.emit('interaction:holdProgress', null);
       return;
     }
 
     const input = this.player.lastInputSnapshot;
     if (!input?.interact) {
       this.holdInteraction = null;
+      this.eventBus.emit('interaction:holdProgress', null);
       return;
     }
 
@@ -217,8 +221,13 @@ export class InteractionManager implements FixedUpdatable, Disposable {
     }
 
     this.holdInteraction.elapsed += dt;
+    this.eventBus.emit('interaction:holdProgress', {
+      id: this.holdInteraction.id,
+      progress: Math.max(0, Math.min(1, this.holdInteraction.elapsed / this.holdInteraction.duration)),
+    });
     if (this.holdInteraction.elapsed >= this.holdInteraction.duration) {
       this.holdInteraction = null;
+      this.eventBus.emit('interaction:holdProgress', null);
       this.executeInteraction(target);
     }
   }
@@ -243,6 +252,7 @@ export class InteractionManager implements FixedUpdatable, Disposable {
       this.focusedId = null;
       this.focusedLabel = null;
     }
+    this.eventBus.emit('interaction:holdProgress', null);
 
     this.physicsWorld.removeCollider(this.playerSensor);
 
@@ -258,6 +268,7 @@ export class InteractionManager implements FixedUpdatable, Disposable {
     if (!enabled) {
       this.updateFocus(null);
       this.holdInteraction = null;
+      this.eventBus.emit('interaction:holdProgress', null);
     }
   }
 }

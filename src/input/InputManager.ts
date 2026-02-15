@@ -38,6 +38,7 @@ export class InputManager implements Disposable {
   private gamepadDeadzone = 0.12;
   private gamepadCurve = 1.4;
   private inputSuppressed = false;
+  private editorActive = false;
 
   private _onKeyDown = this.handleKeyDown.bind(this);
   private _onKeyUp = this.handleKeyUp.bind(this);
@@ -66,6 +67,12 @@ export class InputManager implements Disposable {
     });
     this.eventBus.on('menu:closed', () => {
       this.inputSuppressed = false;
+    });
+    this.eventBus.on('editor:opened', () => {
+      this.editorActive = true;
+    });
+    this.eventBus.on('editor:closed', () => {
+      this.editorActive = false;
     });
   }
 
@@ -181,6 +188,7 @@ export class InputManager implements Disposable {
   }
 
   private handleClick(): void {
+    if (this.editorActive) return;
     if (!this.locked) {
       if (this.rawMouseInput) {
         const request = this.canvas.requestPointerLock.bind(this.canvas) as unknown as (

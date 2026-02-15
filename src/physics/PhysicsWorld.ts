@@ -38,22 +38,26 @@ export class PhysicsWorld implements Disposable {
     rotation: RAPIER.Quaternion,
     direction: RAPIER.Vector3,
     shape: RAPIER.Shape,
+    targetDistance: number,
     maxToi: number,
     excludeCollider?: RAPIER.Collider,
     excludeRigidBody?: RAPIER.RigidBody,
+    filterGroups?: number,
+    filterPredicate?: (collider: RAPIER.Collider) => boolean,
   ): RAPIER.ColliderShapeCastHit | null {
     return this.world.castShape(
       origin,
       rotation,
       direction,       // shapeVel
       shape,
-      0,               // targetDistance
+      targetDistance,
       maxToi,
       true,            // stopAtPenetration
       undefined,       // filterFlags
-      undefined,       // filterGroups
+      filterGroups,    // filterGroups
       excludeCollider, // filterExcludeCollider
       excludeRigidBody, // filterExcludeRigidBody
+      filterPredicate,
     );
   }
 

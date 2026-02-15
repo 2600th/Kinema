@@ -153,6 +153,7 @@ export interface EventMap {
   'interaction:pickUp': { object: ThrowableObject };
   'interaction:throw': { direction: THREE.Vector3; force: number };
   'interaction:drop': undefined;
+  'interaction:holdProgress': { id: string; progress: number } | null;
   'checkpoint:activated': { id: string; position: { x: number; y: number; z: number } };
   'objective:set': { id: string; text: string };
   'objective:completed': { id: string; text: string };
@@ -170,7 +171,8 @@ export interface EventMap {
   'debug:shadows': boolean;
   'debug:cameraCollision': boolean;
   'debug:exposure': number;
-  'debug:graphicsQuality': { quality: 'low' | 'medium' | 'high' };
+  'debug:graphicsProfile': { profile: 'performance' | 'balanced' | 'cinematic' };
+  'debug:aoOnly': boolean;
   'debug:aaMode': { mode: 'smaa' | 'fxaa' | 'taa' | 'none' };
   'debug:ssaoEnabled': boolean;
   'debug:ssrEnabled': boolean;
@@ -183,15 +185,14 @@ export interface EventMap {
   'debug:lutEnabled': boolean;
   'debug:lutStrength': number;
   'debug:lutName': string;
-  'debug:ssgiEnabled': boolean;
-  'debug:ssgiPreset': 'low' | 'medium' | 'high';
-  'debug:ssgiRadius': number;
-  'debug:ssgiGiIntensity': number;
   'debug:traaEnabled': boolean;
   'debug:envBackgroundIntensity': number;
   'debug:envBackgroundBlurriness': number;
   'debug:environment': string;
+  'debug:showShadowFrustums': boolean;
   'editor:toggle': undefined;
+  'editor:opened': undefined;
+  'editor:closed': undefined;
   'editor:objectSelected': { id: string } | null;
   'editor:objectAdded': { id: string };
   'editor:objectRemoved': { id: string };

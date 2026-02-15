@@ -1,5 +1,5 @@
 import type { EventBus } from '@core/EventBus';
-import type { UserSettingsStore, GraphicsQuality, AntiAliasingMode } from '@core/UserSettings';
+import type { UserSettingsStore, GraphicsProfile, AntiAliasingMode } from '@core/UserSettings';
 import type { InputManager } from '@input/InputManager';
 import type { OrbitFollowCamera } from '@camera/OrbitFollowCamera';
 import type { RendererManager } from '@renderer/RendererManager';
@@ -80,7 +80,7 @@ export class SettingsMenu {
   }
 
   private buildControlsSection(): void {
-    const { settings, inputManager, camera } = this.options;
+    const { settings, inputManager, camera, renderer } = this.options;
 
     this.controlsSection.appendChild(
       this.createSlider(
@@ -107,6 +107,15 @@ export class SettingsMenu {
       this.createToggle('Raw mouse input', settings.value.rawMouseInput, (value) => {
         const s = settings.update({ rawMouseInput: value });
         inputManager.setRawMouseInput(s.rawMouseInput);
+      }),
+    );
+
+    this.controlsSection.appendChild(
+      this.createSlider('Camera FOV', settings.value.cameraFov, 60, 75, 1, (value) => {
+        const s = settings.update({ cameraFov: value });
+        renderer.camera.fov = s.cameraFov;
+        camera.setBaseFov(s.cameraFov);
+        renderer.camera.updateProjectionMatrix();
       }),
     );
 
@@ -144,8 +153,8 @@ export class SettingsMenu {
     const flags = renderer.getDebugFlags();
 
     this.graphicsSection.appendChild(
-      this.createSelect('Quality preset', settings.value.graphicsQuality, ['low', 'medium', 'high'], (value) => {
-        eventBus.emit('debug:graphicsQuality', { quality: value as GraphicsQuality });
+      this.createSelect('Graphics profile', settings.value.graphicsProfile, ['performance', 'balanced', 'cinematic'], (value) => {
+        eventBus.emit('debug:graphicsProfile', { profile: value as GraphicsProfile });
       }),
     );
 

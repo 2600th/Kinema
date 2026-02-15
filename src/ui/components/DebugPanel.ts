@@ -1,18 +1,16 @@
-import Stats from 'three/addons/libs/stats.module.js';
 import type { EventBus } from '@core/EventBus';
 import type { Disposable, StateId } from '@core/types';
 import { LUT_NAMES, ENV_NAMES } from '@renderer/RendererManager';
 
-type GraphicsQuality = 'high' | 'medium' | 'low';
 type AntiAliasingMode = 'smaa' | 'fxaa' | 'taa' | 'none';
-
-type SSGIPreset = 'low' | 'medium' | 'high';
+type GraphicsProfile = 'performance' | 'balanced' | 'cinematic';
 
 interface RenderSettingsSnapshot {
   postProcessingEnabled: boolean;
   shadowsEnabled: boolean;
-  graphicsQuality: GraphicsQuality;
+  graphicsProfile: GraphicsProfile;
   aaMode: AntiAliasingMode;
+  aoOnly: boolean;
   exposure: number;
   ssaoEnabled: boolean;
   ssrEnabled: boolean;
@@ -25,22 +23,19 @@ interface RenderSettingsSnapshot {
   lutEnabled: boolean;
   lutStrength: number;
   lutName: string;
-  ssgiEnabled: boolean;
-  ssgiPreset: SSGIPreset;
-  ssgiRadius: number;
-  ssgiGiIntensity: number;
   traaEnabled: boolean;
   envName: string;
+  shadowFrustums: boolean;
 }
 
 /**
  * Modern debug overlay inspired by recent three.js inspector styles.
  */
 export class DebugPanel implements Disposable {
-  private readonly statsFps: Stats;
-  private readonly statsMs: Stats;
-  private readonly statsMb: Stats;
-  private readonly statsPanels: readonly Stats[];
+  // Lazy-loaded performance graphs (three.js Stats). Kept optional to reduce initial bundle cost.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private statsPanels: any[] = [];
+  private statsLoading: Promise<void> | null = null;
   private readonly graphWrap: HTMLDivElement;
   private readonly panel: HTMLDivElement;
   private readonly metrics: HTMLDivElement;
@@ -62,11 +57,6 @@ export class DebugPanel implements Disposable {
   private visible = false;
 
   constructor(parent: HTMLElement, private eventBus: EventBus) {
-    this.statsFps = this.createStatsPanel(0);
-    this.statsMs = this.createStatsPanel(1);
-    this.statsMb = this.createStatsPanel(2);
-    this.statsPanels = [this.statsFps, this.statsMs, this.statsMb];
-
     this.panel = document.createElement('div');
     this.panel.style.cssText = [
       'position:absolute',
@@ -99,9 +89,7 @@ export class DebugPanel implements Disposable {
 
     this.graphWrap = document.createElement('div');
     this.graphWrap.style.cssText = 'display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;margin-bottom:8px;';
-    this.graphWrap.appendChild(this.statsFps.dom);
-    this.graphWrap.appendChild(this.statsMs.dom);
-    this.graphWrap.appendChild(this.statsMb.dom);
+    this.graphWrap.textContent = 'Graphs will load on first open.';
     this.panel.appendChild(this.graphWrap);
 
     this.metrics = document.createElement('div');
@@ -154,9 +142,18 @@ export class DebugPanel implements Disposable {
       'lightHelpers',
       'Light helpers',
       false,
-      'Shows directional light and shadow camera helpers.',
+      'Shows helpers for all lights (direction, cones, radius) in the scene.',
       (value) => {
         this.eventBus.emit('debug:showLightHelpers', value);
+      },
+    ));
+    runtimeSection.appendChild(this.createCheckbox(
+      'shadowFrustums',
+      'Shadow frustums',
+      false,
+      'Shows shadow camera frustums for shadow-casting lights.',
+      (value) => {
+        this.eventBus.emit('debug:showShadowFrustums', value);
       },
     ));
     runtimeSection.appendChild(this.createCheckbox(
@@ -213,11 +210,11 @@ export class DebugPanel implements Disposable {
     qualitySection.appendChild(this.createSelect(
       'graphics',
       'Graphics',
-      ['high', 'medium', 'low'],
-      'high',
+      ['performance', 'balanced', 'cinematic'],
+      'cinematic',
       'Applies renderer quality presets.',
       (value) => {
-        this.eventBus.emit('debug:graphicsQuality', { quality: value as GraphicsQuality });
+        this.eventBus.emit('debug:graphicsProfile', { profile: value as GraphicsProfile });
       },
     ));
     qualitySection.appendChild(this.createSelect(
@@ -265,51 +262,6 @@ export class DebugPanel implements Disposable {
 
     const postFxSection = this.createSection('Post FX');
     postFxSection.appendChild(this.createCheckbox(
-      'ssgiEnabled',
-      'SSGI (GI + AO)',
-      true,
-      'Toggles screen-space global illumination and ambient occlusion (TSL pipeline).',
-      (value) => {
-        this.eventBus.emit('debug:ssgiEnabled', value);
-      },
-    ));
-    postFxSection.appendChild(this.createSelect(
-      'ssgiPreset',
-      'SSGI quality',
-      ['low', 'medium', 'high'],
-      'medium',
-      'SSGI slice/step preset: low=1/12, medium=2/8, high=3/16.',
-      (value) => {
-        this.eventBus.emit('debug:ssgiPreset', value as SSGIPreset);
-      },
-    ));
-    postFxSection.appendChild(this.createRange(
-      'ssgiRadius',
-      'SSGI radius',
-      1,
-      25,
-      0.5,
-      10,
-      'World-space sampling radius for SSGI.',
-      (value) => {
-        this.eventBus.emit('debug:ssgiRadius', value);
-      },
-      (value) => value.toFixed(1),
-    ));
-    postFxSection.appendChild(this.createRange(
-      'ssgiGiIntensity',
-      'SSGI GI intensity',
-      0,
-      100,
-      1,
-      20,
-      'Indirect diffuse light intensity.',
-      (value) => {
-        this.eventBus.emit('debug:ssgiGiIntensity', value);
-      },
-      (value) => value.toFixed(0),
-    ));
-    postFxSection.appendChild(this.createCheckbox(
       'traaEnabled',
       'TRAA',
       true,
@@ -322,9 +274,18 @@ export class DebugPanel implements Disposable {
       'gtaoEnabled',
       'Ambient Occlusion',
       true,
-      'GTAO ambient occlusion for Medium/Low tiers. In High tier, SSGI handles AO natively.',
+      'GTAO ambient occlusion (screen-space).',
       (value) => {
         this.eventBus.emit('debug:ssaoEnabled', value);
+      },
+    ));
+    postFxSection.appendChild(this.createCheckbox(
+      'aoOnly',
+      'AO only (debug view)',
+      false,
+      'Renders the AO buffer only (grayscale). Useful for debugging AO/shading.',
+      (value) => {
+        this.eventBus.emit('debug:aoOnly', value);
       },
     ));
     postFxSection.appendChild(this.createCheckbox(
@@ -449,13 +410,10 @@ export class DebugPanel implements Disposable {
   syncRenderSettings(settings: RenderSettingsSnapshot): void {
     this.setCheckbox('postProcessing', settings.postProcessingEnabled);
     this.setCheckbox('shadows', settings.shadowsEnabled);
-    this.setSelect('graphics', settings.graphicsQuality);
+    this.setSelect('graphics', settings.graphicsProfile);
     this.setSelect('aaMode', settings.aaMode);
+    this.setCheckbox('aoOnly', settings.aoOnly);
     this.setRange('exposure', settings.exposure);
-    this.setCheckbox('ssgiEnabled', settings.ssgiEnabled);
-    this.setSelect('ssgiPreset', settings.ssgiPreset);
-    this.setRange('ssgiRadius', settings.ssgiRadius);
-    this.setRange('ssgiGiIntensity', settings.ssgiGiIntensity);
     this.setCheckbox('traaEnabled', settings.traaEnabled);
     this.setCheckbox('gtaoEnabled', settings.ssaoEnabled);
     this.setCheckbox('ssrEnabled', settings.ssrEnabled);
@@ -469,34 +427,29 @@ export class DebugPanel implements Disposable {
     this.setRange('lutStrength', settings.lutStrength);
     this.setSelect('lutName', settings.lutName);
     this.setSelect('envName', settings.envName);
-    this.updateVisibility(settings.graphicsQuality);
+    this.setCheckbox('shadowFrustums', settings.shadowFrustums);
+    this.updateVisibility(settings.graphicsProfile);
   }
 
-  private updateVisibility(quality: GraphicsQuality): void {
-    const isHigh = quality === 'high';
-    const isMedium = quality === 'medium';
-    const isLow = quality === 'low';
+  private updateVisibility(profile: GraphicsProfile): void {
+    const isBalanced = profile === 'balanced';
+    const isCinematic = profile === 'cinematic';
 
-    // SSGI: High tier only (handles GI + reflections + AO in one pass)
-    this.setVisible('ssgiEnabled', isHigh);
-    this.setVisible('ssgiPreset', isHigh);
-    this.setVisible('ssgiRadius', isHigh);
-    this.setVisible('ssgiGiIntensity', isHigh);
+    // TRAA: optional in balanced/cinematic tiers.
+    this.setVisible('traaEnabled', isBalanced || isCinematic);
 
-    // TRAA: Medium only (in High it's mandatory/always-on, in Low it's not used)
-    this.setVisible('traaEnabled', isMedium);
+    // SSR: available in balanced/cinematic tiers.
+    this.setVisible('ssrEnabled', isBalanced || isCinematic);
+    this.setVisible('ssrOpacity', isBalanced || isCinematic);
+    this.setVisible('ssrResolutionScale', isBalanced || isCinematic);
 
-    // SSR: Medium tier only (High uses SSGI, Low has no raymarching)
-    this.setVisible('ssrEnabled', isMedium);
-    this.setVisible('ssrOpacity', isMedium);
-    this.setVisible('ssrResolutionScale', isMedium);
+    // GTAO: always available (cheap toggle).
+    this.setVisible('gtaoEnabled', true);
+    this.setVisible('aoOnly', true);
 
-    // GTAO: Medium/Low only (High uses SSGI for AO)
-    this.setVisible('gtaoEnabled', isMedium || isLow);
-
-    // Bloom: High/Medium only
-    this.setVisible('bloomEnabled', isHigh || isMedium);
-    this.setVisible('bloomStrength', isHigh || isMedium);
+    // Bloom: balanced/cinematic.
+    this.setVisible('bloomEnabled', isBalanced || isCinematic);
+    this.setVisible('bloomStrength', isBalanced || isCinematic);
   }
 
   private setVisible(key: string, visible: boolean): void {
@@ -543,25 +496,52 @@ export class DebugPanel implements Disposable {
     this.metricPhysics.textContent = `${perf.physicsMs.toFixed(2)} ms`;
     this.metricDraw.textContent = String(perf.drawCalls);
     this.metricTris.textContent = String(perf.triangles);
-    for (const stats of this.statsPanels) {
-      stats.update();
-    }
+    for (const stats of this.statsPanels) stats.update();
   }
 
   dispose(): void {
     this.panel.remove();
-    for (const stats of this.statsPanels) {
-      stats.dom.remove();
-    }
+    for (const stats of this.statsPanels) stats.dom.remove();
+    this.statsPanels = [];
   }
 
   private syncVisibility(): void {
     this.panel.style.display = this.visible ? 'block' : 'none';
     this.graphWrap.style.display = this.visible && this.graphsEnabled ? 'grid' : 'none';
+    if (this.visible && this.graphsEnabled) {
+      void this.ensureStatsPanels();
+    }
   }
 
-  private createStatsPanel(panelIndex: number): Stats {
-    const stats = new Stats();
+  private async ensureStatsPanels(): Promise<void> {
+    if (this.statsPanels.length > 0) return;
+    if (this.statsLoading) return this.statsLoading;
+    this.graphWrap.textContent = 'Loading graphs…';
+    this.statsLoading = import('three/addons/libs/stats.module.js')
+      .then((mod) => {
+        const StatsCtor = (mod as unknown as { default: new () => any }).default;
+        const fps = this.createStatsPanel(StatsCtor, 0);
+        const ms = this.createStatsPanel(StatsCtor, 1);
+        const mb = this.createStatsPanel(StatsCtor, 2);
+        this.statsPanels = [fps, ms, mb];
+        this.graphWrap.textContent = '';
+        this.graphWrap.appendChild(fps.dom);
+        this.graphWrap.appendChild(ms.dom);
+        this.graphWrap.appendChild(mb.dom);
+      })
+      .catch((err) => {
+        this.graphWrap.textContent = 'Graphs unavailable.';
+        console.warn('[DebugPanel] Failed to load stats graphs:', err);
+      })
+      .finally(() => {
+        this.statsLoading = null;
+      });
+    return this.statsLoading;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private createStatsPanel(StatsCtor: new () => any, panelIndex: number): any {
+    const stats = new StatsCtor();
     stats.showPanel(panelIndex);
     stats.dom.style.position = 'relative';
     stats.dom.style.left = 'auto';

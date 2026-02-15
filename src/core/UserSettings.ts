@@ -1,4 +1,4 @@
-export type GraphicsQuality = 'low' | 'medium' | 'high';
+export type GraphicsProfile = 'performance' | 'balanced' | 'cinematic';
 export type AntiAliasingMode = 'smaa' | 'fxaa' | 'taa' | 'none';
 
 export interface UserSettings {
@@ -7,7 +7,7 @@ export interface UserSettings {
   rawMouseInput: boolean;
   gamepadDeadzone: number;
   gamepadCurve: number;
-  graphicsQuality: GraphicsQuality;
+  graphicsProfile: GraphicsProfile;
   aaMode: AntiAliasingMode;
   resolutionScale: number;
   shadowsEnabled: boolean;
@@ -18,7 +18,7 @@ export interface UserSettings {
 }
 
 const STORAGE_KEY = 'kinema.user-settings.v1';
-const QUALITY_ORDER: readonly GraphicsQuality[] = ['low', 'medium', 'high'] as const;
+const PROFILE_ORDER: readonly GraphicsProfile[] = ['performance', 'balanced', 'cinematic'] as const;
 const MIN_MOUSE_SENSITIVITY = 0.0005;
 const MAX_MOUSE_SENSITIVITY = 0.01;
 const MIN_GAMEPAD_DEADZONE = 0.02;
@@ -38,7 +38,8 @@ export const DEFAULT_USER_SETTINGS: Readonly<UserSettings> = Object.freeze({
   rawMouseInput: false,
   gamepadDeadzone: 0.12,
   gamepadCurve: 1.4,
-  graphicsQuality: 'high',
+  // Default aims for the best "out of the box" look now that SSGI is removed.
+  graphicsProfile: 'cinematic',
   aaMode: 'taa',
   resolutionScale: 1,
   shadowsEnabled: true,
@@ -57,9 +58,20 @@ function parseSettings(raw: unknown): UserSettings {
     return { ...DEFAULT_USER_SETTINGS };
   }
   const value = raw as Partial<UserSettings>;
-  const quality = QUALITY_ORDER.includes(value.graphicsQuality as GraphicsQuality)
-    ? (value.graphicsQuality as GraphicsQuality)
-    : DEFAULT_USER_SETTINGS.graphicsQuality;
+
+  const profileFromNewField = (() => {
+    const v = (value as Partial<UserSettings> & { graphicsProfile?: unknown }).graphicsProfile;
+    return PROFILE_ORDER.includes(v as GraphicsProfile) ? (v as GraphicsProfile) : null;
+  })();
+  const profileFromLegacyField = (() => {
+    // Back-compat: older builds stored graphicsQuality: low|medium|high.
+    const legacy = (value as unknown as { graphicsQuality?: unknown }).graphicsQuality;
+    if (legacy === 'low') return 'performance' as const;
+    if (legacy === 'medium') return 'balanced' as const;
+    if (legacy === 'high') return 'cinematic' as const;
+    return null;
+  })();
+  const profile = profileFromNewField ?? profileFromLegacyField ?? DEFAULT_USER_SETTINGS.graphicsProfile;
 
   return {
     mouseSensitivity: clamp(
@@ -86,7 +98,7 @@ function parseSettings(raw: unknown): UserSettings {
       MIN_GAMEPAD_CURVE,
       MAX_GAMEPAD_CURVE,
     ),
-    graphicsQuality: quality,
+    graphicsProfile: profile,
     aaMode:
       value.aaMode === 'smaa' || value.aaMode === 'fxaa' || value.aaMode === 'taa' || value.aaMode === 'none'
         ? value.aaMode
@@ -164,10 +176,10 @@ export class UserSettingsStore {
     return this.update({ mouseSensitivity: this.state.mouseSensitivity + delta });
   }
 
-  cycleGraphicsQuality(): Readonly<UserSettings> {
-    const currentIndex = QUALITY_ORDER.indexOf(this.state.graphicsQuality);
-    const nextIndex = (currentIndex + 1) % QUALITY_ORDER.length;
-    return this.update({ graphicsQuality: QUALITY_ORDER[nextIndex] });
+  cycleGraphicsProfile(): Readonly<UserSettings> {
+    const currentIndex = PROFILE_ORDER.indexOf(this.state.graphicsProfile);
+    const nextIndex = (currentIndex + 1) % PROFILE_ORDER.length;
+    return this.update({ graphicsProfile: PROFILE_ORDER[nextIndex] });
   }
 
   private persist(): void {

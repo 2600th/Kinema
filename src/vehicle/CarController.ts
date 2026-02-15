@@ -32,7 +32,6 @@ export class CarController implements VehicleController {
   private frontWheels: THREE.Mesh[] = [];
   private rearWheels: THREE.Mesh[] = [];
 
-  private readonly maxSpeed = 12;
   private readonly acceleration = 22;
   private readonly drag = 6;
   private readonly maxSteerAngle = Math.PI / 6;
@@ -80,24 +79,46 @@ export class CarController implements VehicleController {
     if (!this.input) return;
     const input = this.input;
 
+    // Arcade-ish handling: predictable speed, responsive steering, and a handbrake.
     const accelInput = (input.forward ? 1 : 0) - (input.backward ? 1 : 0);
-    const targetSpeed = accelInput * this.maxSpeed;
-    if (accelInput !== 0) {
-      this.speed = THREE.MathUtils.damp(this.speed, targetSpeed, this.acceleration, dt);
-    } else {
-      this.speed = THREE.MathUtils.damp(this.speed, 0, this.drag, dt);
-    }
-
-    if (input.jump) {
-      this.speed *= Math.max(0.1, 1 - dt * 6);
-    }
-
     const steerInput = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+    const boosting = input.sprint;
+    const handbrake = input.jump;
+
+    const maxForward = boosting ? 18 : 14;
+    const maxReverse = 8;
+    const accelRate = boosting ? 26 : this.acceleration;
+    const coastRate = handbrake ? 18 : this.drag;
+    const brakeRate = handbrake ? 38 : 18;
+
+    if (accelInput > 0) {
+      this.speed = THREE.MathUtils.damp(this.speed, maxForward, accelRate, dt);
+    } else if (accelInput < 0) {
+      this.speed = THREE.MathUtils.damp(this.speed, -maxReverse, accelRate, dt);
+    } else {
+      this.speed = THREE.MathUtils.damp(this.speed, 0, coastRate, dt);
+    }
+
+    if (handbrake && accelInput === 0) {
+      // Strong braking when coasting.
+      this.speed = THREE.MathUtils.damp(this.speed, 0, brakeRate, dt);
+    }
+
     const targetSteer = steerInput * this.maxSteerAngle;
-    this.steerAngle = THREE.MathUtils.damp(this.steerAngle, targetSteer, this.steerSpeed, dt);
+    this.steerAngle = THREE.MathUtils.damp(
+      this.steerAngle,
+      targetSteer,
+      handbrake ? this.steerSpeed * 1.4 : this.steerSpeed,
+      dt,
+    );
 
     // Forward is -Z in the rest of the project; turn right on D (steerInput=+1).
-    this.yaw -= this.steerAngle * (this.speed / this.maxSpeed) * dt * 2.2;
+    const speedAbs = Math.abs(this.speed);
+    const speedNorm = THREE.MathUtils.clamp(speedAbs / Math.max(0.01, maxForward), 0, 1);
+    const speedFactor = 0.22 + 0.78 * speedNorm; // keep some steering even at low speed
+    const steerSign = Math.sign(this.speed !== 0 ? this.speed : accelInput !== 0 ? accelInput : 1);
+    const turnRate = (handbrake ? 1.35 : 1.0) * 2.9;
+    this.yaw -= this.steerAngle * steerSign * speedFactor * dt * turnRate;
     _forward.set(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw);
 
     const pos = this.body.translation();

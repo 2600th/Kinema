@@ -8,7 +8,7 @@
 
 - **Player controller** — Rigid-body movement with slope handling, step assist, ladders, coyote time, jump buffer, double jump, and crouch.
 - **Rope traversal** — Attach from ground or mid-air; swing with `W A S D`, climb with `Shift + W/S`, jump off or drop with `Space` / `C`.
-- **Orbit follow camera** — Collision-aware (shapecast), zoom, damping, sprint FOV boost, and rope-aware behavior.
+- **Orbit follow camera** — Collision-aware (sphere shape-cast), zoom, damping, sprint FOV boost, and rope-aware behavior.
 - **Interaction system** — Proximity and line-of-sight filtering, hold-to-interact, lock conditions; framework for doors, beacons, ropes, etc.
 - **Physics object interactions** — Grab/pull crates and barrels, pick up small objects, and throw them.
 - **Vehicles** — A drivable car and a flyable drone with camera handoff and input routing.
@@ -18,7 +18,7 @@
 - **Ambient audio** — Background music with Web Audio mixing and volume controls.
 - **Gameplay** — Checkpoints/respawn, objective tracking, HUD prompts and status messages.
 - **Debug panel** — FPS, physics/render metrics, and grouped controls for quality, environment, post-processing, and input tuning.
-- **Rendering** — Three-tier TSL post-processing when WebGPU is available: **High** (SSGI + TRAA + bloom), **Medium** (SSR + GTAO + TRAA + bloom), **Low** (GTAO + FXAA). HDR environment maps, 11 LUT color grades. Falls back to WebGL2 otherwise.
+- **Rendering** — WebGPU + TSL post-processing when available with **graphics profiles** (**Performance / Balanced / Cinematic**). Effects include GTAO (opaque-only), SSR, TRAA (temporal AA), SMAA/FXAA, bloom, vignette, and LUT color grading. Falls back to WebGL2 otherwise.
 
 ---
 
@@ -122,11 +122,13 @@ You can attach to the rope with `E` from the ground or in the air when in range.
 | `Esc` | Cancel placement |
 | `Delete` / `Backspace` | Remove selected object |
 
+Note: In **editor mode**, clicking the canvas **does not** enter pointer lock so you can freely use the cursor for UI editing.
+
 ### Runtime tuning (hotkeys)
 
 | Input | Action |
 |-------|--------|
-| `F6` | Cycle graphics quality (low → medium → high) |
+| `F6` | Cycle graphics profile (performance → balanced → cinematic) |
 | `F7` | Toggle invert Y |
 | `F8` / `F9` | Decrease / increase mouse sensitivity |
 | `F10` | Toggle raw mouse input request |
@@ -139,47 +141,45 @@ You can attach to the rope with `E` from the ground or in the air when in range.
 
 Open with **`` ` ``**. Sections:
 
-- **Runtime views** — FPS / frame-time / memory graphs, collider wireframes, light helpers, camera collision toggle.
+- **Runtime views** — FPS / frame-time / memory graphs, collider wireframes, **light helpers**, **shadow frustums**, camera collision toggle.
 - **Environment** — Background intensity, background blur, HDR environment map selector (7 presets).
-- **Quality** — Graphics preset (Low / Medium / High), post-processing master toggle, shadows, exposure.
-- **Post FX** — Controls shown depend on the active quality tier:
-  - **High**: SSGI (toggle, quality preset, radius, GI intensity), bloom, vignette, LUT color grading. TRAA is mandatory (denoises SSGI).
-  - **Medium**: SSR (toggle, opacity, resolution scale), GTAO, TRAA (toggle), bloom, vignette, LUT color grading.
-  - **Low**: GTAO, vignette, LUT color grading. FXAA is always applied.
+- **Quality** — Graphics profile (**Performance / Balanced / Cinematic**), post-processing master toggle, shadows, exposure, anti-aliasing mode.
+- **Post FX** — GTAO (ambient occlusion), SSR (reflections), TRAA, bloom, vignette, LUT color grading, plus **AO-only debug view**.
 
 ---
 
 ## Rendering pipeline
 
-The WebGPU path uses Three.js r182 `WebGPURenderer` + TSL `PostProcessing` with a single MRT (Multiple Render Target) scene pass that outputs five G-buffers in one draw:
+The WebGPU path uses Three.js r182 `WebGPURenderer` + TSL `PostProcessing` with:
+- an **opaque-only pre-pass** (depth + normals + velocity) for GTAO / TRAA / SSR stability, and
+- a **full scene pass** (includes transparent sprites/UI) for final color and material signals.
 
-| G-buffer | Content | Precision |
-|----------|---------|-----------|
-| `output` | Final lit color | RGBA16Float |
-| `diffuseColor` | Unlit albedo (for SSGI composite) | RGBA8 |
-| `normal` | View-space normals (encoded via `directionToColor`) | RGBA8 |
-| `velocity` | Per-pixel motion vectors (for TRAA) | RGBA16Float |
-| `metalrough` | Metalness (R) + roughness (G) (for SSR) | RGBA8 |
+### Pass outputs (high level)
 
-`depth` is implicitly available from any `pass()` node and does not need to be declared in the MRT.
+- **Pre-pass (opaque-only)**: `depth`, `normalView` (encoded), `velocity`
+- **Scene pass (full scene)**: `output` (lit color), `diffuseColor`, `metalrough`, plus `depth`
 
-### Quality tiers
+GTAO is **injected into the shading context** via `builtinAOContext` (official three.js pattern) so AO does **not** corrupt transparent world UI sprites.
 
-| Tier | GI / AO | Anti-aliasing | Extras | Pixel ratio |
-|------|---------|---------------|--------|-------------|
-| **High** | SSGI (GI + AO in one pass) | TRAA (mandatory — denoises SSGI) | Bloom, vignette, LUT | 2x |
-| **Medium** | SSR + GTAO | TRAA (optional) | Bloom, vignette, LUT | 1.5x |
-| **Low** | GTAO | FXAA | Vignette, LUT | 1x |
+### Graphics profiles
 
-### Post-processing chain order
+Profiles set sensible defaults and performance caps; most toggles can still be overridden in the debug panel:
+
+| Profile | Defaults (typical) |
+|---------|---------------------|
+| **Performance** | GTAO on, SSR off, bloom off/low, simple AA |
+| **Balanced** | GTAO on, SSR optional, bloom on, TRAA optional |
+| **Cinematic** | GTAO on, SSR on, bloom on, TRAA on, stronger grading |
+
+### Post-processing chain order (simplified)
 
 ```
-Scene MRT pass
-  → [High] SSGI composite: sceneColor * ao + diffuseColor * gi
-  → [Medium] SSR (hashBlur + mix) → GTAO multiply
-  → [Low] GTAO multiply
-  → Bloom (additive, Medium/High only)
-  → TRAA or FXAA
+Pre-pass (opaque depth/normal/velocity)
+Scene pass (full scene color + material signals)
+  → GTAO (in-shader via builtinAOContext)
+  → SSR (optional, uses pre-pass depth/normal + metal/roughness)
+  → Bloom (optional)
+  → Anti-aliasing (TRAA / SMAA / FXAA / none)
   → renderOutput() (tone mapping + sRGB conversion)
   → Vignette (radial darken)
   → LUT 3D color grading
@@ -187,23 +187,9 @@ Scene MRT pass
 
 `postProcessing.outputColorTransform` is set to `false` because `renderOutput()` is called manually in the chain. This prevents double tone mapping.
 
-### SSGI details
+### Note on SSGI
 
-SSGI outputs `vec4(gi_rgb, ao)`. The composite formula separates direct and indirect lighting:
-
-```
-finalColor = sceneColor * ao + diffuseColor * gi
-```
-
-SSGI runs at a low sample count for performance; TRAA accumulates frames to converge to a clean image. Disabling TRAA in High tier is not exposed because the result would be pure noise.
-
-| Preset | Slices | Steps | Samples/pixel |
-|--------|--------|-------|---------------|
-| Low | 1 | 12 | 24 |
-| Medium | 2 | 8 | 32 |
-| High | 3 | 16 | 96 |
-
-Radius and GI intensity are tunable in the debug panel.
+SSGI was intentionally removed because it caused transparency artifacts with sprites/UI in this project. The current pipeline focuses on GTAO + SSR + grading for a stable, great-looking result.
 
 ### Environment maps
 
@@ -314,7 +300,7 @@ src/
     CheckpointManager.ts  Checkpoint zones and respawn point updates
     ShowcaseLayout.ts     Shared showcase corridor layout (station Z positions)
   physics/
-    PhysicsWorld.ts       Rapier world wrapper (zero gravity — custom gravity in player)
+    PhysicsWorld.ts       Rapier world wrapper (default gravity -9.81)
     ColliderFactory.ts    Collider creation helpers
     PhysicsDebugView.ts   Wireframe debug renderer for Rapier colliders
   editor/                 In-game level editor
@@ -387,10 +373,9 @@ Adding a new state: create one file in `states/`, register it in `CharacterFSM`'
 
 ### Physics
 
-The project uses a **kinematic character controller** pattern:
-- World gravity is **zero** — custom gravity is applied in `PlayerController`.
-- Movement uses `computeColliderMovement(collider, desiredDelta)` for displacement-based motion with collision resolution.
-- The player capsule floats above the ground using a spring-damper system (raycast grounding).
+The project uses a **rigid-body character** pattern:
+- World gravity is standard (-9.81).
+- The player uses a capsule rigid body with spring-like ground float/grounding logic.
 - Slopes, steps, and ladders are handled by raycasts and collision geometry tags.
 
 ---
@@ -413,12 +398,12 @@ The project uses a **kinematic character controller** pattern:
 | Issue | What to try |
 |-------|-------------|
 | Controls don't respond | Click the canvas to focus it and enable pointer lock. |
-np| No background music | Add `src/assets/audio/ambient-1.ogg` or update `main.ts`; a procedural fallback loop is used if the file is missing. |
+| No background music | Set `VITE_MUSIC_URL` (e.g. `/assets/audio/ambient-1.ogg`) or keep it unset to use the procedural fallback loop. |
 | Rope climb doesn't work | Hold **Shift** and then press **W** or **S** (climb is Shift + W/S). |
-| Very bright or "washed out" image | Lower **Exposure** and/or **SSGI GI intensity** in the debug panel. Try a different environment map. |
-| Anti-aliasing looks different per tier | Each quality tier uses a fixed AA method: **High** = TRAA, **Medium** = TRAA (toggle), **Low** = FXAA. Switch tiers with **F6** or the debug panel. |
+| Very bright or "washed out" image | Lower **Exposure** and/or reduce grading (LUT strength, bloom). Try a different environment map. |
+| Anti-aliasing looks different | AA mode is selectable (TRAA / SMAA / FXAA / none). For best results with SSR, enable **TRAA**. |
 | Raw mouse not available | Some browsers/OS restrict pointer lock; the game falls back to normal pointer lock. |
-| Black screen after toggling shadows | The WebGPU path keeps `shadowMap.enabled = true` and toggles light `castShadow`; if you see a black screen, try a page refresh. |
+| WebGPU warnings when toggling shadows | Toggling shadows can briefly re-initialize shadow resources. If you see warnings, avoid rapid toggles; a refresh clears any transient state. |
 | WebGPU byte limit warnings | Expected on first compile; the renderer requests `maxColorAttachmentBytesPerSample: 64` to support the 5-target MRT. The adapter must support at least 64 bytes (most modern GPUs support 128). |
 | Build or type errors | Run `npm run build` and fix any `tsc` or Vite errors; ensure Node 20+ and a clean `npm install`. |
 | No post-processing (flat look) | WebGPU may not be available in your browser. Check the console for "WebGPU/TSL not available" — the app falls back to basic WebGL2 rendering. |

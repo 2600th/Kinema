@@ -3,7 +3,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import type { EventBus } from '@core/EventBus';
 import type { Updatable, Disposable, InputState } from '@core/types';
 import type { CameraConfig } from '@core/types';
-import { DEFAULT_CAMERA_CONFIG } from '@core/constants';
+import { COLLISION_GROUP_PLAYER, DEFAULT_CAMERA_CONFIG } from '@core/constants';
 import type { PhysicsWorld } from '@physics/PhysicsWorld';
 import type { PlayerController } from '@character/PlayerController';
 
@@ -37,6 +37,8 @@ export class OrbitFollowCamera implements Updatable, Disposable {
   private targetBody: RAPIER.RigidBody | null = null;
   private targetHeightOverride: number | null = null;
   private inputProvider: (() => InputState | null) | null = null;
+  private collisionShape: RAPIER.Ball | null = null;
+  private collisionShapeRadius = 0;
 
   constructor(
     private camera: THREE.PerspectiveCamera,
@@ -161,17 +163,21 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     const dir = new RAPIER.Vector3(_idealDir.x, _idealDir.y, _idealDir.z);
     const rayHit =
       this.collisionEnabled && !ropeAttached
-        ? this.physicsWorld.castRay(
+        ? this.physicsWorld.castShape(
             origin,
+            new RAPIER.Quaternion(0, 0, 0, 1),
             dir,
-            desiredDistance,
+            this.getCollisionShape(),
+            0, // targetDistance
+            desiredDistance, // maxToi (direction is unit vector)
             undefined,
             this.targetBody ?? this.player.body,
+            COLLISION_GROUP_PLAYER,
             (c) => !c.isSensor(),
           )
         : null;
-    if (rayHit && rayHit.timeOfImpact < desiredDistance) {
-      const hitDistance = rayHit.timeOfImpact - this.config.spherecastRadius * 0.92;
+    if (rayHit && rayHit.time_of_impact < desiredDistance) {
+      const hitDistance = rayHit.time_of_impact - this.config.spherecastRadius * 0.92;
       desiredDistance = Math.max(this.config.zoomMinDistance, Math.min(desiredDistance, hitDistance));
     }
 
@@ -205,6 +211,15 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     this.camera.updateProjectionMatrix();
 
     this.camera.lookAt(this.pivotPosition);
+  }
+
+  private getCollisionShape(): RAPIER.Ball {
+    const r = Math.max(0.01, this.config.spherecastRadius);
+    if (!this.collisionShape || Math.abs(this.collisionShapeRadius - r) > 0.0001) {
+      this.collisionShapeRadius = r;
+      this.collisionShape = new RAPIER.Ball(r);
+    }
+    return this.collisionShape;
   }
 
   dispose(): void {

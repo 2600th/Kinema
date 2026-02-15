@@ -13,6 +13,7 @@ import { COLLISION_GROUP_WORLD_ONLY, DEFAULT_PLAYER_CONFIG } from '@core/constan
 import type { PhysicsWorld } from '@physics/PhysicsWorld';
 import { ColliderFactory } from '@physics/ColliderFactory';
 import { CharacterFSM } from './CharacterFSM';
+import { CharacterVisual } from './CharacterVisual';
 
 const _forward = new THREE.Vector3();
 const _right = new THREE.Vector3();
@@ -20,13 +21,6 @@ const _desiredMove = new THREE.Vector3();
 const _currentPos = new THREE.Vector3();
 const _currentVel = new THREE.Vector3();
 const _movingDirection = new THREE.Vector3();
-const _movingObjectVelocityInCharacterDir = new THREE.Vector3();
-const _wantToMoveVel = new THREE.Vector3();
-const _rejectVel = new THREE.Vector3();
-const _moveAccNeeded = new THREE.Vector3();
-const _moveForceNeeded = new THREE.Vector3();
-const _moveImpulse = new THREE.Vector3();
-const _dragForce = new THREE.Vector3();
 const _jumpVelocityVec = new THREE.Vector3();
 const _jumpDirection = new THREE.Vector3();
 const _rayOrigin = new THREE.Vector3();
@@ -38,7 +32,6 @@ const _distanceFromCharacterToObject = new THREE.Vector3();
 const _objectAngvelToLinvel = new THREE.Vector3();
 const _velocityDiff = new THREE.Vector3();
 const _movingObjectVelocity = new THREE.Vector3();
-const _targetRotationDirection = new THREE.Vector3();
 const _stepForward = new THREE.Vector3();
 const _stepProbeLowOrigin = new THREE.Vector3();
 const _stepProbeHighOrigin = new THREE.Vector3();
@@ -69,7 +62,7 @@ interface CarryableObject {
 export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Disposable {
   public readonly body: RAPIER.RigidBody;
   public readonly collider: RAPIER.Collider;
-  public readonly mesh: THREE.Mesh;
+  public readonly mesh: THREE.Group;
   public readonly fsm: CharacterFSM;
   public readonly config = DEFAULT_PLAYER_CONFIG;
 
@@ -89,13 +82,11 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   private standingCapsuleHalfHeight = this.config.capsuleHalfHeight;
   private crouchedCapsuleHalfHeight = Math.max(0.16, this.config.capsuleHalfHeight - this.config.crouchHeightOffset);
   private currentCapsuleHalfHeight = this.config.capsuleHalfHeight;
-  private slopeAngle = 0;
   private actualSlopeAngle = 0;
   private currentGravityScale = 1;
   private active = true;
   private groundedGrace = 0;
   private currentGroundBody: RAPIER.RigidBody | null = null;
-  private currentGroundBodyType: number | null = null;
   private ladderZones: readonly THREE.Box3[] = [];
   private onLadder = false;
   private ropeAttached = false;
@@ -138,6 +129,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   }
 
   private colliderFactory: ColliderFactory;
+  private characterVisual: CharacterVisual | null = null;
+  private readonly capsuleMesh: THREE.Mesh;
 
   constructor(
     private physicsWorld: PhysicsWorld,
@@ -161,20 +154,22 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.body.setGravityScale(1, true);
     this.body.enableCcd(true);
 
-    const capsuleGeom = new THREE.CapsuleGeometry(
-      this.config.capsuleRadius,
-      this.config.capsuleHalfHeight * 2,
-      8,
-      16,
-    );
-    const capsuleMat = new THREE.MeshStandardMaterial({ color: 0x3388ff });
-    this.mesh = new THREE.Mesh(capsuleGeom, capsuleMat);
-    this.mesh.name = 'PlayerMesh';
-    this.mesh.castShadow = true;
-    this.mesh.receiveShadow = true;
+    this.mesh = new THREE.Group();
+    this.mesh.name = 'PlayerVisual';
     this.scene.add(this.mesh);
 
+    const capsuleGeom = new THREE.CapsuleGeometry(this.config.capsuleRadius, this.config.capsuleHalfHeight * 2, 8, 16);
+    const capsuleMat = new THREE.MeshStandardMaterial({ color: 0x3388ff });
+    this.capsuleMesh = new THREE.Mesh(capsuleGeom, capsuleMat);
+    this.capsuleMesh.name = 'PlayerCapsule';
+    this.capsuleMesh.castShadow = true;
+    this.capsuleMesh.receiveShadow = true;
+    this.mesh.add(this.capsuleMesh);
+
     this.fsm = new CharacterFSM(this, this.eventBus);
+
+    this.characterVisual = new CharacterVisual(this.mesh);
+    void this.characterVisual.init(); // non-blocking; keeps capsule fallback if no model is present
 
     const pos = this.body.translation();
     this.currPosition.set(pos.x, pos.y, pos.z);
@@ -198,11 +193,9 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.verticalVelocity = 0;
     this.isGrounded = false;
     this.canJump = false;
-    this.slopeAngle = 0;
     this.actualSlopeAngle = 0;
     _movingObjectVelocity.set(0, 0, 0);
     this.currentGroundBody = null;
-    this.currentGroundBodyType = null;
     this.onLadder = false;
     this.jumpBufferRemaining = 0;
     this.remainingAirJumps = this.config.maxAirJumps;
@@ -387,29 +380,13 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       this.eventBus.emit('player:grounded', this.isGrounded);
     }
 
-    this.slopeAngle = 0;
-    if (
-      slopeRayHit &&
-      floatingRayHit &&
-      slopeRayHit.timeOfImpact < this.floatingDistance + 0.5 &&
-      this.canJump
-    ) {
-      this.slopeAngle = Number(
-        Math.atan(
-          (floatingRayHit.timeOfImpact - slopeRayHit.timeOfImpact) / this.config.slopeRayOriginOffset,
-        ).toFixed(2),
-      );
-    }
-
     this.currentGroundBody = null;
-    this.currentGroundBodyType = null;
     this.isOnMovingObject = false;
     _movingObjectVelocity.set(0, 0, 0);
     if (floatingRayHit?.collider.parent() && this.canJump) {
       const groundBody = floatingRayHit.collider.parent()!;
       const groundBodyType = groundBody.bodyType();
       this.currentGroundBody = groundBody;
-      this.currentGroundBodyType = groundBodyType;
       _standingForcePoint.set(
         _rayOrigin.x,
         _rayOrigin.y - floatingRayHit.timeOfImpact,
@@ -450,8 +427,10 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     const movementLockedNow = this.fsm.current === 'interact';
     const hasMovement = !movementLockedNow && (input.forward || input.backward || input.left || input.right);
     const run = this.fsm.current !== 'grab' && input.sprint && !this.isCrouched;
+    // Movement: use velocity steering (character-controller feel) instead of impulse accumulation.
+    // WHY: Impulse-based locomotion felt floaty and caused direction drift when releasing strafe.
+    this.applyMoveVelocity(desiredInputDir, run, hasMovement, dt);
     if (hasMovement) {
-      this.applyMoveImpulse(run);
       this.applyStepAssist(desiredInputDir, run);
     }
 
@@ -488,22 +467,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       }
     }
 
-    if (!hasMovement && this.canJump) {
-      if (!this.isOnMovingObject) {
-        _dragForce.set(
-          -_currentVel.x * this.config.dragDamping,
-          0,
-          -_currentVel.z * this.config.dragDamping,
-        );
-      } else {
-        _dragForce.set(
-          (_movingObjectVelocity.x - _currentVel.x) * this.config.dragDamping,
-          0,
-          (_movingObjectVelocity.z - _currentVel.z) * this.config.dragDamping,
-        );
-      }
-      this.body.applyImpulse(new RAPIER.Vector3(_dragForce.x, _dragForce.y, _dragForce.z), true);
-    }
+    // Ground drag is handled by applyMoveVelocity() so we don't double-damp.
 
     if (_currentVel.y < -this.config.fallingMaxVelocity) {
       this.setGravityScale(0);
@@ -527,87 +491,74 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.currPosition.set(pos.x, pos.y, pos.z);
   }
 
-  private applyMoveImpulse(run: boolean): void {
-    if (
-      this.actualSlopeAngle < this.config.slopeMaxAngle &&
-      Math.abs(this.slopeAngle) > 0.2 &&
-      Math.abs(this.slopeAngle) < this.config.slopeMaxAngle
-    ) {
-      _movingDirection.set(0, Math.sin(this.slopeAngle), Math.cos(this.slopeAngle));
-    } else if (this.actualSlopeAngle >= this.config.slopeMaxAngle) {
-      const sy = Math.sin(this.slopeAngle);
-      _movingDirection.set(0, sy > 0 ? 0 : sy, sy > 0 ? 0.1 : 1);
-    } else {
-      _movingDirection.set(0, 0, 1);
-    }
-    _movingDirection.applyQuaternion(this.mesh.quaternion).normalize();
-
-    _movingObjectVelocityInCharacterDir.copy(_movingObjectVelocity).projectOnVector(_movingDirection);
-    const angleBetween =
-      _movingObjectVelocity.lengthSq() > 0.0001 ? _movingObjectVelocity.angleTo(_movingDirection) : 0;
-
-    const wantToMoveMag = _currentVel.dot(_movingDirection);
-    _wantToMoveVel.set(_movingDirection.x * wantToMoveMag, 0, _movingDirection.z * wantToMoveMag);
-    _rejectVel.copy(_currentVel).sub(_wantToMoveVel);
-
+  private applyMoveVelocity(
+    desiredInputDir: THREE.Vector3,
+    run: boolean,
+    hasMovement: boolean,
+    dt: number,
+  ): void {
+    // Target speed based on stance/state.
     const crouchMult = this.isCrouched ? this.config.crouchSpeedMultiplier : 1;
     const grabMult = this.fsm.current === 'grab' ? this.config.crouchSpeedMultiplier : 1;
     const targetSpeed =
       this.config.moveSpeed * crouchMult * grabMult * (run ? this.config.sprintMultiplier : 1);
-    _moveAccNeeded.set(
-      (_movingDirection.x * (targetSpeed + _movingObjectVelocityInCharacterDir.x) -
-        (_currentVel.x -
-          _movingObjectVelocity.x * Math.sin(angleBetween) +
-          _rejectVel.x * (this.isOnMovingObject ? 0 : this.config.rejectVelocityMultiplier))) /
-        this.config.acceleration,
-      0,
-      (_movingDirection.z * (targetSpeed + _movingObjectVelocityInCharacterDir.z) -
-        (_currentVel.z -
-          _movingObjectVelocity.z * Math.sin(angleBetween) +
-          _rejectVel.z * (this.isOnMovingObject ? 0 : this.config.rejectVelocityMultiplier))) /
-        this.config.acceleration,
-    );
-    _moveForceNeeded.copy(_moveAccNeeded).multiplyScalar(this.body.mass());
 
-    _targetRotationDirection.copy(this.computeMovementDirection(this.lastInput!));
-    const targetAngle = Math.atan2(_targetRotationDirection.x, _targetRotationDirection.z);
-    const currentAngle = this.mesh.rotation.y;
-    const angleDiff = ((targetAngle - currentAngle + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
-    const characterRotated = Math.abs(angleDiff) < 0.2;
-    const turnMult = characterRotated ? 1 : this.config.turnVelocityMultiplier;
-    const airControlMult = this.canJump ? 1 : this.config.airDragMultiplier;
+    // Desired horizontal velocity (camera-relative input), plus moving-platform contribution.
+    const platformVx = this.isOnMovingObject ? _movingObjectVelocity.x : 0;
+    const platformVz = this.isOnMovingObject ? _movingObjectVelocity.z : 0;
 
-    _moveImpulse.set(
-      _moveForceNeeded.x * turnMult * airControlMult,
-      this.slopeAngle === 0
-        ? 0
-        : _movingDirection.y *
-            turnMult *
-            (_movingDirection.y > 0 ? this.config.slopeUpExtraForce : this.config.slopeDownExtraForce) *
-            (run ? this.config.sprintMultiplier : 1),
-      _moveForceNeeded.z * turnMult * airControlMult,
-    );
+    const lv = this.body.linvel();
+    const grounded = this.canJump;
+    const inAir = !grounded;
 
-    this.body.applyImpulseAtPoint(
-      new RAPIER.Vector3(_moveImpulse.x, _moveImpulse.y, _moveImpulse.z),
-      new RAPIER.Vector3(_currentPos.x, _currentPos.y + this.config.moveImpulsePointY, _currentPos.z),
-      true,
-    );
+    // Compute desired direction on XZ plane.
+    _movingDirection.copy(desiredInputDir).setY(0);
+    const hasDir = hasMovement && _movingDirection.lengthSq() > 0.0001;
+    if (hasDir) _movingDirection.normalize();
 
-    if (
-      this.currentGroundBody &&
-      this.currentGroundBodyType === 0 &&
-      this.shouldApplyGroundReaction(this.currentGroundBody)
-    ) {
-      const groundMass = Math.max(this.currentGroundBody.mass(), 0.001);
-      const massRatio = this.body.mass() / groundMass;
-      const groundImpulse = _moveImpulse.clone().multiplyScalar(Math.min(1, 1 / massRatio)).negate();
-      this.currentGroundBody.applyImpulseAtPoint(
-        new RAPIER.Vector3(groundImpulse.x, 0, groundImpulse.z),
-        new RAPIER.Vector3(_standingForcePoint.x, _standingForcePoint.y, _standingForcePoint.z),
-        true,
-      );
+    // Relative (to moving platform) horizontal velocity.
+    const relVx0 = lv.x - platformVx;
+    const relVz0 = lv.z - platformVz;
+
+    // Snappy stop on ground, limited control in air.
+    const accelLambdaGround = 22;
+    const stopLambdaGround = 40;
+    const sideKillLambdaGround = 55; // kill sideways drift fast when input direction changes
+    const baseLambda = hasDir ? accelLambdaGround : stopLambdaGround;
+    const lambda = inAir ? baseLambda * this.config.airControlFactor : baseLambda;
+    const sideLambda = inAir ? sideKillLambdaGround * this.config.airControlFactor : sideKillLambdaGround;
+
+    const t = 1 - Math.exp(-lambda * dt);
+    const tSide = 1 - Math.exp(-sideLambda * dt);
+
+    let relVx = relVx0;
+    let relVz = relVz0;
+
+    if (hasDir) {
+      // Decompose current relative velocity into parallel/perpendicular to desired direction.
+      const dirX = _movingDirection.x;
+      const dirZ = _movingDirection.z;
+      const vParMag0 = relVx0 * dirX + relVz0 * dirZ;
+      const vPerpX0 = relVx0 - dirX * vParMag0;
+      const vPerpZ0 = relVz0 - dirZ * vParMag0;
+
+      // Steer parallel speed toward targetSpeed, and aggressively damp perpendicular drift.
+      const vParMag = vParMag0 + (targetSpeed - vParMag0) * t;
+      const vPerpX = vPerpX0 + (0 - vPerpX0) * tSide;
+      const vPerpZ = vPerpZ0 + (0 - vPerpZ0) * tSide;
+
+      relVx = dirX * vParMag + vPerpX;
+      relVz = dirZ * vParMag + vPerpZ;
+    } else {
+      // No input: damp relative velocity to zero.
+      relVx = relVx0 + (0 - relVx0) * t;
+      relVz = relVz0 + (0 - relVz0) * t;
     }
+
+    const nextVx = relVx + platformVx;
+    const nextVz = relVz + platformVz;
+
+    this.body.setLinvel(new RAPIER.Vector3(nextVx, lv.y, nextVz), true);
   }
 
   private applyJumpImpulse(run: boolean, airJump: boolean): void {
@@ -915,6 +866,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     const scaleY = 1 - this.crouchVisual * 0.28;
     const scaleXZ = 1 + this.crouchVisual * 0.04;
     this.mesh.scale.set(scaleXZ, scaleY, scaleXZ);
+    this.characterVisual?.setState(this.fsm.current);
+    this.characterVisual?.update(_dt);
   }
 
   setInput(input: InputState): void {
@@ -990,9 +943,17 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     const object = this.carriedObject;
     this.releaseCarryBody();
     const forward = this.getCameraForward().normalize();
-    const force = object.throwForce;
-    object.body.applyImpulse(new RAPIER.Vector3(forward.x * force, forward.y * force, forward.z * force), true);
-    this.eventBus.emit('interaction:throw', { direction: forward.clone(), force });
+    // Treat throwForce as a *target throw speed* (m/s) rather than a raw impulse.
+    // WHY: applying a fixed impulse makes small/light objects reach extreme
+    // velocities and tunnel through walls even with contact events enabled.
+    const targetSpeed = Math.max(0.5, Math.min(object.throwForce, 10));
+    object.body.setLinvel(
+      new RAPIER.Vector3(forward.x * targetSpeed, forward.y * targetSpeed, forward.z * targetSpeed),
+      true,
+    );
+    // Add some spin for readability.
+    object.body.setAngvel(new RAPIER.Vector3(forward.z * 6, 5, -forward.x * 6), true);
+    this.eventBus.emit('interaction:throw', { direction: forward.clone(), force: targetSpeed });
   }
 
   dropCarried(): void {
@@ -1033,18 +994,26 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       .set(_currentPos.x, _currentPos.y, _currentPos.z)
       .addScaledVector(_grabForward, this.grabDistance);
     _grabTarget.y += this.grabOffsetY;
-    this.grabbedBody.setNextKinematicTranslation(new RAPIER.Vector3(_grabTarget.x, _grabTarget.y, _grabTarget.z));
+    const next = new RAPIER.Vector3(_grabTarget.x, _grabTarget.y, _grabTarget.z);
+    // Fix visual flicker when moving held objects:
+    // Some meshes sync from body.translation() each render frame; for kinematic bodies, translation
+    // only updates on the physics step when using setNextKinematicTranslation(). Also set the
+    // translation immediately so render-sync reads the current target, not the last physics step.
+    this.grabbedBody.setNextKinematicTranslation(next);
+    this.grabbedBody.setTranslation(next, true);
+    this.grabbedBody.setLinvel(new RAPIER.Vector3(0, 0, 0), true);
+    this.grabbedBody.setAngvel(new RAPIER.Vector3(0, 0, 0), true);
   }
 
   private updateCarriedObject(): void {
     if (!this.carriedObject) return;
     _carryTarget.set(_currentPos.x, _currentPos.y + this.currentCapsuleHalfHeight + 0.4, _currentPos.z);
-    this.carriedObject.body.setNextKinematicTranslation(
-      new RAPIER.Vector3(_carryTarget.x, _carryTarget.y, _carryTarget.z),
-    );
-    this.carriedObject.mesh.position.copy(_carryTarget);
-    const rot = this.carriedObject.body.rotation();
-    this.carriedObject.mesh.quaternion.set(rot.x, rot.y, rot.z, rot.w);
+    const next = new RAPIER.Vector3(_carryTarget.x, _carryTarget.y, _carryTarget.z);
+    this.carriedObject.body.setNextKinematicTranslation(next);
+    this.carriedObject.body.setTranslation(next, true);
+    this.carriedObject.body.setLinvel(new RAPIER.Vector3(0, 0, 0), true);
+    this.carriedObject.body.setAngvel(new RAPIER.Vector3(0, 0, 0), true);
+    // Mesh interpolation for throwable objects is handled in Game.update() via alpha.
   }
 
   private hasMovementInput(input: InputState): boolean {
@@ -1126,8 +1095,9 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
   dispose(): void {
     this.scene.remove(this.mesh);
-    this.mesh.geometry.dispose();
-    (this.mesh.material as THREE.Material).dispose();
+    this.capsuleMesh.geometry.dispose();
+    (this.capsuleMesh.material as THREE.Material).dispose();
+    this.characterVisual?.dispose();
     this.physicsWorld.removeBody(this.body);
   }
 }

@@ -81,8 +81,38 @@ export class EditorManager {
   update(dt: number): void {
     if (!this.active) return;
     this.freeCamera.update(dt);
+    this.updateGridHeight();
     this.updatePlacementPreview();
     this.selectionHelper?.update();
+  }
+
+  private updateGridHeight(): void {
+    if (!this.grid.isVisible()) return;
+    const camPos = this.renderer.camera.position;
+    // Cast from just above the camera so we don't accidentally hit the ceiling first.
+    const originY = camPos.y + 0.5;
+    const origin = new RAPIER.Vector3(camPos.x, originY, camPos.z);
+    const dir = new RAPIER.Vector3(0, -1, 0);
+    let exclude: RAPIER.Collider | undefined = undefined;
+    for (let i = 0; i < 3; i += 1) {
+      const hit = this.physicsWorld.castRay(
+        origin,
+        dir,
+        400,
+        exclude,
+        undefined,
+        (c) => !c.isSensor(),
+      );
+      if (!hit) return;
+      const n = this.physicsWorld.castRayAndGetNormal(origin, dir, hit.timeOfImpact + 0.001, exclude);
+      // Prefer upward-facing surfaces (floors), not downward-facing (ceilings).
+      if (n?.normal?.y != null && n.normal.y > 0.25) {
+        const groundY = originY - hit.timeOfImpact;
+        this.grid.grid.position.y = groundY + 0.01;
+        return;
+      }
+      exclude = hit.collider;
+    }
   }
 
   dispose(): void {
@@ -93,7 +123,7 @@ export class EditorManager {
     this.clearSelectionHelper();
   }
 
-  private toggle(): void {
+  toggle(): void {
     if (this.active) {
       this.exit();
     } else {
@@ -107,6 +137,7 @@ export class EditorManager {
     this.interactionManager.setEnabled(false);
     this.player.setActive(false);
     document.exitPointerLock();
+    this.eventBus.emit('editor:opened', undefined);
     this.freeCamera.enable();
     this.grid.setVisible(this.gridWasVisible);
     this.ui.show();
@@ -121,6 +152,7 @@ export class EditorManager {
     this.player.setActive(true);
     this.gridWasVisible = this.grid.isVisible();
     this.grid.setVisible(false);
+    this.eventBus.emit('editor:closed', undefined);
     this.freeCamera.disable();
     this.ui.hide();
     this.clearPlacement();
