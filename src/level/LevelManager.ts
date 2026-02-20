@@ -89,6 +89,7 @@ export class LevelManager implements Disposable {
   }> = [];
   private vfxLaser: { mesh: THREE.Mesh; mat: THREE.MeshStandardMaterial; baseEmissive: number } | null = null;
   private vfxLightning: { line: THREE.Line; base: THREE.Vector3; segments: number } | null = null;
+  private dustMotes: Array<{ sprite: THREE.Sprite; origin: THREE.Vector3; speed: number; phase: number }> = [];
   private dirLight: THREE.DirectionalLight | null = null;
   private dirLightTarget: THREE.Object3D | null = null;
   private lightDebugEnabled = false;
@@ -244,6 +245,11 @@ export class LevelManager implements Disposable {
     this.dynamicBodies = [];
     this.ladderZones = [];
     this.simTime = 0;
+    this.animatedMaterials = [];
+    this.vfxBillboards = [];
+    this.vfxLaser = null;
+    this.vfxLightning = null;
+    this.dustMotes = [];
     this.dirLight = null;
     this.dirLightTarget = null;
     this.removeLightHelpers();
@@ -364,13 +370,15 @@ export class LevelManager implements Disposable {
       entry.mat.emissiveIntensity = entry.baseIntensity + pulse * entry.baseIntensity * 1.35;
     }
 
-    // Lightweight VFX bay: smoke/fire billboards.
+    // Lightweight VFX bay: smoke/fire billboards with wobble.
     for (const fx of this.vfxBillboards) {
       const t = (this.simTime * fx.riseSpeed + fx.phase) % 1;
+      const wobbleX = Math.sin(this.simTime * 1.3 + fx.phase * 6.28) * 0.35;
+      const wobbleZ = Math.cos(this.simTime * 1.1 + fx.phase * 4.17) * 0.25;
       fx.sprite.position.set(
-        fx.origin.x,
+        fx.origin.x + wobbleX,
         fx.origin.y + t * fx.maxRise,
-        fx.origin.z,
+        fx.origin.z + wobbleZ,
       );
       const fade = fx.kind === 'smoke'
         ? (1 - t) * 0.55
@@ -386,16 +394,27 @@ export class LevelManager implements Disposable {
       this.vfxLaser.mat.emissiveIntensity = this.vfxLaser.baseEmissive + pulse * 2.2;
     }
 
-    // Lightning jitter.
+    // Dust motes gentle drift.
+    for (const mote of this.dustMotes) {
+      const t = this.simTime * mote.speed + mote.phase;
+      mote.sprite.position.set(
+        mote.origin.x + Math.sin(t * 0.7) * 1.2,
+        mote.origin.y + Math.sin(t * 0.5) * 0.6,
+        mote.origin.z + Math.cos(t * 0.6) * 1.0,
+      );
+    }
+
+    // Lightning jitter (18 segments, amplified envelope).
     if (this.vfxLightning) {
       const geo = this.vfxLightning.line.geometry as THREE.BufferGeometry;
       const pos = geo.attributes.position as THREE.BufferAttribute;
       const { base, segments } = this.vfxLightning;
       for (let i = 0; i <= segments; i += 1) {
         const a = i / segments;
+        const envelope = Math.sin(a * Math.PI); // stronger jitter in the middle
         const x = base.x + a * 6;
-        const y = base.y + 2.4 + Math.sin(this.simTime * 9.0 + i * 1.7) * 0.35;
-        const z = base.z + Math.sin(this.simTime * 7.0 + i * 2.2) * 0.35;
+        const y = base.y + 2.4 + Math.sin(this.simTime * 11.0 + i * 1.7) * 0.55 * envelope;
+        const z = base.z + Math.sin(this.simTime * 9.0 + i * 2.2) * 0.55 * envelope;
         pos.setXYZ(i, x, y, z);
       }
       pos.needsUpdate = true;
@@ -550,7 +569,7 @@ export class LevelManager implements Disposable {
     const bayPedestalY = SHOWCASE_LAYOUT.bay.pedestalY;
     const bayPedestalHeight = SHOWCASE_LAYOUT.bay.pedestalHeight;
     const bayTopY = getShowcaseBayTopY();
-    const hallFloorMat = new THREE.MeshStandardMaterial({ color: 0xdfe6ee, roughness: 0.88, metalness: 0.02 });
+    const hallFloorMat = new THREE.MeshStandardMaterial({ color: 0xdfe6ee, roughness: 0.78, metalness: 0.04 });
     // Show a readable ground grid in normal play mode too.
     hallFloorMat.map = gridTexture;
     hallFloorMat.needsUpdate = true;
@@ -632,13 +651,23 @@ export class LevelManager implements Disposable {
 
     // Ceiling accent lights above each bay (no shadows) for clearer readability.
     // WHY: keeps the corridor visually appealing without adding expensive shadowed lights.
+    // Colors progress warm→cool along the corridor for a visual journey.
     const ceilingY = -1.0 + wallHeight - 0.45;
+    const warmPanel = new THREE.Color(0xffc27a);
+    const coolPanel = new THREE.Color(0x8ab4e8);
+    const warmLight = new THREE.Color(0xffe2bf);
+    const coolLight = new THREE.Color(0xc8deff);
+    const bayCount = bayZ.length;
     bayZ.forEach((z, i) => {
+      const t = bayCount > 1 ? i / (bayCount - 1) : 0;
+      const panelEmissive = new THREE.Color().lerpColors(warmPanel, coolPanel, t);
+      const lightColor = new THREE.Color().lerpColors(warmLight, coolLight, t);
+
       const panelMat = new THREE.MeshStandardMaterial({
         color: 0x14161c,
         roughness: 0.45,
         metalness: 0.05,
-        emissive: 0xffc27a,
+        emissive: panelEmissive,
         emissiveIntensity: 0.55,
       });
       const panel = new THREE.Mesh(new THREE.BoxGeometry(bayWidth - 6, 0.08, 2.6), panelMat);
@@ -649,7 +678,7 @@ export class LevelManager implements Disposable {
       this.scene.add(panel);
       this.levelObjects.push(panel);
 
-      const light = new THREE.PointLight(0xffe2bf, 22, 18, 2);
+      const light = new THREE.PointLight(lightColor, 22, 18, 2);
       light.position.set(0, ceilingY - 0.25, z);
       light.castShadow = false;
       light.name = `ShowcaseBayLight${i}`;
@@ -809,7 +838,7 @@ export class LevelManager implements Disposable {
     this.createKinematicPlatform(
       'SideMovePlatform',
       new THREE.Vector3(5, 0.2, 5),
-      new THREE.Vector3(-12, bayTopY + 0.1, zPlatformsMoving + 6),
+      new THREE.Vector3(-12, bayTopY + 0.1, zPlatformsMoving + 3),
       'x',
       0.5,
       5,
@@ -818,7 +847,7 @@ export class LevelManager implements Disposable {
     this.createKinematicPlatform(
       'ElevatePlatform',
       new THREE.Vector3(5, 0.2, 5),
-      new THREE.Vector3(0, bayTopY + 2.2, zPlatformsMoving + 6),
+      new THREE.Vector3(0, bayTopY + 2.2, zPlatformsMoving + 3),
       'yRotate',
       0.5,
       2,
@@ -827,7 +856,7 @@ export class LevelManager implements Disposable {
     this.createKinematicPlatform(
       'RotatePlatform',
       new THREE.Vector3(5, 0.2, 5),
-      new THREE.Vector3(12, bayTopY + 0.1, zPlatformsMoving + 6),
+      new THREE.Vector3(12, bayTopY + 0.1, zPlatformsMoving + 3),
       'rotateY',
       0.5,
       0,
@@ -835,7 +864,7 @@ export class LevelManager implements Disposable {
     );
     this.createSectionLabel(
       '2.A  Moving platforms\nUI test: Debug (`) shows speed + grounded toggles',
-      new THREE.Vector3(0, 3.6, zPlatformsMoving + 8),
+      new THREE.Vector3(0, 3.6, zPlatformsMoving + 6.5),
       9.2,
       1.9,
     );
@@ -844,13 +873,13 @@ export class LevelManager implements Disposable {
     this.createFloatingPlatform(
       'FloatingPlatformA',
       new THREE.Vector3(5, 0.2, 5),
-      new THREE.Vector3(-10, bayTopY + 1.2, zPlatformsPhysics + 6),
+      new THREE.Vector3(-10, bayTopY + 1.2, zPlatformsPhysics + 3),
       floatingPlatformMat,
     );
     this.createFloatingPlatform(
       'FloatingPlatformB',
       new THREE.Vector3(5, 0.2, 5),
-      new THREE.Vector3(10, bayTopY + 1.2, zPlatformsPhysics + 6),
+      new THREE.Vector3(10, bayTopY + 1.2, zPlatformsPhysics + 3),
       floatingPlatformMat,
       { lockX: true, lockY: false, lockZ: true, rotX: false, rotY: true, rotZ: false },
     );
@@ -864,7 +893,7 @@ export class LevelManager implements Disposable {
     );
     this.createKinematicDrum(
       'RotatingDrum',
-      new THREE.Vector3(0, bayTopY + 1.0, zPlatformsPhysics - 6),
+      new THREE.Vector3(0, bayTopY + 1.0, zPlatformsPhysics - 4),
       1.0,
       10.0,
       'rotateX',
@@ -873,32 +902,42 @@ export class LevelManager implements Disposable {
     );
     this.createSectionLabel(
       '2.B  Pushable / physics platforms\nUI test: Throw objects at platforms; watch stability',
-      new THREE.Vector3(0, 3.6, zPlatformsPhysics + 8),
+      new THREE.Vector3(0, 3.6, zPlatformsPhysics + 6.5),
       11.4,
       2.05,
     );
 
     // Materials bay.
     this.createSectionLabel(
-      '3.A  Materials\nGlass • Metal • Rough • Emissive',
+      '3.A  Materials\nGlass • Mirror • Copper • Ceramic • Emissive\nRough • Metal • Brushed • Iridescent • Lava',
       new THREE.Vector3(0, 3.2, zMaterials + 6),
-      9.2,
-      1.9,
+      11.4,
+      2.45,
     );
     this.createMaterialsBay(new THREE.Vector3(0, bayTopY, zMaterials), bayWidth, obstacleMat);
 
     // VFX bay.
     this.createSectionLabel(
-      '3.B  VFX\nSmoke • Fire • Laser • Lightning',
+      '3.B  VFX\nSmoke (3 emitters) • Fire + Embers • Laser • Lightning',
       new THREE.Vector3(0, 3.2, zVfx + 6),
-      9.2,
-      1.9,
+      11.4,
+      2.15,
     );
     this.createVfxBay(new THREE.Vector3(0, bayTopY, zVfx), bayWidth);
 
     // Reserved empty bays for future additions (keep pedestals but no gameplay objects).
     this.createSectionLabel('2.A  Reserved bay\n(keep empty for future demos)', new THREE.Vector3(0, 2.5, zFutureA), 8.8, 2.0);
     this.createSectionLabel('2.B  Reserved bay\n(keep empty for future demos)', new THREE.Vector3(0, 2.5, zFutureB), 8.8, 2.0);
+
+    // --- Visual polish ---
+    this.addFloorCenterline(hallLength, showcaseCenterZ);
+    this.addBayAccentBorders(bayZ, bayWidth, bayLength, bayPedestalY, bayPedestalHeight);
+    this.addCorridorTrim(hallWidth, wallHeight, hallLength, showcaseCenterZ, wallThickness);
+    this.addWallPilasters(bayZ, hallWidth, wallHeight, wallThickness);
+    this.addEntranceFrame(hallWidth, wallHeight, hallLength, showcaseCenterZ);
+    this.addFloorBayGrooves(bayZ, hallWidth, bayLength);
+    this.addWallEmissiveStrips(hallWidth, hallLength, showcaseCenterZ, wallThickness);
+    this.addDustMotes(hallWidth, hallLength, showcaseCenterZ);
 
     // spawnPoint is set to the showcase corridor near the top of this method.
   }
@@ -1371,6 +1410,298 @@ export class LevelManager implements Disposable {
     });
   }
 
+  // ---------------------------------------------------------------------------
+  // Visual polish helpers
+  // ---------------------------------------------------------------------------
+
+  /** Thin emissive strip running the full corridor length at center. */
+  private addFloorCenterline(hallLength: number, centerZ: number): void {
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x112233,
+      emissive: 0x4488cc,
+      emissiveIntensity: 0.7,
+      roughness: 0.5,
+    });
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.02, hallLength), mat);
+    strip.position.set(0, -0.99, centerZ);
+    strip.name = 'FloorCenterline';
+    strip.receiveShadow = false;
+    strip.castShadow = false;
+    this.scene.add(strip);
+    this.levelObjects.push(strip);
+  }
+
+  /** Emissive strip at front edge of each bay pedestal, colors warm→cool. */
+  private addBayAccentBorders(
+    bayZ: number[],
+    bayWidth: number,
+    bayLength: number,
+    pedestalY: number,
+    pedestalHeight: number,
+  ): void {
+    const count = bayZ.length;
+    if (count === 0) return;
+    const geo = new THREE.BoxGeometry(bayWidth - 2, 0.04, 0.1);
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x111111,
+      emissive: 0xffffff,
+      emissiveIntensity: 0.8,
+      roughness: 0.4,
+    });
+    const mesh = new THREE.InstancedMesh(geo, mat, count);
+    mesh.name = 'BayAccentBorders';
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+
+    const warmColor = new THREE.Color(0xff8833);
+    const coolColor = new THREE.Color(0x4488cc);
+    const dummy = new THREE.Object3D();
+    const topY = pedestalY + pedestalHeight * 0.5 + 0.02;
+
+    for (let i = 0; i < count; i++) {
+      const t = count > 1 ? i / (count - 1) : 0;
+      dummy.position.set(0, topY, bayZ[i] + bayLength / 2 - 0.05);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+      mesh.setColorAt(i, new THREE.Color().lerpColors(warmColor, coolColor, t));
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    this.scene.add(mesh);
+    this.levelObjects.push(mesh);
+  }
+
+  /** Baseboard and ceiling trim strips at wall-floor / wall-ceiling junctions. */
+  private addCorridorTrim(
+    hallWidth: number,
+    wallHeight: number,
+    hallLength: number,
+    centerZ: number,
+    wallThickness: number,
+  ): void {
+    const trimMat = new THREE.MeshStandardMaterial({ color: 0x353a48, roughness: 0.7, metalness: 0.05 });
+    const trimHeight = 0.18;
+    const trimDepth = 0.12;
+    const floorY = -1.0 + trimHeight / 2;
+    const ceilingY = -1.0 + wallHeight - trimHeight / 2;
+    const halfW = hallWidth / 2 + wallThickness / 2 - trimDepth / 2;
+
+    const positions = [
+      { x: -halfW, y: floorY, label: 'BaseboardL' },
+      { x: halfW, y: floorY, label: 'BaseboardR' },
+      { x: -halfW, y: ceilingY, label: 'CeilingTrimL' },
+      { x: halfW, y: ceilingY, label: 'CeilingTrimR' },
+    ];
+
+    for (const p of positions) {
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(trimDepth, trimHeight, hallLength), trimMat);
+      strip.position.set(p.x, p.y, centerZ);
+      strip.name = p.label;
+      strip.castShadow = false;
+      strip.receiveShadow = false;
+      this.scene.add(strip);
+      this.levelObjects.push(strip);
+    }
+  }
+
+  /** Subtle vertical extrusions at bay boundaries along both walls. */
+  private addWallPilasters(
+    bayZ: number[],
+    hallWidth: number,
+    wallHeight: number,
+    wallThickness: number,
+  ): void {
+    const count = bayZ.length;
+    if (count === 0) return;
+    const pilasterWidth = 0.4;
+    const pilasterDepth = 0.08;
+    const pilasterHeight = wallHeight - 0.4;
+    const geo = new THREE.BoxGeometry(pilasterDepth, pilasterHeight, pilasterWidth);
+    const mat = new THREE.MeshStandardMaterial({ color: 0x2e3340, roughness: 0.72, metalness: 0.02 });
+
+    // 2 instanced meshes: left wall and right wall.
+    const halfW = hallWidth / 2 + wallThickness / 2 - pilasterDepth / 2;
+    const yCenter = -1.0 + pilasterHeight / 2 + 0.2;
+
+    for (const side of [-1, 1]) {
+      const mesh = new THREE.InstancedMesh(geo, mat, count);
+      mesh.name = side < 0 ? 'PilastersL' : 'PilastersR';
+      mesh.castShadow = false;
+      mesh.receiveShadow = false;
+      const dummy = new THREE.Object3D();
+      for (let i = 0; i < count; i++) {
+        dummy.position.set(side * halfW, yCenter, bayZ[i]);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(i, dummy.matrix);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      this.scene.add(mesh);
+      this.levelObjects.push(mesh);
+    }
+  }
+
+  /** Archway pillars + lintel + branding label + spotlight at the entrance end. */
+  private addEntranceFrame(
+    hallWidth: number,
+    wallHeight: number,
+    hallLength: number,
+    centerZ: number,
+  ): void {
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0x3a3f50, roughness: 0.6, metalness: 0.08 });
+    const pillarW = 0.7;
+    const pillarD = 0.5;
+    const pillarH = wallHeight - 1.2;
+    const entranceZ = centerZ + hallLength / 2 - 0.3;
+    const halfW = hallWidth / 2 - pillarW / 2 - 0.6;
+    const pillarY = -1.0 + pillarH / 2;
+
+    // Left pillar
+    const leftPillar = new THREE.Mesh(new THREE.BoxGeometry(pillarW, pillarH, pillarD), frameMat);
+    leftPillar.position.set(-halfW, pillarY, entranceZ);
+    leftPillar.name = 'EntrancePillarL';
+    leftPillar.castShadow = true;
+    leftPillar.receiveShadow = true;
+    this.scene.add(leftPillar);
+    this.levelObjects.push(leftPillar);
+
+    // Right pillar
+    const rightPillar = new THREE.Mesh(new THREE.BoxGeometry(pillarW, pillarH, pillarD), frameMat);
+    rightPillar.position.set(halfW, pillarY, entranceZ);
+    rightPillar.name = 'EntrancePillarR';
+    rightPillar.castShadow = true;
+    rightPillar.receiveShadow = true;
+    this.scene.add(rightPillar);
+    this.levelObjects.push(rightPillar);
+
+    // Lintel
+    const lintelW = halfW * 2 + pillarW;
+    const lintelH = 0.5;
+    const lintel = new THREE.Mesh(new THREE.BoxGeometry(lintelW, lintelH, pillarD), frameMat);
+    lintel.position.set(0, pillarY + pillarH / 2 + lintelH / 2, entranceZ);
+    lintel.name = 'EntranceLintel';
+    lintel.castShadow = true;
+    lintel.receiveShadow = true;
+    this.scene.add(lintel);
+    this.levelObjects.push(lintel);
+
+    // Branding label above the entrance
+    this.createSectionLabel(
+      'KINEMA\nThird-Person Controller Showcase',
+      new THREE.Vector3(0, pillarY + pillarH / 2 + lintelH + 1.2, entranceZ + 0.3),
+      10,
+      2.8,
+    );
+
+    // Extra entrance spotlight for brighter spawn area
+    const spot = new THREE.SpotLight(0xffe8cc, 40, 25, Math.PI / 5, 0.6, 1.8);
+    spot.position.set(0, -1.0 + wallHeight - 0.6, entranceZ - 2);
+    spot.target.position.set(0, -1.0, entranceZ);
+    spot.castShadow = false;
+    spot.name = 'EntranceSpot';
+    this.scene.add(spot);
+    this.scene.add(spot.target);
+    this.levelObjects.push(spot);
+    this.levelObjects.push(spot.target);
+  }
+
+  /** Thin dark grooves on the floor at bay boundaries. */
+  private addFloorBayGrooves(bayZ: number[], hallWidth: number, bayLength: number): void {
+    const count = bayZ.length;
+    if (count === 0) return;
+    // Two grooves per bay (front + back edge) = 2 * count instances.
+    const instanceCount = count * 2;
+    const geo = new THREE.BoxGeometry(hallWidth - 2, 0.02, 0.06);
+    const mat = new THREE.MeshStandardMaterial({ color: 0x0a0c12, roughness: 0.9 });
+    const mesh = new THREE.InstancedMesh(geo, mat, instanceCount);
+    mesh.name = 'FloorBayGrooves';
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+
+    const dummy = new THREE.Object3D();
+    const grooveY = -0.99;
+    const halfBay = bayLength / 2;
+
+    for (let i = 0; i < count; i++) {
+      // Front edge
+      dummy.position.set(0, grooveY, bayZ[i] + halfBay);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i * 2, dummy.matrix);
+      // Back edge
+      dummy.position.set(0, grooveY, bayZ[i] - halfBay);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i * 2 + 1, dummy.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    this.scene.add(mesh);
+    this.levelObjects.push(mesh);
+  }
+
+  /** Two thin emissive accent strips at ~1 m height on both corridor walls. */
+  private addWallEmissiveStrips(
+    hallWidth: number,
+    hallLength: number,
+    centerZ: number,
+    wallThickness: number,
+  ): void {
+    const stripMat = new THREE.MeshStandardMaterial({
+      color: 0x111122,
+      emissive: 0x334466,
+      emissiveIntensity: 0.45,
+      roughness: 0.5,
+    });
+    const stripHeight = 0.06;
+    const stripDepth = 0.04;
+    const y = -1.0 + 1.0; // 1 m above floor
+    const halfW = hallWidth / 2 + wallThickness / 2 - stripDepth / 2;
+
+    for (const side of [-1, 1]) {
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(stripDepth, stripHeight, hallLength), stripMat);
+      strip.position.set(side * halfW, y, centerZ);
+      strip.name = side < 0 ? 'WallStripL' : 'WallStripR';
+      strip.castShadow = false;
+      strip.receiveShadow = false;
+      this.scene.add(strip);
+      this.levelObjects.push(strip);
+    }
+  }
+
+  /** Gentle floating dust motes throughout the corridor. */
+  private addDustMotes(hallWidth: number, hallLength: number, centerZ: number): void {
+    const moteMat = new THREE.SpriteMaterial({
+      color: 0xeeeeff,
+      transparent: true,
+      opacity: 0.12,
+      depthTest: true,
+      depthWrite: false,
+      blending: THREE.NormalBlending,
+    });
+    moteMat.premultipliedAlpha = false;
+
+    const count = 35;
+    const halfW = hallWidth / 2 - 1;
+    const halfL = hallLength / 2 - 2;
+
+    for (let i = 0; i < count; i++) {
+      const sprite = new THREE.Sprite(moteMat.clone());
+      const s = 0.08 + Math.random() * 0.15;
+      sprite.scale.set(s, s, 1);
+      const x = (Math.random() - 0.5) * 2 * halfW;
+      const y = 0.5 + Math.random() * 5.5;
+      const z = centerZ + (Math.random() - 0.5) * 2 * halfL;
+      sprite.position.set(x, y, z);
+      sprite.name = `DustMote_${i}`;
+      sprite.renderOrder = 2;
+      this.scene.add(sprite);
+      this.levelObjects.push(sprite);
+      this.dustMotes.push({
+        sprite,
+        origin: sprite.position.clone(),
+        speed: 0.3 + Math.random() * 0.5,
+        phase: Math.random() * Math.PI * 2,
+      });
+    }
+  }
+
   private createSectionLabel(
     text: string,
     position: THREE.Vector3,
@@ -1496,12 +1827,12 @@ export class LevelManager implements Disposable {
 
   private addLighting(): void {
     // Slightly lower ambient for more depth/contrast in the showcase corridor.
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.32);
+    const ambientLight = new THREE.AmbientLight(0xfff8f0, 0.35);
     ambientLight.name = '__kinema_ambient';
     this.scene.add(ambientLight);
     this.levelObjects.push(ambientLight);
 
-    const hemiLight = new THREE.HemisphereLight(0xd7e8ff, 0x8a95aa, 0.28);
+    const hemiLight = new THREE.HemisphereLight(0xffeedd, 0x8a95aa, 0.30);
     hemiLight.name = '__kinema_hemilight';
     this.scene.add(hemiLight);
     this.levelObjects.push(hemiLight);
@@ -1695,71 +2026,96 @@ export class LevelManager implements Disposable {
   }
 
   private createMaterialsBay(base: THREE.Vector3, bayWidth: number, fallbackMaterial: THREE.Material): void {
-    const rowZ = base.z + 1.5;
+    const frontZ = base.z + 3;
+    const backZ = base.z - 2;
     const xSpan = Math.max(8, bayWidth - 12);
     const spacing = xSpan / 5;
     const startX = -xSpan / 2 + spacing * 0.5;
 
+    // --- Materials ---
     const glass = new THREE.MeshPhysicalMaterial({
-      color: 0xbfe9ff,
-      roughness: 0.05,
-      metalness: 0,
-      transmission: 1,
-      thickness: 0.35,
-      ior: 1.45,
-      transparent: true,
-      opacity: 0.7,
+      color: 0xbfe9ff, roughness: 0.05, metalness: 0,
+      transmission: 1, thickness: 0.35, ior: 1.45, transparent: true, opacity: 0.7,
     });
-    const mirror = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      roughness: 0.02,
-      metalness: 1,
+    const mirror = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.02, metalness: 1 });
+    const copper = new THREE.MeshStandardMaterial({ color: 0xb87333, roughness: 0.35, metalness: 1 });
+    const ceramic = new THREE.MeshPhysicalMaterial({
+      color: 0xf5f0e8, roughness: 0.25, metalness: 0, clearcoat: 1.0, clearcoatRoughness: 0.08,
     });
-    const rough = new THREE.MeshStandardMaterial({
-      color: 0xb4b4b4,
-      roughness: 0.95,
-      metalness: 0,
+    const emissiveGreen = new THREE.MeshStandardMaterial({
+      color: 0x222222, roughness: 0.55, metalness: 0.05,
+      emissive: 0x44ff99, emissiveIntensity: 1.8,
     });
-    const metallic = new THREE.MeshStandardMaterial({
-      color: 0x9aa7b0,
-      roughness: 0.18,
-      metalness: 1,
-    });
-    const emissive = new THREE.MeshStandardMaterial({
-      color: 0x222222,
-      roughness: 0.55,
-      metalness: 0.05,
-      emissive: 0x35ff8d,
-      emissiveIntensity: 0.65,
-    });
-    this.animatedMaterials.push({ mat: emissive, baseIntensity: 0.65, speed: 2.2 });
+    this.animatedMaterials.push({ mat: emissiveGreen, baseIntensity: 1.8, speed: 2.2 });
 
-    const samples: Array<{ name: string; mat: THREE.Material; shape: 'sphere' | 'box' }> = [
+    const rough = new THREE.MeshStandardMaterial({ color: 0xb4b4b4, roughness: 0.95, metalness: 0 });
+    const metallic = new THREE.MeshStandardMaterial({ color: 0x9aa7b0, roughness: 0.18, metalness: 1 });
+    const brushed = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.72, metalness: 0.9 });
+    const iridescent = new THREE.MeshPhysicalMaterial({
+      color: 0xccccdd, roughness: 0.15, metalness: 0.1,
+      iridescence: 1.0, iridescenceIOR: 1.3,
+    });
+    const lava = new THREE.MeshStandardMaterial({
+      color: 0x331100, roughness: 0.6, metalness: 0.1,
+      emissive: 0xff4400, emissiveIntensity: 2.5,
+    });
+    this.animatedMaterials.push({ mat: lava, baseIntensity: 2.5, speed: 1.6 });
+
+    // Front row (z = frontZ): Glass, Mirror, Copper, Ceramic, Emissive
+    const frontRow: Array<{ name: string; mat: THREE.Material; shape: 'sphere' | 'box' }> = [
       { name: 'Glass', mat: glass, shape: 'box' },
       { name: 'Mirror', mat: mirror, shape: 'box' },
+      { name: 'Copper', mat: copper, shape: 'sphere' },
+      { name: 'Ceramic', mat: ceramic, shape: 'sphere' },
+      { name: 'Emissive', mat: emissiveGreen, shape: 'sphere' },
+    ];
+    // Back row (z = backZ): Rough, Metal, Brushed, Iridescent, Lava
+    const backRow: Array<{ name: string; mat: THREE.Material; shape: 'sphere' | 'box' }> = [
       { name: 'Rough', mat: rough, shape: 'sphere' },
       { name: 'Metal', mat: metallic, shape: 'sphere' },
-      { name: 'Emissive (animated)', mat: emissive, shape: 'box' },
+      { name: 'Brushed', mat: brushed, shape: 'box' },
+      { name: 'Iridescent', mat: iridescent, shape: 'sphere' },
+      { name: 'Lava', mat: lava, shape: 'sphere' },
     ];
 
-    samples.forEach((s, i) => {
-      const x = startX + i * spacing;
-      const y = base.y + 1.05;
-      const z = rowZ;
-      const geom =
-        s.shape === 'sphere'
+    const placeRow = (samples: typeof frontRow, rowZ: number) => {
+      samples.forEach((s, i) => {
+        const x = startX + i * spacing;
+        const y = base.y + 1.05;
+        const geom = s.shape === 'sphere'
           ? new THREE.SphereGeometry(0.8, 22, 18)
           : new THREE.BoxGeometry(1.6, 1.6, 1.6);
-      const mesh = new THREE.Mesh(geom, s.mat);
-      mesh.position.set(x, y, z);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      mesh.name = `MatSample_${s.name}`;
-      this.scene.add(mesh);
-      this.levelObjects.push(mesh);
-      mesh.updateWorldMatrix(true, false);
-      this.levelColliders.push(this.colliderFactory.createTrimesh(mesh));
-    });
+        const mesh = new THREE.Mesh(geom, s.mat);
+        mesh.position.set(x, y, rowZ);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        mesh.name = `MatSample_${s.name}`;
+        this.scene.add(mesh);
+        this.levelObjects.push(mesh);
+        mesh.updateWorldMatrix(true, false);
+        this.levelColliders.push(this.colliderFactory.createTrimesh(mesh));
+      });
+    };
+    placeRow(frontRow, frontZ);
+    placeRow(backRow, backZ);
+
+    // Point light near emissive (green glow)
+    const emissiveX = startX + 4 * spacing;
+    const greenLight = new THREE.PointLight(0x44ff99, 8, 10, 2);
+    greenLight.position.set(emissiveX, base.y + 2.0, frontZ);
+    greenLight.castShadow = false;
+    greenLight.name = 'MatLight_Green';
+    this.scene.add(greenLight);
+    this.levelObjects.push(greenLight);
+
+    // Point light near lava (orange glow)
+    const lavaX = startX + 4 * spacing;
+    const lavaLight = new THREE.PointLight(0xff6622, 10, 10, 2);
+    lavaLight.position.set(lavaX, base.y + 2.0, backZ);
+    lavaLight.castShadow = false;
+    lavaLight.name = 'MatLight_Lava';
+    this.scene.add(lavaLight);
+    this.levelObjects.push(lavaLight);
 
     // Backplate to catch reflections.
     this.createStaticColliderBox(
@@ -1773,80 +2129,115 @@ export class LevelManager implements Disposable {
   private createVfxBay(base: THREE.Vector3, bayWidth: number): void {
     const smokeTex = this.createBillboardTexture('#cfd6e6', 0.85);
     const fireTex = this.createBillboardTexture('#ff7a1a', 0.92);
+    const emberTex = this.createBillboardTexture('#ffdd44', 0.95);
     const smokeMat = new THREE.SpriteMaterial({
-      map: smokeTex,
-      transparent: true,
-      opacity: 0.55,
-      depthTest: true,
-      depthWrite: false,
-      // NOTE: Avoid CustomBlending here.
-      // WHY: WebGPU's material pipeline support for per-channel CustomBlending has been inconsistent.
-      // NormalBlending + premultipliedAlpha provides stable results across WebGL and WebGPU.
-      blending: THREE.NormalBlending,
+      map: smokeTex, transparent: true, opacity: 0.55,
+      depthTest: true, depthWrite: false, blending: THREE.NormalBlending,
     });
-    // NOTE: Use straight alpha.
-    // WHY: WebGPU SpriteMaterial can behave as if premultiplied-alpha is ignored, producing dark "black" edges.
     smokeMat.premultipliedAlpha = false;
     const fireMat = new THREE.SpriteMaterial({
-      map: fireTex,
-      transparent: true,
-      opacity: 0.85,
-      depthTest: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
+      map: fireTex, transparent: true, opacity: 0.85,
+      depthTest: true, depthWrite: false, blending: THREE.AdditiveBlending,
     });
     fireMat.premultipliedAlpha = false;
+    const emberMat = new THREE.SpriteMaterial({
+      map: emberTex, transparent: true, opacity: 0.9,
+      depthTest: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    });
+    emberMat.premultipliedAlpha = false;
 
     const leftX = -Math.min(14, bayWidth * 0.32);
     const rightX = Math.min(14, bayWidth * 0.32);
 
-    // Smoke column.
-    for (let i = 0; i < 10; i += 1) {
-      const sprite = new THREE.Sprite(smokeMat.clone());
-      sprite.renderOrder = 5;
-      sprite.position.set(leftX, base.y + 0.6, base.z + 2.4);
-      sprite.scale.set(2.4, 2.4, 1);
-      sprite.name = `VFX_Smoke_${i}`;
+    // Smoke: 24 sprites across 3 emitters.
+    const smokeEmitters = [
+      { x: leftX - 1.5, z: base.z + 1.8, scale: 2.5, rise: 0.22, maxR: 5.0 },
+      { x: leftX, z: base.z + 2.8, scale: 3.0, rise: 0.30, maxR: 6.0 },
+      { x: leftX + 1.5, z: base.z + 1.8, scale: 2.0, rise: 0.35, maxR: 4.0 },
+    ];
+    let smokeIdx = 0;
+    for (const em of smokeEmitters) {
+      for (let i = 0; i < 8; i += 1) {
+        const sprite = new THREE.Sprite(smokeMat.clone());
+        sprite.renderOrder = 5;
+        sprite.position.set(em.x, base.y + 0.6, em.z);
+        sprite.scale.set(em.scale, em.scale, 1);
+        sprite.name = `VFX_Smoke_${smokeIdx++}`;
+        this.scene.add(sprite);
+        this.levelObjects.push(sprite);
+        this.vfxBillboards.push({
+          sprite, origin: sprite.position.clone(), kind: 'smoke',
+          riseSpeed: em.rise, maxRise: em.maxR, baseScale: em.scale, phase: i / 8,
+        });
+      }
+    }
+
+    // Fire: 18 sprites across 3 emitters.
+    const fireEmitters = [
+      { x: rightX - 1.2, z: base.z + 1.8 },
+      { x: rightX, z: base.z + 2.8 },
+      { x: rightX + 1.2, z: base.z + 1.8 },
+    ];
+    let fireIdx = 0;
+    for (const em of fireEmitters) {
+      for (let i = 0; i < 6; i += 1) {
+        const sprite = new THREE.Sprite(fireMat.clone());
+        sprite.renderOrder = 6;
+        sprite.position.set(em.x, base.y + 0.55, em.z);
+        sprite.scale.set(2.0, 2.0, 1);
+        sprite.name = `VFX_Fire_${fireIdx++}`;
+        this.scene.add(sprite);
+        this.levelObjects.push(sprite);
+        this.vfxBillboards.push({
+          sprite, origin: sprite.position.clone(), kind: 'fire',
+          riseSpeed: 0.38, maxRise: 3.6, baseScale: 1.8, phase: i / 6,
+        });
+      }
+    }
+
+    // Ember particles: 12 tiny fast-rising sprites.
+    for (let i = 0; i < 12; i += 1) {
+      const sprite = new THREE.Sprite(emberMat.clone());
+      sprite.renderOrder = 7;
+      const ex = rightX + (Math.random() - 0.5) * 3.0;
+      const ez = base.z + 1.8 + Math.random() * 1.5;
+      sprite.position.set(ex, base.y + 0.5, ez);
+      const s = 0.15 + Math.random() * 0.25;
+      sprite.scale.set(s, s, 1);
+      sprite.name = `VFX_Ember_${i}`;
       this.scene.add(sprite);
       this.levelObjects.push(sprite);
       this.vfxBillboards.push({
-        sprite,
-        origin: sprite.position.clone(),
-        kind: 'smoke',
-        riseSpeed: 0.25,
-        maxRise: 4.8,
-        baseScale: 2.2,
-        phase: i / 10,
+        sprite, origin: sprite.position.clone(), kind: 'fire',
+        riseSpeed: 0.55 + Math.random() * 0.3, maxRise: 4.0 + Math.random() * 2.0,
+        baseScale: s, phase: Math.random(),
       });
     }
 
-    // Fire column.
-    for (let i = 0; i < 9; i += 1) {
-      const sprite = new THREE.Sprite(fireMat.clone());
-      sprite.renderOrder = 6;
-      sprite.position.set(rightX, base.y + 0.55, base.z + 2.4);
-      sprite.scale.set(2.0, 2.0, 1);
-      sprite.name = `VFX_Fire_${i}`;
-      this.scene.add(sprite);
-      this.levelObjects.push(sprite);
-      this.vfxBillboards.push({
-        sprite,
-        origin: sprite.position.clone(),
-        kind: 'fire',
-        riseSpeed: 0.38,
-        maxRise: 3.6,
-        baseScale: 1.8,
-        phase: i / 9,
-      });
-    }
+    // Ground glow plane under fire.
+    const glowMat = new THREE.MeshStandardMaterial({
+      color: 0x110000, emissive: 0xff4400, emissiveIntensity: 1.2, roughness: 0.9, transparent: true, opacity: 0.6,
+    });
+    const glowPlane = new THREE.Mesh(new THREE.PlaneGeometry(5, 4), glowMat);
+    glowPlane.rotation.x = -Math.PI / 2;
+    glowPlane.position.set(rightX, base.y + 0.02, base.z + 2.2);
+    glowPlane.name = 'VFX_FireGlow';
+    glowPlane.receiveShadow = false;
+    glowPlane.castShadow = false;
+    this.scene.add(glowPlane);
+    this.levelObjects.push(glowPlane);
+
+    // Fire point light.
+    const fireLight = new THREE.PointLight(0xff6622, 15, 14, 2);
+    fireLight.position.set(rightX, base.y + 2.0, base.z + 2.2);
+    fireLight.castShadow = false;
+    fireLight.name = 'VFX_FireLight';
+    this.scene.add(fireLight);
+    this.levelObjects.push(fireLight);
 
     // Laser bar (emissive) down the bay.
     const laserMat = new THREE.MeshStandardMaterial({
-      color: 0x220000,
-      roughness: 0.2,
-      metalness: 0.2,
-      emissive: 0xff2a2a,
-      emissiveIntensity: 2.6,
+      color: 0x220000, roughness: 0.2, metalness: 0.2, emissive: 0xff2a2a, emissiveIntensity: 2.6,
     });
     const laser = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 10, 10), laserMat);
     laser.position.set(0, base.y + 1.2, base.z - 2.2);
@@ -1866,8 +2257,8 @@ export class LevelManager implements Disposable {
     this.scene.add(laserLight);
     this.levelObjects.push(laserLight);
 
-    // Lightning polyline (emissive line).
-    const segments = 10;
+    // Lightning polyline: 18 segments for denser arc.
+    const segments = 18;
     const points = new Float32Array((segments + 1) * 3);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(points, 3));
@@ -1881,7 +2272,15 @@ export class LevelManager implements Disposable {
     this.levelObjects.push(line);
     this.vfxLightning = { line, base: new THREE.Vector3(line.position.x, base.y, line.position.z), segments };
 
-    // Small receiver wall to improve visibility.
+    // Lightning point light.
+    const lightningLight = new THREE.PointLight(0x88ccff, 8, 12, 2);
+    lightningLight.position.set(line.position.x + 3, base.y + 2.5, line.position.z);
+    lightningLight.castShadow = false;
+    lightningLight.name = 'VFX_LightningLight';
+    this.scene.add(lightningLight);
+    this.levelObjects.push(lightningLight);
+
+    // Receiver wall backdrop.
     const wallMat = new THREE.MeshStandardMaterial({ color: 0x101218, roughness: 0.8, metalness: 0.0 });
     const receiver = new THREE.Mesh(new THREE.BoxGeometry(bayWidth - 10, 3.2, 0.25), wallMat);
     receiver.position.set(0, base.y + 1.8, base.z - 6.0);
@@ -1895,8 +2294,8 @@ export class LevelManager implements Disposable {
 
   private createBillboardTexture(coreHex: string, alpha: number): THREE.CanvasTexture {
     const canvas = document.createElement('canvas');
-    canvas.width = 256;
-    canvas.height = 256;
+    canvas.width = 512;
+    canvas.height = 512;
     const ctx = canvas.getContext('2d');
     if (!ctx) return new THREE.CanvasTexture(canvas);
 
@@ -1905,7 +2304,7 @@ export class LevelManager implements Disposable {
     const cy = canvas.height / 2;
     // Use rgba() strings for broad browser compatibility (avoid 8-digit hex edge cases).
     const rgb = hexToRgb(coreHex) ?? { r: 255, g: 255, b: 255 };
-    const grad = ctx.createRadialGradient(cx, cy, 10, cx, cy, 120);
+    const grad = ctx.createRadialGradient(cx, cy, 20, cx, cy, 240);
     grad.addColorStop(0, `rgba(${rgb.r},${rgb.g},${rgb.b},1)`);
     grad.addColorStop(0.45, `rgba(${rgb.r},${rgb.g},${rgb.b},${Math.max(0, Math.min(1, alpha))})`);
     grad.addColorStop(1, `rgba(${rgb.r},${rgb.g},${rgb.b},0)`);

@@ -82,10 +82,5 @@ export class GrabbableObject implements IInteractable {
   private syncPosition(): void {
     const p = this.body.translation();
     this.position.set(p.x, p.y, p.z);
-    if (this.mesh) {
-      this.mesh.position.copy(this.position);
-      const rot = this.body.rotation();
-      this.mesh.quaternion.set(rot.x, rot.y, rot.z, rot.w);
-    }
   }
 }

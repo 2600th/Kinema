@@ -29,9 +29,7 @@ export class CarryState extends State {
 
   getDesiredMovement(dt: number, input: InputState): THREE.Vector3 {
     const dir = this.player.computeMovementDirection(input);
-    const speed = input.sprint
-      ? this.player.config.moveSpeed * this.player.config.sprintMultiplier
-      : this.player.config.moveSpeed;
+    const speed = this.player.config.moveSpeed * this.player.config.crouchSpeedMultiplier;
     _movement.copy(dir).multiplyScalar(speed * dt);
     return _movement;
   }

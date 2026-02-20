@@ -12,6 +12,7 @@ const _prevPos = new THREE.Vector3();
 const _currPos = new THREE.Vector3();
 const _prevQuat = new THREE.Quaternion();
 const _currQuat = new THREE.Quaternion();
+const _lateral = new THREE.Vector3();
 
 export class CarController implements VehicleController {
   readonly id: string;
@@ -29,14 +30,24 @@ export class CarController implements VehicleController {
   private yaw = 0;
   private steerAngle = 0;
   private hasPose = false;
-  private frontWheels: THREE.Mesh[] = [];
-  private rearWheels: THREE.Mesh[] = [];
+  /** Steer pivot groups for front wheels (rotation.y = steerAngle). */
+  private frontWheelSteers: THREE.Object3D[] = [];
+  /** Spin groups inside front steer pivots (rotation.x += roll). */
+  private frontWheelSpins: THREE.Object3D[] = [];
+  /** Spin groups for rear wheels (rotation.x += roll). */
+  private rearWheelSpins: THREE.Object3D[] = [];
+  private cabinMesh: THREE.Object3D | null = null;
+
+  private visualRoll = 0;
+  private suspensionOffset = 0;
+  private lateralSlip = 0;
+  private simTime = 0;
 
   private readonly acceleration = 22;
   private readonly drag = 6;
   private readonly maxSteerAngle = Math.PI / 6;
   private readonly steerSpeed = 8;
-  private readonly wheelRadius = 0.28;
+  private readonly wheelRadius = 0.32;
 
   constructor(
     id: string,
@@ -78,29 +89,41 @@ export class CarController implements VehicleController {
   fixedUpdate(dt: number): void {
     if (!this.input) return;
     const input = this.input;
+    this.simTime += dt;
 
-    // Arcade-ish handling: predictable speed, responsive steering, and a handbrake.
     const accelInput = (input.forward ? 1 : 0) - (input.backward ? 1 : 0);
     const steerInput = (input.right ? 1 : 0) - (input.left ? 1 : 0);
     const boosting = input.sprint;
     const handbrake = input.jump;
 
     const maxForward = boosting ? 18 : 14;
-    const maxReverse = 8;
+    const maxReverse = 6;
     const accelRate = boosting ? 26 : this.acceleration;
+    const reverseAccelRate = accelRate * 0.5;
     const coastRate = handbrake ? 18 : this.drag;
-    const brakeRate = handbrake ? 38 : 18;
+    const brakeRate = handbrake ? 38 : 24;
 
+    // Acceleration with proper brake-before-reverse logic.
     if (accelInput > 0) {
-      this.speed = THREE.MathUtils.damp(this.speed, maxForward, accelRate, dt);
+      if (this.speed < -0.3) {
+        // Moving backward — brake to stop first.
+        this.speed = THREE.MathUtils.damp(this.speed, 0, brakeRate, dt);
+      } else {
+        this.speed = THREE.MathUtils.damp(this.speed, maxForward, accelRate, dt);
+      }
     } else if (accelInput < 0) {
-      this.speed = THREE.MathUtils.damp(this.speed, -maxReverse, accelRate, dt);
+      if (this.speed > 0.3) {
+        // Moving forward — brake to stop first.
+        this.speed = THREE.MathUtils.damp(this.speed, 0, brakeRate, dt);
+      } else {
+        // Actually reverse (slower acceleration, lower top speed).
+        this.speed = THREE.MathUtils.damp(this.speed, -maxReverse, reverseAccelRate, dt);
+      }
     } else {
       this.speed = THREE.MathUtils.damp(this.speed, 0, coastRate, dt);
     }
 
     if (handbrake && accelInput === 0) {
-      // Strong braking when coasting.
       this.speed = THREE.MathUtils.damp(this.speed, 0, brakeRate, dt);
     }
 
@@ -115,14 +138,46 @@ export class CarController implements VehicleController {
     // Forward is -Z in the rest of the project; turn right on D (steerInput=+1).
     const speedAbs = Math.abs(this.speed);
     const speedNorm = THREE.MathUtils.clamp(speedAbs / Math.max(0.01, maxForward), 0, 1);
-    const speedFactor = 0.22 + 0.78 * speedNorm; // keep some steering even at low speed
+    const speedFactor = 0.22 + 0.78 * speedNorm;
     const steerSign = Math.sign(this.speed !== 0 ? this.speed : accelInput !== 0 ? accelInput : 1);
     const turnRate = (handbrake ? 1.35 : 1.0) * 2.9;
     this.yaw -= this.steerAngle * steerSign * speedFactor * dt * turnRate;
     _forward.set(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw);
 
+    // Lateral drift.
+    const driftFactor = handbrake ? 0.08 : 0.02;
+    const targetSlip = this.steerAngle * speedNorm * driftFactor * speedAbs;
+    this.lateralSlip = THREE.MathUtils.damp(this.lateralSlip, targetSlip, 4.0, dt);
+    _lateral.set(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw);
+
+    // Suspension bounce.
+    this.suspensionOffset = Math.sin(this.simTime * 8.0) * speedNorm * 0.015;
+
+    // Visual body roll (damped toward target).
+    const targetRoll = -this.steerAngle * speedNorm * 0.06;
+    this.visualRoll = THREE.MathUtils.damp(this.visualRoll, targetRoll, 6.0, dt);
+
     const pos = this.body.translation();
-    const nextPos = new THREE.Vector3(pos.x, pos.y, pos.z).addScaledVector(_forward, this.speed * dt);
+    const nextPos = new THREE.Vector3(pos.x, pos.y, pos.z)
+      .addScaledVector(_forward, this.speed * dt)
+      .addScaledVector(_lateral, this.lateralSlip * dt);
+    nextPos.y += this.suspensionOffset;
+
+    // Ground snap: raycast down to follow terrain.
+    const rayOrigin = new RAPIER.Vector3(nextPos.x, nextPos.y + 2.0, nextPos.z);
+    const rayHit = this.physicsWorld.castRay(
+      rayOrigin,
+      new RAPIER.Vector3(0, -1, 0),
+      5.0,
+      undefined,
+      this.body,
+      (c) => !c.isSensor(),
+    );
+    if (rayHit) {
+      const groundY = nextPos.y + 2.0 - rayHit.timeOfImpact;
+      nextPos.y = groundY + 0.4;
+    }
+
     this.body.setNextKinematicTranslation(new RAPIER.Vector3(nextPos.x, nextPos.y, nextPos.z));
 
     _quat.setFromEuler(new THREE.Euler(0, this.yaw, 0, 'YXZ'));
@@ -152,6 +207,9 @@ export class CarController implements VehicleController {
     if (!this.hasPose) return;
     this.mesh.position.lerpVectors(_prevPos, _currPos, alpha);
     this.mesh.quaternion.slerpQuaternions(_prevQuat, _currQuat, alpha);
+    if (this.cabinMesh) {
+      this.cabinMesh.rotation.z = this.visualRoll;
+    }
   }
 
   dispose(): void {
@@ -170,35 +228,112 @@ export class CarController implements VehicleController {
 
   private createCarMesh(): THREE.Object3D {
     const group = new THREE.Group();
-    const bodyGeom = new THREE.BoxGeometry(2.2, 0.6, 4);
-    const bodyMat = new THREE.MeshStandardMaterial({ color: 0xff4f4f, metalness: 0.1, roughness: 0.5 });
-    const bodyMesh = new THREE.Mesh(bodyGeom, bodyMat);
-    bodyMesh.castShadow = true;
-    bodyMesh.receiveShadow = true;
-    bodyMesh.position.y = 0.4;
-    group.add(bodyMesh);
+    // Forward is -Z. Headlights/windshield at -Z, taillights at +Z.
 
-    const wheelGeom = new THREE.CylinderGeometry(this.wheelRadius, this.wheelRadius, 0.2, 16);
-    const wheelMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.2, roughness: 0.8 });
+    // --- Lower chassis ---
+    const chassisMat = new THREE.MeshStandardMaterial({ color: 0x8b1a1a, metalness: 0.6, roughness: 0.35 });
+    const chassis = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.35, 4.2), chassisMat);
+    chassis.position.y = 0.28;
+    chassis.castShadow = true;
+    chassis.receiveShadow = true;
+    group.add(chassis);
 
+    // --- Upper cabin (visual roll applied here) ---
+    const cabin = new THREE.Group();
+    const cabinMat = new THREE.MeshStandardMaterial({ color: 0x7a1616, metalness: 0.5, roughness: 0.4 });
+    const cabinMesh = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.45, 2.2), cabinMat);
+    cabinMesh.position.set(0, 0.68, 0.3);
+    cabinMesh.castShadow = true;
+    cabinMesh.receiveShadow = true;
+    cabin.add(cabinMesh);
+
+    // Windshield (front glass) — faces -Z.
+    const glassMat = new THREE.MeshPhysicalMaterial({
+      color: 0x88bbff, roughness: 0.05, metalness: 0,
+      transmission: 0.6, thickness: 0.1, transparent: true, opacity: 0.5,
+    });
+    const windshield = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.4, 0.08), glassMat);
+    windshield.position.set(0, 0.72, -0.82);
+    windshield.rotation.x = 0.25;
+    cabin.add(windshield);
+
+    group.add(cabin);
+    this.cabinMesh = cabin;
+
+    // --- Bumpers ---
+    const bumperMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.3, roughness: 0.6 });
+    const frontBumper = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.18, 0.3), bumperMat);
+    frontBumper.position.set(0, 0.2, -2.25);
+    frontBumper.castShadow = true;
+    group.add(frontBumper);
+
+    const rearBumper = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.18, 0.3), bumperMat);
+    rearBumper.position.set(0, 0.2, 2.25);
+    rearBumper.castShadow = true;
+    group.add(rearBumper);
+
+    // --- Headlights (front = -Z) ---
+    const headlightMat = new THREE.MeshStandardMaterial({
+      color: 0xffffcc, emissive: 0xffffcc, emissiveIntensity: 1.2, roughness: 0.3,
+    });
+    for (const side of [-0.75, 0.75]) {
+      const hl = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.15, 0.08), headlightMat);
+      hl.position.set(side, 0.32, -2.15);
+      group.add(hl);
+    }
+
+    // --- Taillights (rear = +Z) ---
+    const taillightMat = new THREE.MeshStandardMaterial({
+      color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 0.8, roughness: 0.4,
+    });
+    for (const side of [-0.8, 0.8]) {
+      const tl = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.12, 0.08), taillightMat);
+      tl.position.set(side, 0.32, 2.15);
+      group.add(tl);
+    }
+
+    // --- Wheels (tire + rim) ---
+    // Bake orientation into geometry so animation rotations stay on clean axes.
+    const tireGeom = new THREE.CylinderGeometry(this.wheelRadius, this.wheelRadius, 0.22, 18);
+    tireGeom.rotateZ(Math.PI / 2);
+    const rimGeom = new THREE.CylinderGeometry(this.wheelRadius * 0.55, this.wheelRadius * 0.55, 0.24, 12);
+    rimGeom.rotateZ(Math.PI / 2);
+
+    const tireMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, metalness: 0.1, roughness: 0.9 });
+    const rimMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.8, roughness: 0.2 });
+
+    // Front wheels at -Z, rear at +Z.
     const wheelOffsets = [
-      new THREE.Vector3(0.9, 0.2, 1.4),
-      new THREE.Vector3(-0.9, 0.2, 1.4),
-      new THREE.Vector3(0.9, 0.2, -1.4),
-      new THREE.Vector3(-0.9, 0.2, -1.4),
+      new THREE.Vector3(1.05, 0.32, -1.5),   // front-right
+      new THREE.Vector3(-1.05, 0.32, -1.5),  // front-left
+      new THREE.Vector3(1.05, 0.32, 1.5),    // rear-right
+      new THREE.Vector3(-1.05, 0.32, 1.5),   // rear-left
     ];
 
     wheelOffsets.forEach((offset, i) => {
-      const wheel = new THREE.Mesh(wheelGeom, wheelMat);
-      wheel.rotation.z = Math.PI / 2;
-      wheel.position.copy(offset);
-      wheel.castShadow = true;
-      wheel.receiveShadow = true;
-      group.add(wheel);
-      if (i < 2) {
-        this.frontWheels.push(wheel);
+      const isFront = i < 2;
+
+      // Spin group: holds tire + rim, rotation.x = roll (axle-aligned spin).
+      const spinGroup = new THREE.Group();
+      const tire = new THREE.Mesh(tireGeom, tireMat);
+      tire.castShadow = true;
+      tire.receiveShadow = true;
+      spinGroup.add(tire);
+      const rim = new THREE.Mesh(rimGeom, rimMat);
+      spinGroup.add(rim);
+
+      if (isFront) {
+        // Steer pivot → spin group (decoupled Euler axes = no wobble).
+        const steerPivot = new THREE.Group();
+        steerPivot.add(spinGroup);
+        steerPivot.position.copy(offset);
+        group.add(steerPivot);
+        this.frontWheelSteers.push(steerPivot);
+        this.frontWheelSpins.push(spinGroup);
       } else {
-        this.rearWheels.push(wheel);
+        spinGroup.position.copy(offset);
+        group.add(spinGroup);
+        this.rearWheelSpins.push(spinGroup);
       }
     });
 
@@ -207,12 +342,16 @@ export class CarController implements VehicleController {
 
   private updateWheelVisuals(dt: number): void {
     const roll = (this.speed * dt) / this.wheelRadius;
-    for (const wheel of this.frontWheels) {
-      wheel.rotation.y = this.steerAngle;
-      wheel.rotation.x += roll;
+    // Front: steer on the pivot, spin on the inner group.
+    for (const steer of this.frontWheelSteers) {
+      steer.rotation.y = this.steerAngle;
     }
-    for (const wheel of this.rearWheels) {
-      wheel.rotation.x += roll;
+    for (const spin of this.frontWheelSpins) {
+      spin.rotation.x += roll;
+    }
+    // Rear: spin only.
+    for (const spin of this.rearWheelSpins) {
+      spin.rotation.x += roll;
     }
   }
 }

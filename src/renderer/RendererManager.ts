@@ -156,7 +156,7 @@ export class RendererManager implements Disposable {
   constructor() {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0xa9b9ee);
-    this.scene.fog = new THREE.Fog(0xa9b9ee, 85, 260);
+    this.scene.fog = new THREE.Fog(0xa9b9ee, 120, 380);
 
     this.camera = new THREE.PerspectiveCamera(
       65,
