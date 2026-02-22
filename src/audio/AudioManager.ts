@@ -287,18 +287,27 @@ export class AudioManager implements FixedUpdatable, Disposable {
     if (!this.context) return null;
     if (this.fallbackBuffer) return this.fallbackBuffer;
     const sampleRate = this.context.sampleRate;
-    const duration = 4;
+    const duration = 8;
     const length = Math.floor(sampleRate * duration);
     const buffer = this.context.createBuffer(2, length, sampleRate);
-    const fadeSamples = Math.max(1, Math.floor(sampleRate * 0.08));
+    const fadeSamples = Math.max(1, Math.floor(sampleRate * 0.1));
     for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
       const data = buffer.getChannelData(channel);
       for (let i = 0; i < length; i += 1) {
         const t = i / sampleRate;
-        const lfo = 0.5 + 0.5 * Math.sin(t * Math.PI * 0.5);
-        const tone = Math.sin(2 * Math.PI * 110 * t) * 0.03 + Math.sin(2 * Math.PI * 220 * t) * 0.015;
-        const noise = (Math.random() * 2 - 1) * 0.01;
-        let value = (tone + noise) * lfo;
+        // Slow LFO for sweeping effect
+        const lfo = 0.6 + 0.4 * Math.sin(t * Math.PI * 0.25 + channel * Math.PI);
+        // Deep bass triad (sci-fi thrum)
+        const fundamental = 55; // Low A
+        const tone1 = Math.sin(2 * Math.PI * fundamental * t);
+        const tone2 = Math.sin(2 * Math.PI * (fundamental * 1.5) * t) * 0.5; // Fifth
+        const tone3 = Math.sin(2 * Math.PI * (fundamental * 2.01) * t) * 0.25; // Detuned Octave
+        const rumble = Math.sin(2 * Math.PI * 27.5 * t) * 0.8;
+
+        let value = ((tone1 + tone2 + tone3 + rumble) * 0.05) * lfo;
+        // Soften clipping softly
+        value = Math.atan(value) * 0.6;
+
         if (i < fadeSamples) {
           value *= i / fadeSamples;
         } else if (i > length - fadeSamples) {

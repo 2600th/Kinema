@@ -1,7 +1,10 @@
 :root {
-  --menu-bg: rgba(10, 10, 15, 0.85);
-  --menu-accent: #4fc3f7;
-  --menu-text: #e0e0e0;
+  --menu-bg: rgba(15, 20, 28, 0.7);
+  --menu-accent: #00d2ff;
+  --menu-accent-hover: #3a7bd5;
+  --menu-text: #f0f4f8;
+  --font-body: 'Inter', system-ui, sans-serif;
+  --font-heading: 'Outfit', system-ui, sans-serif;
 }
 
 .menu-overlay {
@@ -11,10 +14,12 @@
   align-items: center;
   justify-content: center;
   background: var(--menu-bg);
-  backdrop-filter: blur(12px);
+  backdrop-filter: blur(24px) saturate(130%);
+  -webkit-backdrop-filter: blur(24px) saturate(130%);
   z-index: 1200;
-  font-family: 'Segoe UI', Arial, sans-serif;
+  font-family: var(--font-body);
   color: var(--menu-text);
+  transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .menu-overlay.active {
@@ -22,54 +27,71 @@
 }
 
 .menu-screen {
-  min-width: 320px;
+  min-width: 360px;
   max-width: 520px;
-  padding: 28px 32px;
-  border-radius: 16px;
-  background: rgba(20, 20, 30, 0.82);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
-  transform: translateY(10px);
+  padding: 32px 36px;
+  border-radius: 20px;
+  background: linear-gradient(145deg, rgba(25, 30, 40, 0.85), rgba(15, 18, 25, 0.95));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  transform: translateY(20px) scale(0.98);
   opacity: 0;
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  pointer-events: none;
+  position: absolute;
+  transition: opacity 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .menu-screen.active {
   opacity: 1;
-  transform: translateY(0);
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+  position: relative;
 }
 
 .menu-title {
-  font-size: 28px;
-  margin: 0 0 18px 0;
+  font-family: var(--font-heading);
+  font-size: 32px;
+  font-weight: 700;
+  margin: 0 0 24px 0;
   letter-spacing: 0.5px;
+  background: linear-gradient(to right, #00d2ff, #3a7bd5);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: #fff;
 }
 
 .menu-button {
   display: block;
   width: 100%;
-  margin-top: 10px;
-  padding: 12px 16px;
-  border: none;
+  margin-top: 12px;
+  padding: 14px 20px;
+  border: 1px solid rgba(0, 210, 255, 0.2);
   border-radius: 12px;
-  background: rgba(79, 195, 247, 0.18);
+  background: linear-gradient(135deg, rgba(0, 210, 255, 0.1), rgba(58, 123, 213, 0.05));
   color: var(--menu-text);
   font-size: 16px;
+  font-weight: 500;
+  font-family: var(--font-body);
   cursor: pointer;
-  transition: transform 0.1s ease, box-shadow 0.2s ease, background 0.2s ease;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .menu-button:hover {
-  background: rgba(79, 195, 247, 0.3);
-  box-shadow: 0 0 14px rgba(79, 195, 247, 0.35);
+  background: linear-gradient(135deg, rgba(0, 210, 255, 0.25), rgba(58, 123, 213, 0.15));
+  border-color: rgba(0, 210, 255, 0.5);
+  box-shadow: 0 6px 20px rgba(0, 210, 255, 0.15);
+  transform: translateY(-2px);
 }
 
 .menu-button:active {
-  transform: scale(0.98);
+  transform: translateY(1px);
+  box-shadow: 0 2px 10px rgba(0, 210, 255, 0.1);
 }
 
 .menu-row {
   display: flex;
-  gap: 10px;
+  gap: 12px;
 }
 
 .menu-row .menu-button {
@@ -78,27 +100,50 @@
 
 .menu-tabs {
   display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: 10px;
+  margin-bottom: 20px;
 }
 
 .menu-tab {
   flex: 1;
-  padding: 8px 12px;
+  padding: 10px 14px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--menu-text);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.6);
+  font-family: var(--font-body);
+  font-weight: 500;
   cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.menu-tab:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .menu-tab.active {
-  background: rgba(79, 195, 247, 0.3);
-  border-color: rgba(79, 195, 247, 0.6);
+  color: #fff;
+  background: linear-gradient(135deg, rgba(0, 210, 255, 0.15), rgba(58, 123, 213, 0.1));
+  border-color: rgba(0, 210, 255, 0.4);
+  box-shadow: inset 0 0 10px rgba(0, 210, 255, 0.1);
 }
 
 .menu-section {
   display: none;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .menu-section.active {
@@ -106,29 +151,119 @@
 }
 
 .menu-field {
-  margin: 10px 0;
+  margin: 16px 0;
 }
 
-.menu-field label {
-  display: block;
-  font-size: 13px;
-  margin-bottom: 6px;
-  color: rgba(224, 224, 224, 0.85);
+.menu-field>label {
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 10px;
+  color: rgba(224, 224, 224, 0.95);
 }
 
+/* Custom Checkbox */
+.menu-field input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+
+.menu-field input[type="checkbox"]:hover {
+  border-color: var(--menu-accent);
+  background: rgba(0, 210, 255, 0.1);
+}
+
+.menu-field input[type="checkbox"]:checked {
+  background: var(--menu-accent);
+  border-color: var(--menu-accent);
+  box-shadow: 0 0 12px rgba(0, 210, 255, 0.4);
+}
+
+.menu-field input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 2px;
+  width: 5px;
+  height: 10px;
+  border: solid #000;
+  border-width: 0 2.5px 2.5px 0;
+  transform: rotate(45deg);
+}
+
+/* Custom Range Input */
 .menu-field input[type="range"] {
   width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  padding: 8px 0;
+  cursor: pointer;
 }
 
-.menu-field input[type="checkbox"] {
-  margin-right: 8px;
+.menu-field input[type="range"]:focus {
+  outline: none;
 }
 
+.menu-field input[type="range"]::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.menu-field input[type="range"]::-webkit-slider-thumb {
+  height: 18px;
+  width: 18px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid var(--menu-accent);
+  appearance: none;
+  -webkit-appearance: none;
+  margin-top: -7px;
+  box-shadow: 0 0 10px rgba(0, 210, 255, 0.5);
+  transition: transform 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.menu-field input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+/* Custom Select */
 .menu-select {
   width: 100%;
-  padding: 8px 10px;
-  border-radius: 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(0, 0, 0, 0.35);
   color: var(--menu-text);
+  font-family: var(--font-body);
+  font-size: 14px;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e0e0e0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  background-size: 16px;
+  transition: all 0.2s ease;
+}
+
+.menu-select:hover,
+.menu-select:focus {
+  border-color: rgba(0, 210, 255, 0.5);
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(0, 210, 255, 0.1);
 }

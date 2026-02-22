@@ -40,6 +40,13 @@ export class OrbitFollowCamera implements Updatable, Disposable {
   private collisionShape: RAPIER.Ball | null = null;
   private collisionShapeRadius = 0;
 
+  public isFlythrough = false;
+  private flythroughTime = 0;
+
+  get position(): THREE.Vector3 {
+    return this.camera.position;
+  }
+
   constructor(
     private camera: THREE.PerspectiveCamera,
     private player: PlayerController,
@@ -131,8 +138,43 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     return this.yaw;
   }
 
+  startFlythrough(): void {
+    this.isFlythrough = true;
+    this.flythroughTime = 0;
+  }
+
   /** Render-frame update — position camera with collision. */
   update(dt: number, _alpha: number): void {
+    if (this.isFlythrough) {
+      this.flythroughTime += dt;
+      const duration = 20.0;
+      const progress = this.flythroughTime / duration;
+      if (progress >= 1.0) {
+        this.isFlythrough = false;
+        this.snapToTarget();
+        this.yaw = this.targetYaw;
+        this.pitch = this.targetPitch;
+        // Need to notify the game we're done so player gets re-enabled.
+        // We do this via an event to avoid tight coupling.
+        // The camera gets passed the eventBus in constructor.
+        (this as any).eventBus?.emit('debug:flythroughEnd', undefined);
+      } else {
+        const startZ = 250;
+        const endZ = -270;
+
+        // Easing function for smooth start/stop
+        const t = progress < 0.5 ? 2 * progress * progress : -1 + (4 - 2 * progress) * progress;
+
+        const z = startZ + (endZ - startZ) * t;
+        const x = Math.sin(t * Math.PI * 4) * 5;
+        const y = 3.5 + Math.sin(t * Math.PI * 8) * 0.5;
+
+        this.camera.position.set(x, y, z);
+        this.camera.lookAt(x * 0.5, y - 0.5, z - 15);
+        return;
+      }
+    }
+
     // Smooth camera rotation for a less abrupt orbit response.
     const rotationDamp = 1 - Math.exp(-this.config.rotationDamping * dt);
     this.yaw += (this.targetYaw - this.yaw) * rotationDamp;
@@ -164,17 +206,17 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     const rayHit =
       this.collisionEnabled && !ropeAttached
         ? this.physicsWorld.castShape(
-            origin,
-            new RAPIER.Quaternion(0, 0, 0, 1),
-            dir,
-            this.getCollisionShape(),
-            0, // targetDistance
-            desiredDistance, // maxToi (direction is unit vector)
-            undefined,
-            this.targetBody ?? this.player.body,
-            COLLISION_GROUP_PLAYER,
-            (c) => !c.isSensor(),
-          )
+          origin,
+          new RAPIER.Quaternion(0, 0, 0, 1),
+          dir,
+          this.getCollisionShape(),
+          0, // targetDistance
+          desiredDistance, // maxToi (direction is unit vector)
+          undefined,
+          this.targetBody ?? this.player.body,
+          COLLISION_GROUP_PLAYER,
+          (c) => !c.isSensor(),
+        )
         : null;
     if (rayHit && rayHit.time_of_impact < desiredDistance) {
       const hitDistance = rayHit.time_of_impact - this.config.spherecastRadius * 0.92;

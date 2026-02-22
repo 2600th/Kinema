@@ -190,6 +190,8 @@ export interface EventMap {
   'debug:envBackgroundBlurriness': number;
   'debug:environment': string;
   'debug:showShadowFrustums': boolean;
+  'debug:flythrough': undefined;
+  'debug:flythroughEnd': undefined;
   'editor:toggle': undefined;
   'editor:opened': undefined;
   'editor:closed': undefined;

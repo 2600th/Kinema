@@ -277,7 +277,8 @@ export class SettingsMenu {
     const wrapper = document.createElement('div');
     wrapper.className = 'menu-field';
     const fieldLabel = document.createElement('label');
-    fieldLabel.textContent = `${label}: ${value.toFixed(2)}`;
+    const decimals = step < 0.01 ? (step < 0.001 ? 4 : 3) : 2;
+    fieldLabel.textContent = `${label}: ${value.toFixed(decimals)}`;
     const input = document.createElement('input');
     input.type = 'range';
     input.min = String(min);
@@ -286,7 +287,7 @@ export class SettingsMenu {
     input.value = String(value);
     input.addEventListener('input', () => {
       const v = Number(input.value);
-      fieldLabel.textContent = `${label}: ${v.toFixed(2)}`;
+      fieldLabel.textContent = `${label}: ${v.toFixed(decimals)}`;
       onChange(v);
     });
     wrapper.appendChild(fieldLabel);

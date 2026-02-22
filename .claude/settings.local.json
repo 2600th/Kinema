@@ -16,7 +16,10 @@
       "Bash(npm run test:*)",
       "Bash(npx vitest run:*)",
       "Bash(curl:*)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(wc -l:*)",
+      "Bash(npm run build:*)",
+      "Bash(grep:*)"
     ]
   }
 }

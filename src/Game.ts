@@ -190,6 +190,23 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       this.levelManager.setShadowDebugEnabled(enabled);
       this.syncDebugPanel();
     });
+    this.eventBus.on('debug:flythrough', () => {
+      this.playerController.setActive(false);
+      this.playerController.setEnabled(false);
+      this.uiManager.hud.hideObjective();
+      this.uiManager.hud.hidePrompt();
+      const crosshair = document.getElementById('crosshair');
+      if (crosshair) crosshair.style.opacity = '0';
+      this.camera.startFlythrough();
+    });
+    this.eventBus.on('debug:flythroughEnd', () => {
+      this.playerController.setActive(true);
+      this.playerController.setEnabled(true);
+      this.uiManager.hud.showObjective();
+      const crosshair = document.getElementById('crosshair');
+      if (crosshair) crosshair.style.opacity = '0.5';
+      this.playerController.respawn();
+    });
 
     this.syncDebugPanel();
 
@@ -291,8 +308,9 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     // Update visual interpolation
     if (!this.vehicleManager.isActive()) {
       this.playerController.update(dt, alpha);
-      this.levelManager.updateLighting(this.playerController.position);
     }
+    const lightingPos = this.camera.isFlythrough ? this.camera.position : this.playerController.position;
+    this.levelManager.updateLighting(lightingPos);
     this.levelManager.update(dt, alpha);
     // Always update vehicles (active + parked) so parked drone/vehicles visually follow physics.
     this.vehicleManager.update(dt, alpha);
@@ -360,6 +378,8 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       { id: 'reach-checkpoint', text: 'Reach a checkpoint' },
       { id: 'activate-beacon', text: 'Activate the beacon' },
     ]);
+    // Ambient sci-fi drone sound
+    this.audioManager.playMusic('/assets/audio/ambient.mp3', 2.0);
   }
 
   teardownLevel(): void {
@@ -569,6 +589,11 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
   private handleDebugKeyDown(e: KeyboardEvent): void {
     if (e.code === 'Backquote') {
       this.eventBus.emit('debug:toggle', undefined);
+      return;
+    }
+    if (e.code === 'F5') {
+      e.preventDefault();
+      this.eventBus.emit('debug:flythrough', undefined);
       return;
     }
     if (e.code === 'F6') {

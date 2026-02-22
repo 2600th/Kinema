@@ -88,7 +88,8 @@ export class LevelManager implements Disposable {
     phase: number;
   }> = [];
   private vfxLaser: { mesh: THREE.Mesh; mat: THREE.MeshStandardMaterial; baseEmissive: number } | null = null;
-  private vfxLightning: { line: THREE.Line; base: THREE.Vector3; segments: number } | null = null;
+  private vfxLightning: { line: THREE.Line; light: THREE.PointLight; base: THREE.Vector3; segments: number } | null = null;
+  private vfxScanner: { mesh: THREE.Mesh; baseZ: number; baseY: number } | null = null;
   private dustMotes: Array<{ sprite: THREE.Sprite; origin: THREE.Vector3; speed: number; phase: number }> = [];
   private dirLight: THREE.DirectionalLight | null = null;
   private dirLightTarget: THREE.Object3D | null = null;
@@ -249,6 +250,7 @@ export class LevelManager implements Disposable {
     this.vfxBillboards = [];
     this.vfxLaser = null;
     this.vfxLightning = null;
+    this.vfxScanner = null;
     this.dustMotes = [];
     this.dirLight = null;
     this.dirLightTarget = null;
@@ -386,12 +388,24 @@ export class LevelManager implements Disposable {
       fx.sprite.material.opacity = Math.max(0, fade);
       const s = fx.baseScale * (fx.kind === 'smoke' ? 1 + t * 1.6 : 1 + t * 0.9);
       fx.sprite.scale.set(s, s, 1);
+      // Continuous drifting rotation
+      fx.sprite.material.rotation = (this.simTime * 0.5 + fx.phase * Math.PI * 2) * (fx.kind === 'smoke' ? 1 : -1);
     }
 
-    // Laser pulse.
+    // Laser pulse
     if (this.vfxLaser) {
       const pulse = 0.55 + 0.45 * Math.sin(this.simTime * 6.2);
       this.vfxLaser.mat.emissiveIntensity = this.vfxLaser.baseEmissive + pulse * 2.2;
+    }
+
+    // Hologram scanner (moving ring)
+    if (this.vfxScanner) {
+      const { mesh, baseY } = this.vfxScanner;
+      // Cycle from 0 to 1 back to 0
+      const t = (Math.sin(this.simTime * 1.5) + 1.0) / 2.0;
+      mesh.position.y = baseY + t * 3.2;
+      mesh.scale.setScalar(1.0 + Math.sin(t * Math.PI) * 0.15);
+      (mesh.material as THREE.Material).opacity = 0.3 + 0.7 * Math.sin(t * Math.PI);
     }
 
     // Dust motes gentle drift.
@@ -402,23 +416,27 @@ export class LevelManager implements Disposable {
         mote.origin.y + Math.sin(t * 0.5) * 0.6,
         mote.origin.z + Math.cos(t * 0.6) * 1.0,
       );
+      mote.sprite.material.rotation = t * 0.2;
     }
 
-    // Lightning jitter (18 segments, amplified envelope).
+    // Lightning jitter (fast, chaotic tesla arc update).
     if (this.vfxLightning) {
       const geo = this.vfxLightning.line.geometry as THREE.BufferGeometry;
       const pos = geo.attributes.position as THREE.BufferAttribute;
-      const { base, segments } = this.vfxLightning;
+      const { base, segments, light } = this.vfxLightning;
       for (let i = 0; i <= segments; i += 1) {
         const a = i / segments;
         const envelope = Math.sin(a * Math.PI); // stronger jitter in the middle
         const x = base.x + a * 6;
-        const y = base.y + 2.4 + Math.sin(this.simTime * 11.0 + i * 1.7) * 0.55 * envelope;
-        const z = base.z + Math.sin(this.simTime * 9.0 + i * 2.2) * 0.55 * envelope;
+        // High frequency random displacement
+        const y = base.y + 2.4 + (Math.random() - 0.5) * 1.8 * envelope;
+        const z = base.z + (Math.random() - 0.5) * 1.8 * envelope;
         pos.setXYZ(i, x, y, z);
       }
       pos.needsUpdate = true;
       geo.computeBoundingSphere();
+
+      light.intensity = 8 + Math.random() * 4;
     }
   }
 
@@ -535,16 +553,16 @@ export class LevelManager implements Disposable {
   private buildProceduralLevel(): void {
     const gridTexture = this.createGroundGridTexture();
     const floorMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
+      color: 0x050608,
       map: gridTexture,
-      roughness: 0.95,
-      metalness: 0.0,
+      roughness: 0.2,
+      metalness: 0.8,
     });
-    const stepMat = new THREE.MeshStandardMaterial({ color: 0xffb6c1, roughness: 0.85 });
-    const slopeMat = new THREE.MeshStandardMaterial({ color: 0x98fb98, roughness: 0.9 });
-    const obstacleMat = new THREE.MeshStandardMaterial({ color: 0xb0c4de, roughness: 0.8 });
-    const kinematicPlatformMat = new THREE.MeshStandardMaterial({ color: 0xffe4b5, roughness: 0.85 });
-    const floatingPlatformMat = new THREE.MeshStandardMaterial({ color: 0xb0c4de, roughness: 0.72 });
+    const stepMat = new THREE.MeshStandardMaterial({ color: 0x002244, roughness: 0.1, metalness: 0.9, emissive: 0x00ffff, emissiveIntensity: 1.5 });
+    const slopeMat = new THREE.MeshStandardMaterial({ color: 0xcc00ff, roughness: 0.3, metalness: 0.8 });
+    const obstacleMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.2, metalness: 0.9, emissive: 0x0055ff, emissiveIntensity: 0.8 });
+    const kinematicPlatformMat = new THREE.MeshStandardMaterial({ color: 0xff0055, roughness: 0.4, metalness: 0.7 });
+    const floatingPlatformMat = new THREE.MeshStandardMaterial({ color: 0x00ff88, roughness: 0.3, metalness: 0.6 });
 
     // Broad floor
     const floor = new THREE.Mesh(new THREE.BoxGeometry(300, 5, 300), floorMat);
@@ -569,13 +587,13 @@ export class LevelManager implements Disposable {
     const bayPedestalY = SHOWCASE_LAYOUT.bay.pedestalY;
     const bayPedestalHeight = SHOWCASE_LAYOUT.bay.pedestalHeight;
     const bayTopY = getShowcaseBayTopY();
-    const hallFloorMat = new THREE.MeshStandardMaterial({ color: 0xdfe6ee, roughness: 0.78, metalness: 0.04 });
+    const hallFloorMat = new THREE.MeshStandardMaterial({ color: 0x050608, roughness: 0.95, metalness: 0.05 });
     // Show a readable ground grid in normal play mode too.
     hallFloorMat.map = gridTexture;
     hallFloorMat.needsUpdate = true;
     // Keep corridor walls non-metallic to avoid SSR "sparkle" on rough surfaces.
-    const hallWallMat = new THREE.MeshStandardMaterial({ color: 0x20232a, roughness: 0.78, metalness: 0.0 });
-    const bayMat = new THREE.MeshStandardMaterial({ color: 0x2b2f3a, roughness: 0.68, metalness: 0.0 });
+    const hallWallMat = new THREE.MeshStandardMaterial({ color: 0x08090d, roughness: 0.85, metalness: 0.05 });
+    const bayMat = new THREE.MeshStandardMaterial({ color: 0x12151e, roughness: 0.25, metalness: 0.75 });
 
     const hallFloor = new THREE.Mesh(new THREE.BoxGeometry(hallWidth, 0.6, hallLength), hallFloorMat);
     hallFloor.position.set(0, -1.3, showcaseCenterZ);
@@ -588,7 +606,7 @@ export class LevelManager implements Disposable {
 
     const wallThickness = 0.6;
     // Taller corridor so drone camera pivot doesn't end up inside the ceiling.
-    const wallHeight = 9;
+    const wallHeight = 18;
     const leftWall = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, wallHeight, hallLength), hallWallMat);
     leftWall.position.set(-hallWidth / 2 - wallThickness / 2, wallHeight / 2 - 1.0, showcaseCenterZ);
     leftWall.name = 'ShowcaseWallL_col';
@@ -653,10 +671,10 @@ export class LevelManager implements Disposable {
     // WHY: keeps the corridor visually appealing without adding expensive shadowed lights.
     // Colors progress warm→cool along the corridor for a visual journey.
     const ceilingY = -1.0 + wallHeight - 0.45;
-    const warmPanel = new THREE.Color(0xffc27a);
-    const coolPanel = new THREE.Color(0x8ab4e8);
-    const warmLight = new THREE.Color(0xffe2bf);
-    const coolLight = new THREE.Color(0xc8deff);
+    const warmPanel = new THREE.Color(0x00d2ff);
+    const coolPanel = new THREE.Color(0xff00ff);
+    const warmLight = new THREE.Color(0x00a8ff);
+    const coolLight = new THREE.Color(0xdc00ff);
     const bayCount = bayZ.length;
     bayZ.forEach((z, i) => {
       const t = bayCount > 1 ? i / (bayCount - 1) : 0;
@@ -668,7 +686,7 @@ export class LevelManager implements Disposable {
         roughness: 0.45,
         metalness: 0.05,
         emissive: panelEmissive,
-        emissiveIntensity: 0.55,
+        emissiveIntensity: 1.5,
       });
       const panel = new THREE.Mesh(new THREE.BoxGeometry(bayWidth - 6, 0.08, 2.6), panelMat);
       panel.position.set(0, ceilingY, z);
@@ -678,7 +696,7 @@ export class LevelManager implements Disposable {
       this.scene.add(panel);
       this.levelObjects.push(panel);
 
-      const light = new THREE.PointLight(lightColor, 22, 18, 2);
+      const light = new THREE.PointLight(lightColor, 80, 24, 2);
       light.position.set(0, ceilingY - 0.25, z);
       light.castShadow = false;
       light.name = `ShowcaseBayLight${i}`;
@@ -1103,6 +1121,9 @@ export class LevelManager implements Disposable {
     const roofY = base.y + 1.29;
     const wallY = base.y + 0.66;
     const gateY = base.y + 1.28;
+
+    // Replace simple boxes with an arched/angular sci-fi tunnel structure
+    // For colliders we still use boxes as they are simple
     this.createStaticColliderBox(
       'CrouchRoof_col',
       new THREE.Vector3(2.8, 0.14, 9.6),
@@ -1133,6 +1154,23 @@ export class LevelManager implements Disposable {
       new THREE.Vector3(base.x, gateY, base.z + 5.04),
       material,
     );
+
+    // Visual embellishments (sci-fi arches)
+    const archMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8, roughness: 0.2, emissive: 0x0088ff, emissiveIntensity: 1.5 });
+    for (let zOffset = -4; zOffset <= 4; zOffset += 2) {
+      const arch = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.1, 0.2), archMat);
+      arch.position.set(base.x, base.y + 1.4, base.z + zOffset);
+      this.scene.add(arch);
+      this.levelObjects.push(arch);
+      const sideL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.5, 0.2), archMat);
+      sideL.position.set(base.x - 1.4, base.y + 0.75, base.z + zOffset);
+      this.scene.add(sideL);
+      this.levelObjects.push(sideL);
+      const sideR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.5, 0.2), archMat);
+      sideR.position.set(base.x + 1.4, base.y + 0.75, base.z + zOffset);
+      this.scene.add(sideR);
+      this.levelObjects.push(sideR);
+    }
   }
 
   private createDoubleJumpCourse(base: THREE.Vector3, material: THREE.Material): void {
@@ -1540,18 +1578,18 @@ export class LevelManager implements Disposable {
     }
   }
 
-  /** Archway pillars + lintel + branding label + spotlight at the entrance end. */
   private addEntranceFrame(
     hallWidth: number,
     wallHeight: number,
     hallLength: number,
     centerZ: number,
   ): void {
-    const frameMat = new THREE.MeshStandardMaterial({ color: 0x3a3f50, roughness: 0.6, metalness: 0.08 });
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0x1a2f4c, roughness: 0.5, metalness: 0.8, emissive: 0x004488, emissiveIntensity: 0.5 });
     const pillarW = 0.7;
     const pillarD = 0.5;
-    const pillarH = wallHeight - 1.2;
-    const entranceZ = centerZ + hallLength / 2 - 0.3;
+    const pillarH = 9.0;
+    // Move entrance frame forward so player spawns behind it and sees it immediately
+    const entranceZ = centerZ + hallLength / 2 - 14.0;
     const halfW = hallWidth / 2 - pillarW / 2 - 0.6;
     const pillarY = -1.0 + pillarH / 2;
 
@@ -1587,9 +1625,9 @@ export class LevelManager implements Disposable {
     // Branding label above the entrance
     this.createSectionLabel(
       'KINEMA\nThird-Person Controller Showcase',
-      new THREE.Vector3(0, pillarY + pillarH / 2 + lintelH + 1.2, entranceZ + 0.3),
-      10,
-      2.8,
+      new THREE.Vector3(0, pillarY + pillarH / 2 + lintelH + 1.8, entranceZ + 0.3),
+      12,
+      3.2,
     );
 
     // Extra entrance spotlight for brighter spawn area
@@ -1667,13 +1705,15 @@ export class LevelManager implements Disposable {
 
   /** Gentle floating dust motes throughout the corridor. */
   private addDustMotes(hallWidth: number, hallLength: number, centerZ: number): void {
+    const circleTexture = this.createCircleTexture();
     const moteMat = new THREE.SpriteMaterial({
-      color: 0xeeeeff,
+      color: 0x00ffff,
+      map: circleTexture,
       transparent: true,
-      opacity: 0.12,
+      opacity: 0.25,
       depthTest: true,
       depthWrite: false,
-      blending: THREE.NormalBlending,
+      blending: THREE.AdditiveBlending,
     });
     moteMat.premultipliedAlpha = false;
 
@@ -1725,13 +1765,13 @@ export class LevelManager implements Disposable {
     const panelY = 86;
     const panelW = logicalWidth - panelPad * 2;
     const panelH = logicalHeight - 172;
-    // Slightly more transparent so the panel reads as "overlay" instead of a solid quad.
-    ctx.fillStyle = 'rgba(18, 19, 24, 0.72)';
+    // Sci-fi Neon Theme for UI Panels
+    ctx.fillStyle = 'rgba(8, 10, 16, 0.75)';
     ctx.fillRect(panelX, panelY, panelW, panelH);
-    ctx.strokeStyle = 'rgba(255, 170, 50, 0.86)';
-    ctx.lineWidth = 8;
+    ctx.strokeStyle = 'rgba(0, 255, 255, 0.86)';
+    ctx.lineWidth = 6;
     ctx.strokeRect(panelX, panelY, panelW, panelH);
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
+    ctx.strokeStyle = 'rgba(255, 0, 255, 0.4)';
     ctx.lineWidth = 3;
     ctx.strokeRect(panelX + 10, panelY + 10, panelW - 20, panelH - 20);
 
@@ -1776,12 +1816,12 @@ export class LevelManager implements Disposable {
     if (headerCode) {
       const code = `${headerCode}`;
       const codeWidth = ctx.measureText(`${code}  `).width;
-      ctx.fillStyle = '#ffb24a';
+      ctx.fillStyle = '#00ffff';
       ctx.fillText(code, 0, startY);
-      ctx.fillStyle = '#f3f6ff';
+      ctx.fillStyle = '#ffffff';
       ctx.fillText(`  ${headerTitle}`, codeWidth, startY);
     } else {
-      ctx.fillStyle = '#f3f6ff';
+      ctx.fillStyle = '#ffffff';
       ctx.fillText(headerTitle, 0, startY);
     }
 
@@ -2247,6 +2287,18 @@ export class LevelManager implements Disposable {
     laser.name = 'VFX_Laser';
     this.scene.add(laser);
     this.levelObjects.push(laser);
+
+    // Outer laser glow shell
+    const laserGlowMat = new THREE.MeshStandardMaterial({
+      color: 0xff4444, emissive: 0xff1111, emissiveIntensity: 1.0,
+      transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false
+    });
+    const laserGlow = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 10.2, 10), laserGlowMat);
+    laserGlow.position.copy(laser.position);
+    laserGlow.rotation.z = Math.PI / 2;
+    this.scene.add(laserGlow);
+    this.levelObjects.push(laserGlow);
+
     this.vfxLaser = { mesh: laser, mat: laserMat, baseEmissive: 2.6 };
 
     const laserLight = new THREE.PointLight(0xff3a3a, 10, 12, 2);
@@ -2257,20 +2309,19 @@ export class LevelManager implements Disposable {
     this.scene.add(laserLight);
     this.levelObjects.push(laserLight);
 
-    // Lightning polyline: 18 segments for denser arc.
-    const segments = 18;
+    // Lightning polyline: 24 segments for denser, crazier arc.
+    const segments = 24;
     const points = new Float32Array((segments + 1) * 3);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(points, 3));
     const line = new THREE.Line(
       geo,
-      new THREE.LineBasicMaterial({ color: 0x66ccff, transparent: true, opacity: 0.95 }),
+      new THREE.LineBasicMaterial({ color: 0x88ddff, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending }),
     );
     line.position.set(-3, 0, base.z - 5.2);
     line.name = 'VFX_Lightning';
     this.scene.add(line);
     this.levelObjects.push(line);
-    this.vfxLightning = { line, base: new THREE.Vector3(line.position.x, base.y, line.position.z), segments };
 
     // Lightning point light.
     const lightningLight = new THREE.PointLight(0x88ccff, 8, 12, 2);
@@ -2279,6 +2330,21 @@ export class LevelManager implements Disposable {
     lightningLight.name = 'VFX_LightningLight';
     this.scene.add(lightningLight);
     this.levelObjects.push(lightningLight);
+
+    this.vfxLightning = { line, light: lightningLight, base: new THREE.Vector3(line.position.x, base.y, line.position.z), segments };
+
+    // Hologram scanner (moving ring)
+    const scanMat = new THREE.MeshStandardMaterial({
+      color: 0x00ffff, emissive: 0x00ffff, emissiveIntensity: 1.5, transparent: true, opacity: 0.8,
+      side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false
+    });
+    const scanRing = new THREE.Mesh(new THREE.RingGeometry(1.6, 1.85, 48), scanMat);
+    scanRing.rotation.x = -Math.PI / 2;
+    scanRing.position.set(0, base.y + 1.0, base.z + 2.5);
+    scanRing.name = 'VFX_Scanner';
+    this.scene.add(scanRing);
+    this.levelObjects.push(scanRing);
+    this.vfxScanner = { mesh: scanRing, baseZ: base.z + 2.5, baseY: base.y + 0.1 };
 
     // Receiver wall backdrop.
     const wallMat = new THREE.MeshStandardMaterial({ color: 0x101218, roughness: 0.8, metalness: 0.0 });
@@ -2332,6 +2398,24 @@ export class LevelManager implements Disposable {
     // NOTE: Keep straight alpha; WebGPU blending is more consistent this way for CanvasTexture billboards.
     tex.premultiplyAlpha = false;
     tex.needsUpdate = true;
+    return tex;
+  }
+
+  private createCircleTexture(): THREE.CanvasTexture {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.beginPath();
+      ctx.arc(32, 32, 28, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+    }
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.generateMipmaps = false;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
     return tex;
   }
 }

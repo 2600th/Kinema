@@ -1,9 +1,9 @@
 export const SHOWCASE_LAYOUT = {
   centerZ: 0,
   hall: {
-    width: 44,
+    width: 60,
     // Long enough to host multiple feature bays + reserved space.
-    length: 520,
+    length: 700,
   },
   bay: {
     // Bay pedestals are shallow stages placed on top of the hall floor.

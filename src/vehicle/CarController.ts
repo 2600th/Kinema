@@ -57,10 +57,16 @@ export class CarController implements VehicleController {
   ) {
     this.id = id;
 
-    const bodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased()
+    const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
       .setTranslation(position.x, position.y, position.z);
     this.body = this.physicsWorld.world.createRigidBody(bodyDesc);
-    const colliderDesc = RAPIER.ColliderDesc.cuboid(1, 0.4, 2.0);
+    this.body.enableCcd(true);
+    // Lock X/Z rotations so the car stays upright; we control yaw visually & via angvel.
+    this.body.setEnabledRotations(false, true, false, true);
+
+    const colliderDesc = RAPIER.ColliderDesc.cuboid(1, 0.4, 2.0)
+      .setFriction(0.0) // Manage our own lateral grip
+      .setRestitution(0.1);
     this.physicsWorld.world.createCollider(colliderDesc, this.body);
 
     this.mesh = this.createCarMesh();
@@ -141,7 +147,11 @@ export class CarController implements VehicleController {
     const speedFactor = 0.22 + 0.78 * speedNorm;
     const steerSign = Math.sign(this.speed !== 0 ? this.speed : accelInput !== 0 ? accelInput : 1);
     const turnRate = (handbrake ? 1.35 : 1.0) * 2.9;
+
+    // Explicit yaw update (ensures exact turn logic without relying on velocity constraints)
     this.yaw -= this.steerAngle * steerSign * speedFactor * dt * turnRate;
+    _quat.setFromEuler(new THREE.Euler(0, this.yaw, 0, 'YXZ'));
+
     _forward.set(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw);
 
     // Lateral drift.
@@ -158,30 +168,36 @@ export class CarController implements VehicleController {
     this.visualRoll = THREE.MathUtils.damp(this.visualRoll, targetRoll, 6.0, dt);
 
     const pos = this.body.translation();
-    const nextPos = new THREE.Vector3(pos.x, pos.y, pos.z)
-      .addScaledVector(_forward, this.speed * dt)
-      .addScaledVector(_lateral, this.lateralSlip * dt);
-    nextPos.y += this.suspensionOffset;
+    const desiredVelocity = new THREE.Vector3()
+      .addScaledVector(_forward, this.speed)
+      .addScaledVector(_lateral, this.lateralSlip);
 
     // Ground snap: raycast down to follow terrain.
-    const rayOrigin = new RAPIER.Vector3(nextPos.x, nextPos.y + 2.0, nextPos.z);
+    const rayOrigin = new RAPIER.Vector3(pos.x, pos.y + 1.0, pos.z);
     const rayHit = this.physicsWorld.castRay(
       rayOrigin,
       new RAPIER.Vector3(0, -1, 0),
-      5.0,
+      4.0,
       undefined,
       this.body,
       (c) => !c.isSensor(),
     );
-    if (rayHit) {
-      const groundY = nextPos.y + 2.0 - rayHit.timeOfImpact;
-      nextPos.y = groundY + 0.4;
+
+    if (rayHit && rayHit.timeOfImpact < 1.4) {
+      const distToGround = rayHit.timeOfImpact;
+      // if we are too low, push up. If we are too high, pull down.
+      const targetDist = 0.6; // 1.0 start offset - 0.4 half-height
+      desiredVelocity.y = (distToGround - targetDist) * -15;
+    } else {
+      // free fall
+      const currentVel = this.body.linvel();
+      desiredVelocity.y = currentVel.y - 18.0 * dt;
     }
 
-    this.body.setNextKinematicTranslation(new RAPIER.Vector3(nextPos.x, nextPos.y, nextPos.z));
+    this.body.setLinvel(new RAPIER.Vector3(desiredVelocity.x, desiredVelocity.y, desiredVelocity.z), true);
 
-    _quat.setFromEuler(new THREE.Euler(0, this.yaw, 0, 'YXZ'));
-    this.body.setNextKinematicRotation(toRapierQuat(_quat));
+    // Override the physics rotation with our computed yaw
+    this.body.setRotation(toRapierQuat(_quat), true);
 
     this.updateWheelVisuals(dt);
   }
@@ -206,6 +222,7 @@ export class CarController implements VehicleController {
   update(_dt: number, alpha: number): void {
     if (!this.hasPose) return;
     this.mesh.position.lerpVectors(_prevPos, _currPos, alpha);
+    this.mesh.position.y += this.suspensionOffset;
     this.mesh.quaternion.slerpQuaternions(_prevQuat, _currQuat, alpha);
     if (this.cabinMesh) {
       this.cabinMesh.rotation.z = this.visualRoll;
@@ -231,16 +248,25 @@ export class CarController implements VehicleController {
     // Forward is -Z. Headlights/windshield at -Z, taillights at +Z.
 
     // --- Lower chassis ---
-    const chassisMat = new THREE.MeshStandardMaterial({ color: 0x8b1a1a, metalness: 0.6, roughness: 0.35 });
+    const chassisMat = new THREE.MeshStandardMaterial({ color: 0x111317, metalness: 0.8, roughness: 0.2 });
     const chassis = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.35, 4.2), chassisMat);
     chassis.position.y = 0.28;
     chassis.castShadow = true;
     chassis.receiveShadow = true;
     group.add(chassis);
 
+    // Glowing side skirts
+    const skirtMat = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x00ffff, emissiveIntensity: 1.5 });
+    const leftSkirt = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 2.5), skirtMat);
+    leftSkirt.position.set(1.15, 0.2, 0);
+    group.add(leftSkirt);
+    const rightSkirt = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 2.5), skirtMat);
+    rightSkirt.position.set(-1.15, 0.2, 0);
+    group.add(rightSkirt);
+
     // --- Upper cabin (visual roll applied here) ---
     const cabin = new THREE.Group();
-    const cabinMat = new THREE.MeshStandardMaterial({ color: 0x7a1616, metalness: 0.5, roughness: 0.4 });
+    const cabinMat = new THREE.MeshStandardMaterial({ color: 0x1a212e, metalness: 0.6, roughness: 0.3 });
     const cabinMesh = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.45, 2.2), cabinMat);
     cabinMesh.position.set(0, 0.68, 0.3);
     cabinMesh.castShadow = true;
@@ -249,32 +275,46 @@ export class CarController implements VehicleController {
 
     // Windshield (front glass) — faces -Z.
     const glassMat = new THREE.MeshPhysicalMaterial({
-      color: 0x88bbff, roughness: 0.05, metalness: 0,
-      transmission: 0.6, thickness: 0.1, transparent: true, opacity: 0.5,
+      color: 0x00ffff, roughness: 0.05, metalness: 0.1,
+      transmission: 0.9, thickness: 0.1, transparent: true, opacity: 0.5, emissive: 0x002244,
     });
     const windshield = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.4, 0.08), glassMat);
     windshield.position.set(0, 0.72, -0.82);
     windshield.rotation.x = 0.25;
     cabin.add(windshield);
 
-    group.add(cabin);
-    this.cabinMesh = cabin;
-
-    // --- Bumpers ---
-    const bumperMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.3, roughness: 0.6 });
-    const frontBumper = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.18, 0.3), bumperMat);
+    const bumperMat = new THREE.MeshStandardMaterial({ color: 0x22252b, metalness: 0.4, roughness: 0.5 });
+    const frontBumper = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.2, 0.4), bumperMat);
     frontBumper.position.set(0, 0.2, -2.25);
     frontBumper.castShadow = true;
     group.add(frontBumper);
 
-    const rearBumper = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.18, 0.3), bumperMat);
+    const rearBumper = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.2, 0.4), bumperMat);
     rearBumper.position.set(0, 0.2, 2.25);
     rearBumper.castShadow = true;
     group.add(rearBumper);
 
+    // Sci-fi Spoiler
+    const spoilerStrut1 = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.4, 0.1), bumperMat);
+    spoilerStrut1.position.set(0.8, 0.6, 1.8);
+    cabin.add(spoilerStrut1);
+    const spoilerStrut2 = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.4, 0.1), bumperMat);
+    spoilerStrut2.position.set(-0.8, 0.6, 1.8);
+    cabin.add(spoilerStrut2);
+    const spoilerWing = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.05, 0.4), chassisMat);
+    spoilerWing.position.set(0, 0.8, 1.8);
+    spoilerWing.rotation.x = -0.1;
+    cabin.add(spoilerWing);
+    const spoilerGlow = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.02, 0.05), new THREE.MeshStandardMaterial({ color: 0xff0055, emissive: 0xff0055, emissiveIntensity: 2.0 }));
+    spoilerGlow.position.set(0, 0.8, 1.98);
+    cabin.add(spoilerGlow);
+
+    group.add(cabin);
+    this.cabinMesh = cabin;
+
     // --- Headlights (front = -Z) ---
     const headlightMat = new THREE.MeshStandardMaterial({
-      color: 0xffffcc, emissive: 0xffffcc, emissiveIntensity: 1.2, roughness: 0.3,
+      color: 0xddeeff, emissive: 0x44aaff, emissiveIntensity: 2.5, roughness: 0.2,
     });
     for (const side of [-0.75, 0.75]) {
       const hl = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.15, 0.08), headlightMat);
@@ -284,7 +324,7 @@ export class CarController implements VehicleController {
 
     // --- Taillights (rear = +Z) ---
     const taillightMat = new THREE.MeshStandardMaterial({
-      color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 0.8, roughness: 0.4,
+      color: 0xff0055, emissive: 0xff0055, emissiveIntensity: 2.5, roughness: 0.2,
     });
     for (const side of [-0.8, 0.8]) {
       const tl = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.12, 0.08), taillightMat);
@@ -299,8 +339,11 @@ export class CarController implements VehicleController {
     const rimGeom = new THREE.CylinderGeometry(this.wheelRadius * 0.55, this.wheelRadius * 0.55, 0.24, 12);
     rimGeom.rotateZ(Math.PI / 2);
 
-    const tireMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, metalness: 0.1, roughness: 0.9 });
-    const rimMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.8, roughness: 0.2 });
+    const tireMat = new THREE.MeshStandardMaterial({ color: 0x050505, metalness: 0.2, roughness: 0.9 });
+    const rimMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.9, roughness: 0.1 });
+    const rimGlowMat = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x00ffff, emissiveIntensity: 1.5 });
+    const rimGlowGeom = new THREE.CylinderGeometry(this.wheelRadius * 0.4, this.wheelRadius * 0.4, 0.26, 12);
+    rimGlowGeom.rotateZ(Math.PI / 2);
 
     // Front wheels at -Z, rear at +Z.
     const wheelOffsets = [
@@ -321,6 +364,8 @@ export class CarController implements VehicleController {
       spinGroup.add(tire);
       const rim = new THREE.Mesh(rimGeom, rimMat);
       spinGroup.add(rim);
+      const rimGlow = new THREE.Mesh(rimGlowGeom, rimGlowMat);
+      spinGroup.add(rimGlow);
 
       if (isFront) {
         // Steer pivot → spin group (decoupled Euler axes = no wobble).

@@ -38,6 +38,7 @@ export class DroneController implements VehicleController {
   private visualPitch = 0;
   private visualRoll = 0;
   private hoverTargetY: number | null = null;
+  private rotorMeshes: THREE.Object3D[] = [];
 
   private readonly moveSpeed = 10;
   private readonly responsiveness = 14; // higher = snappier
@@ -48,7 +49,6 @@ export class DroneController implements VehicleController {
   private readonly hoverMaxHeight = 22;
   private readonly hoverK = 6.5; // height -> desired vertical speed
   private readonly hoverMaxVerticalSpeed = 10;
-  private readonly hoverAdjustPerLookDelta = 0.006; // meters per mouseDeltaY unit (includes gamepad look)
   private readonly hoverAdjustSpeedKeyboard = 7.5; // m/s via Space/C when piloting
 
   constructor(
@@ -79,13 +79,8 @@ export class DroneController implements VehicleController {
       .setRestitution(0.02);
     this.physicsWorld.world.createCollider(colliderDesc, this.body);
 
-    const geom = new THREE.BoxGeometry(1.2, 0.3, 1.2);
-    const mat = new THREE.MeshStandardMaterial({ color: 0x3cc6ff, metalness: 0.1, roughness: 0.4 });
-    const mesh = new THREE.Mesh(geom, mat);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    mesh.position.copy(position);
-    this.mesh = mesh;
+    this.mesh = this.createDroneMesh();
+    this.mesh.position.copy(position);
     this.scene.add(this.mesh);
   }
 
@@ -178,9 +173,7 @@ export class DroneController implements VehicleController {
     }
     const groundY = this.getGroundY(p.x, p.y, p.z);
     if (this.verticalSuppressSeconds <= 0) {
-      // Look up (mouse/stick up) => ascend. Look down => descend.
-      const lookAdjust = -input.mouseDeltaY * this.hoverAdjustPerLookDelta;
-      this.hoverTargetY += lookAdjust;
+      // Space/C nudges the target for keyboard-only play.
       this.hoverTargetY += moveY * this.hoverAdjustSpeedKeyboard * _dt;
     }
     if (groundY != null) {
@@ -237,13 +230,81 @@ export class DroneController implements VehicleController {
     _tiltEuler.set(this.visualPitch, 0, this.visualRoll);
     _tiltQuat.setFromEuler(_tiltEuler);
     this.mesh.quaternion.multiply(_tiltQuat);
+
+    // Spin rotors
+    const rotorSpeed = 20 * _dt;
+    for (const rotor of this.rotorMeshes) {
+      rotor.rotation.y += rotorSpeed;
+    }
   }
 
   dispose(): void {
     this.scene.remove(this.mesh);
-    (this.mesh as THREE.Mesh).geometry?.dispose();
-    ((this.mesh as THREE.Mesh).material as THREE.Material)?.dispose();
+    this.mesh.traverse((obj) => {
+      const m = obj as THREE.Mesh;
+      if (m.geometry) m.geometry.dispose();
+      if (Array.isArray(m.material)) m.material.forEach((mat) => mat.dispose());
+      else if (m.material) m.material.dispose();
+    });
     this.physicsWorld.removeBody(this.body);
+  }
+
+  private createDroneMesh(): THREE.Object3D {
+    const group = new THREE.Group();
+
+    // Main chassis (sleek sci-fi look)
+    const chassisMat = new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.8, roughness: 0.2 });
+    const chassis = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.45, 0.2, 6), chassisMat);
+    chassis.castShadow = true;
+    chassis.receiveShadow = true;
+    group.add(chassis);
+
+    // Glowing core
+    const coreMat = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x00ffff, emissiveIntensity: 2.0 });
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 16), coreMat);
+    core.position.y = 0.1;
+    group.add(core);
+
+    // Arms and rotors
+    const armMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.7, roughness: 0.4 });
+    const rotorMat = new THREE.MeshStandardMaterial({ color: 0x777777, metalness: 0.5, roughness: 0.3, transparent: true, opacity: 0.7 });
+
+    const armOffsets = [
+      new THREE.Vector3(0.6, 0, 0.6),
+      new THREE.Vector3(-0.6, 0, 0.6),
+      new THREE.Vector3(0.6, 0, -0.6),
+      new THREE.Vector3(-0.6, 0, -0.6),
+    ];
+
+    armOffsets.forEach(pos => {
+      // connecting arm
+      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, pos.length(), 6), armMat);
+      arm.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), pos.clone().normalize());
+      arm.position.copy(pos).multiplyScalar(0.5);
+      arm.castShadow = true;
+      group.add(arm);
+
+      // motor housing
+      const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.15, 8), chassisMat);
+      motor.position.copy(pos);
+      motor.castShadow = true;
+      group.add(motor);
+
+      // rotor blades (thin cylinder, spun in update)
+      const rotor = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.02, 12), rotorMat);
+      rotor.position.copy(pos);
+      rotor.position.y += 0.1;
+      rotor.castShadow = true;
+      group.add(rotor);
+      this.rotorMeshes.push(rotor);
+    });
+
+    // Front indicator light
+    const frontLight = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.05, 0.05), new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 1.5 }));
+    frontLight.position.set(0, 0, -0.45);
+    group.add(frontLight);
+
+    return group;
   }
 
   private setBodyCanSleep(canSleep: boolean): void {

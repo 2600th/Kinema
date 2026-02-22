@@ -106,6 +106,9 @@ export class MenuManager {
       }
       document.exitPointerLock();
     }
+    if (this.stack.length > 0) {
+      this.stack[this.stack.length - 1].hide();
+    }
     this.stack.push(screen);
     screen.show();
     this.eventBus.emit('menu:opened', { screen: screen.id });
@@ -115,6 +118,9 @@ export class MenuManager {
     if (!this.stack.length) return;
     const screen = this.stack.pop()!;
     screen.hide();
+    if (this.stack.length > 0) {
+      this.stack[this.stack.length - 1].show();
+    }
     if (this.stack.length === 0) {
       this.overlay.classList.remove('active');
       this.eventBus.emit('menu:closed', undefined);

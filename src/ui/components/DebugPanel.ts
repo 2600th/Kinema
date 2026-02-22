@@ -80,6 +80,51 @@ export class DebugPanel implements Disposable {
       'overflow-x:hidden',
       'overscroll-behavior:contain',
     ].join(';');
+    this.panel.className = 'kinema-debug';
+    const style = document.createElement('style');
+    style.textContent = `
+      .kinema-debug input[type="range"] {
+        -webkit-appearance: none; appearance: none;
+        width: 100%; background: transparent; cursor: pointer; margin: 4px 0;
+      }
+      .kinema-debug input[type="range"]::-webkit-slider-runnable-track {
+        height: 4px; background: rgba(200,220,255,0.2); border-radius: 2px;
+      }
+      .kinema-debug input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none; appearance: none;
+        height: 12px; width: 12px; border-radius: 50%;
+        background: #4ca3ff; margin-top: -4px;
+        box-shadow: 0 0 6px rgba(76,163,255,0.6);
+        transition: transform 0.1s;
+      }
+      .kinema-debug input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.3); }
+      .kinema-debug input[type="checkbox"] {
+        -webkit-appearance: none; appearance: none;
+        width: 14px; height: 14px; border: 1px solid rgba(130,148,170,0.6);
+        border-radius: 3px; background: rgba(0,0,0,0.3);
+        cursor: pointer; position: relative;
+        transition: all 0.2s;
+      }
+      .kinema-debug input[type="checkbox"]:checked {
+        background: #4ca3ff; border-color: #4ca3ff;
+      }
+      .kinema-debug input[type="checkbox"]:checked::after {
+        content: ''; position: absolute; left: 4px; top: 1px;
+        width: 3px; height: 7px; border: solid #fff; border-width: 0 2px 2px 0;
+        transform: rotate(45deg);
+      }
+      .kinema-debug select {
+        appearance: none;
+        background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e9f4ff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+        background-repeat: no-repeat;
+        background-position: right 6px center;
+        background-size: 12px;
+        padding-right: 22px !important;
+        cursor: pointer;
+      }
+      .kinema-debug select:focus { outline: none; border-color: #4ca3ff !important; }
+    `;
+    this.panel.appendChild(style);
     parent.appendChild(this.panel);
 
     const title = document.createElement('div');
@@ -165,6 +210,19 @@ export class DebugPanel implements Disposable {
         this.eventBus.emit('debug:cameraCollision', value);
       },
     ));
+
+    // Flythrough button
+    const btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;justify-content:center;margin-top:8px;';
+    const flyBtn = document.createElement('button');
+    flyBtn.textContent = '▶ Cinematic Flythrough';
+    flyBtn.style.cssText = 'background:#1d4ed8;color:white;border:none;border-radius:4px;padding:6px 12px;font-weight:600;cursor:pointer;';
+    flyBtn.addEventListener('click', () => {
+      this.eventBus.emit('debug:flythrough', undefined);
+    });
+    btnRow.appendChild(flyBtn);
+    runtimeSection.appendChild(btnRow);
+
     controls.appendChild(runtimeSection);
 
     const envSection = this.createSection('Environment');
@@ -592,7 +650,6 @@ export class DebugPanel implements Disposable {
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.checked = initial;
-    input.style.cssText = 'accent-color:#4ca3ff;';
     input.addEventListener('change', () => onChange(input.checked));
     this.checkboxControls.set(key, input);
     row.appendChild(text);
@@ -626,7 +683,7 @@ export class DebugPanel implements Disposable {
     input.max = String(max);
     input.step = String(step);
     input.value = String(initial);
-    input.style.cssText = 'grid-column:1 / span 2;accent-color:#4ca3ff;';
+    input.style.cssText = 'grid-column:1 / span 2;';
     input.addEventListener('input', () => {
       const value = Number(input.value);
       valueText.textContent = format(value);

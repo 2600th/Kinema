@@ -19,15 +19,20 @@ export class HUD implements Disposable {
       bottom: 20%;
       left: 50%;
       transform: translateX(-50%);
-      padding: 12px 24px;
-      background: rgba(0, 0, 0, 0.7);
+      padding: 14px 32px;
+      background: rgba(15, 20, 28, 0.75);
+      backdrop-filter: blur(12px) saturate(120%);
       color: white;
-      font-family: 'Segoe UI', Arial, sans-serif;
-      font-size: 16px;
-      border-radius: 8px;
+      font-family: 'Outfit', 'Inter', system-ui, sans-serif;
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      border: 1px solid rgba(0, 210, 255, 0.3);
+      box-shadow: 0 8px 32px rgba(0, 210, 255, 0.15);
+      border-radius: 12px;
       pointer-events: none;
       opacity: 0;
-      transition: opacity 0.2s ease;
+      transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
       user-select: none;
       z-index: 1000;
     `;
@@ -65,17 +70,23 @@ export class HUD implements Disposable {
     this.objective.id = 'hud-objective';
     this.objective.style.cssText = `
       position: absolute;
-      top: 24px;
-      left: 24px;
-      max-width: 46vw;
-      padding: 8px 12px;
-      background: rgba(0, 0, 0, 0.55);
-      color: #dff6ff;
-      font-family: 'Segoe UI', Arial, sans-serif;
-      font-size: 14px;
-      border-radius: 6px;
+      top: 32px;
+      left: 32px;
+      max-width: 400px;
+      padding: 12px 20px;
+      background: rgba(15, 20, 28, 0.7);
+      backdrop-filter: blur(12px);
+      border-left: 4px solid #00d2ff;
+      color: #e0f2fe;
+      font-family: 'Outfit', 'Inter', system-ui, sans-serif;
+      font-size: 15px;
+      font-weight: 500;
+      letter-spacing: 0.5px;
+      border-radius: 4px;
       pointer-events: none;
       user-select: none;
+      opacity: 1;
+      transition: opacity 0.2s ease;
       z-index: 1000;
     `;
     parent.appendChild(this.objective);
@@ -84,15 +95,18 @@ export class HUD implements Disposable {
     this.status.id = 'hud-status';
     this.status.style.cssText = `
       position: absolute;
-      top: 62px;
-      left: 24px;
-      max-width: 46vw;
-      padding: 8px 12px;
-      background: rgba(0, 0, 0, 0.45);
-      color: #ffe8b3;
-      font-family: 'Segoe UI', Arial, sans-serif;
-      font-size: 13px;
-      border-radius: 6px;
+      top: 86px;
+      left: 32px;
+      max-width: 400px;
+      padding: 10px 18px;
+      background: rgba(15, 20, 28, 0.6);
+      backdrop-filter: blur(8px);
+      border-left: 4px solid #fca311;
+      color: #fca311;
+      font-family: 'Outfit', 'Inter', system-ui, sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      border-radius: 4px;
       pointer-events: none;
       user-select: none;
       opacity: 0;
@@ -100,6 +114,22 @@ export class HUD implements Disposable {
       z-index: 1000;
     `;
     parent.appendChild(this.status);
+
+    const crosshair = document.createElement('div');
+    crosshair.style.cssText = `
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.7);
+      box-shadow: 0 0 4px rgba(0,0,0,0.5);
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 1000;
+    `;
+    parent.appendChild(crosshair);
   }
 
   showPrompt(text: string): void {
@@ -124,6 +154,15 @@ export class HUD implements Disposable {
 
   setObjective(text: string): void {
     this.objective.textContent = `Objective: ${text}`;
+    this.showObjective();
+  }
+
+  hideObjective(): void {
+    this.objective.style.opacity = '0';
+  }
+
+  showObjective(): void {
+    this.objective.style.opacity = '1';
   }
 
   showStatus(text: string, durationMs = 1600): void {
