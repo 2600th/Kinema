@@ -241,7 +241,7 @@ export class InteractionManager implements FixedUpdatable, Disposable {
       return access.reason ?? 'Locked';
     }
     const spec = target.getInteractionSpec?.();
-    const verb = spec?.mode === 'hold' ? 'Hold E to' : 'Press E to';
+    const verb = spec?.mode === 'hold' ? 'Hold F to' : 'Press F to';
     return `${verb} ${target.label}`;
   }
 

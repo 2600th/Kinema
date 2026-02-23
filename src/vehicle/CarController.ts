@@ -3,6 +3,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import type { InputState, SpawnPointData } from '@core/types';
 import type { PhysicsWorld } from '@physics/PhysicsWorld';
 import { toRapierQuat } from '@physics/PhysicsHelpers';
+import { COLLISION_GROUP_WORLD } from '@core/constants';
 import type { VehicleController } from './VehicleController';
 
 const _forward = new THREE.Vector3();
@@ -64,9 +65,11 @@ export class CarController implements VehicleController {
     // Lock X/Z rotations so the car stays upright; we control yaw visually & via angvel.
     this.body.setEnabledRotations(false, true, false, true);
 
-    const colliderDesc = RAPIER.ColliderDesc.cuboid(1, 0.4, 2.0)
+    const colliderDesc = RAPIER.ColliderDesc.cuboid(1.0, 0.2, 2.0)
+      .setTranslation(0, 0.28, 0) // Align with chassis visual center
       .setFriction(0.0) // Manage our own lateral grip
-      .setRestitution(0.1);
+      .setRestitution(0.1)
+      .setCollisionGroups(COLLISION_GROUP_WORLD);
     this.physicsWorld.world.createCollider(colliderDesc, this.body);
 
     this.mesh = this.createCarMesh();
@@ -83,6 +86,13 @@ export class CarController implements VehicleController {
 
   exit(): SpawnPointData {
     const pos = this.body.translation();
+    // Clear driving state so the parked car coasts to a stop.
+    this.input = null;
+    this.speed = 0;
+    this.steerAngle = 0;
+    this.lateralSlip = 0;
+    this.body.setLinvel(new RAPIER.Vector3(0, 0, 0), true);
+    this.body.setAngvel(new RAPIER.Vector3(0, 0, 0), true);
     return {
       position: new THREE.Vector3(pos.x, pos.y, pos.z).add(this.exitOffset),
     };
@@ -173,7 +183,8 @@ export class CarController implements VehicleController {
       .addScaledVector(_lateral, this.lateralSlip);
 
     // Ground snap: raycast down to follow terrain.
-    const rayOrigin = new RAPIER.Vector3(pos.x, pos.y + 1.0, pos.z);
+    const rayOffset = 0.8;
+    const rayOrigin = new RAPIER.Vector3(pos.x, pos.y + rayOffset, pos.z);
     const rayHit = this.physicsWorld.castRay(
       rayOrigin,
       new RAPIER.Vector3(0, -1, 0),
@@ -183,10 +194,10 @@ export class CarController implements VehicleController {
       (c) => !c.isSensor(),
     );
 
-    if (rayHit && rayHit.timeOfImpact < 1.4) {
+    if (rayHit && rayHit.timeOfImpact < 2.5) {
       const distToGround = rayHit.timeOfImpact;
-      // if we are too low, push up. If we are too high, pull down.
-      const targetDist = 0.6; // 1.0 start offset - 0.4 half-height
+      // Target: wheels sit near ground level (tire bottom at y=0.0 in local space).
+      const targetDist = rayOffset + 0.05;
       desiredVelocity.y = (distToGround - targetDist) * -15;
     } else {
       // free fall
@@ -388,8 +399,10 @@ export class CarController implements VehicleController {
   private updateWheelVisuals(dt: number): void {
     const roll = (this.speed * dt) / this.wheelRadius;
     // Front: steer on the pivot, spin on the inner group.
+    // Negate steerAngle because positive Y rotation is counterclockwise from above,
+    // but the wheels should visually turn right when steerAngle is positive.
     for (const steer of this.frontWheelSteers) {
-      steer.rotation.y = this.steerAngle;
+      steer.rotation.y = -this.steerAngle;
     }
     for (const spin of this.frontWheelSpins) {
       spin.rotation.x += roll;

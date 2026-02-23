@@ -87,8 +87,10 @@ export class InputManager implements Disposable {
     const crouch = (this.locked && (this.keys.has('KeyC') || this.keys.has('ControlLeft'))) || gamepad.crouch;
     const crouchPressed = crouch && !this.prevCrouch;
     const jump = (this.locked && this.keys.has('Space')) || gamepad.jump;
-    const interact = (this.locked && this.keys.has('KeyE')) || gamepad.interact;
+    const interact = (this.locked && this.keys.has('KeyF')) || gamepad.interact;
     const primary = (this.locked && this.mousePrimary) || gamepad.interact;
+    const altitudeUp = this.locked && this.keys.has('KeyE');
+    const altitudeDown = this.locked && this.keys.has('KeyQ');
     this.prevCrouch = crouch;
     const jumpPressed = jump && !this.prevJump;
     const interactPressed = interact && !this.prevInteract;
@@ -110,6 +112,8 @@ export class InputManager implements Disposable {
       interactPressed,
       primary,
       primaryPressed,
+      altitudeUp,
+      altitudeDown,
       sprint: (this.locked && (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight'))) || gamepad.sprint,
       mouseDeltaX: this.mouseDX + gamepad.lookX * GAMEPAD_LOOK_SPEED,
       mouseDeltaY: this.mouseDY + gamepad.lookY * GAMEPAD_LOOK_SPEED,
@@ -146,7 +150,7 @@ export class InputManager implements Disposable {
     this.keys.add(e.code);
 
     // Prevent default for game keys
-    if (['Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyE', 'KeyC', 'ControlLeft'].includes(e.code)) {
+    if (['Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyE', 'KeyF', 'KeyQ', 'KeyC', 'ControlLeft'].includes(e.code)) {
       e.preventDefault();
     }
     if (e.code === 'Escape') {

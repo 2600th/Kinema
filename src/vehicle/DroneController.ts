@@ -153,7 +153,7 @@ export class DroneController implements VehicleController {
 
     const moveX = (input.right ? 1 : 0) - (input.left ? 1 : 0);
     const moveZ = (input.forward ? 1 : 0) - (input.backward ? 1 : 0);
-    const rawMoveY = (input.jump ? 1 : 0) - (input.crouch ? 1 : 0);
+    const rawMoveY = ((input.jump || input.altitudeUp) ? 1 : 0) - ((input.crouch || input.altitudeDown) ? 1 : 0);
     const moveY = this.verticalSuppressSeconds > 0 ? 0 : rawMoveY;
 
     // Movement uses yaw-only for direction so pitch doesn't cause unintended vertical drift.

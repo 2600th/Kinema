@@ -17,6 +17,8 @@ export interface InputState {
   readonly interactPressed: boolean;
   readonly primary: boolean;
   readonly primaryPressed: boolean;
+  readonly altitudeUp: boolean;
+  readonly altitudeDown: boolean;
   readonly sprint: boolean;
   readonly mouseDeltaX: number;
   readonly mouseDeltaY: number;
@@ -37,6 +39,8 @@ export const NULL_INPUT: InputState = Object.freeze({
   interactPressed: false,
   primary: false,
   primaryPressed: false,
+  altitudeUp: false,
+  altitudeDown: false,
   sprint: false,
   mouseDeltaX: 0,
   mouseDeltaY: 0,

@@ -51,7 +51,7 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     private camera: THREE.PerspectiveCamera,
     private player: PlayerController,
     private physicsWorld: PhysicsWorld,
-    _eventBus: EventBus,
+    private eventBus: EventBus,
   ) {
     this.baseFov = this.camera.fov;
   }
@@ -154,12 +154,9 @@ export class OrbitFollowCamera implements Updatable, Disposable {
         this.snapToTarget();
         this.yaw = this.targetYaw;
         this.pitch = this.targetPitch;
-        // Need to notify the game we're done so player gets re-enabled.
-        // We do this via an event to avoid tight coupling.
-        // The camera gets passed the eventBus in constructor.
-        (this as any).eventBus?.emit('debug:flythroughEnd', undefined);
+        this.eventBus.emit('debug:flythroughEnd', undefined);
       } else {
-        const startZ = 250;
+        const startZ = 200;
         const endZ = -270;
 
         // Easing function for smooth start/stop

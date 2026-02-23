@@ -191,6 +191,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       this.syncDebugPanel();
     });
     this.eventBus.on('debug:flythrough', () => {
+      if (this.camera.isFlythrough) return; // Already in flythrough
       this.playerController.setActive(false);
       this.playerController.setEnabled(false);
       this.uiManager.hud.hideObjective();

@@ -67,7 +67,7 @@ describe('InteractionManager', () => {
     expect(far.onFocus).not.toHaveBeenCalled();
     expect(eventBus.emit).toHaveBeenCalledWith('interaction:focusChanged', {
       id: 'near',
-      label: 'Press E to label-near',
+      label: 'Press F to label-near',
     });
   });
 
@@ -88,7 +88,7 @@ describe('InteractionManager', () => {
     expect(far.onFocus).toHaveBeenCalledTimes(1);
     expect(eventBus.emit).toHaveBeenCalledWith('interaction:focusChanged', {
       id: 'far',
-      label: 'Press E to label-far',
+      label: 'Press F to label-far',
     });
   });
 
@@ -143,7 +143,7 @@ describe('InteractionManager', () => {
     expect(doorLike.onFocus).toHaveBeenCalledTimes(1);
     expect(eventBus.emit).toHaveBeenCalledWith('interaction:focusChanged', {
       id: 'door',
-      label: 'Press E to label-door',
+      label: 'Press F to label-door',
     });
   });
 });

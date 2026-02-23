@@ -593,7 +593,7 @@ export class LevelManager implements Disposable {
     hallFloorMat.needsUpdate = true;
     // Keep corridor walls non-metallic to avoid SSR "sparkle" on rough surfaces.
     const hallWallMat = new THREE.MeshStandardMaterial({ color: 0x08090d, roughness: 0.85, metalness: 0.05 });
-    const bayMat = new THREE.MeshStandardMaterial({ color: 0x12151e, roughness: 0.25, metalness: 0.75 });
+    const bayMat = new THREE.MeshStandardMaterial({ color: 0x12151e, roughness: 0.12, metalness: 0.85 });
 
     const hallFloor = new THREE.Mesh(new THREE.BoxGeometry(hallWidth, 0.6, hallLength), hallFloorMat);
     hallFloor.position.set(0, -1.3, showcaseCenterZ);
@@ -683,10 +683,10 @@ export class LevelManager implements Disposable {
 
       const panelMat = new THREE.MeshStandardMaterial({
         color: 0x14161c,
-        roughness: 0.45,
+        roughness: 0.35,
         metalness: 0.05,
         emissive: panelEmissive,
-        emissiveIntensity: 1.5,
+        emissiveIntensity: 2.5,
       });
       const panel = new THREE.Mesh(new THREE.BoxGeometry(bayWidth - 6, 0.08, 2.6), panelMat);
       panel.position.set(0, ceilingY, z);
@@ -696,7 +696,7 @@ export class LevelManager implements Disposable {
       this.scene.add(panel);
       this.levelObjects.push(panel);
 
-      const light = new THREE.PointLight(lightColor, 80, 24, 2);
+      const light = new THREE.PointLight(lightColor, 120, 28, 2);
       light.position.set(0, ceilingY - 0.25, z);
       light.castShadow = false;
       light.name = `ShowcaseBayLight${i}`;
@@ -704,9 +704,9 @@ export class LevelManager implements Disposable {
       this.levelObjects.push(light);
     });
 
-    // Spawn the player at the corridor entrance.
+    // Spawn the player near the first showcase station (steps at z=170).
     this.spawnPoint = {
-      position: new THREE.Vector3(0, 2, showcaseCenterZ + hallLength / 2 - 6),
+      position: new THREE.Vector3(0, 2, showcaseCenterZ + hallLength / 2 - 160),
       rotation: new THREE.Euler(0, Math.PI, 0),
     };
 
@@ -727,8 +727,8 @@ export class LevelManager implements Disposable {
     const zFutureB = getShowcaseStationZ('futureB');
 
     // Rough plane section (materials + footing). Kept inside the showcase corridor.
-    const roughPlane = new THREE.Mesh(new THREE.BoxGeometry(14, 1, 14), obstacleMat);
-    roughPlane.position.set(12, bayTopY + 0.5, zSteps + 2);
+    const roughPlane = new THREE.Mesh(new THREE.BoxGeometry(10, 0.6, 10), obstacleMat);
+    roughPlane.position.set(20, bayTopY + 0.3, zSteps + 2);
     roughPlane.rotation.set(-0.08, 0.12, 0.06);
     roughPlane.name = 'RoughPlane_col';
     roughPlane.receiveShadow = true;
@@ -770,7 +770,7 @@ export class LevelManager implements Disposable {
       this.levelColliders.push(this.colliderFactory.createTrimesh(slope));
     });
     this.createSectionLabel(
-      '0.B  Slopes\nUI test: Debug (`) shows grounded + speed changes',
+      'Slopes\n23.5\u00B0 \u2022 43.1\u00B0 \u2022 62.7\u00B0',
       new THREE.Vector3(0, 3.6, zSlopes + 6),
       7.2,
       1.55,
@@ -793,7 +793,7 @@ export class LevelManager implements Disposable {
     addStep('Step3_col', new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(-8, bayTopY + 0.07, zSteps - 3));
     addStep('Step4_col', new THREE.Vector3(4, 0.2, 4), new THREE.Vector3(-8, bayTopY + 0.1, zSteps));
     this.createSectionLabel(
-      '0.A  Steps & Autostep\nUI test: Debug (`) shows grounded + speed changes',
+      'Steps & Autostep\nAutomatic stair climbing',
       new THREE.Vector3(0, 2.0, zSteps + 3),
       8.4,
       1.75,
@@ -804,14 +804,14 @@ export class LevelManager implements Disposable {
     this.createLadder('MainLadder', new THREE.Vector3(14, bayTopY, zMovement), 4.2, obstacleMat);
     this.createCrouchCourse(new THREE.Vector3(0, bayTopY, zMovement), obstacleMat);
     this.createSectionLabel(
-      '0.C  Movement bay\nLadder • Crouch tunnel • Rope\nUI test: Debug (`) shows state changes',
+      'Movement\nW/S climb \u2022 C crouch \u2022 Space jump off rope',
       new THREE.Vector3(0, 3.0, zMovement + 6),
       11.2,
       2.25,
     );
     this.createDoubleJumpCourse(new THREE.Vector3(-6, bayTopY, zDoubleJump), stepMat);
     this.createSectionLabel(
-      '0.E  Double jump\nUI test: Debug (`) shows state air/jump',
+      'Double Jump\nSpace \u2022 Multi-tier jump platforms',
       new THREE.Vector3(-2, 4.9, zDoubleJump),
       7.6,
       1.65,
@@ -819,25 +819,25 @@ export class LevelManager implements Disposable {
 
     // Showcase cluster (physics interactions + vehicles). Kept away from the moving platform suites.
     this.createSectionLabel(
-      '1.A  Grab & Pull\nPress E to grab/release\nUI test: hold bar + prompts stay responsive',
+      'Grab & Pull\nPress F to grab / release',
       new THREE.Vector3(0, 2.55, zGrab),
       10.2,
       2.2,
     );
     this.createSectionLabel(
-      '1.B  Pick Up & Throw\nE to pick up • LMB to throw • C to drop\nUI test: Impact toast on hard hit',
+      'Pick Up & Throw\nF to pick up \u2022 LMB to throw \u2022 C to drop',
       new THREE.Vector3(0, 2.55, zThrow),
       11.0,
       2.25,
     );
     this.createSectionLabel(
-      '1.C  Door / Beacon\nPress E near objects\nUI test: interaction highlight + prompts',
+      'Door & Beacon\nPress F near objects',
       new THREE.Vector3(0, 2.55, zDoor),
       10.2,
       2.15,
     );
     this.createSectionLabel(
-      '1.D  Vehicles\nE to enter/exit\nUI test: HUD + camera behavior changes',
+      'Vehicles\nF to enter / exit \u2022 E/Q altitude (drone)',
       new THREE.Vector3(0, 2.55, zVehicles),
       9.2,
       2.05,
@@ -881,7 +881,7 @@ export class LevelManager implements Disposable {
       kinematicPlatformMat,
     );
     this.createSectionLabel(
-      '2.A  Moving platforms\nUI test: Debug (`) shows speed + grounded toggles',
+      'Moving Platforms\nSide \u2022 Elevating \u2022 Rotating',
       new THREE.Vector3(0, 3.6, zPlatformsMoving + 6.5),
       9.2,
       1.9,
@@ -919,7 +919,7 @@ export class LevelManager implements Disposable {
       kinematicPlatformMat,
     );
     this.createSectionLabel(
-      '2.B  Pushable / physics platforms\nUI test: Throw objects at platforms; watch stability',
+      'Physics Platforms\nFloating \u2022 Moving \u2022 Rotating Drum',
       new THREE.Vector3(0, 3.6, zPlatformsPhysics + 6.5),
       11.4,
       2.05,
@@ -927,7 +927,7 @@ export class LevelManager implements Disposable {
 
     // Materials bay.
     this.createSectionLabel(
-      '3.A  Materials\nGlass • Mirror • Copper • Ceramic • Emissive\nRough • Metal • Brushed • Iridescent • Lava',
+      'Materials\nGlass \u2022 Mirror \u2022 Copper \u2022 Ceramic \u2022 Emissive\nRough \u2022 Metal \u2022 Brushed \u2022 Iridescent \u2022 Lava',
       new THREE.Vector3(0, 3.2, zMaterials + 6),
       11.4,
       2.45,
@@ -936,7 +936,7 @@ export class LevelManager implements Disposable {
 
     // VFX bay.
     this.createSectionLabel(
-      '3.B  VFX\nSmoke (3 emitters) • Fire + Embers • Laser • Lightning',
+      'Visual Effects\nSmoke \u2022 Fire \u2022 Laser \u2022 Lightning',
       new THREE.Vector3(0, 3.2, zVfx + 6),
       11.4,
       2.15,
@@ -944,8 +944,8 @@ export class LevelManager implements Disposable {
     this.createVfxBay(new THREE.Vector3(0, bayTopY, zVfx), bayWidth);
 
     // Reserved empty bays for future additions (keep pedestals but no gameplay objects).
-    this.createSectionLabel('2.A  Reserved bay\n(keep empty for future demos)', new THREE.Vector3(0, 2.5, zFutureA), 8.8, 2.0);
-    this.createSectionLabel('2.B  Reserved bay\n(keep empty for future demos)', new THREE.Vector3(0, 2.5, zFutureB), 8.8, 2.0);
+    this.createSectionLabel('Reserved\nFuture demos', new THREE.Vector3(0, 2.5, zFutureA), 8.8, 2.0);
+    this.createSectionLabel('Reserved\nFuture demos', new THREE.Vector3(0, 2.5, zFutureB), 8.8, 2.0);
 
     // --- Visual polish ---
     this.addFloorCenterline(hallLength, showcaseCenterZ);
@@ -956,6 +956,13 @@ export class LevelManager implements Disposable {
     this.addFloorBayGrooves(bayZ, hallWidth, bayLength);
     this.addWallEmissiveStrips(hallWidth, hallLength, showcaseCenterZ, wallThickness);
     this.addDustMotes(hallWidth, hallLength, showcaseCenterZ);
+    this.addBulkheadFrames(hallWidth, wallHeight, showcaseCenterZ);
+    this.addBayPedestalEdgeGlow(bayZ, bayWidth, bayLength, bayPedestalY, bayPedestalHeight);
+    this.addHeroSpotlights(bayZ, bayPedestalY);
+    this.addWallRecessedPanels(bayZ, hallWidth, wallHeight, wallThickness);
+    this.addReflectiveFloorPatches(bayZ, bayWidth, bayLength, bayPedestalY);
+    this.addLowFogSprites(hallWidth, hallLength, showcaseCenterZ);
+    this.addBackWallPartition(hallWidth, wallHeight, showcaseCenterZ, hallLength, hallWallMat);
 
     // spawnPoint is set to the showcase corridor near the top of this method.
   }
@@ -970,7 +977,7 @@ export class LevelManager implements Disposable {
     }
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#dceeff';
+    ctx.fillStyle = '#0a0e18';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const majorStep = 256;
@@ -983,7 +990,7 @@ export class LevelManager implements Disposable {
     ctx.save();
     ctx.translate(0.5, 0.5);
 
-    ctx.strokeStyle = 'rgba(80, 98, 120, 0.22)';
+    ctx.strokeStyle = 'rgba(0, 180, 255, 0.12)';
     ctx.lineWidth = 1;
     for (let x = 0; x < canvas.width; x += minorStep) {
       ctx.beginPath();
@@ -998,7 +1005,7 @@ export class LevelManager implements Disposable {
       ctx.stroke();
     }
 
-    ctx.strokeStyle = 'rgba(62, 78, 98, 0.55)';
+    ctx.strokeStyle = 'rgba(0, 210, 255, 0.3)';
     ctx.lineWidth = 2;
     for (let x = 0; x < canvas.width; x += majorStep) {
       ctx.beginPath();
@@ -1455,12 +1462,12 @@ export class LevelManager implements Disposable {
   /** Thin emissive strip running the full corridor length at center. */
   private addFloorCenterline(hallLength: number, centerZ: number): void {
     const mat = new THREE.MeshStandardMaterial({
-      color: 0x112233,
-      emissive: 0x4488cc,
-      emissiveIntensity: 0.7,
-      roughness: 0.5,
+      color: 0x003355,
+      emissive: 0x00ccff,
+      emissiveIntensity: 1.8,
+      roughness: 0.3,
     });
-    const strip = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.02, hallLength), mat);
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.02, hallLength), mat);
     strip.position.set(0, -0.99, centerZ);
     strip.name = 'FloorCenterline';
     strip.receiveShadow = false;
@@ -1479,12 +1486,12 @@ export class LevelManager implements Disposable {
   ): void {
     const count = bayZ.length;
     if (count === 0) return;
-    const geo = new THREE.BoxGeometry(bayWidth - 2, 0.04, 0.1);
+    const geo = new THREE.BoxGeometry(bayWidth - 2, 0.04, 0.12);
     const mat = new THREE.MeshStandardMaterial({
       color: 0x111111,
       emissive: 0xffffff,
-      emissiveIntensity: 0.8,
-      roughness: 0.4,
+      emissiveIntensity: 1.6,
+      roughness: 0.3,
     });
     const mesh = new THREE.InstancedMesh(geo, mat, count);
     mesh.name = 'BayAccentBorders';
@@ -1551,8 +1558,8 @@ export class LevelManager implements Disposable {
   ): void {
     const count = bayZ.length;
     if (count === 0) return;
-    const pilasterWidth = 0.4;
-    const pilasterDepth = 0.08;
+    const pilasterWidth = 0.5;
+    const pilasterDepth = 0.2;
     const pilasterHeight = wallHeight - 0.4;
     const geo = new THREE.BoxGeometry(pilasterDepth, pilasterHeight, pilasterWidth);
     const mat = new THREE.MeshStandardMaterial({ color: 0x2e3340, roughness: 0.72, metalness: 0.02 });
@@ -1584,13 +1591,13 @@ export class LevelManager implements Disposable {
     hallLength: number,
     centerZ: number,
   ): void {
-    const frameMat = new THREE.MeshStandardMaterial({ color: 0x1a2f4c, roughness: 0.5, metalness: 0.8, emissive: 0x004488, emissiveIntensity: 0.5 });
-    const pillarW = 0.7;
-    const pillarD = 0.5;
-    const pillarH = 9.0;
-    // Move entrance frame forward so player spawns behind it and sees it immediately
-    const entranceZ = centerZ + hallLength / 2 - 14.0;
-    const halfW = hallWidth / 2 - pillarW / 2 - 0.6;
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0x0c1a2e, roughness: 0.35, metalness: 0.9, emissive: 0x003366, emissiveIntensity: 0.8 });
+    const pillarW = 1.2;
+    const pillarD = 0.8;
+    const pillarH = 14.0;
+    // Place entrance frame near the spawn point (player spawns at hallLength/2 - 160)
+    const entranceZ = centerZ + hallLength / 2 - 165;
+    const halfW = hallWidth / 2 - pillarW / 2 - 1.0;
     const pillarY = -1.0 + pillarH / 2;
 
     // Left pillar
@@ -1611,9 +1618,20 @@ export class LevelManager implements Disposable {
     this.scene.add(rightPillar);
     this.levelObjects.push(rightPillar);
 
-    // Lintel
+    // Emissive accent strips on pillars (vertical glowing lines)
+    const accentMat = new THREE.MeshStandardMaterial({ color: 0x00ccff, emissive: 0x00ccff, emissiveIntensity: 2.5, roughness: 0.2 });
+    for (const sideX of [-halfW, halfW]) {
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(0.06, pillarH - 1.0, 0.06), accentMat);
+      strip.position.set(sideX, pillarY, entranceZ + pillarD / 2 + 0.04);
+      strip.castShadow = false;
+      strip.receiveShadow = false;
+      this.scene.add(strip);
+      this.levelObjects.push(strip);
+    }
+
+    // Lintel (thicker, grander)
     const lintelW = halfW * 2 + pillarW;
-    const lintelH = 0.5;
+    const lintelH = 0.8;
     const lintel = new THREE.Mesh(new THREE.BoxGeometry(lintelW, lintelH, pillarD), frameMat);
     lintel.position.set(0, pillarY + pillarH / 2 + lintelH / 2, entranceZ);
     lintel.name = 'EntranceLintel';
@@ -1622,16 +1640,25 @@ export class LevelManager implements Disposable {
     this.scene.add(lintel);
     this.levelObjects.push(lintel);
 
+    // Emissive underside glow on lintel
+    const undersideMat = new THREE.MeshStandardMaterial({ color: 0x00aaff, emissive: 0x00aaff, emissiveIntensity: 2.0, roughness: 0.3 });
+    const underside = new THREE.Mesh(new THREE.BoxGeometry(lintelW - 2, 0.05, pillarD - 0.2), undersideMat);
+    underside.position.set(0, pillarY + pillarH / 2 - 0.03, entranceZ);
+    underside.castShadow = false;
+    underside.receiveShadow = false;
+    this.scene.add(underside);
+    this.levelObjects.push(underside);
+
     // Branding label above the entrance
     this.createSectionLabel(
       'KINEMA\nThird-Person Controller Showcase',
-      new THREE.Vector3(0, pillarY + pillarH / 2 + lintelH + 1.8, entranceZ + 0.3),
-      12,
-      3.2,
+      new THREE.Vector3(0, pillarY + pillarH / 2 + lintelH + 1.4, entranceZ + 0.3),
+      14,
+      3.6,
     );
 
     // Extra entrance spotlight for brighter spawn area
-    const spot = new THREE.SpotLight(0xffe8cc, 40, 25, Math.PI / 5, 0.6, 1.8);
+    const spot = new THREE.SpotLight(0xddeeff, 80, 35, Math.PI / 4, 0.5, 1.5);
     spot.position.set(0, -1.0 + wallHeight - 0.6, entranceZ - 2);
     spot.target.position.set(0, -1.0, entranceZ);
     spot.castShadow = false;
@@ -1674,7 +1701,7 @@ export class LevelManager implements Disposable {
     this.levelObjects.push(mesh);
   }
 
-  /** Two thin emissive accent strips at ~1 m height on both corridor walls. */
+  /** Emissive accent strips at 1m and 3m height on both corridor walls. */
   private addWallEmissiveStrips(
     hallWidth: number,
     hallLength: number,
@@ -1682,24 +1709,46 @@ export class LevelManager implements Disposable {
     wallThickness: number,
   ): void {
     const stripMat = new THREE.MeshStandardMaterial({
-      color: 0x111122,
-      emissive: 0x334466,
-      emissiveIntensity: 0.45,
-      roughness: 0.5,
+      color: 0x001133,
+      emissive: 0x0066ff,
+      emissiveIntensity: 1.2,
+      roughness: 0.3,
     });
     const stripHeight = 0.06;
     const stripDepth = 0.04;
-    const y = -1.0 + 1.0; // 1 m above floor
     const halfW = hallWidth / 2 + wallThickness / 2 - stripDepth / 2;
 
+    // Two strips per side at different heights
+    for (const yOffset of [1.0, 3.0]) {
+      const y = -1.0 + yOffset;
+      for (const side of [-1, 1]) {
+        const strip = new THREE.Mesh(new THREE.BoxGeometry(stripDepth, stripHeight, hallLength), stripMat);
+        strip.position.set(side * halfW, y, centerZ);
+        strip.name = `WallStrip${side < 0 ? 'L' : 'R'}_${yOffset}m`;
+        strip.castShadow = false;
+        strip.receiveShadow = false;
+        this.scene.add(strip);
+        this.levelObjects.push(strip);
+      }
+    }
+
+    // Floor edge glow strips along both walls
+    const floorGlowMat = new THREE.MeshStandardMaterial({
+      color: 0x002244,
+      emissive: 0x00aaff,
+      emissiveIntensity: 1.5,
+      roughness: 0.3,
+    });
+    const floorGlowY = -0.99;
+    const floorGlowHalfW = hallWidth / 2 - 0.15;
     for (const side of [-1, 1]) {
-      const strip = new THREE.Mesh(new THREE.BoxGeometry(stripDepth, stripHeight, hallLength), stripMat);
-      strip.position.set(side * halfW, y, centerZ);
-      strip.name = side < 0 ? 'WallStripL' : 'WallStripR';
-      strip.castShadow = false;
-      strip.receiveShadow = false;
-      this.scene.add(strip);
-      this.levelObjects.push(strip);
+      const glow = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.02, hallLength), floorGlowMat);
+      glow.position.set(side * floorGlowHalfW, floorGlowY, centerZ);
+      glow.name = `FloorEdgeGlow${side < 0 ? 'L' : 'R'}`;
+      glow.castShadow = false;
+      glow.receiveShadow = false;
+      this.scene.add(glow);
+      this.levelObjects.push(glow);
     }
   }
 
@@ -1717,7 +1766,7 @@ export class LevelManager implements Disposable {
     });
     moteMat.premultipliedAlpha = false;
 
-    const count = 35;
+    const count = 60;
     const halfW = hallWidth / 2 - 1;
     const halfL = hallLength / 2 - 2;
 
@@ -1740,6 +1789,218 @@ export class LevelManager implements Disposable {
         phase: Math.random() * Math.PI * 2,
       });
     }
+  }
+
+  /** Structural archway frames every ~60 units to break infinite-corridor look. */
+  private addBulkheadFrames(hallWidth: number, wallHeight: number, centerZ: number): void {
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x0a0e14, roughness: 0.4, metalness: 0.8,
+      emissive: 0x003355, emissiveIntensity: 0.6,
+    });
+    const postW = 0.4, postD = 0.3;
+    const beamH = 0.4;
+    const halfW = hallWidth / 2;
+    const floorY = -1.0;
+    // Place at z=150, 90, 30, -30, -90, -150, -210 (every 60 units)
+    for (let z = 150; z >= -210; z -= 60) {
+      // Left post
+      const leftPost = new THREE.Mesh(new THREE.BoxGeometry(postW, wallHeight, postD), mat);
+      leftPost.position.set(-halfW + postW / 2 + 0.3, floorY + wallHeight / 2, centerZ + z);
+      leftPost.name = `Bulkhead_L_${z}`;
+      leftPost.receiveShadow = true;
+      this.scene.add(leftPost);
+      this.levelObjects.push(leftPost);
+      // Right post
+      const rightPost = new THREE.Mesh(new THREE.BoxGeometry(postW, wallHeight, postD), mat);
+      rightPost.position.set(halfW - postW / 2 - 0.3, floorY + wallHeight / 2, centerZ + z);
+      rightPost.name = `Bulkhead_R_${z}`;
+      rightPost.receiveShadow = true;
+      this.scene.add(rightPost);
+      this.levelObjects.push(rightPost);
+      // Horizontal beam
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(hallWidth - 1.0, beamH, postD), mat);
+      beam.position.set(0, floorY + wallHeight - beamH / 2 - 0.2, centerZ + z);
+      beam.name = `Bulkhead_Beam_${z}`;
+      beam.receiveShadow = true;
+      this.scene.add(beam);
+      this.levelObjects.push(beam);
+    }
+  }
+
+  /** Emissive edge strips around each bay pedestal for definition. */
+  private addBayPedestalEdgeGlow(
+    bayZ: number[], bayWidth: number, bayLength: number,
+    bayPedestalY: number, bayPedestalHeight: number,
+  ): void {
+    const topY = bayPedestalY + bayPedestalHeight / 2 + 0.015;
+    const stripH = 0.03;
+    const stripW = 0.08;
+    const warmColor = new THREE.Color(0xff8833);
+    const coolColor = new THREE.Color(0x4488cc);
+
+    bayZ.forEach((z, i) => {
+      const t = bayZ.length > 1 ? i / (bayZ.length - 1) : 0;
+      const emissiveColor = new THREE.Color().lerpColors(warmColor, coolColor, t);
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x111111, emissive: emissiveColor, emissiveIntensity: 1.8,
+        roughness: 0.3, metalness: 0.1,
+      });
+      // Front edge
+      const front = new THREE.Mesh(new THREE.BoxGeometry(bayWidth - 1, stripH, stripW), mat);
+      front.position.set(0, topY, z + bayLength / 2 - stripW / 2);
+      front.name = `BayEdge_F_${i}`;
+      this.scene.add(front);
+      this.levelObjects.push(front);
+      // Back edge
+      const back = new THREE.Mesh(new THREE.BoxGeometry(bayWidth - 1, stripH, stripW), mat);
+      back.position.set(0, topY, z - bayLength / 2 + stripW / 2);
+      back.name = `BayEdge_B_${i}`;
+      this.scene.add(back);
+      this.levelObjects.push(back);
+      // Left edge
+      const left = new THREE.Mesh(new THREE.BoxGeometry(stripW, stripH, bayLength - 1), mat);
+      left.position.set(-(bayWidth / 2) + stripW / 2 + 0.5, topY, z);
+      left.name = `BayEdge_L_${i}`;
+      this.scene.add(left);
+      this.levelObjects.push(left);
+      // Right edge
+      const right = new THREE.Mesh(new THREE.BoxGeometry(stripW, stripH, bayLength - 1), mat);
+      right.position.set(bayWidth / 2 - stripW / 2 - 0.5, topY, z);
+      right.name = `BayEdge_R_${i}`;
+      this.scene.add(right);
+      this.levelObjects.push(right);
+    });
+  }
+
+  /** Focused SpotLight per bay for hero illumination. */
+  private addHeroSpotlights(bayZ: number[], bayPedestalY: number): void {
+    // Themed colors for specific bays; neutral white for most
+    const bayColors: Record<number, number> = {};
+    // VFX bay at index 11 gets warm orange, materials at 10 gets cool cyan
+    bayColors[11] = 0xffaa66;
+    bayColors[10] = 0x88ccff;
+    bayZ.forEach((z, i) => {
+      const color = bayColors[i] ?? 0xffeedd;
+      const light = new THREE.SpotLight(color, 20, 14, 0.5, 0.6);
+      light.position.set(0, bayPedestalY + 8, z);
+      light.target.position.set(0, bayPedestalY, z);
+      light.castShadow = false;
+      light.name = `HeroSpot_${i}`;
+      this.scene.add(light);
+      this.scene.add(light.target);
+      this.levelObjects.push(light);
+    });
+  }
+
+  /** Shallow recessed wall panels between bays for architectural detail. */
+  private addWallRecessedPanels(
+    bayZ: number[], hallWidth: number, _wallHeight: number, wallThickness: number,
+  ): void {
+    const panelW = 4, panelH = 3, panelD = 0.08;
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0x0c1020, roughness: 0.7, metalness: 0.1 });
+    const recessMat = new THREE.MeshStandardMaterial({
+      color: 0x060810, roughness: 0.85, metalness: 0.05,
+      emissive: 0x002244, emissiveIntensity: 0.4,
+    });
+    const halfW = hallWidth / 2;
+    const panelY = -1.0 + 4; // Eye-level
+    // Place a panel between each pair of consecutive bays
+    for (let i = 0; i < bayZ.length - 1; i++) {
+      const midZ = (bayZ[i] + bayZ[i + 1]) / 2;
+      for (const side of [-1, 1]) {
+        const wallX = side * (halfW - wallThickness / 2);
+        // Outer frame
+        const frame = new THREE.Mesh(new THREE.BoxGeometry(panelD, panelH + 0.2, panelW + 0.2), frameMat);
+        frame.position.set(wallX + side * 0.04, panelY, midZ);
+        frame.name = `WallPanel_F_${i}_${side > 0 ? 'R' : 'L'}`;
+        this.scene.add(frame);
+        this.levelObjects.push(frame);
+        // Inner recess (slightly inset)
+        const recess = new THREE.Mesh(new THREE.BoxGeometry(panelD, panelH, panelW), recessMat);
+        recess.position.set(wallX + side * 0.08, panelY, midZ);
+        recess.name = `WallPanel_R_${i}_${side > 0 ? 'R' : 'L'}`;
+        this.scene.add(recess);
+        this.levelObjects.push(recess);
+      }
+    }
+  }
+
+  /** Reflective floor patches in front of each bay for SSR showcase. */
+  private addReflectiveFloorPatches(
+    bayZ: number[], bayWidth: number, bayLength: number, _bayPedestalY: number,
+  ): void {
+    const floorY = -1.0 + 0.005; // Just above hall floor surface
+    const patchMat = new THREE.MeshStandardMaterial({
+      color: 0x0a0e18, roughness: 0.08, metalness: 0.9,
+    });
+    bayZ.forEach((z, i) => {
+      const patch = new THREE.Mesh(new THREE.BoxGeometry(bayWidth - 4, 0.02, 3), patchMat);
+      patch.position.set(0, floorY, z + bayLength / 2 + 2);
+      patch.receiveShadow = true;
+      patch.name = `FloorPatch_${i}`;
+      this.scene.add(patch);
+      this.levelObjects.push(patch);
+    });
+  }
+
+  /** Ground-hugging fog sprites for atmospheric depth. */
+  private addLowFogSprites(hallWidth: number, hallLength: number, centerZ: number): void {
+    const fogTex = this.createCircleTexture();
+    const fogMat = new THREE.SpriteMaterial({
+      color: 0x88ccdd, map: fogTex, transparent: true, opacity: 0.06,
+      depthTest: true, depthWrite: false, blending: THREE.NormalBlending,
+    });
+    fogMat.premultipliedAlpha = false;
+    const halfW = hallWidth / 2 - 4;
+    const halfL = hallLength / 2 - 10;
+    for (let i = 0; i < 25; i++) {
+      const sprite = new THREE.Sprite(fogMat.clone());
+      const s = 8 + Math.random() * 8;
+      sprite.scale.set(s, s * 0.3, 1);
+      const x = (Math.random() - 0.5) * 2 * halfW;
+      const y = 0.1 + Math.random() * 0.7;
+      const z = centerZ + (Math.random() - 0.5) * 2 * halfL;
+      sprite.position.set(x, y, z);
+      sprite.name = `LowFog_${i}`;
+      sprite.renderOrder = 1;
+      this.scene.add(sprite);
+      this.levelObjects.push(sprite);
+      this.dustMotes.push({
+        sprite,
+        origin: sprite.position.clone(),
+        speed: 0.05 + Math.random() * 0.1,
+        phase: Math.random() * Math.PI * 2,
+      });
+    }
+  }
+
+  /** Solid wall behind spawn to close off the empty corridor end. */
+  private addBackWallPartition(
+    hallWidth: number, wallHeight: number, centerZ: number,
+    hallLength: number, wallMat: THREE.Material,
+  ): void {
+    const spawnZ = centerZ + hallLength / 2 - 160;
+    const wallZ = spawnZ + 10; // 10 units behind spawn
+    const floorY = -1.0;
+    // Main wall
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(hallWidth - 1.2, wallHeight, 0.6), wallMat);
+    wall.position.set(0, floorY + wallHeight / 2, wallZ);
+    wall.receiveShadow = true;
+    wall.name = 'BackWallPartition_col';
+    this.scene.add(wall);
+    this.levelObjects.push(wall);
+    wall.updateWorldMatrix(true, false);
+    this.levelColliders.push(this.colliderFactory.createTrimesh(wall));
+    // Emissive accent strip on the player-facing side
+    const accentMat = new THREE.MeshStandardMaterial({
+      color: 0x002244, emissive: 0x00aaff, emissiveIntensity: 1.5,
+      roughness: 0.3, metalness: 0.1,
+    });
+    const accent = new THREE.Mesh(new THREE.BoxGeometry(hallWidth - 4, 0.06, 0.02), accentMat);
+    accent.position.set(0, floorY + 1.0, wallZ - 0.32);
+    accent.name = 'BackWallAccent';
+    this.scene.add(accent);
+    this.levelObjects.push(accent);
   }
 
   private createSectionLabel(
@@ -2171,8 +2432,8 @@ export class LevelManager implements Disposable {
     const fireTex = this.createBillboardTexture('#ff7a1a', 0.92);
     const emberTex = this.createBillboardTexture('#ffdd44', 0.95);
     const smokeMat = new THREE.SpriteMaterial({
-      map: smokeTex, transparent: true, opacity: 0.55,
-      depthTest: true, depthWrite: false, blending: THREE.NormalBlending,
+      map: smokeTex, transparent: true, opacity: 0.35,
+      depthTest: true, depthWrite: false, blending: THREE.AdditiveBlending,
     });
     smokeMat.premultipliedAlpha = false;
     const fireMat = new THREE.SpriteMaterial({
