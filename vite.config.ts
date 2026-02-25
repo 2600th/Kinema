@@ -27,6 +27,7 @@ export default defineConfig({
       '@audio': resolve(__dirname, 'src/audio'),
       '@vehicle': resolve(__dirname, 'src/vehicle'),
       '@editor': resolve(__dirname, 'src/editor'),
+      '@navigation': resolve(__dirname, 'src/navigation'),
     },
   },
   build: {
