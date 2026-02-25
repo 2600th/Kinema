@@ -7,10 +7,29 @@ export interface EditorObject {
   mesh: THREE.Object3D;
   body?: RAPIER.RigidBody;
   collider?: RAPIER.Collider;
-  source: { type: 'primitive' | 'glb' | 'sprite'; asset?: string; primitive?: string };
+  source: {
+    type: 'primitive' | 'glb' | 'sprite' | 'brush';
+    asset?: string;
+    primitive?: string;
+    brush?: string;
+  };
   transform: {
     position: [number, number, number];
     rotation: [number, number, number];
     scale: [number, number, number];
   };
+  parentId?: string | null;
+  children?: string[];
+  visible?: boolean;
+  locked?: boolean;
+  material?: {
+    color: string;
+    roughness: number;
+    metalness: number;
+    emissive: string;
+    emissiveIntensity: number;
+    opacity: number;
+  };
+  brushParams?: Record<string, number>;
+  physicsType?: 'static' | 'dynamic' | 'kinematic';
 }

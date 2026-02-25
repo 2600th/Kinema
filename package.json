@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.14.0",
+    "navcat": "^0.2.0",
     "three": "^0.182.0"
   },
   "devDependencies": {

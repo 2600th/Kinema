@@ -15,9 +15,10 @@ export interface SerializedObject {
   id: string;
   name: string;
   source: {
-    type: 'primitive' | 'glb' | 'sprite';
+    type: 'primitive' | 'glb' | 'sprite' | 'brush';
     asset?: string;
     primitive?: string;
+    brush?: string;
   };
   transform: {
     position: [number, number, number];
