@@ -65,7 +65,7 @@ export class CarController implements VehicleController {
     // Lock X/Z rotations so the car stays upright; we control yaw visually & via angvel.
     this.body.setEnabledRotations(false, true, false, true);
 
-    const colliderDesc = RAPIER.ColliderDesc.cuboid(1.0, 0.2, 2.0)
+    const colliderDesc = RAPIER.ColliderDesc.cuboid(1.15, 0.2, 2.0)
       .setTranslation(0, 0.28, 0) // Align with chassis visual center
       .setFriction(0.0) // Manage our own lateral grip
       .setRestitution(0.1)
@@ -259,34 +259,54 @@ export class CarController implements VehicleController {
     // Forward is -Z. Headlights/windshield at -Z, taillights at +Z.
 
     // --- Lower chassis ---
-    const chassisMat = new THREE.MeshStandardMaterial({ color: 0x111317, metalness: 0.8, roughness: 0.2 });
-    const chassis = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.35, 4.2), chassisMat);
+    const chassisMat = new THREE.MeshStandardMaterial({ color: 0x3a4050, metalness: 0.4, roughness: 0.4 });
+    const chassis = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.38, 4.2), chassisMat);
     chassis.position.y = 0.28;
     chassis.castShadow = true;
     chassis.receiveShadow = true;
     group.add(chassis);
 
     // Glowing side skirts
-    const skirtMat = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x00ffff, emissiveIntensity: 1.5 });
+    const skirtMat = new THREE.MeshStandardMaterial({ color: 0x3388dd, emissive: 0x3388dd, emissiveIntensity: 1.5 });
     const leftSkirt = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 2.5), skirtMat);
-    leftSkirt.position.set(1.15, 0.2, 0);
+    leftSkirt.position.set(1.2, 0.2, 0);
     group.add(leftSkirt);
     const rightSkirt = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 2.5), skirtMat);
-    rightSkirt.position.set(-1.15, 0.2, 0);
+    rightSkirt.position.set(-1.2, 0.2, 0);
     group.add(rightSkirt);
+
+    // --- Fender flares over wheel wells ---
+    const fenderPositions = [
+      new THREE.Vector3(1.15, 0.42, -1.5),   // front-right
+      new THREE.Vector3(-1.15, 0.42, -1.5),  // front-left
+      new THREE.Vector3(1.15, 0.42, 1.5),    // rear-right
+      new THREE.Vector3(-1.15, 0.42, 1.5),   // rear-left
+    ];
+    for (const pos of fenderPositions) {
+      const fender = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.12, 0.7), chassisMat);
+      fender.position.copy(pos);
+      fender.castShadow = true;
+      group.add(fender);
+    }
 
     // --- Upper cabin (visual roll applied here) ---
     const cabin = new THREE.Group();
-    const cabinMat = new THREE.MeshStandardMaterial({ color: 0x1a212e, metalness: 0.6, roughness: 0.3 });
+    const cabinMat = new THREE.MeshStandardMaterial({ color: 0x404858, metalness: 0.3, roughness: 0.5 });
     const cabinMesh = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.45, 2.2), cabinMat);
     cabinMesh.position.set(0, 0.68, 0.3);
     cabinMesh.castShadow = true;
     cabinMesh.receiveShadow = true;
     cabin.add(cabinMesh);
 
+    // Roof light bar (yellow emissive accent)
+    const roofLightMat = new THREE.MeshStandardMaterial({ color: 0xccaa22, emissive: 0xccaa22, emissiveIntensity: 1.8 });
+    const roofLight = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.06, 0.2), roofLightMat);
+    roofLight.position.set(0, 0.94, 0.3);
+    cabin.add(roofLight);
+
     // Windshield (front glass) — faces -Z.
     const glassMat = new THREE.MeshPhysicalMaterial({
-      color: 0x00ffff, roughness: 0.05, metalness: 0.1,
+      color: 0x88bbdd, roughness: 0.05, metalness: 0.1,
       transmission: 0.9, thickness: 0.1, transparent: true, opacity: 0.5, emissive: 0x002244,
     });
     const windshield = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.4, 0.08), glassMat);
@@ -294,13 +314,13 @@ export class CarController implements VehicleController {
     windshield.rotation.x = 0.25;
     cabin.add(windshield);
 
-    const bumperMat = new THREE.MeshStandardMaterial({ color: 0x22252b, metalness: 0.4, roughness: 0.5 });
-    const frontBumper = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.2, 0.4), bumperMat);
+    const bumperMat = new THREE.MeshStandardMaterial({ color: 0x3a3e48, metalness: 0.2, roughness: 0.6 });
+    const frontBumper = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.25, 0.5), bumperMat);
     frontBumper.position.set(0, 0.2, -2.25);
     frontBumper.castShadow = true;
     group.add(frontBumper);
 
-    const rearBumper = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.2, 0.4), bumperMat);
+    const rearBumper = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.25, 0.5), bumperMat);
     rearBumper.position.set(0, 0.2, 2.25);
     rearBumper.castShadow = true;
     group.add(rearBumper);
@@ -316,7 +336,7 @@ export class CarController implements VehicleController {
     spoilerWing.position.set(0, 0.8, 1.8);
     spoilerWing.rotation.x = -0.1;
     cabin.add(spoilerWing);
-    const spoilerGlow = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.02, 0.05), new THREE.MeshStandardMaterial({ color: 0xff0055, emissive: 0xff0055, emissiveIntensity: 2.0 }));
+    const spoilerGlow = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.02, 0.05), new THREE.MeshStandardMaterial({ color: 0xccaa22, emissive: 0xccaa22, emissiveIntensity: 2.0 }));
     spoilerGlow.position.set(0, 0.8, 1.98);
     cabin.add(spoilerGlow);
 
@@ -325,7 +345,7 @@ export class CarController implements VehicleController {
 
     // --- Headlights (front = -Z) ---
     const headlightMat = new THREE.MeshStandardMaterial({
-      color: 0xddeeff, emissive: 0x44aaff, emissiveIntensity: 2.5, roughness: 0.2,
+      color: 0xfff5e8, emissive: 0xffe8cc, emissiveIntensity: 2.5, roughness: 0.2,
     });
     for (const side of [-0.75, 0.75]) {
       const hl = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.15, 0.08), headlightMat);
@@ -335,7 +355,7 @@ export class CarController implements VehicleController {
 
     // --- Taillights (rear = +Z) ---
     const taillightMat = new THREE.MeshStandardMaterial({
-      color: 0xff0055, emissive: 0xff0055, emissiveIntensity: 2.5, roughness: 0.2,
+      color: 0xcc2222, emissive: 0xcc2222, emissiveIntensity: 2.5, roughness: 0.2,
     });
     for (const side of [-0.8, 0.8]) {
       const tl = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.12, 0.08), taillightMat);
@@ -352,16 +372,16 @@ export class CarController implements VehicleController {
 
     const tireMat = new THREE.MeshStandardMaterial({ color: 0x050505, metalness: 0.2, roughness: 0.9 });
     const rimMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.9, roughness: 0.1 });
-    const rimGlowMat = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x00ffff, emissiveIntensity: 1.5 });
+    const rimGlowMat = new THREE.MeshStandardMaterial({ color: 0x3388dd, emissive: 0x3388dd, emissiveIntensity: 1.5 });
     const rimGlowGeom = new THREE.CylinderGeometry(this.wheelRadius * 0.4, this.wheelRadius * 0.4, 0.26, 12);
     rimGlowGeom.rotateZ(Math.PI / 2);
 
     // Front wheels at -Z, rear at +Z.
     const wheelOffsets = [
-      new THREE.Vector3(1.05, 0.32, -1.5),   // front-right
-      new THREE.Vector3(-1.05, 0.32, -1.5),  // front-left
-      new THREE.Vector3(1.05, 0.32, 1.5),    // rear-right
-      new THREE.Vector3(-1.05, 0.32, 1.5),   // rear-left
+      new THREE.Vector3(1.1, 0.32, -1.5),   // front-right
+      new THREE.Vector3(-1.1, 0.32, -1.5),  // front-left
+      new THREE.Vector3(1.1, 0.32, 1.5),    // rear-right
+      new THREE.Vector3(-1.1, 0.32, 1.5),   // rear-left
     ];
 
     wheelOffsets.forEach((offset, i) => {

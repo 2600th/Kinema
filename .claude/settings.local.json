@@ -20,7 +20,12 @@
       "Bash(wc -l:*)",
       "Bash(npm run build:*)",
       "Bash(grep:*)",
-      "Bash(npx playwright test:*)"
+      "Bash(npx playwright test:*)",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:ssgi-webgpu-demo.vercel.app)",
+      "WebFetch(domain:lumen-decor-studio.vercel.app)",
+      "WebFetch(domain:discourse.threejs.org)",
+      "Bash(find:*)"
     ]
   }
 }

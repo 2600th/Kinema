@@ -64,6 +64,7 @@ export class RendererManager implements Disposable {
 
   private antiAliasingMode: AntiAliasingMode = 'taa';
   private ssrEnabled = false;
+  private ssgiEnabled = false;
   private ssrResolutionScale = 0.5;
   private bloomEnabled = true;
   private vignetteEnabled = true;
@@ -84,7 +85,7 @@ export class RendererManager implements Disposable {
   private readonly hdrLoader = new HDRLoader();
   private postProcessingEnabled = true;
   private shadowsEnabled = true;
-  private toneExposure = 0.75;
+  private toneExposure = 0.9;
   private resolutionScale = 1;
   private aoOnlyView = false;
   private aoOnlyOutputNode: TSLNode | null = null;
@@ -92,7 +93,7 @@ export class RendererManager implements Disposable {
   private gtaoEnabled = true;
 
   private traaEnabled = true;
-  private bloomStrength = 0.02;
+  private bloomStrength = 0.1;
   private vignetteDarkness = 0.42;
   private ssrOpacity = 0.5;
   private lutPassNode: {
@@ -155,8 +156,8 @@ export class RendererManager implements Disposable {
 
   constructor() {
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0xa9b9ee);
-    this.scene.fog = new THREE.Fog(0xa9b9ee, 120, 380);
+    this.scene.background = new THREE.Color(0xd8dce8);
+    this.scene.fog = new THREE.Fog(0xd8dce8, 140, 400);
 
     this.camera = new THREE.PerspectiveCamera(
       65,
@@ -180,7 +181,7 @@ export class RendererManager implements Disposable {
     (this.renderer as THREE.WebGLRenderer).info.autoReset = true;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.renderer.setClearColor(0xa9b9ee, 1);
+    this.renderer.setClearColor(0xd8dce8, 1);
 
     void this.batchLoadLuts();
     this.setGraphicsProfile('cinematic');
@@ -194,7 +195,7 @@ export class RendererManager implements Disposable {
    */
   async init(): Promise<void> {
     document.body.style.margin = '0';
-    document.body.style.background = '#a9b9ee';
+    document.body.style.background = '#d8dce8';
     document.body.style.backgroundAttachment = 'fixed';
 
     try {
@@ -225,6 +226,7 @@ export class RendererManager implements Disposable {
       const { fxaa } = await import('three/addons/tsl/display/FXAANode.js');
       const { smaa } = await import('three/addons/tsl/display/SMAANode.js');
       const { lut3D } = await import('three/addons/tsl/display/Lut3DNode.js');
+      const { ssgi } = await import('three/addons/tsl/display/SSGINode.js');
       // NOTE: hashBlur is intentionally not used; SSRNode already supports roughness-based blur via mips.
 
       const wgpuRenderer = new WebGPURenderer({
@@ -259,8 +261,8 @@ export class RendererManager implements Disposable {
       this.envCache.set('Room Environment', this.environmentTarget);
       this.scene.environment = this.environmentTarget.texture;
       this.scene.background = this.environmentTarget.texture;
-      this.scene.environmentIntensity = 0.55;
-      this.scene.backgroundIntensity = 1.0;
+      this.scene.environmentIntensity = 0.7;
+      this.scene.backgroundIntensity = 1.2;
       this.scene.backgroundBlurriness = 0.5;
       pmremGenerator.dispose();
       this.createPmremGenerator = () => new PMREMGeneratorClass(this.renderer as any);
@@ -310,6 +312,7 @@ export class RendererManager implements Disposable {
       scenePass.getTexture('metalrough').type = THREE.UnsignedByteType;
 
       const scenePassColor = scenePass.getTextureNode('output');
+      const scenePassDiffuse = scenePass.getTextureNode('diffuseColor');
       const scenePassMetalrough = scenePass.getTextureNode('metalrough');
 
       const metalnessNode = (scenePassMetalrough as TSLNode & { r: TSLNode }).r;
@@ -378,7 +381,6 @@ export class RendererManager implements Disposable {
       );
 
       // Helper to build the graph based on graphics profile.
-      // NOTE: SSGI is intentionally not used. It does not behave well with transparent sprites/UI in this project.
       const buildPipeline = (profile: GraphicsProfile): TSLNode => {
         this.bloomNodes = []; // Clear to prevent accumulation leak
         this.ssrNode = null;
@@ -390,7 +392,43 @@ export class RendererManager implements Disposable {
 
         const currentRgb = (): TSLNode => (currentNode as unknown as { rgb: TSLNode }).rgb;
 
-        // 1) Reflections (SSR) — run against opaque pre-pass depth/normal.
+        // 0) SSGI — cinematic only, before SSR
+        //    Matches official Three.js webgpu_postprocessing_ssgi example compositing:
+        //    composite = sceneColor * AO_ssgi + diffuseColor * GI
+        //    Our sceneColor already has GTAO baked in via builtinAOContext, so we
+        //    apply SSGI's own AO on top and add the diffuse GI contribution.
+        if (this.ssgiEnabled && profile === 'cinematic') {
+          const ssgiNode = ssgi(scenePassColor as never, prePassDepth as never, prePassNormalDecoded as never, this.camera) as unknown as {
+            sliceCount: { value: number };
+            stepCount: { value: number };
+            giIntensity: { value: number };
+            radius: { value: number };
+            thickness: { value: number };
+            useTemporalFiltering: boolean;
+            rgb: TSLNode;
+            a: TSLNode;
+          };
+          ssgiNode.sliceCount.value = 2;
+          ssgiNode.stepCount.value = 8;
+          ssgiNode.giIntensity.value = 15;
+          ssgiNode.radius.value = 12;
+          ssgiNode.thickness.value = 0.5;
+          ssgiNode.useTemporalFiltering = true;
+
+          // Official compositing: vec4(sceneColor.rgb * ao + diffuse.rgb * gi, sceneColor.a)
+          const gi = ssgiNode.rgb;
+          const ao = ssgiNode.a;
+          const compositeRgb = add(
+            (currentRgb() as unknown as { mul: (n: TSLNode) => TSLNode }).mul(ao) as never,
+            (scenePassDiffuse as unknown as { rgb: { mul: (n: TSLNode) => TSLNode } }).rgb.mul(gi) as never,
+          ) as TSLNode;
+          currentNode = keepAlphaWithRgb(currentNode, compositeRgb);
+        }
+
+        // 1) Reflections (SSR) — Lumen reference parameters.
+        //    SSRNode internally handles metalness/roughness from MRT input.
+        //    With physically correct materials (non-metals at metalness <= 0.05),
+        //    the SSR node naturally avoids non-reflective surfaces.
         if (this.ssrEnabled && profile !== 'performance') {
           const ssrNode = ssr(
             scenePassColor as never,
@@ -401,42 +439,27 @@ export class RendererManager implements Disposable {
             this.camera,
           ) as TSLNode;
 
-          (ssrNode as unknown as { resolutionScale: number }).resolutionScale = this.ssrResolutionScale;
+          (ssrNode as unknown as { resolutionScale: number }).resolutionScale = 0.7;
           const u = ssrNode as unknown as {
             maxDistance: { value: number };
             thickness: { value: number };
             quality: { value: number };
           };
-          if (profile === 'cinematic') {
-            u.maxDistance.value = 24;
-            u.thickness.value = 0.22;
-            u.quality.value = 0.65;
-          } else {
-            // balanced
-            u.maxDistance.value = 18;
-            u.thickness.value = 0.18;
-            u.quality.value = 0.5;
-          }
+          const blurQ = ssrNode as unknown as { blurQuality: { value: number } };
+          blurQ.blurQuality.value = 4;
+          u.maxDistance.value = 2.5;
+          u.thickness.value = 0.03;
+          u.quality.value = profile === 'cinematic' ? 0.7 : 0.5;
           this.ssrNode = ssrNode;
 
-          // Mask reflections to avoid noisy speckles on rough / barely-metal surfaces.
-          const metalMask = smoothstep(float(0.12), float(0.35), metalnessNode as never) as TSLNode;
-          const roughMask = (float(1) as { sub: (n: TSLNode) => TSLNode }).sub(
-            smoothstep(float(0.35), float(0.85), roughnessNode as never) as TSLNode,
-          ) as TSLNode;
-          const reflectMask = (metalMask as { mul: (n: TSLNode) => TSLNode }).mul(roughMask as TSLNode) as TSLNode;
-
-          const reflectTerm = ((ssrNode as unknown as { mul: (n: TSLNode) => TSLNode })
-            .mul(ssrOpacityUniform as never) as { mul: (n: TSLNode) => TSLNode })
-            .mul(reflectMask as never) as unknown as { rgb: TSLNode };
-
-          const nextRgb = add(currentRgb() as never, reflectTerm.rgb as never) as TSLNode;
+          // Simple additive at fixed 0.18 strength (Lumen formula)
+          const nextRgb = add(currentRgb() as never, (ssrNode as unknown as { rgb: { mul: (n: number) => TSLNode } }).rgb.mul(0.18) as never) as TSLNode;
           currentNode = keepAlphaWithRgb(currentNode, nextRgb);
         }
 
-        // 2) Bloom (Balanced/Cinematic)
+        // 2) Bloom — full scene color at low threshold (Lumen reference)
         if (this.bloomEnabled && profile !== 'performance') {
-          const bloomNode = bloom(currentNode as never, this.bloomStrength, 0.4, 0.2) as TSLNode & { strength: { value: number } };
+          const bloomNode = bloom(scenePassColor as never, 0.1, 0.8, 0.05) as TSLNode & { strength: { value: number } };
           this.bloomNodes.push(bloomNode);
           const bloomRgb = (bloomNode as unknown as { rgb: TSLNode }).rgb;
           const nextRgb = add(currentRgb() as never, bloomRgb as never) as TSLNode;
@@ -501,8 +524,8 @@ export class RendererManager implements Disposable {
       this.envCache.set('Room Environment', this.environmentTarget);
       this.scene.environment = this.environmentTarget.texture;
       this.scene.background = this.environmentTarget.texture;
-      this.scene.environmentIntensity = 0.55;
-      this.scene.backgroundIntensity = 1.0;
+      this.scene.environmentIntensity = 0.7;
+      this.scene.backgroundIntensity = 1.2;
       this.scene.backgroundBlurriness = 0.5;
       pmremGenerator.dispose();
       this.createPmremGenerator = () => new THREE.PMREMGenerator(this.renderer as THREE.WebGLRenderer);
@@ -564,6 +587,7 @@ export class RendererManager implements Disposable {
     if (profile === 'performance') {
       this.gtaoEnabled = false;
       this.ssrEnabled = false;
+      this.ssgiEnabled = false;
       this.traaEnabled = false;
       this.bloomEnabled = false;
       this.bloomStrength = 0.0;
@@ -579,30 +603,32 @@ export class RendererManager implements Disposable {
     if (profile === 'balanced') {
       this.gtaoEnabled = true;
       this.ssrEnabled = false;
+      this.ssgiEnabled = false;
       this.traaEnabled = true;
       this.bloomEnabled = true;
-      this.bloomStrength = 0.02;
+      this.bloomStrength = 0.1;
       this.vignetteEnabled = true;
       this.vignetteDarkness = 0.38;
       this.lutEnabled = true;
       this.lutStrength = 0.38;
-      this.ssrOpacity = 0.45;
-      this.ssrResolutionScale = 0.55;
+      this.ssrOpacity = 0.4;
+      this.ssrResolutionScale = 0.75;
       return;
     }
 
     // cinematic
     this.gtaoEnabled = true;
     this.ssrEnabled = true;
+    this.ssgiEnabled = false;
     this.traaEnabled = true;
     this.bloomEnabled = true;
-    this.bloomStrength = 0.035;
+    this.bloomStrength = 0.1;
     this.vignetteEnabled = true;
     this.vignetteDarkness = 0.42;
     this.lutEnabled = true;
     this.lutStrength = 0.42;
-    this.ssrOpacity = 0.6;
-    this.ssrResolutionScale = 0.75;
+    this.ssrOpacity = 0.5;
+    this.ssrResolutionScale = 1.0;
   }
 
   setPostProcessingEnabled(enabled: boolean): void {
@@ -710,6 +736,11 @@ export class RendererManager implements Disposable {
     this.applyQualitySettings();
   }
 
+  setSsgiEnabled(enabled: boolean): void {
+    this.ssgiEnabled = enabled;
+    this.applyQualitySettings();
+  }
+
   setSsrOpacity(value: number): void {
     if (!Number.isFinite(value)) return;
     this.ssrOpacity = THREE.MathUtils.clamp(value, 0, 1);
@@ -729,7 +760,7 @@ export class RendererManager implements Disposable {
 
   setBloomStrength(value: number): void {
     if (!Number.isFinite(value)) return;
-    this.bloomStrength = THREE.MathUtils.clamp(value, 0, 1.5);
+    this.bloomStrength = THREE.MathUtils.clamp(value, 0, 1.0);
     for (const node of this.bloomNodes) {
       node.strength.value = this.bloomStrength;
     }
@@ -846,6 +877,7 @@ export class RendererManager implements Disposable {
     ssrEnabled: boolean;
     ssrOpacity: number;
     ssrResolutionScale: number;
+    ssgiEnabled: boolean;
     bloomEnabled: boolean;
     bloomStrength: number;
     vignetteEnabled: boolean;
@@ -869,6 +901,7 @@ export class RendererManager implements Disposable {
       ssrEnabled: this.ssrEnabled,
       ssrOpacity: this.ssrOpacity,
       ssrResolutionScale: this.ssrResolutionScale,
+      ssgiEnabled: this.ssgiEnabled,
       bloomEnabled: this.bloomEnabled,
       bloomStrength: this.bloomStrength,
       vignetteEnabled: this.vignetteEnabled,

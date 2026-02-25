@@ -182,6 +182,7 @@ export interface EventMap {
   'debug:ssrEnabled': boolean;
   'debug:ssrOpacity': number;
   'debug:ssrResolutionScale': number;
+  'debug:ssgiEnabled': boolean;
   'debug:bloomEnabled': boolean;
   'debug:bloomStrength': number;
   'debug:vignetteEnabled': boolean;

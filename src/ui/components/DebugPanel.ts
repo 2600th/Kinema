@@ -16,6 +16,7 @@ interface RenderSettingsSnapshot {
   ssrEnabled: boolean;
   ssrOpacity: number;
   ssrResolutionScale: number;
+  ssgiEnabled: boolean;
   bloomEnabled: boolean;
   bloomStrength: number;
   vignetteEnabled: boolean;
@@ -382,6 +383,15 @@ export class DebugPanel implements Disposable {
       (value) => value.toFixed(2),
     ));
     postFxSection.appendChild(this.createCheckbox(
+      'ssgiEnabled',
+      'SSGI (cinematic)',
+      false,
+      'Screen-space global illumination — indirect light bounce. Cinematic profile only.',
+      (value) => {
+        this.eventBus.emit('debug:ssgiEnabled', value);
+      },
+    ));
+    postFxSection.appendChild(this.createCheckbox(
       'bloomEnabled',
       'Bloom',
       true,
@@ -394,9 +404,9 @@ export class DebugPanel implements Disposable {
       'bloomStrength',
       'Bloom strength',
       0,
-      1.5,
+      1.0,
       0.01,
-      0.02,
+      0.1,
       'Controls bloom intensity.',
       (value) => {
         this.eventBus.emit('debug:bloomStrength', value);
@@ -477,6 +487,7 @@ export class DebugPanel implements Disposable {
     this.setCheckbox('ssrEnabled', settings.ssrEnabled);
     this.setRange('ssrOpacity', settings.ssrOpacity);
     this.setRange('ssrResolutionScale', settings.ssrResolutionScale);
+    this.setCheckbox('ssgiEnabled', settings.ssgiEnabled);
     this.setCheckbox('bloomEnabled', settings.bloomEnabled);
     this.setRange('bloomStrength', settings.bloomStrength);
     this.setCheckbox('vignetteEnabled', settings.vignetteEnabled);
@@ -500,6 +511,9 @@ export class DebugPanel implements Disposable {
     this.setVisible('ssrEnabled', isBalanced || isCinematic);
     this.setVisible('ssrOpacity', isBalanced || isCinematic);
     this.setVisible('ssrResolutionScale', isBalanced || isCinematic);
+
+    // SSGI: cinematic only.
+    this.setVisible('ssgiEnabled', isCinematic);
 
     // GTAO: always available (cheap toggle).
     this.setVisible('gtaoEnabled', true);

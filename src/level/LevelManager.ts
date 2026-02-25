@@ -20,13 +20,6 @@ const _lightGoalPos = new THREE.Vector3();
 const _lightGoalTarget = new THREE.Vector3();
 const DEFAULT_SPAWN_Y = 2;
 
-function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
-  const m = hex.trim().match(/^#?([0-9a-f]{6})$/i);
-  if (!m) return null;
-  const n = parseInt(m[1], 16);
-  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
-}
-
 function createDefaultSpawnPoint(): SpawnPointData {
   return { position: new THREE.Vector3(0, DEFAULT_SPAWN_Y, 0) };
 }
@@ -78,18 +71,8 @@ export class LevelManager implements Disposable {
   private ladderZones: THREE.Box3[] = [];
   private simTime = 0;
   private animatedMaterials: Array<{ mat: THREE.MeshStandardMaterial; baseIntensity: number; speed: number }> = [];
-  private vfxBillboards: Array<{
-    sprite: THREE.Sprite;
-    origin: THREE.Vector3;
-    kind: 'smoke' | 'fire';
-    riseSpeed: number;
-    maxRise: number;
-    baseScale: number;
-    phase: number;
-  }> = [];
-  private vfxLaser: { mesh: THREE.Mesh; mat: THREE.MeshStandardMaterial; baseEmissive: number } | null = null;
-  private vfxLightning: { line: THREE.Line; light: THREE.PointLight; base: THREE.Vector3; segments: number } | null = null;
-  private vfxScanner: { mesh: THREE.Mesh; baseZ: number; baseY: number } | null = null;
+  private vfxNoiseTexture: THREE.CanvasTexture | null = null;
+  private vfxLightningLight: THREE.PointLight | null = null;
   private dustMotes: Array<{ sprite: THREE.Sprite; origin: THREE.Vector3; speed: number; phase: number }> = [];
   private dirLight: THREE.DirectionalLight | null = null;
   private dirLightTarget: THREE.Object3D | null = null;
@@ -247,10 +230,9 @@ export class LevelManager implements Disposable {
     this.ladderZones = [];
     this.simTime = 0;
     this.animatedMaterials = [];
-    this.vfxBillboards = [];
-    this.vfxLaser = null;
-    this.vfxLightning = null;
-    this.vfxScanner = null;
+    this.vfxNoiseTexture?.dispose();
+    this.vfxNoiseTexture = null;
+    this.vfxLightningLight = null;
     this.dustMotes = [];
     this.dirLight = null;
     this.dirLightTarget = null;
@@ -372,40 +354,9 @@ export class LevelManager implements Disposable {
       entry.mat.emissiveIntensity = entry.baseIntensity + pulse * entry.baseIntensity * 1.35;
     }
 
-    // Lightweight VFX bay: smoke/fire billboards with wobble.
-    for (const fx of this.vfxBillboards) {
-      const t = (this.simTime * fx.riseSpeed + fx.phase) % 1;
-      const wobbleX = Math.sin(this.simTime * 1.3 + fx.phase * 6.28) * 0.35;
-      const wobbleZ = Math.cos(this.simTime * 1.1 + fx.phase * 4.17) * 0.25;
-      fx.sprite.position.set(
-        fx.origin.x + wobbleX,
-        fx.origin.y + t * fx.maxRise,
-        fx.origin.z + wobbleZ,
-      );
-      const fade = fx.kind === 'smoke'
-        ? (1 - t) * 0.55
-        : (1 - t) * 0.85;
-      fx.sprite.material.opacity = Math.max(0, fade);
-      const s = fx.baseScale * (fx.kind === 'smoke' ? 1 + t * 1.6 : 1 + t * 0.9);
-      fx.sprite.scale.set(s, s, 1);
-      // Continuous drifting rotation
-      fx.sprite.material.rotation = (this.simTime * 0.5 + fx.phase * Math.PI * 2) * (fx.kind === 'smoke' ? 1 : -1);
-    }
-
-    // Laser pulse
-    if (this.vfxLaser) {
-      const pulse = 0.55 + 0.45 * Math.sin(this.simTime * 6.2);
-      this.vfxLaser.mat.emissiveIntensity = this.vfxLaser.baseEmissive + pulse * 2.2;
-    }
-
-    // Hologram scanner (moving ring)
-    if (this.vfxScanner) {
-      const { mesh, baseY } = this.vfxScanner;
-      // Cycle from 0 to 1 back to 0
-      const t = (Math.sin(this.simTime * 1.5) + 1.0) / 2.0;
-      mesh.position.y = baseY + t * 3.2;
-      mesh.scale.setScalar(1.0 + Math.sin(t * Math.PI) * 0.15);
-      (mesh.material as THREE.Material).opacity = 0.3 + 0.7 * Math.sin(t * Math.PI);
+    // Lightning light CPU flicker (minimal — everything else is TSL-driven).
+    if (this.vfxLightningLight) {
+      this.vfxLightningLight.intensity = 8 + Math.random() * 4;
     }
 
     // Dust motes gentle drift.
@@ -419,25 +370,6 @@ export class LevelManager implements Disposable {
       mote.sprite.material.rotation = t * 0.2;
     }
 
-    // Lightning jitter (fast, chaotic tesla arc update).
-    if (this.vfxLightning) {
-      const geo = this.vfxLightning.line.geometry as THREE.BufferGeometry;
-      const pos = geo.attributes.position as THREE.BufferAttribute;
-      const { base, segments, light } = this.vfxLightning;
-      for (let i = 0; i <= segments; i += 1) {
-        const a = i / segments;
-        const envelope = Math.sin(a * Math.PI); // stronger jitter in the middle
-        const x = base.x + a * 6;
-        // High frequency random displacement
-        const y = base.y + 2.4 + (Math.random() - 0.5) * 1.8 * envelope;
-        const z = base.z + (Math.random() - 0.5) * 1.8 * envelope;
-        pos.setXYZ(i, x, y, z);
-      }
-      pos.needsUpdate = true;
-      geo.computeBoundingSphere();
-
-      light.intensity = 8 + Math.random() * 4;
-    }
   }
 
   /** Runs after physics step: capture poses for interpolation. */
@@ -553,16 +485,16 @@ export class LevelManager implements Disposable {
   private buildProceduralLevel(): void {
     const gridTexture = this.createGroundGridTexture();
     const floorMat = new THREE.MeshStandardMaterial({
-      color: 0x050608,
+      color: 0x1a1d24,
       map: gridTexture,
-      roughness: 0.2,
-      metalness: 0.8,
+      roughness: 0.75,
+      metalness: 0.05,
     });
-    const stepMat = new THREE.MeshStandardMaterial({ color: 0x002244, roughness: 0.1, metalness: 0.9, emissive: 0x00ffff, emissiveIntensity: 1.5 });
-    const slopeMat = new THREE.MeshStandardMaterial({ color: 0xcc00ff, roughness: 0.3, metalness: 0.8 });
-    const obstacleMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.2, metalness: 0.9, emissive: 0x0055ff, emissiveIntensity: 0.8 });
-    const kinematicPlatformMat = new THREE.MeshStandardMaterial({ color: 0xff0055, roughness: 0.4, metalness: 0.7 });
-    const floatingPlatformMat = new THREE.MeshStandardMaterial({ color: 0x00ff88, roughness: 0.3, metalness: 0.6 });
+    const stepMat = new THREE.MeshStandardMaterial({ color: 0x3a4a68, roughness: 0.85, metalness: 0.05, emissive: 0xc0d8ff, emissiveIntensity: 0.4 });
+    const slopeMat = new THREE.MeshStandardMaterial({ color: 0x5568a0, roughness: 0.8, metalness: 0.05 });
+    const obstacleMat = new THREE.MeshStandardMaterial({ color: 0x2a2e38, roughness: 0.8, metalness: 0.05, emissive: 0x4488cc, emissiveIntensity: 0.3 });
+    const kinematicPlatformMat = new THREE.MeshStandardMaterial({ color: 0xccaa22, roughness: 0.85, metalness: 0.05 });
+    const floatingPlatformMat = new THREE.MeshStandardMaterial({ color: 0x3366aa, roughness: 0.85, metalness: 0.05 });
 
     // Broad floor
     const floor = new THREE.Mesh(new THREE.BoxGeometry(300, 5, 300), floorMat);
@@ -587,13 +519,13 @@ export class LevelManager implements Disposable {
     const bayPedestalY = SHOWCASE_LAYOUT.bay.pedestalY;
     const bayPedestalHeight = SHOWCASE_LAYOUT.bay.pedestalHeight;
     const bayTopY = getShowcaseBayTopY();
-    const hallFloorMat = new THREE.MeshStandardMaterial({ color: 0x050608, roughness: 0.95, metalness: 0.05 });
+    const hallFloorMat = new THREE.MeshStandardMaterial({ color: 0x282c38, roughness: 0.88, metalness: 0.02 });
     // Show a readable ground grid in normal play mode too.
     hallFloorMat.map = gridTexture;
     hallFloorMat.needsUpdate = true;
     // Keep corridor walls non-metallic to avoid SSR "sparkle" on rough surfaces.
-    const hallWallMat = new THREE.MeshStandardMaterial({ color: 0x08090d, roughness: 0.85, metalness: 0.05 });
-    const bayMat = new THREE.MeshStandardMaterial({ color: 0x12151e, roughness: 0.12, metalness: 0.85 });
+    const hallWallMat = new THREE.MeshStandardMaterial({ color: 0xd8dce5, roughness: 0.9, metalness: 0.0 });
+    const bayMat = new THREE.MeshStandardMaterial({ color: 0x404858, roughness: 0.75, metalness: 0.05 });
 
     const hallFloor = new THREE.Mesh(new THREE.BoxGeometry(hallWidth, 0.6, hallLength), hallFloorMat);
     hallFloor.position.set(0, -1.3, showcaseCenterZ);
@@ -671,10 +603,10 @@ export class LevelManager implements Disposable {
     // WHY: keeps the corridor visually appealing without adding expensive shadowed lights.
     // Colors progress warm→cool along the corridor for a visual journey.
     const ceilingY = -1.0 + wallHeight - 0.45;
-    const warmPanel = new THREE.Color(0x00d2ff);
-    const coolPanel = new THREE.Color(0xff00ff);
-    const warmLight = new THREE.Color(0x00a8ff);
-    const coolLight = new THREE.Color(0xdc00ff);
+    const warmPanel = new THREE.Color(0xd0e0ff);
+    const coolPanel = new THREE.Color(0xe0e8ff);
+    const warmLight = new THREE.Color(0xc8d8ff);
+    const coolLight = new THREE.Color(0xe8e0f0);
     const bayCount = bayZ.length;
     bayZ.forEach((z, i) => {
       const t = bayCount > 1 ? i / (bayCount - 1) : 0;
@@ -682,11 +614,11 @@ export class LevelManager implements Disposable {
       const lightColor = new THREE.Color().lerpColors(warmLight, coolLight, t);
 
       const panelMat = new THREE.MeshStandardMaterial({
-        color: 0x14161c,
+        color: 0xd0d4dc,
         roughness: 0.35,
         metalness: 0.05,
         emissive: panelEmissive,
-        emissiveIntensity: 2.5,
+        emissiveIntensity: 1.0,
       });
       const panel = new THREE.Mesh(new THREE.BoxGeometry(bayWidth - 6, 0.08, 2.6), panelMat);
       panel.position.set(0, ceilingY, z);
@@ -844,7 +776,7 @@ export class LevelManager implements Disposable {
     );
     // Rope signage is included in the movement bay label above.
 
-    const grabbableMat = new THREE.MeshStandardMaterial({ color: 0x4fc3f7, roughness: 0.55, metalness: 0.05 });
+    const grabbableMat = new THREE.MeshStandardMaterial({ color: 0x4fa8d8, roughness: 0.5, metalness: 0.1 });
     this.createDynamicBox('PushCubeS', new THREE.Vector3(0, bayTopY + 0.5, zGrab + 2), new THREE.Vector3(1, 1, 1), grabbableMat, { grabbable: true });
     this.createDynamicBox('PushCubeM', new THREE.Vector3(0, bayTopY + 0.75, zGrab), new THREE.Vector3(1.5, 1.5, 1.5), grabbableMat, { grabbable: true });
     this.createDynamicBox('PushCubeL', new THREE.Vector3(0, bayTopY + 1.0, zGrab - 3), new THREE.Vector3(2, 2, 2), grabbableMat, { grabbable: true });
@@ -941,7 +873,7 @@ export class LevelManager implements Disposable {
       11.4,
       2.15,
     );
-    this.createVfxBay(new THREE.Vector3(0, bayTopY, zVfx), bayWidth);
+    void this.createVfxBay(new THREE.Vector3(0, bayTopY, zVfx), bayWidth);
 
     // Reserved empty bays for future additions (keep pedestals but no gameplay objects).
     this.createSectionLabel('Reserved\nFuture demos', new THREE.Vector3(0, 2.5, zFutureA), 8.8, 2.0);
@@ -961,7 +893,6 @@ export class LevelManager implements Disposable {
     this.addHeroSpotlights(bayZ, bayPedestalY);
     this.addWallRecessedPanels(bayZ, hallWidth, wallHeight, wallThickness);
     this.addReflectiveFloorPatches(bayZ, bayWidth, bayLength, bayPedestalY);
-    this.addLowFogSprites(hallWidth, hallLength, showcaseCenterZ);
     this.addBackWallPartition(hallWidth, wallHeight, showcaseCenterZ, hallLength, hallWallMat);
 
     // spawnPoint is set to the showcase corridor near the top of this method.
@@ -977,7 +908,7 @@ export class LevelManager implements Disposable {
     }
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#0a0e18';
+    ctx.fillStyle = '#1a1e28';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const majorStep = 256;
@@ -990,7 +921,7 @@ export class LevelManager implements Disposable {
     ctx.save();
     ctx.translate(0.5, 0.5);
 
-    ctx.strokeStyle = 'rgba(0, 180, 255, 0.12)';
+    ctx.strokeStyle = 'rgba(160, 170, 190, 0.15)';
     ctx.lineWidth = 1;
     for (let x = 0; x < canvas.width; x += minorStep) {
       ctx.beginPath();
@@ -1005,7 +936,7 @@ export class LevelManager implements Disposable {
       ctx.stroke();
     }
 
-    ctx.strokeStyle = 'rgba(0, 210, 255, 0.3)';
+    ctx.strokeStyle = 'rgba(180, 190, 210, 0.30)';
     ctx.lineWidth = 2;
     for (let x = 0; x < canvas.width; x += majorStep) {
       ctx.beginPath();
@@ -1163,7 +1094,7 @@ export class LevelManager implements Disposable {
     );
 
     // Visual embellishments (sci-fi arches)
-    const archMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8, roughness: 0.2, emissive: 0x0088ff, emissiveIntensity: 1.5 });
+    const archMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.15, roughness: 0.6, emissive: 0x0088ff, emissiveIntensity: 1.5 });
     for (let zOffset = -4; zOffset <= 4; zOffset += 2) {
       const arch = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.1, 0.2), archMat);
       arch.position.set(base.x, base.y + 1.4, base.z + zOffset);
@@ -1462,9 +1393,9 @@ export class LevelManager implements Disposable {
   /** Thin emissive strip running the full corridor length at center. */
   private addFloorCenterline(hallLength: number, centerZ: number): void {
     const mat = new THREE.MeshStandardMaterial({
-      color: 0x003355,
-      emissive: 0x00ccff,
-      emissiveIntensity: 1.8,
+      color: 0xaa8800,
+      emissive: 0xddbb33,
+      emissiveIntensity: 1.2,
       roughness: 0.3,
     });
     const strip = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.02, hallLength), mat);
@@ -1488,9 +1419,9 @@ export class LevelManager implements Disposable {
     if (count === 0) return;
     const geo = new THREE.BoxGeometry(bayWidth - 2, 0.04, 0.12);
     const mat = new THREE.MeshStandardMaterial({
-      color: 0x111111,
+      color: 0x222222,
       emissive: 0xffffff,
-      emissiveIntensity: 1.6,
+      emissiveIntensity: 0.8,
       roughness: 0.3,
     });
     const mesh = new THREE.InstancedMesh(geo, mat, count);
@@ -1498,8 +1429,8 @@ export class LevelManager implements Disposable {
     mesh.castShadow = false;
     mesh.receiveShadow = false;
 
-    const warmColor = new THREE.Color(0xff8833);
-    const coolColor = new THREE.Color(0x4488cc);
+    const warmColor = new THREE.Color(0x3388dd);
+    const coolColor = new THREE.Color(0x3388dd);
     const dummy = new THREE.Object3D();
     const topY = pedestalY + pedestalHeight * 0.5 + 0.02;
 
@@ -1524,7 +1455,7 @@ export class LevelManager implements Disposable {
     centerZ: number,
     wallThickness: number,
   ): void {
-    const trimMat = new THREE.MeshStandardMaterial({ color: 0x353a48, roughness: 0.7, metalness: 0.05 });
+    const trimMat = new THREE.MeshStandardMaterial({ color: 0x4a6090, roughness: 0.7, metalness: 0.05 });
     const trimHeight = 0.18;
     const trimDepth = 0.12;
     const floorY = -1.0 + trimHeight / 2;
@@ -1562,7 +1493,7 @@ export class LevelManager implements Disposable {
     const pilasterDepth = 0.2;
     const pilasterHeight = wallHeight - 0.4;
     const geo = new THREE.BoxGeometry(pilasterDepth, pilasterHeight, pilasterWidth);
-    const mat = new THREE.MeshStandardMaterial({ color: 0x2e3340, roughness: 0.72, metalness: 0.02 });
+    const mat = new THREE.MeshStandardMaterial({ color: 0x4060a0, roughness: 0.7, metalness: 0.05 });
 
     // 2 instanced meshes: left wall and right wall.
     const halfW = hallWidth / 2 + wallThickness / 2 - pilasterDepth / 2;
@@ -1591,7 +1522,7 @@ export class LevelManager implements Disposable {
     hallLength: number,
     centerZ: number,
   ): void {
-    const frameMat = new THREE.MeshStandardMaterial({ color: 0x0c1a2e, roughness: 0.35, metalness: 0.9, emissive: 0x003366, emissiveIntensity: 0.8 });
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0x3a5080, roughness: 0.55, metalness: 0.15, emissive: 0x2244aa, emissiveIntensity: 0.3 });
     const pillarW = 1.2;
     const pillarD = 0.8;
     const pillarH = 14.0;
@@ -1619,7 +1550,7 @@ export class LevelManager implements Disposable {
     this.levelObjects.push(rightPillar);
 
     // Emissive accent strips on pillars (vertical glowing lines)
-    const accentMat = new THREE.MeshStandardMaterial({ color: 0x00ccff, emissive: 0x00ccff, emissiveIntensity: 2.5, roughness: 0.2 });
+    const accentMat = new THREE.MeshStandardMaterial({ color: 0x3388dd, emissive: 0x3388dd, emissiveIntensity: 1.5, roughness: 0.2 });
     for (const sideX of [-halfW, halfW]) {
       const strip = new THREE.Mesh(new THREE.BoxGeometry(0.06, pillarH - 1.0, 0.06), accentMat);
       strip.position.set(sideX, pillarY, entranceZ + pillarD / 2 + 0.04);
@@ -1641,7 +1572,7 @@ export class LevelManager implements Disposable {
     this.levelObjects.push(lintel);
 
     // Emissive underside glow on lintel
-    const undersideMat = new THREE.MeshStandardMaterial({ color: 0x00aaff, emissive: 0x00aaff, emissiveIntensity: 2.0, roughness: 0.3 });
+    const undersideMat = new THREE.MeshStandardMaterial({ color: 0xd8e0f0, emissive: 0xd8e0f0, emissiveIntensity: 1.2, roughness: 0.3 });
     const underside = new THREE.Mesh(new THREE.BoxGeometry(lintelW - 2, 0.05, pillarD - 0.2), undersideMat);
     underside.position.set(0, pillarY + pillarH / 2 - 0.03, entranceZ);
     underside.castShadow = false;
@@ -1658,7 +1589,7 @@ export class LevelManager implements Disposable {
     );
 
     // Extra entrance spotlight for brighter spawn area
-    const spot = new THREE.SpotLight(0xddeeff, 80, 35, Math.PI / 4, 0.5, 1.5);
+    const spot = new THREE.SpotLight(0xe8f0ff, 60, 35, Math.PI / 4, 0.5, 1.5);
     spot.position.set(0, -1.0 + wallHeight - 0.6, entranceZ - 2);
     spot.target.position.set(0, -1.0, entranceZ);
     spot.castShadow = false;
@@ -1676,7 +1607,7 @@ export class LevelManager implements Disposable {
     // Two grooves per bay (front + back edge) = 2 * count instances.
     const instanceCount = count * 2;
     const geo = new THREE.BoxGeometry(hallWidth - 2, 0.02, 0.06);
-    const mat = new THREE.MeshStandardMaterial({ color: 0x0a0c12, roughness: 0.9 });
+    const mat = new THREE.MeshStandardMaterial({ color: 0x0e1018, roughness: 0.9 });
     const mesh = new THREE.InstancedMesh(geo, mat, instanceCount);
     mesh.name = 'FloorBayGrooves';
     mesh.castShadow = false;
@@ -1709,9 +1640,9 @@ export class LevelManager implements Disposable {
     wallThickness: number,
   ): void {
     const stripMat = new THREE.MeshStandardMaterial({
-      color: 0x001133,
-      emissive: 0x0066ff,
-      emissiveIntensity: 1.2,
+      color: 0x2255aa,
+      emissive: 0x3366bb,
+      emissiveIntensity: 0.8,
       roughness: 0.3,
     });
     const stripHeight = 0.06;
@@ -1734,9 +1665,9 @@ export class LevelManager implements Disposable {
 
     // Floor edge glow strips along both walls
     const floorGlowMat = new THREE.MeshStandardMaterial({
-      color: 0x002244,
-      emissive: 0x00aaff,
-      emissiveIntensity: 1.5,
+      color: 0xaa8800,
+      emissive: 0xccaa22,
+      emissiveIntensity: 0.8,
       roughness: 0.3,
     });
     const floorGlowY = -0.99;
@@ -1756,10 +1687,10 @@ export class LevelManager implements Disposable {
   private addDustMotes(hallWidth: number, hallLength: number, centerZ: number): void {
     const circleTexture = this.createCircleTexture();
     const moteMat = new THREE.SpriteMaterial({
-      color: 0x00ffff,
+      color: 0xe0e8ff,
       map: circleTexture,
       transparent: true,
-      opacity: 0.25,
+      opacity: 0.15,
       depthTest: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
@@ -1794,8 +1725,8 @@ export class LevelManager implements Disposable {
   /** Structural archway frames every ~60 units to break infinite-corridor look. */
   private addBulkheadFrames(hallWidth: number, wallHeight: number, centerZ: number): void {
     const mat = new THREE.MeshStandardMaterial({
-      color: 0x0a0e14, roughness: 0.4, metalness: 0.8,
-      emissive: 0x003355, emissiveIntensity: 0.6,
+      color: 0x3a5080, roughness: 0.55, metalness: 0.15,
+      emissive: 0x2244aa, emissiveIntensity: 0.2,
     });
     const postW = 0.4, postD = 0.3;
     const beamH = 0.4;
@@ -1835,14 +1766,14 @@ export class LevelManager implements Disposable {
     const topY = bayPedestalY + bayPedestalHeight / 2 + 0.015;
     const stripH = 0.03;
     const stripW = 0.08;
-    const warmColor = new THREE.Color(0xff8833);
-    const coolColor = new THREE.Color(0x4488cc);
+    const warmColor = new THREE.Color(0x3388dd);
+    const coolColor = new THREE.Color(0x3388dd);
 
     bayZ.forEach((z, i) => {
       const t = bayZ.length > 1 ? i / (bayZ.length - 1) : 0;
       const emissiveColor = new THREE.Color().lerpColors(warmColor, coolColor, t);
       const mat = new THREE.MeshStandardMaterial({
-        color: 0x111111, emissive: emissiveColor, emissiveIntensity: 1.8,
+        color: 0x222222, emissive: emissiveColor, emissiveIntensity: 1.0,
         roughness: 0.3, metalness: 0.1,
       });
       // Front edge
@@ -1877,8 +1808,8 @@ export class LevelManager implements Disposable {
     // Themed colors for specific bays; neutral white for most
     const bayColors: Record<number, number> = {};
     // VFX bay at index 11 gets warm orange, materials at 10 gets cool cyan
-    bayColors[11] = 0xffaa66;
-    bayColors[10] = 0x88ccff;
+    bayColors[11] = 0xfff0dd;
+    bayColors[10] = 0xd8e8ff;
     bayZ.forEach((z, i) => {
       const color = bayColors[i] ?? 0xffeedd;
       const light = new THREE.SpotLight(color, 20, 14, 0.5, 0.6);
@@ -1897,10 +1828,10 @@ export class LevelManager implements Disposable {
     bayZ: number[], hallWidth: number, _wallHeight: number, wallThickness: number,
   ): void {
     const panelW = 4, panelH = 3, panelD = 0.08;
-    const frameMat = new THREE.MeshStandardMaterial({ color: 0x0c1020, roughness: 0.7, metalness: 0.1 });
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0x8090a8, roughness: 0.7, metalness: 0.1 });
     const recessMat = new THREE.MeshStandardMaterial({
-      color: 0x060810, roughness: 0.85, metalness: 0.05,
-      emissive: 0x002244, emissiveIntensity: 0.4,
+      color: 0x606878, roughness: 0.85, metalness: 0.05,
+      emissive: 0x4466aa, emissiveIntensity: 0.2,
     });
     const halfW = hallWidth / 2;
     const panelY = -1.0 + 4; // Eye-level
@@ -1931,7 +1862,7 @@ export class LevelManager implements Disposable {
   ): void {
     const floorY = -1.0 + 0.005; // Just above hall floor surface
     const patchMat = new THREE.MeshStandardMaterial({
-      color: 0x0a0e18, roughness: 0.08, metalness: 0.9,
+      color: 0x1a1e28, roughness: 0.08, metalness: 0.85,
     });
     bayZ.forEach((z, i) => {
       const patch = new THREE.Mesh(new THREE.BoxGeometry(bayWidth - 4, 0.02, 3), patchMat);
@@ -1944,36 +1875,6 @@ export class LevelManager implements Disposable {
   }
 
   /** Ground-hugging fog sprites for atmospheric depth. */
-  private addLowFogSprites(hallWidth: number, hallLength: number, centerZ: number): void {
-    const fogTex = this.createCircleTexture();
-    const fogMat = new THREE.SpriteMaterial({
-      color: 0x88ccdd, map: fogTex, transparent: true, opacity: 0.06,
-      depthTest: true, depthWrite: false, blending: THREE.NormalBlending,
-    });
-    fogMat.premultipliedAlpha = false;
-    const halfW = hallWidth / 2 - 4;
-    const halfL = hallLength / 2 - 10;
-    for (let i = 0; i < 25; i++) {
-      const sprite = new THREE.Sprite(fogMat.clone());
-      const s = 8 + Math.random() * 8;
-      sprite.scale.set(s, s * 0.3, 1);
-      const x = (Math.random() - 0.5) * 2 * halfW;
-      const y = 0.1 + Math.random() * 0.7;
-      const z = centerZ + (Math.random() - 0.5) * 2 * halfL;
-      sprite.position.set(x, y, z);
-      sprite.name = `LowFog_${i}`;
-      sprite.renderOrder = 1;
-      this.scene.add(sprite);
-      this.levelObjects.push(sprite);
-      this.dustMotes.push({
-        sprite,
-        origin: sprite.position.clone(),
-        speed: 0.05 + Math.random() * 0.1,
-        phase: Math.random() * Math.PI * 2,
-      });
-    }
-  }
-
   /** Solid wall behind spawn to close off the empty corridor end. */
   private addBackWallPartition(
     hallWidth: number, wallHeight: number, centerZ: number,
@@ -1993,7 +1894,7 @@ export class LevelManager implements Disposable {
     this.levelColliders.push(this.colliderFactory.createTrimesh(wall));
     // Emissive accent strip on the player-facing side
     const accentMat = new THREE.MeshStandardMaterial({
-      color: 0x002244, emissive: 0x00aaff, emissiveIntensity: 1.5,
+      color: 0x3366aa, emissive: 0x3388dd, emissiveIntensity: 0.8,
       roughness: 0.3, metalness: 0.1,
     });
     const accent = new THREE.Mesh(new THREE.BoxGeometry(hallWidth - 4, 0.06, 0.02), accentMat);
@@ -2026,13 +1927,13 @@ export class LevelManager implements Disposable {
     const panelY = 86;
     const panelW = logicalWidth - panelPad * 2;
     const panelH = logicalHeight - 172;
-    // Sci-fi Neon Theme for UI Panels
-    ctx.fillStyle = 'rgba(8, 10, 16, 0.75)';
+    // Clean Sci-fi Theme for UI Panels
+    ctx.fillStyle = 'rgba(20, 30, 50, 0.80)';
     ctx.fillRect(panelX, panelY, panelW, panelH);
-    ctx.strokeStyle = 'rgba(0, 255, 255, 0.86)';
+    ctx.strokeStyle = 'rgba(60, 130, 220, 0.86)';
     ctx.lineWidth = 6;
     ctx.strokeRect(panelX, panelY, panelW, panelH);
-    ctx.strokeStyle = 'rgba(255, 0, 255, 0.4)';
+    ctx.strokeStyle = 'rgba(200, 180, 50, 0.4)';
     ctx.lineWidth = 3;
     ctx.strokeRect(panelX + 10, panelY + 10, panelW - 20, panelH - 20);
 
@@ -2077,7 +1978,7 @@ export class LevelManager implements Disposable {
     if (headerCode) {
       const code = `${headerCode}`;
       const codeWidth = ctx.measureText(`${code}  `).width;
-      ctx.fillStyle = '#00ffff';
+      ctx.fillStyle = '#5599dd';
       ctx.fillText(code, 0, startY);
       ctx.fillStyle = '#ffffff';
       ctx.fillText(`  ${headerTitle}`, codeWidth, startY);
@@ -2128,18 +2029,18 @@ export class LevelManager implements Disposable {
 
   private addLighting(): void {
     // Slightly lower ambient for more depth/contrast in the showcase corridor.
-    const ambientLight = new THREE.AmbientLight(0xfff8f0, 0.35);
+    const ambientLight = new THREE.AmbientLight(0xfff8f0, 0.70);
     ambientLight.name = '__kinema_ambient';
     this.scene.add(ambientLight);
     this.levelObjects.push(ambientLight);
 
-    const hemiLight = new THREE.HemisphereLight(0xffeedd, 0x8a95aa, 0.30);
+    const hemiLight = new THREE.HemisphereLight(0xffeedd, 0xb0b8cc, 0.50);
     hemiLight.name = '__kinema_hemilight';
     this.scene.add(hemiLight);
     this.levelObjects.push(hemiLight);
 
     // Warm key light for friendlier materials.
-    const dirLight = new THREE.DirectionalLight(0xfff2d6, 2.7);
+    const dirLight = new THREE.DirectionalLight(0xfff4e0, 2.2);
     dirLight.position.set(20, 30, 10);
     dirLight.castShadow = this.shadowsEnabled;
     const shadowSize = this.getShadowMapSize();
@@ -2427,93 +2328,341 @@ export class LevelManager implements Disposable {
     );
   }
 
-  private createVfxBay(base: THREE.Vector3, bayWidth: number): void {
-    const smokeTex = this.createBillboardTexture('#cfd6e6', 0.85);
-    const fireTex = this.createBillboardTexture('#ff7a1a', 0.92);
-    const emberTex = this.createBillboardTexture('#ffdd44', 0.95);
-    const smokeMat = new THREE.SpriteMaterial({
-      map: smokeTex, transparent: true, opacity: 0.35,
-      depthTest: true, depthWrite: false, blending: THREE.AdditiveBlending,
-    });
-    smokeMat.premultipliedAlpha = false;
-    const fireMat = new THREE.SpriteMaterial({
-      map: fireTex, transparent: true, opacity: 0.85,
-      depthTest: true, depthWrite: false, blending: THREE.AdditiveBlending,
-    });
-    fireMat.premultipliedAlpha = false;
-    const emberMat = new THREE.SpriteMaterial({
-      map: emberTex, transparent: true, opacity: 0.9,
-      depthTest: true, depthWrite: false, blending: THREE.AdditiveBlending,
-    });
-    emberMat.premultipliedAlpha = false;
+  /** Generate a 256x256 tileable noise texture (3 independent channels) for TSL VFX. */
+  private createNoiseTexture(): THREE.CanvasTexture {
+    const size = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d')!;
+    const img = ctx.createImageData(size, size);
 
-    const leftX = -Math.min(14, bayWidth * 0.32);
-    const rightX = Math.min(14, bayWidth * 0.32);
+    // Integer hash for fast deterministic pseudo-random
+    const hash = (n: number): number => {
+      let x = ((n << 13) ^ n) | 0;
+      x = (x * (x * x * 15731 + 789221) + 1376312589) | 0;
+      return (x & 0x7fffffff) / 0x7fffffff;
+    };
 
-    // Smoke: 24 sprites across 3 emitters.
-    const smokeEmitters = [
-      { x: leftX - 1.5, z: base.z + 1.8, scale: 2.5, rise: 0.22, maxR: 5.0 },
-      { x: leftX, z: base.z + 2.8, scale: 3.0, rise: 0.30, maxR: 6.0 },
-      { x: leftX + 1.5, z: base.z + 1.8, scale: 2.0, rise: 0.35, maxR: 4.0 },
-    ];
-    let smokeIdx = 0;
-    for (const em of smokeEmitters) {
-      for (let i = 0; i < 8; i += 1) {
-        const sprite = new THREE.Sprite(smokeMat.clone());
-        sprite.renderOrder = 5;
-        sprite.position.set(em.x, base.y + 0.6, em.z);
-        sprite.scale.set(em.scale, em.scale, 1);
-        sprite.name = `VFX_Smoke_${smokeIdx++}`;
-        this.scene.add(sprite);
-        this.levelObjects.push(sprite);
-        this.vfxBillboards.push({
-          sprite, origin: sprite.position.clone(), kind: 'smoke',
-          riseSpeed: em.rise, maxRise: em.maxR, baseScale: em.scale, phase: i / 8,
-        });
+    // Smoothed value noise
+    const noise2d = (px: number, py: number, seed: number): number => {
+      const ix = Math.floor(px), iy = Math.floor(py);
+      const fx = px - ix, fy = py - iy;
+      const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+      const n00 = hash(ix + iy * 57 + seed);
+      const n10 = hash(ix + 1 + iy * 57 + seed);
+      const n01 = hash(ix + (iy + 1) * 57 + seed);
+      const n11 = hash(ix + 1 + (iy + 1) * 57 + seed);
+      return n00 * (1 - sx) * (1 - sy) + n10 * sx * (1 - sy) + n01 * (1 - sx) * sy + n11 * sx * sy;
+    };
+
+    // Fractal noise (3 octaves)
+    const fbm = (x: number, y: number, seed: number): number => {
+      return noise2d(x, y, seed) * 0.5 + noise2d(x * 2, y * 2, seed + 100) * 0.3 + noise2d(x * 4, y * 4, seed + 200) * 0.2;
+    };
+
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const i = (y * size + x) * 4;
+        img.data[i]     = (fbm(x / 32, y / 32, 0) * 255) | 0;     // R channel
+        img.data[i + 1] = (fbm(x / 32, y / 32, 500) * 255) | 0;   // G channel
+        img.data[i + 2] = (fbm(x / 32, y / 32, 1000) * 255) | 0;  // B channel
+        img.data[i + 3] = 255;
       }
     }
+    ctx.putImageData(img, 0, 0);
 
-    // Fire: 18 sprites across 3 emitters.
-    const fireEmitters = [
-      { x: rightX - 1.2, z: base.z + 1.8 },
-      { x: rightX, z: base.z + 2.8 },
-      { x: rightX + 1.2, z: base.z + 1.8 },
-    ];
-    let fireIdx = 0;
-    for (const em of fireEmitters) {
-      for (let i = 0; i < 6; i += 1) {
-        const sprite = new THREE.Sprite(fireMat.clone());
-        sprite.renderOrder = 6;
-        sprite.position.set(em.x, base.y + 0.55, em.z);
-        sprite.scale.set(2.0, 2.0, 1);
-        sprite.name = `VFX_Fire_${fireIdx++}`;
-        this.scene.add(sprite);
-        this.levelObjects.push(sprite);
-        this.vfxBillboards.push({
-          sprite, origin: sprite.position.clone(), kind: 'fire',
-          riseSpeed: 0.38, maxRise: 3.6, baseScale: 1.8, phase: i / 6,
-        });
-      }
-    }
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.needsUpdate = true;
+    return tex;
+  }
 
-    // Ember particles: 12 tiny fast-rising sprites.
-    for (let i = 0; i < 12; i += 1) {
-      const sprite = new THREE.Sprite(emberMat.clone());
-      sprite.renderOrder = 7;
-      const ex = rightX + (Math.random() - 0.5) * 3.0;
-      const ez = base.z + 1.8 + Math.random() * 1.5;
-      sprite.position.set(ex, base.y + 0.5, ez);
-      const s = 0.15 + Math.random() * 0.25;
-      sprite.scale.set(s, s, 1);
-      sprite.name = `VFX_Ember_${i}`;
-      this.scene.add(sprite);
-      this.levelObjects.push(sprite);
-      this.vfxBillboards.push({
-        sprite, origin: sprite.position.clone(), kind: 'fire',
-        riseSpeed: 0.55 + Math.random() * 0.3, maxRise: 4.0 + Math.random() * 2.0,
-        baseScale: s, phase: Math.random(),
+  private async createVfxBay(base: THREE.Vector3, bayWidth: number): Promise<void> {
+    // Try TSL GPU-driven path; fall back to legacy sprites if unavailable.
+    try {
+      const { MeshBasicNodeMaterial } = await import('three/webgpu');
+      const {
+        Fn, time, uv, positionLocal, vec3, vec4, float, sin, cos, mul, add, sub, mix,
+        texture,
+      } = await import('three/tsl');
+      const { mx_fractal_noise_vec3, mx_fractal_noise_float } = await import('three/tsl');
+
+      // Shared noise texture for fire columns.
+      this.vfxNoiseTexture = this.createNoiseTexture();
+      const noiseTex = this.vfxNoiseTexture;
+
+      const rightX = Math.min(14, bayWidth * 0.32);
+
+      // ── Fire Column (replaces 54 sprites → 2 meshes + 1 glow plane) ──────
+
+      // Parabolic twist helper (inspired by webgpu_tsl_vfx_tornado).
+      const twistedCylinder = Fn(([pos_immutable, parabolStr, parabolOff, parabolAmp, t]: [
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        any, any, any, any, any,
+      ]) => {
+        const pos = vec3(pos_immutable).toVar();
+        const y = pos.y;
+        const parabola = add(mul(sub(y, parabolOff), sub(y, parabolOff)), float(0.1));
+        const twist = mul(y, float(2.5)).add(t);
+        const displaceX = mul(sin(twist), mul(parabola, parabolAmp));
+        const displaceZ = mul(cos(twist), mul(parabola, parabolAmp));
+        const noiseOffset = mx_fractal_noise_vec3(add(pos, mul(vec3(0, 1, 0), t)), float(1), float(2), float(0.5), float(3));
+        pos.x.addAssign(add(displaceX, mul(noiseOffset.x, parabolStr)));
+        pos.z.addAssign(add(displaceZ, mul(noiseOffset.z, parabolStr)));
+        return pos;
       });
+
+      // Fire cylinder geometry: unit cylinder translated so base is at y=0.
+      const fireCylGeo = new THREE.CylinderGeometry(1, 1, 1, 20, 20, true);
+      fireCylGeo.translate(0, 0.5, 0);
+
+      // Inner emissive fire cylinder.
+      const fireInnerMat = new MeshBasicNodeMaterial();
+      fireInnerMat.transparent = true;
+      fireInnerMat.side = THREE.DoubleSide;
+      fireInnerMat.blending = THREE.AdditiveBlending;
+      fireInnerMat.depthWrite = false;
+
+      fireInnerMat.positionNode = twistedCylinder(positionLocal, float(0.6), float(0.2), float(0.35), mul(time, float(0.3)));
+
+      fireInnerMat.outputNode = Fn(() => {
+        const uvVar = uv().toVar();
+        // Two noise layers scrolling at different speeds
+        const n1 = texture(noiseTex, add(uvVar, mul(vec3(0, -1, 0).xy, mul(time, float(0.4))))).r;
+        const n2 = texture(noiseTex, add(mul(uvVar, float(1.3)), mul(vec3(0.3, -0.7, 0).xy, mul(time, float(0.55))))).g;
+        const noiseMix = add(mul(n1, float(0.6)), mul(n2, float(0.4)));
+        // Vertical fade: strong at base, fades out at top
+        const vertFade = sub(float(1), uvVar.y);
+        const alpha = mul(noiseMix, vertFade, float(1.2));
+        // Warm color gradient: orange base → bright yellow core
+        const col = mix(vec3(1.0, 0.35, 0.05), vec3(1.0, 0.85, 0.3), noiseMix);
+        return vec4(mul(col, float(3.0)), alpha);
+      })();
+
+      const fireInner = new THREE.Mesh(fireCylGeo, fireInnerMat);
+      fireInner.scale.set(1.5, 4, 1.5);
+      fireInner.position.set(rightX, base.y + 0.1, base.z + 2.2);
+      fireInner.name = 'VFX_FireInner';
+      fireInner.castShadow = false;
+      fireInner.receiveShadow = false;
+      fireInner.frustumCulled = false;
+      this.scene.add(fireInner);
+      this.levelObjects.push(fireInner);
+
+      // Dark outer smoke cylinder.
+      const fireOuterMat = new MeshBasicNodeMaterial();
+      fireOuterMat.transparent = true;
+      fireOuterMat.side = THREE.DoubleSide;
+      fireOuterMat.blending = THREE.NormalBlending;
+      fireOuterMat.depthWrite = false;
+
+      fireOuterMat.positionNode = twistedCylinder(positionLocal, float(0.7), float(0.15), float(0.4), mul(time, float(0.25)));
+
+      fireOuterMat.outputNode = Fn(() => {
+        const uvVar = uv().toVar();
+        const n = texture(noiseTex, add(mul(uvVar, float(0.8)), mul(vec3(0.1, -0.5, 0).xy, mul(time, float(0.3))))).b;
+        const vertFade = sub(float(1), uvVar.y);
+        const alpha = mul(n, vertFade, float(0.35));
+        return vec4(vec3(0.03, 0.02, 0.02), alpha);
+      })();
+
+      const fireOuter = new THREE.Mesh(fireCylGeo, fireOuterMat);
+      fireOuter.scale.set(1.9, 4.5, 1.9);
+      fireOuter.position.set(rightX, base.y + 0.1, base.z + 2.2);
+      fireOuter.name = 'VFX_FireOuter';
+      fireOuter.castShadow = false;
+      fireOuter.receiveShadow = false;
+      fireOuter.frustumCulled = false;
+      this.scene.add(fireOuter);
+      this.levelObjects.push(fireOuter);
+
+      // Ground glow plane (TSL).
+      const glowMat = new MeshBasicNodeMaterial();
+      glowMat.transparent = true;
+      glowMat.blending = THREE.AdditiveBlending;
+      glowMat.depthWrite = false;
+
+      glowMat.outputNode = Fn(() => {
+        const uvVar = uv().toVar();
+        const dist = sub(uvVar, vec3(0.5, 0.5, 0).xy).length();
+        const radial = sub(float(1), mul(dist, float(2.0))).max(float(0));
+        const n = texture(noiseTex, add(uvVar, mul(time, float(0.1)))).r;
+        const alpha = mul(radial, add(float(0.5), mul(n, float(0.5))), float(0.7));
+        return vec4(mul(vec3(1.0, 0.35, 0.05), float(2.5)), alpha);
+      })();
+
+      const glowPlane = new THREE.Mesh(new THREE.PlaneGeometry(5, 4), glowMat);
+      glowPlane.rotation.x = -Math.PI / 2;
+      glowPlane.position.set(rightX, base.y + 0.02, base.z + 2.2);
+      glowPlane.name = 'VFX_FireGlow';
+      glowPlane.castShadow = false;
+      glowPlane.receiveShadow = false;
+      this.scene.add(glowPlane);
+      this.levelObjects.push(glowPlane);
+
+      // Fire point light (kept from old code).
+      const fireLight = new THREE.PointLight(0xff6622, 15, 14, 2);
+      fireLight.position.set(rightX, base.y + 2.0, base.z + 2.2);
+      fireLight.castShadow = false;
+      fireLight.name = 'VFX_FireLight';
+      this.scene.add(fireLight);
+      this.levelObjects.push(fireLight);
+
+      // ── Laser Beam (TSL animated pulse) ───────────────────────────────────
+
+      const laserCoreMat = new MeshBasicNodeMaterial();
+      laserCoreMat.transparent = true;
+      laserCoreMat.blending = THREE.AdditiveBlending;
+      laserCoreMat.depthWrite = false;
+
+      laserCoreMat.outputNode = Fn(() => {
+        const pulse = mul(add(sin(mul(time, float(6.2))), float(1)), float(0.5));
+        const shimmer = mx_fractal_noise_float(mul(uv().y, float(12)).add(mul(time, float(3))), float(1), float(2), float(0.5), float(2));
+        const intensity = mul(add(float(0.7), mul(pulse, float(0.3))), add(float(0.8), mul(shimmer, float(0.2))));
+        return vec4(mul(vec3(1.0, 0.15, 0.1), mul(intensity, float(5))), intensity);
+      })();
+
+      const laserCore = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 10, 10), laserCoreMat);
+      laserCore.position.set(0, base.y + 1.2, base.z - 2.2);
+      laserCore.rotation.z = Math.PI / 2;
+      laserCore.castShadow = false;
+      laserCore.receiveShadow = false;
+      laserCore.name = 'VFX_Laser';
+      this.scene.add(laserCore);
+      this.levelObjects.push(laserCore);
+
+      // Outer laser glow shell.
+      const laserGlowMat = new MeshBasicNodeMaterial();
+      laserGlowMat.transparent = true;
+      laserGlowMat.blending = THREE.AdditiveBlending;
+      laserGlowMat.depthWrite = false;
+
+      laserGlowMat.outputNode = Fn(() => {
+        const pulse = mul(add(sin(mul(time, float(6.2))), float(1)), float(0.5));
+        const glow = mul(pulse, float(0.6));
+        return vec4(mul(vec3(1.0, 0.2, 0.15), mul(glow, float(2.0))), mul(glow, float(0.5)));
+      })();
+
+      const laserGlow = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 10.2, 10), laserGlowMat);
+      laserGlow.position.set(0, base.y + 1.2, base.z - 2.2);
+      laserGlow.rotation.z = Math.PI / 2;
+      laserGlow.castShadow = false;
+      laserGlow.receiveShadow = false;
+      this.scene.add(laserGlow);
+      this.levelObjects.push(laserGlow);
+
+      const laserLight = new THREE.PointLight(0xff3a3a, 10, 12, 2);
+      laserLight.position.set(0, base.y + 1.6, base.z - 2.2);
+      laserLight.castShadow = false;
+      laserLight.name = 'VFX_LaserLight';
+      this.scene.add(laserLight);
+      this.levelObjects.push(laserLight);
+
+      // ── Lightning Arc (TSL ribbon replaces CPU-jittered polyline) ──────────
+
+      const lightningMat = new MeshBasicNodeMaterial();
+      lightningMat.transparent = true;
+      lightningMat.side = THREE.DoubleSide;
+      lightningMat.blending = THREE.AdditiveBlending;
+      lightningMat.depthWrite = false;
+
+      lightningMat.positionNode = Fn(() => {
+        const pos = vec3(positionLocal).toVar();
+        const a = add(mul(pos.x, float(0.167)), float(0.5)); // normalize 0-1 across ribbon
+        const envelope = sin(mul(a, float(Math.PI)));
+        const noiseInput = add(pos, mul(vec3(1, 0, 0), mul(time, float(8))));
+        const disp = mx_fractal_noise_vec3(noiseInput, float(2), float(2), float(0.6), float(3));
+        pos.y.addAssign(mul(disp.y, mul(envelope, float(1.8))));
+        pos.z.addAssign(mul(disp.z, mul(envelope, float(1.8))));
+        return pos;
+      })();
+
+      lightningMat.outputNode = Fn(() => {
+        const uvVar = uv().toVar();
+        const centerFade = sub(float(1), mul(sub(uvVar.y, float(0.5)).abs(), float(2)));
+        const flicker = add(float(0.7), mul(sin(mul(time, float(15))), float(0.3)));
+        const alpha = mul(centerFade, flicker, float(0.9));
+        return vec4(mul(vec3(0.5, 0.85, 1.0), mul(flicker, float(3.0))), alpha);
+      })();
+
+      const lightningRibbon = new THREE.Mesh(new THREE.PlaneGeometry(6, 0.15, 24, 1), lightningMat);
+      lightningRibbon.position.set(0, base.y + 2.4, base.z - 5.2);
+      lightningRibbon.name = 'VFX_Lightning';
+      lightningRibbon.castShadow = false;
+      lightningRibbon.receiveShadow = false;
+      lightningRibbon.frustumCulled = false;
+      this.scene.add(lightningRibbon);
+      this.levelObjects.push(lightningRibbon);
+
+      // Lightning point light (CPU flicker kept — just 2 lines in update).
+      const lightningLight = new THREE.PointLight(0x88ccff, 8, 12, 2);
+      lightningLight.position.set(0, base.y + 2.5, base.z - 5.2);
+      lightningLight.castShadow = false;
+      lightningLight.name = 'VFX_LightningLight';
+      this.scene.add(lightningLight);
+      this.levelObjects.push(lightningLight);
+      this.vfxLightningLight = lightningLight;
+
+      // ── Scanner Ring (TSL animated) ───────────────────────────────────────
+
+      const scanMat = new MeshBasicNodeMaterial();
+      scanMat.transparent = true;
+      scanMat.side = THREE.DoubleSide;
+      scanMat.blending = THREE.AdditiveBlending;
+      scanMat.depthWrite = false;
+
+      scanMat.positionNode = Fn(() => {
+        const pos = vec3(positionLocal).toVar();
+        const osc = sin(mul(time, float(1.5)));
+        const t = mul(add(osc, float(1)), float(0.5)); // 0-1
+        pos.y.addAssign(mul(t, float(3.2)));
+        const scalePulse = add(float(1), mul(sin(mul(t, float(Math.PI))), float(0.15)));
+        pos.x.mulAssign(scalePulse);
+        pos.z.mulAssign(scalePulse);
+        return pos;
+      })();
+
+      scanMat.outputNode = Fn(() => {
+        const uvVar = uv().toVar();
+        const osc = sin(mul(time, float(1.5)));
+        const t = mul(add(osc, float(1)), float(0.5));
+        const scanLines = mul(add(sin(add(mul(uvVar.y, float(80)), mul(time, float(5)))), float(1)), float(0.5));
+        const alpha = mul(add(float(0.3), mul(float(0.7), sin(mul(t, float(Math.PI))))), add(float(0.6), mul(scanLines, float(0.4))));
+        return vec4(mul(vec3(0.0, 1.0, 1.0), float(2.0)), alpha);
+      })();
+
+      const scanRing = new THREE.Mesh(new THREE.RingGeometry(1.6, 1.85, 48), scanMat);
+      scanRing.rotation.x = -Math.PI / 2;
+      scanRing.position.set(0, base.y + 1.0, base.z + 2.5);
+      scanRing.name = 'VFX_Scanner';
+      scanRing.castShadow = false;
+      scanRing.receiveShadow = false;
+      this.scene.add(scanRing);
+      this.levelObjects.push(scanRing);
+
+      // ── Receiver wall backdrop (unchanged) ────────────────────────────────
+
+      const wallMat = new THREE.MeshStandardMaterial({ color: 0x101218, roughness: 0.8, metalness: 0.0 });
+      const receiver = new THREE.Mesh(new THREE.BoxGeometry(bayWidth - 10, 3.2, 0.25), wallMat);
+      receiver.position.set(0, base.y + 1.8, base.z - 6.0);
+      receiver.receiveShadow = true;
+      receiver.name = 'VFX_Backdrop';
+      this.scene.add(receiver);
+      this.levelObjects.push(receiver);
+      receiver.updateWorldMatrix(true, false);
+      this.levelColliders.push(this.colliderFactory.createTrimesh(receiver));
+
+    } catch (err) {
+      console.warn('[LevelManager] TSL VFX unavailable, using fallback sprites:', err);
+      this.createVfxBayFallback(base, bayWidth);
     }
+  }
+
+  /** Legacy sprite-based VFX bay (WebGL fallback). */
+  private createVfxBayFallback(base: THREE.Vector3, bayWidth: number): void {
+    const rightX = Math.min(14, bayWidth * 0.32);
 
     // Ground glow plane under fire.
     const glowMat = new THREE.MeshStandardMaterial({
@@ -2536,7 +2685,7 @@ export class LevelManager implements Disposable {
     this.scene.add(fireLight);
     this.levelObjects.push(fireLight);
 
-    // Laser bar (emissive) down the bay.
+    // Laser bar (emissive).
     const laserMat = new THREE.MeshStandardMaterial({
       color: 0x220000, roughness: 0.2, metalness: 0.2, emissive: 0xff2a2a, emissiveIntensity: 2.6,
     });
@@ -2549,55 +2698,25 @@ export class LevelManager implements Disposable {
     this.scene.add(laser);
     this.levelObjects.push(laser);
 
-    // Outer laser glow shell
-    const laserGlowMat = new THREE.MeshStandardMaterial({
-      color: 0xff4444, emissive: 0xff1111, emissiveIntensity: 1.0,
-      transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false
-    });
-    const laserGlow = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 10.2, 10), laserGlowMat);
-    laserGlow.position.copy(laser.position);
-    laserGlow.rotation.z = Math.PI / 2;
-    this.scene.add(laserGlow);
-    this.levelObjects.push(laserGlow);
-
-    this.vfxLaser = { mesh: laser, mat: laserMat, baseEmissive: 2.6 };
-
     const laserLight = new THREE.PointLight(0xff3a3a, 10, 12, 2);
-    laserLight.position.copy(laser.position);
-    laserLight.position.y += 0.4;
+    laserLight.position.set(0, base.y + 1.6, base.z - 2.2);
     laserLight.castShadow = false;
     laserLight.name = 'VFX_LaserLight';
     this.scene.add(laserLight);
     this.levelObjects.push(laserLight);
 
-    // Lightning polyline: 24 segments for denser, crazier arc.
-    const segments = 24;
-    const points = new Float32Array((segments + 1) * 3);
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(points, 3));
-    const line = new THREE.Line(
-      geo,
-      new THREE.LineBasicMaterial({ color: 0x88ddff, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending }),
-    );
-    line.position.set(-3, 0, base.z - 5.2);
-    line.name = 'VFX_Lightning';
-    this.scene.add(line);
-    this.levelObjects.push(line);
-
-    // Lightning point light.
+    // Lightning point light (static fallback).
     const lightningLight = new THREE.PointLight(0x88ccff, 8, 12, 2);
-    lightningLight.position.set(line.position.x + 3, base.y + 2.5, line.position.z);
+    lightningLight.position.set(0, base.y + 2.5, base.z - 5.2);
     lightningLight.castShadow = false;
     lightningLight.name = 'VFX_LightningLight';
     this.scene.add(lightningLight);
     this.levelObjects.push(lightningLight);
 
-    this.vfxLightning = { line, light: lightningLight, base: new THREE.Vector3(line.position.x, base.y, line.position.z), segments };
-
-    // Hologram scanner (moving ring)
+    // Scanner ring (static fallback).
     const scanMat = new THREE.MeshStandardMaterial({
       color: 0x00ffff, emissive: 0x00ffff, emissiveIntensity: 1.5, transparent: true, opacity: 0.8,
-      side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false
+      side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false,
     });
     const scanRing = new THREE.Mesh(new THREE.RingGeometry(1.6, 1.85, 48), scanMat);
     scanRing.rotation.x = -Math.PI / 2;
@@ -2605,7 +2724,6 @@ export class LevelManager implements Disposable {
     scanRing.name = 'VFX_Scanner';
     this.scene.add(scanRing);
     this.levelObjects.push(scanRing);
-    this.vfxScanner = { mesh: scanRing, baseZ: base.z + 2.5, baseY: base.y + 0.1 };
 
     // Receiver wall backdrop.
     const wallMat = new THREE.MeshStandardMaterial({ color: 0x101218, roughness: 0.8, metalness: 0.0 });
@@ -2617,49 +2735,6 @@ export class LevelManager implements Disposable {
     this.levelObjects.push(receiver);
     receiver.updateWorldMatrix(true, false);
     this.levelColliders.push(this.colliderFactory.createTrimesh(receiver));
-  }
-
-  private createBillboardTexture(coreHex: string, alpha: number): THREE.CanvasTexture {
-    const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 512;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return new THREE.CanvasTexture(canvas);
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const cx = canvas.width / 2;
-    const cy = canvas.height / 2;
-    // Use rgba() strings for broad browser compatibility (avoid 8-digit hex edge cases).
-    const rgb = hexToRgb(coreHex) ?? { r: 255, g: 255, b: 255 };
-    const grad = ctx.createRadialGradient(cx, cy, 20, cx, cy, 240);
-    grad.addColorStop(0, `rgba(${rgb.r},${rgb.g},${rgb.b},1)`);
-    grad.addColorStop(0.45, `rgba(${rgb.r},${rgb.g},${rgb.b},${Math.max(0, Math.min(1, alpha))})`);
-    grad.addColorStop(1, `rgba(${rgb.r},${rgb.g},${rgb.b},0)`);
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Add some cheap noise.
-    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    for (let i = 0; i < img.data.length; i += 4) {
-      const a = img.data[i + 3];
-      if (a === 0) continue;
-      const n = (Math.sin(i * 0.0123) + Math.sin(i * 0.0431)) * 0.5;
-      // Only perturb alpha where the sprite already exists; prevents faint full-quad backgrounds.
-      img.data[i + 3] = Math.max(0, Math.min(255, a + n * 20 * (a / 255)));
-    }
-    ctx.putImageData(img, 0, 0);
-
-    const tex = new THREE.CanvasTexture(canvas);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    // Avoid mipmap bleed on soft alpha gradients.
-    tex.generateMipmaps = false;
-    tex.minFilter = THREE.LinearFilter;
-    tex.magFilter = THREE.LinearFilter;
-    tex.anisotropy = this.textureAnisotropy;
-    // NOTE: Keep straight alpha; WebGPU blending is more consistent this way for CanvasTexture billboards.
-    tex.premultiplyAlpha = false;
-    tex.needsUpdate = true;
-    return tex;
   }
 
   private createCircleTexture(): THREE.CanvasTexture {

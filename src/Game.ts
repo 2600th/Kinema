@@ -153,6 +153,9 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     this.eventBus.on('debug:ssrResolutionScale', (scale) => {
       this.renderer.setSsrResolutionScale(scale);
     });
+    this.eventBus.on('debug:ssgiEnabled', (enabled) => {
+      this.renderer.setSsgiEnabled(enabled);
+    });
     this.eventBus.on('debug:bloomEnabled', (enabled) => {
       this.renderer.setBloomEnabled(enabled);
     });
@@ -357,6 +360,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       ssrEnabled: f.ssrEnabled,
       ssrOpacity: f.ssrOpacity,
       ssrResolutionScale: f.ssrResolutionScale,
+      ssgiEnabled: f.ssgiEnabled,
       bloomEnabled: f.bloomEnabled,
       bloomStrength: f.bloomStrength,
       vignetteEnabled: f.vignetteEnabled,
@@ -380,7 +384,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       { id: 'activate-beacon', text: 'Activate the beacon' },
     ]);
     // Ambient sci-fi drone sound
-    this.audioManager.playMusic('/assets/audio/ambient.mp3', 2.0);
+    this.audioManager.playMusic('/assets/audio/aberrantrealities-very-few-in-level-2-336578.mp3', 2.0);
   }
 
   teardownLevel(): void {
