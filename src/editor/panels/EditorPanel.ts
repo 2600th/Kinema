@@ -5,17 +5,16 @@ export abstract class EditorPanel {
 
   constructor(protected id: string, protected title: string) {
     this.container = document.createElement('div');
-    this.container.className = `ke-panel ke-panel-${id}`;
-    this.container.style.display = 'none';
+    this.container.className = `ke-panel ke-panel-${id} ke-hidden`;
   }
 
   show(): void {
-    this.container.style.display = '';
+    this.container.classList.remove('ke-hidden');
     this.visible = true;
   }
 
   hide(): void {
-    this.container.style.display = 'none';
+    this.container.classList.add('ke-hidden');
     this.visible = false;
   }
 
@@ -25,6 +24,7 @@ export abstract class EditorPanel {
 
   toggleCollapse(): void {
     this.collapsed = !this.collapsed;
+    this.container.classList.toggle('ke-panel-collapsed', this.collapsed);
     this.onCollapse(this.collapsed);
   }
 
