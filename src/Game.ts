@@ -27,6 +27,8 @@ import type { VehicleManager } from '@vehicle/VehicleManager';
 import { DroneController } from '@vehicle/DroneController';
 import { CarController } from '@vehicle/CarController';
 import type { EditorManager } from '@editor/EditorManager';
+import type { NavPatrolSystem } from '@navigation/NavPatrolSystem';
+import type { NavDebugOverlay } from '@navigation/NavDebugOverlay';
 
 // Temp vector for speed calculation
 const _prevPos = new THREE.Vector3();
@@ -54,6 +56,10 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
   private throwableObjects = new Map<number, ThrowableObject>();
   private carriedThrowable: ThrowableObject | null = null;
   private rope: PhysicsRope | null = null;
+  private navPatrolSystem: NavPatrolSystem | null = null;
+  private navDebugOverlay: NavDebugOverlay | null = null;
+  private navTargetMode = false;
+  private _onNavTargetClick: ((e: MouseEvent) => void) | null = null;
 
   constructor(
     private renderer: RendererManager,
@@ -255,6 +261,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       }
     }
     this.audioManager.fixedUpdate(dt);
+    this.navPatrolSystem?.update(dt);
 
   }
 
@@ -385,11 +392,18 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     ]);
     // Ambient sci-fi drone sound
     this.audioManager.playMusic('/assets/audio/aberrantrealities-very-few-in-level-2-336578.mp3', 2.0);
+
+    // Wire navigation systems from LevelManager.
+    this.navPatrolSystem = this.levelManager.getNavPatrolSystem();
+    this.navDebugOverlay = this.levelManager.getNavDebugOverlay();
   }
 
   teardownLevel(): void {
     this.clearRuntimeInteractables();
     this.vehicleManager.clear();
+    this.navPatrolSystem = null;
+    this.navDebugOverlay = null;
+    this.navTargetMode = false;
   }
 
   setEditorManager(manager: EditorManager): void {
@@ -673,10 +687,57 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       this.inputManager.setGamepadTuning(settings.gamepadDeadzone, settings.gamepadCurve);
       console.log(`[Settings] gamepadCurve=${settings.gamepadCurve.toFixed(2)}`);
     }
+
+    // Navigation debug keys — only when editor is NOT active.
+    if (this.editorManager?.isActive()) return;
+
+    if (e.code === 'KeyN') {
+      this.navDebugOverlay?.toggle();
+      console.log(`[Nav] debug overlay toggled`);
+      return;
+    }
+    if (e.code === 'KeyT') {
+      if (!this.navPatrolSystem) return;
+      this.navTargetMode = !this.navTargetMode;
+      console.log(`[Nav] target mode ${this.navTargetMode ? 'ON — click floor to redirect nearest agent' : 'OFF'}`);
+      if (this.navTargetMode) {
+        this._onNavTargetClick = (ev: MouseEvent) => this.handleNavTargetClick(ev);
+        window.addEventListener('click', this._onNavTargetClick);
+      } else {
+        if (this._onNavTargetClick) {
+          window.removeEventListener('click', this._onNavTargetClick);
+          this._onNavTargetClick = null;
+        }
+      }
+      return;
+    }
+  }
+
+  private handleNavTargetClick(ev: MouseEvent): void {
+    if (!this.navPatrolSystem || !this.navTargetMode) return;
+    // Raycast from camera through mouse position to find floor hit.
+    const rect = this.renderer.canvas.getBoundingClientRect();
+    const ndcX = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+    const ndcY = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), this.renderer.camera);
+    const hits = raycaster.intersectObjects(this.renderer.scene.children, true);
+    for (const hit of hits) {
+      // Accept any mesh that has a collider-like name (floor, bay, etc.).
+      if (hit.object instanceof THREE.Mesh) {
+        this.navPatrolSystem.requestTargetForNearest(hit.point);
+        console.log(`[Nav] target set at (${hit.point.x.toFixed(1)}, ${hit.point.y.toFixed(1)}, ${hit.point.z.toFixed(1)})`);
+        break;
+      }
+    }
   }
 
   dispose(): void {
     window.removeEventListener('keydown', this._onDebugKeyDown);
+    if (this._onNavTargetClick) {
+      window.removeEventListener('click', this._onNavTargetClick);
+      this._onNavTargetClick = null;
+    }
     this.interactionManager.dispose();
     this.playerController.dispose();
     this.camera.dispose();

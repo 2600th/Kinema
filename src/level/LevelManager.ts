@@ -12,6 +12,9 @@ import {
   getShowcaseBayTopY,
   getShowcaseStationZ,
 } from '@level/ShowcaseLayout';
+import { NavMeshManager } from '@navigation/NavMeshManager';
+import { NavPatrolSystem } from '@navigation/NavPatrolSystem';
+import { NavDebugOverlay } from '@navigation/NavDebugOverlay';
 import { AssetLoader } from './AssetLoader';
 import { MeshParser } from './MeshParser';
 import { LevelValidator } from './LevelValidator';
@@ -84,6 +87,9 @@ export class LevelManager implements Disposable {
   private graphicsProfile: GraphicsProfile = 'cinematic';
   private lightFollowPos = new THREE.Vector3(20, 30, 10);
   private lightTargetPos = new THREE.Vector3(0, 1, 0);
+  private navMeshManager: NavMeshManager | null = null;
+  private navPatrolSystem: NavPatrolSystem | null = null;
+  private navDebugOverlay: NavDebugOverlay | null = null;
   private textureAnisotropy = 8;
 
   constructor(
@@ -117,6 +123,16 @@ export class LevelManager implements Disposable {
   /** Read-only list of level visuals for editor selection. */
   getLevelObjects(): ReadonlyArray<THREE.Object3D> {
     return this.levelObjects;
+  }
+
+  /** Navigation patrol system (for game loop wiring). */
+  getNavPatrolSystem(): NavPatrolSystem | null {
+    return this.navPatrolSystem;
+  }
+
+  /** Navigation debug overlay (for toggling navmesh visualization). */
+  getNavDebugOverlay(): NavDebugOverlay | null {
+    return this.navDebugOverlay;
   }
 
   /** Allows runtime quality changes to update shadow map budgets. */
@@ -234,6 +250,12 @@ export class LevelManager implements Disposable {
     this.vfxNoiseTexture = null;
     this.vfxLightningLight = null;
     this.dustMotes = [];
+    this.navPatrolSystem?.dispose();
+    this.navPatrolSystem = null;
+    this.navDebugOverlay?.dispose();
+    this.navDebugOverlay = null;
+    this.navMeshManager?.dispose(this.scene);
+    this.navMeshManager = null;
     this.dirLight = null;
     this.dirLightTarget = null;
     this.removeLightHelpers();
@@ -655,8 +677,8 @@ export class LevelManager implements Disposable {
     const zPlatformsPhysics = getShowcaseStationZ('platformsPhysics');
     const zMaterials = getShowcaseStationZ('materials');
     const zVfx = getShowcaseStationZ('vfx');
+    const zNavigation = getShowcaseStationZ('navigation');
     const zFutureA = getShowcaseStationZ('futureA');
-    const zFutureB = getShowcaseStationZ('futureB');
 
     // Rough plane section (materials + footing). Kept inside the showcase corridor.
     const roughPlane = new THREE.Mesh(new THREE.BoxGeometry(10, 0.6, 10), obstacleMat);
@@ -875,9 +897,17 @@ export class LevelManager implements Disposable {
     );
     void this.createVfxBay(new THREE.Vector3(0, bayTopY, zVfx), bayWidth);
 
-    // Reserved empty bays for future additions (keep pedestals but no gameplay objects).
+    // Navigation bay: navmesh + patrol agents.
+    this.createSectionLabel(
+      'Navigation\nNavMesh \u2022 Crowd Patrol \u2022 N=debug \u2022 T=target',
+      new THREE.Vector3(0, 3.2, zNavigation + 6),
+      11.4,
+      2.25,
+    );
+    this.createNavcatBay(hallFloor, bayTopY);
+
+    // Reserved empty bay for future additions (keep pedestal but no gameplay objects).
     this.createSectionLabel('Reserved\nFuture demos', new THREE.Vector3(0, 2.5, zFutureA), 8.8, 2.0);
-    this.createSectionLabel('Reserved\nFuture demos', new THREE.Vector3(0, 2.5, zFutureB), 8.8, 2.0);
 
     // --- Visual polish ---
     this.addFloorCenterline(hallLength, showcaseCenterZ);
@@ -1384,6 +1414,25 @@ export class LevelManager implements Disposable {
       amplitude: 0,
       rotationOffset: new THREE.Euler(0, 0, Math.PI / 2),
     });
+  }
+
+  /**
+   * Navigation showcase bay: generates navmesh from the hall floor and spawns patrol agents.
+   * The hall floor is a single big mesh covering the entire corridor — NavMeshManager
+   * will build the navmesh from it and agents will naturally stay on walkable surfaces.
+   */
+  private createNavcatBay(hallFloor: THREE.Mesh, _bayTopY: number): void {
+    this.navMeshManager = new NavMeshManager();
+    this.navMeshManager.generate([hallFloor]);
+
+    const navMesh = this.navMeshManager.getNavMesh();
+    if (!navMesh) {
+      console.warn('[LevelManager] Failed to generate navmesh for navigation bay');
+      return;
+    }
+
+    this.navPatrolSystem = new NavPatrolSystem(this.scene, navMesh, 5);
+    this.navDebugOverlay = new NavDebugOverlay(this.scene, this.navMeshManager);
   }
 
   // ---------------------------------------------------------------------------

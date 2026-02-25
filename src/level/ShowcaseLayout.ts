@@ -28,9 +28,9 @@ export const SHOWCASE_LAYOUT = {
     platformsPhysics: -120,
     materials: -160,
     vfx: -200,
-    // Reserved empty stages near the corridor end for future features.
-    futureA: -240,
-    futureB: -270,
+    navigation: -240,
+    // Reserved empty stage near the corridor end for future features.
+    futureA: -270,
   },
 } as const;
 
@@ -50,8 +50,8 @@ export const SHOWCASE_STATION_ORDER: ShowcaseStationKey[] = [
   'platformsPhysics',
   'materials',
   'vfx',
+  'navigation',
   'futureA',
-  'futureB',
 ];
 
 export function getShowcaseStationZ(key: ShowcaseStationKey): number {
