@@ -20,7 +20,7 @@ import { InspectorPanel } from './panels/InspectorPanel';
 import { type BrushDefinition } from './brushes/Brush';
 import { getBrushById, BRUSH_REGISTRY } from './brushes/index';
 
-type PlacementPhase = 'idle' | 'position' | 'placed';
+type PlacementPhase = 'idle' | 'position';
 
 let brushNameCounter = 0;
 
