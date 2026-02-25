@@ -868,7 +868,7 @@ export class LevelManager implements Disposable {
 
     // VFX bay.
     this.createSectionLabel(
-      'Visual Effects\nSmoke \u2022 Fire \u2022 Laser \u2022 Lightning',
+      'Visual Effects\nTornado \u2022 Fire \u2022 Laser \u2022 Lightning \u2022 Scanner',
       new THREE.Vector3(0, 3.2, zVfx + 6),
       11.4,
       2.15,
@@ -2384,66 +2384,226 @@ export class LevelManager implements Disposable {
     try {
       const { MeshBasicNodeMaterial } = await import('three/webgpu');
       const {
-        Fn, time, uv, positionLocal, vec3, vec4, float, sin, cos, mul, add, sub, mix,
-        texture,
+        Fn, time, uv, positionLocal, vec3, vec4, vec2, float, sin, cos, mul, add, mix, min, atan,
+        texture, color, PI, TWO_PI, luminance,
       } = await import('three/tsl');
-      const { mx_fractal_noise_vec3, mx_fractal_noise_float } = await import('three/tsl');
+      const { mx_fractal_noise_float } = await import('three/tsl');
 
-      // Shared noise texture for fire columns.
+      // Shared noise texture.
       this.vfxNoiseTexture = this.createNoiseTexture();
       const noiseTex = this.vfxNoiseTexture;
 
-      const rightX = Math.min(14, bayWidth * 0.32);
+      // Distributed station positions across the platform.
+      const halfW = bayWidth * 0.5;
+      const tornadoX = -Math.min(16, halfW * 0.6);
+      const lightningX = 0;
+      const laserX = Math.min(16, halfW * 0.6);
+      const scannerX = -Math.min(8, halfW * 0.3);
+      const fireX = Math.min(10, halfW * 0.37);
+      const backRowZ = base.z - 3;
+      const frontRowZ = base.z + 3;
 
-      // ── Fire Column (replaces 54 sprites → 2 meshes + 1 glow plane) ──────
+      // ── Shared TSL helpers ────────────────────────────────────────────────
 
-      // Parabolic twist helper (inspired by webgpu_tsl_vfx_tornado).
-      const twistedCylinder = Fn(([pos_immutable, parabolStr, parabolOff, parabolAmp, t]: [
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        any, any, any, any, any,
-      ]) => {
+      const tornadoTime = mul(time, float(0.2));
+      const fireTime = mul(time, float(0.4));
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const twistedCylinder = Fn(([pos_immutable, parabolStr, parabolOff, parabolAmp, t]: [any, any, any, any, any]) => {
         const pos = vec3(pos_immutable).toVar();
-        const y = pos.y;
-        const parabola = add(mul(sub(y, parabolOff), sub(y, parabolOff)), float(0.1));
-        const twist = mul(y, float(2.5)).add(t);
-        const displaceX = mul(sin(twist), mul(parabola, parabolAmp));
-        const displaceZ = mul(cos(twist), mul(parabola, parabolAmp));
-        const noiseOffset = mx_fractal_noise_vec3(add(pos, mul(vec3(0, 1, 0), t)), float(1), float(2), float(0.5), float(3));
-        pos.x.addAssign(add(displaceX, mul(noiseOffset.x, parabolStr)));
-        pos.z.addAssign(add(displaceZ, mul(noiseOffset.z, parabolStr)));
-        return pos;
+        const angle = atan(pos.z, pos.x).toVar();
+        const elevation = pos.y;
+        const radius = parabolStr.mul(elevation.sub(parabolOff).pow(float(2))).add(parabolAmp).toVar();
+        radius.addAssign(sin(elevation.sub(t).mul(float(20)).add(angle.mul(float(2)))).mul(float(0.05)));
+        return vec3(cos(angle).mul(radius), elevation, sin(angle).mul(radius));
       });
 
-      // Fire cylinder geometry: unit cylinder translated so base is at y=0.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const toSkewedUv = Fn(([uvIn, skew]: [any, any]) => {
+        return vec2(uvIn.x.add(uvIn.y.mul(skew.x)), uvIn.y.add(uvIn.x.mul(skew.y)));
+      });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const toRadialUv = Fn(([uvIn, multiplier, rotation, offset]: [any, any, any, any]) => {
+        const centered = uvIn.sub(vec2(0.5, 0.5));
+        const distanceToCenter = centered.length().mul(multiplier);
+        const ang = atan(centered.y, centered.x).add(rotation);
+        return vec2(ang.add(PI).div(TWO_PI), distanceToCenter).add(offset);
+      });
+
+      // ── 1. TORNADO (faithful port from webgpu_tsl_vfx_tornado) ────────────
+
+      const tornadoCylGeo = new THREE.CylinderGeometry(1, 1, 1, 30, 30, true);
+      tornadoCylGeo.translate(0, 0.5, 0);
+
+      // Emissive tornado (inner glow)
+      const tornadoEmissiveMat = new MeshBasicNodeMaterial();
+      tornadoEmissiveMat.transparent = true;
+      tornadoEmissiveMat.side = THREE.DoubleSide;
+      tornadoEmissiveMat.blending = THREE.AdditiveBlending;
+      tornadoEmissiveMat.depthWrite = false;
+
+      tornadoEmissiveMat.positionNode = twistedCylinder(
+        positionLocal, float(1), float(0.3), float(0.2), tornadoTime,
+      );
+
+      const emissiveColor = color('#ff8b4d');
+
+      tornadoEmissiveMat.outputNode = Fn(() => {
+        const uvVar = uv().toVar();
+        // Layer 1: large-scale diagonal flow
+        const n1Uv = toSkewedUv(
+          uvVar.add(vec2(float(0), tornadoTime.negate())),
+          vec2(float(-3), float(0)),
+        ).mul(vec2(float(2), float(0.25)));
+        const n1 = texture(noiseTex, n1Uv).r.remap(float(0.45), float(0.7));
+        // Layer 2: fine detail
+        const n2Uv = toSkewedUv(
+          uvVar.add(vec2(float(0), tornadoTime.negate().add(float(123.4)))),
+          vec2(float(-3), float(0)),
+        ).mul(vec2(float(5), float(1)));
+        const n2 = texture(noiseTex, n2Uv).g.remap(float(0.45), float(0.7));
+        // Multiplicative blend for contrast
+        const effect = n1.mul(n2);
+        // Vertical fades
+        const bottomFade = uvVar.y.smoothstep(float(0), float(0.05));
+        const topFade = uvVar.y.oneMinus().smoothstep(float(0), float(0.5));
+        const alpha = effect.mul(bottomFade).mul(topFade);
+        // Normalize brightness by luminance (reference pattern)
+        const col = emissiveColor.mul(float(1.2)).div(luminance(emissiveColor));
+        return vec4(col, alpha);
+      })();
+
+      const tornadoInner = new THREE.Mesh(tornadoCylGeo, tornadoEmissiveMat);
+      tornadoInner.scale.set(2.5, 6, 2.5);
+      tornadoInner.position.set(tornadoX, base.y + 0.1, backRowZ);
+      tornadoInner.name = 'VFX_TornadoInner';
+      tornadoInner.castShadow = false;
+      tornadoInner.receiveShadow = false;
+      tornadoInner.frustumCulled = false;
+      this.scene.add(tornadoInner);
+      this.levelObjects.push(tornadoInner);
+
+      // Dark outer silhouette
+      const tornadoDarkMat = new MeshBasicNodeMaterial();
+      tornadoDarkMat.transparent = true;
+      tornadoDarkMat.side = THREE.DoubleSide;
+      tornadoDarkMat.blending = THREE.NormalBlending;
+      tornadoDarkMat.depthWrite = false;
+
+      tornadoDarkMat.positionNode = twistedCylinder(
+        positionLocal, float(1), float(0.3), float(0.25), tornadoTime,
+      );
+
+      tornadoDarkMat.outputNode = Fn(() => {
+        const uvVar = uv().toVar();
+        const n1Uv = toSkewedUv(
+          uvVar.add(vec2(float(0), tornadoTime.negate().add(float(50)))),
+          vec2(float(-3), float(0)),
+        ).mul(vec2(float(2), float(0.25)));
+        const n1 = texture(noiseTex, n1Uv).r.remap(float(0.45), float(0.7));
+        const n2Uv = toSkewedUv(
+          uvVar.add(vec2(float(0), tornadoTime.negate().add(float(200)))),
+          vec2(float(-3), float(0)),
+        ).mul(vec2(float(5), float(1)));
+        const n2 = texture(noiseTex, n2Uv).g.remap(float(0.45), float(0.7));
+        const effect = n1.mul(n2);
+        const bottomFade = uvVar.y.smoothstep(float(0), float(0.05));
+        const topFade = uvVar.y.oneMinus().smoothstep(float(0), float(0.5));
+        return vec4(vec3(0), effect.mul(bottomFade).mul(topFade).smoothstep(float(0), float(0.01)));
+      })();
+
+      const tornadoOuter = new THREE.Mesh(tornadoCylGeo, tornadoDarkMat);
+      tornadoOuter.scale.set(3.0, 6.5, 3.0);
+      tornadoOuter.position.set(tornadoX, base.y + 0.1, backRowZ);
+      tornadoOuter.name = 'VFX_TornadoOuter';
+      tornadoOuter.castShadow = false;
+      tornadoOuter.receiveShadow = false;
+      tornadoOuter.frustumCulled = false;
+      this.scene.add(tornadoOuter);
+      this.levelObjects.push(tornadoOuter);
+
+      // Tornado floor glow (radial polar noise)
+      const tornadoFloorMat = new MeshBasicNodeMaterial();
+      tornadoFloorMat.transparent = true;
+      tornadoFloorMat.blending = THREE.AdditiveBlending;
+      tornadoFloorMat.depthWrite = false;
+
+      tornadoFloorMat.outputNode = Fn(() => {
+        const uvVar = uv().toVar();
+        const radUv = toRadialUv(uvVar, float(3), tornadoTime, vec2(0, 0));
+        const n = texture(noiseTex, radUv).r;
+        const effect = n.step(float(0.2)).mul(float(3));
+        const dist = uvVar.sub(vec2(0.5, 0.5)).length();
+        const fade = float(1).sub(dist.mul(float(2))).clamp();
+        const col = emissiveColor.mul(float(1.2)).div(luminance(emissiveColor));
+        return vec4(col, effect.mul(fade).mul(float(0.6)));
+      })();
+
+      const tornadoFloor = new THREE.Mesh(new THREE.PlaneGeometry(6, 6), tornadoFloorMat);
+      tornadoFloor.rotation.x = -Math.PI / 2;
+      tornadoFloor.position.set(tornadoX, base.y + 0.02, backRowZ);
+      tornadoFloor.name = 'VFX_TornadoFloor';
+      tornadoFloor.castShadow = false;
+      tornadoFloor.receiveShadow = false;
+      this.scene.add(tornadoFloor);
+      this.levelObjects.push(tornadoFloor);
+
+      // Tornado point light
+      const tornadoLight = new THREE.PointLight(0xff6b2d, 12, 16, 2);
+      tornadoLight.position.set(tornadoX, base.y + 3.0, backRowZ);
+      tornadoLight.castShadow = false;
+      tornadoLight.name = 'VFX_TornadoLight';
+      this.scene.add(tornadoLight);
+      this.levelObjects.push(tornadoLight);
+
+      // ── 2. FIRE COLUMN ────────────────────────────────────────────────────
+
       const fireCylGeo = new THREE.CylinderGeometry(1, 1, 1, 20, 20, true);
       fireCylGeo.translate(0, 0.5, 0);
 
-      // Inner emissive fire cylinder.
       const fireInnerMat = new MeshBasicNodeMaterial();
       fireInnerMat.transparent = true;
       fireInnerMat.side = THREE.DoubleSide;
       fireInnerMat.blending = THREE.AdditiveBlending;
       fireInnerMat.depthWrite = false;
 
-      fireInnerMat.positionNode = twistedCylinder(positionLocal, float(0.6), float(0.2), float(0.35), mul(time, float(0.3)));
+      fireInnerMat.positionNode = twistedCylinder(positionLocal, float(0.5), float(0.0), float(0.6), fireTime);
 
       fireInnerMat.outputNode = Fn(() => {
         const uvVar = uv().toVar();
-        // Two noise layers scrolling at different speeds
-        const n1 = texture(noiseTex, add(uvVar, mul(vec3(0, -1, 0).xy, mul(time, float(0.4))))).r;
-        const n2 = texture(noiseTex, add(mul(uvVar, float(1.3)), mul(vec3(0.3, -0.7, 0).xy, mul(time, float(0.55))))).g;
-        const noiseMix = add(mul(n1, float(0.6)), mul(n2, float(0.4)));
-        // Vertical fade: strong at base, fades out at top
-        const vertFade = sub(float(1), uvVar.y);
-        const alpha = mul(noiseMix, vertFade, float(1.2));
-        // Warm color gradient: orange base → bright yellow core
-        const col = mix(vec3(1.0, 0.35, 0.05), vec3(1.0, 0.85, 0.3), noiseMix);
-        return vec4(mul(col, float(3.0)), alpha);
+        // Noise layer 1: upward scroll + diagonal skew
+        const n1Uv = toSkewedUv(
+          uvVar.add(vec2(fireTime, fireTime.negate())),
+          vec2(float(-1), float(0)),
+        ).mul(vec2(float(2), float(0.5)));
+        const n1 = texture(noiseTex, n1Uv).r;
+
+        // Noise layer 2: slower scroll, different scale
+        const n2Uv = toSkewedUv(
+          uvVar.add(vec2(fireTime.mul(float(0.5)), fireTime.negate())),
+          vec2(float(-1), float(0)),
+        ).mul(vec2(float(3), float(0.8)));
+        const n2 = texture(noiseTex, n2Uv).g;
+
+        // Additive-multiplicative blend for density
+        const noiseMix = n1.mul(float(0.6)).add(n2.mul(float(0.4)));
+
+        // Vertical fade: smoothstep at bottom and top edges
+        const outerFade = min(
+          uvVar.y.smoothstep(float(0), float(0.08)),
+          uvVar.y.oneMinus().smoothstep(float(0), float(0.35)),
+        );
+        const effect = noiseMix.mul(outerFade);
+
+        // Warm color gradient: deep orange → bright orange-yellow core
+        const col = mix(vec3(1.0, 0.15, 0.0), vec3(1.0, 0.6, 0.1), noiseMix);
+        return vec4(col.mul(float(2.0)), effect);
       })();
 
       const fireInner = new THREE.Mesh(fireCylGeo, fireInnerMat);
-      fireInner.scale.set(1.5, 4, 1.5);
-      fireInner.position.set(rightX, base.y + 0.1, base.z + 2.2);
+      fireInner.scale.set(2.0, 5, 2.0);
+      fireInner.position.set(fireX, base.y + 0.1, frontRowZ);
       fireInner.name = 'VFX_FireInner';
       fireInner.castShadow = false;
       fireInner.receiveShadow = false;
@@ -2458,19 +2618,27 @@ export class LevelManager implements Disposable {
       fireOuterMat.blending = THREE.NormalBlending;
       fireOuterMat.depthWrite = false;
 
-      fireOuterMat.positionNode = twistedCylinder(positionLocal, float(0.7), float(0.15), float(0.4), mul(time, float(0.25)));
+      fireOuterMat.positionNode = twistedCylinder(positionLocal, float(0.6), float(0.0), float(0.7), mul(time, float(0.35)));
 
       fireOuterMat.outputNode = Fn(() => {
         const uvVar = uv().toVar();
-        const n = texture(noiseTex, add(mul(uvVar, float(0.8)), mul(vec3(0.1, -0.5, 0).xy, mul(time, float(0.3))))).b;
-        const vertFade = sub(float(1), uvVar.y);
-        const alpha = mul(n, vertFade, float(0.35));
-        return vec4(vec3(0.03, 0.02, 0.02), alpha);
+        // Smoke noise: slower, larger scale
+        const nUv = toSkewedUv(
+          uvVar.add(vec2(fireTime.mul(float(0.3)), fireTime.negate().mul(float(0.7)))),
+          vec2(float(-0.5), float(0)),
+        ).mul(vec2(float(3), float(0.5)));
+        const n = texture(noiseTex, nUv).b.sub(float(0.3)).div(float(0.4)).clamp();
+        const outerFade = min(
+          uvVar.y.smoothstep(float(0), float(0.05)),
+          uvVar.y.oneMinus().smoothstep(float(0), float(0.3)),
+        );
+        const alpha = n.mul(outerFade).mul(float(0.55));
+        return vec4(vec3(0.05, 0.03, 0.02), alpha);
       })();
 
       const fireOuter = new THREE.Mesh(fireCylGeo, fireOuterMat);
-      fireOuter.scale.set(1.9, 4.5, 1.9);
-      fireOuter.position.set(rightX, base.y + 0.1, base.z + 2.2);
+      fireOuter.scale.set(2.5, 5.5, 2.5);
+      fireOuter.position.set(fireX, base.y + 0.1, frontRowZ);
       fireOuter.name = 'VFX_FireOuter';
       fireOuter.castShadow = false;
       fireOuter.receiveShadow = false;
@@ -2486,16 +2654,17 @@ export class LevelManager implements Disposable {
 
       glowMat.outputNode = Fn(() => {
         const uvVar = uv().toVar();
-        const dist = sub(uvVar, vec3(0.5, 0.5, 0).xy).length();
-        const radial = sub(float(1), mul(dist, float(2.0))).max(float(0));
-        const n = texture(noiseTex, add(uvVar, mul(time, float(0.1)))).r;
-        const alpha = mul(radial, add(float(0.5), mul(n, float(0.5))), float(0.7));
-        return vec4(mul(vec3(1.0, 0.35, 0.05), float(2.5)), alpha);
+        const centered = uvVar.sub(vec2(float(0.5), float(0.5)));
+        const dist = centered.length();
+        const radial = float(1).sub(dist.mul(float(2))).clamp();
+        const n = texture(noiseTex, uvVar.add(vec2(mul(time, float(0.08)), mul(time, float(0.05))))).r;
+        const alpha = radial.mul(radial).mul(float(0.5).add(n.mul(float(0.5)))).mul(float(0.8));
+        return vec4(vec3(1.0, 0.3, 0.02).mul(float(2.5)), alpha);
       })();
 
       const glowPlane = new THREE.Mesh(new THREE.PlaneGeometry(5, 4), glowMat);
       glowPlane.rotation.x = -Math.PI / 2;
-      glowPlane.position.set(rightX, base.y + 0.02, base.z + 2.2);
+      glowPlane.position.set(fireX, base.y + 0.02, frontRowZ);
       glowPlane.name = 'VFX_FireGlow';
       glowPlane.castShadow = false;
       glowPlane.receiveShadow = false;
@@ -2504,13 +2673,13 @@ export class LevelManager implements Disposable {
 
       // Fire point light (kept from old code).
       const fireLight = new THREE.PointLight(0xff6622, 15, 14, 2);
-      fireLight.position.set(rightX, base.y + 2.0, base.z + 2.2);
+      fireLight.position.set(fireX, base.y + 2.0, frontRowZ);
       fireLight.castShadow = false;
       fireLight.name = 'VFX_FireLight';
       this.scene.add(fireLight);
       this.levelObjects.push(fireLight);
 
-      // ── Laser Beam (TSL animated pulse) ───────────────────────────────────
+      // ── 3. LASER BEAM X-PATTERN (TSL animated pulse) ──────────────────────
 
       const laserCoreMat = new MeshBasicNodeMaterial();
       laserCoreMat.transparent = true;
@@ -2524,16 +2693,6 @@ export class LevelManager implements Disposable {
         return vec4(mul(vec3(1.0, 0.15, 0.1), mul(intensity, float(5))), intensity);
       })();
 
-      const laserCore = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 10, 10), laserCoreMat);
-      laserCore.position.set(0, base.y + 1.2, base.z - 2.2);
-      laserCore.rotation.z = Math.PI / 2;
-      laserCore.castShadow = false;
-      laserCore.receiveShadow = false;
-      laserCore.name = 'VFX_Laser';
-      this.scene.add(laserCore);
-      this.levelObjects.push(laserCore);
-
-      // Outer laser glow shell.
       const laserGlowMat = new MeshBasicNodeMaterial();
       laserGlowMat.transparent = true;
       laserGlowMat.blending = THREE.AdditiveBlending;
@@ -2545,50 +2704,91 @@ export class LevelManager implements Disposable {
         return vec4(mul(vec3(1.0, 0.2, 0.15), mul(glow, float(2.0))), mul(glow, float(0.5)));
       })();
 
-      const laserGlow = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 10.2, 10), laserGlowMat);
-      laserGlow.position.set(0, base.y + 1.2, base.z - 2.2);
-      laserGlow.rotation.z = Math.PI / 2;
-      laserGlow.castShadow = false;
-      laserGlow.receiveShadow = false;
-      this.scene.add(laserGlow);
-      this.levelObjects.push(laserGlow);
+      const laserCylGeo = new THREE.CylinderGeometry(0.05, 0.05, 10, 10);
+      const laserGlowGeo = new THREE.CylinderGeometry(0.18, 0.18, 10.2, 10);
 
-      const laserLight = new THREE.PointLight(0xff3a3a, 10, 12, 2);
-      laserLight.position.set(0, base.y + 1.6, base.z - 2.2);
+      // Beam A (angled one way)
+      const laserCoreA = new THREE.Mesh(laserCylGeo, laserCoreMat);
+      laserCoreA.position.set(laserX, base.y + 1.8, backRowZ);
+      laserCoreA.rotation.set(0, 0, Math.PI * 0.35);
+      laserCoreA.castShadow = false;
+      laserCoreA.receiveShadow = false;
+      laserCoreA.name = 'VFX_LaserA';
+      this.scene.add(laserCoreA);
+      this.levelObjects.push(laserCoreA);
+
+      const laserGlowA = new THREE.Mesh(laserGlowGeo, laserGlowMat);
+      laserGlowA.position.copy(laserCoreA.position);
+      laserGlowA.rotation.copy(laserCoreA.rotation);
+      laserGlowA.castShadow = false;
+      laserGlowA.receiveShadow = false;
+      this.scene.add(laserGlowA);
+      this.levelObjects.push(laserGlowA);
+
+      // Beam B (crossed the other way)
+      const laserCoreB = new THREE.Mesh(laserCylGeo, laserCoreMat);
+      laserCoreB.position.set(laserX, base.y + 1.8, backRowZ);
+      laserCoreB.rotation.set(0, 0, -Math.PI * 0.35);
+      laserCoreB.castShadow = false;
+      laserCoreB.receiveShadow = false;
+      laserCoreB.name = 'VFX_LaserB';
+      this.scene.add(laserCoreB);
+      this.levelObjects.push(laserCoreB);
+
+      const laserGlowB = new THREE.Mesh(laserGlowGeo, laserGlowMat);
+      laserGlowB.position.copy(laserCoreB.position);
+      laserGlowB.rotation.copy(laserCoreB.rotation);
+      laserGlowB.castShadow = false;
+      laserGlowB.receiveShadow = false;
+      this.scene.add(laserGlowB);
+      this.levelObjects.push(laserGlowB);
+
+      const laserLight = new THREE.PointLight(0xff3a3a, 12, 14, 2);
+      laserLight.position.set(laserX, base.y + 2.0, backRowZ);
       laserLight.castShadow = false;
       laserLight.name = 'VFX_LaserLight';
       this.scene.add(laserLight);
       this.levelObjects.push(laserLight);
 
-      // ── Lightning Arc (TSL ribbon replaces CPU-jittered polyline) ──────────
+      // ── 4. LIGHTNING ARC (dual bolt) ──────────────────────────────────────
 
-      const lightningMat = new MeshBasicNodeMaterial();
-      lightningMat.transparent = true;
-      lightningMat.side = THREE.DoubleSide;
-      lightningMat.blending = THREE.AdditiveBlending;
-      lightningMat.depthWrite = false;
+      // Main bolt helper: creates a ribbon material with GPU-driven noise displacement
+      const createLightningMat = (noiseSpeed: number, noiseScale: number, ribbonWidth: number, amplitude: number) => {
+        const mat = new MeshBasicNodeMaterial();
+        mat.transparent = true;
+        mat.side = THREE.DoubleSide;
+        mat.blending = THREE.AdditiveBlending;
+        mat.depthWrite = false;
 
-      lightningMat.positionNode = Fn(() => {
-        const pos = vec3(positionLocal).toVar();
-        const a = add(mul(pos.x, float(0.167)), float(0.5)); // normalize 0-1 across ribbon
-        const envelope = sin(mul(a, float(Math.PI)));
-        const noiseInput = add(pos, mul(vec3(1, 0, 0), mul(time, float(8))));
-        const disp = mx_fractal_noise_vec3(noiseInput, float(2), float(2), float(0.6), float(3));
-        pos.y.addAssign(mul(disp.y, mul(envelope, float(1.8))));
-        pos.z.addAssign(mul(disp.z, mul(envelope, float(1.8))));
-        return pos;
-      })();
+        mat.positionNode = Fn(() => {
+          const pos = vec3(positionLocal).toVar();
+          const a = pos.x.div(float(ribbonWidth)).add(float(0.5)).clamp();
+          const envelope = sin(a.mul(float(Math.PI)));
+          const noiseVal = mx_fractal_noise_float(
+            pos.x.mul(float(noiseScale)).add(mul(time, float(noiseSpeed))),
+            float(3), float(2), float(0.5), float(1),
+          );
+          pos.y.addAssign(noiseVal.mul(envelope).mul(float(amplitude)));
+          return pos;
+        })();
 
-      lightningMat.outputNode = Fn(() => {
-        const uvVar = uv().toVar();
-        const centerFade = sub(float(1), mul(sub(uvVar.y, float(0.5)).abs(), float(2)));
-        const flicker = add(float(0.7), mul(sin(mul(time, float(15))), float(0.3)));
-        const alpha = mul(centerFade, flicker, float(0.9));
-        return vec4(mul(vec3(0.5, 0.85, 1.0), mul(flicker, float(3.0))), alpha);
-      })();
+        mat.outputNode = Fn(() => {
+          const uvVar = uv().toVar();
+          const centerFade = float(1).sub(uvVar.y.sub(float(0.5)).abs().mul(float(2)));
+          const brightCore = centerFade.smoothstep(float(0), float(0.5));
+          const flicker = float(0.6).add(sin(mul(time, float(23))).mul(float(0.4)));
+          const alpha = brightCore.mul(flicker);
+          const col = mix(vec3(0.3, 0.6, 1.0), vec3(0.9, 0.95, 1.0), brightCore);
+          return vec4(col.mul(float(4.0)), alpha);
+        })();
 
-      const lightningRibbon = new THREE.Mesh(new THREE.PlaneGeometry(6, 0.15, 24, 1), lightningMat);
-      lightningRibbon.position.set(0, base.y + 2.4, base.z - 5.2);
+        return mat;
+      };
+
+      // Main bolt
+      const lightningMainMat = createLightningMat(12, 1.5, 8, 1.6);
+      const lightningRibbon = new THREE.Mesh(new THREE.PlaneGeometry(8, 0.4, 32, 1), lightningMainMat);
+      lightningRibbon.position.set(lightningX, base.y + 2.4, backRowZ);
       lightningRibbon.name = 'VFX_Lightning';
       lightningRibbon.castShadow = false;
       lightningRibbon.receiveShadow = false;
@@ -2596,27 +2796,39 @@ export class LevelManager implements Disposable {
       this.scene.add(lightningRibbon);
       this.levelObjects.push(lightningRibbon);
 
+      // Secondary thinner bolt (offset timing + smaller)
+      const lightningSecMat = createLightningMat(15, 2.0, 6, 1.2);
+      const lightningRibbon2 = new THREE.Mesh(new THREE.PlaneGeometry(6, 0.25, 24, 1), lightningSecMat);
+      lightningRibbon2.position.set(lightningX, base.y + 1.8, backRowZ + 0.3);
+      lightningRibbon2.name = 'VFX_Lightning2';
+      lightningRibbon2.castShadow = false;
+      lightningRibbon2.receiveShadow = false;
+      lightningRibbon2.frustumCulled = false;
+      this.scene.add(lightningRibbon2);
+      this.levelObjects.push(lightningRibbon2);
+
       // Lightning point light (CPU flicker kept — just 2 lines in update).
-      const lightningLight = new THREE.PointLight(0x88ccff, 8, 12, 2);
-      lightningLight.position.set(0, base.y + 2.5, base.z - 5.2);
+      const lightningLight = new THREE.PointLight(0x88ccff, 10, 14, 2);
+      lightningLight.position.set(lightningX, base.y + 2.5, backRowZ);
       lightningLight.castShadow = false;
       lightningLight.name = 'VFX_LightningLight';
       this.scene.add(lightningLight);
       this.levelObjects.push(lightningLight);
       this.vfxLightningLight = lightningLight;
 
-      // ── Scanner Ring (TSL animated) ───────────────────────────────────────
+      // ── 5. SCANNER (dual rings + vertical beam) ─────────────────────────
 
-      const scanMat = new MeshBasicNodeMaterial();
-      scanMat.transparent = true;
-      scanMat.side = THREE.DoubleSide;
-      scanMat.blending = THREE.AdditiveBlending;
-      scanMat.depthWrite = false;
+      // Outer scanning ring
+      const scanOuterMat = new MeshBasicNodeMaterial();
+      scanOuterMat.transparent = true;
+      scanOuterMat.side = THREE.DoubleSide;
+      scanOuterMat.blending = THREE.AdditiveBlending;
+      scanOuterMat.depthWrite = false;
 
-      scanMat.positionNode = Fn(() => {
+      scanOuterMat.positionNode = Fn(() => {
         const pos = vec3(positionLocal).toVar();
         const osc = sin(mul(time, float(1.5)));
-        const t = mul(add(osc, float(1)), float(0.5)); // 0-1
+        const t = mul(add(osc, float(1)), float(0.5));
         pos.y.addAssign(mul(t, float(3.2)));
         const scalePulse = add(float(1), mul(sin(mul(t, float(Math.PI))), float(0.15)));
         pos.x.mulAssign(scalePulse);
@@ -2624,23 +2836,78 @@ export class LevelManager implements Disposable {
         return pos;
       })();
 
-      scanMat.outputNode = Fn(() => {
+      scanOuterMat.outputNode = Fn(() => {
         const uvVar = uv().toVar();
         const osc = sin(mul(time, float(1.5)));
-        const t = mul(add(osc, float(1)), float(0.5));
-        const scanLines = mul(add(sin(add(mul(uvVar.y, float(80)), mul(time, float(5)))), float(1)), float(0.5));
-        const alpha = mul(add(float(0.3), mul(float(0.7), sin(mul(t, float(Math.PI))))), add(float(0.6), mul(scanLines, float(0.4))));
-        return vec4(mul(vec3(0.0, 1.0, 1.0), float(2.0)), alpha);
+        const t = osc.add(float(1)).mul(float(0.5));
+        const scanLines = sin(uvVar.x.mul(float(120)).add(mul(time, float(5)))).mul(float(0.5)).add(float(0.5));
+        const fadeEnvelope = sin(t.mul(float(Math.PI)));
+        const alpha = float(0.3).add(fadeEnvelope.mul(float(0.7))).mul(float(0.6).add(scanLines.mul(float(0.4))));
+        return vec4(vec3(0.0, 1.0, 1.0).mul(float(2.5)), alpha);
       })();
 
-      const scanRing = new THREE.Mesh(new THREE.RingGeometry(1.6, 1.85, 48), scanMat);
-      scanRing.rotation.x = -Math.PI / 2;
-      scanRing.position.set(0, base.y + 1.0, base.z + 2.5);
-      scanRing.name = 'VFX_Scanner';
-      scanRing.castShadow = false;
-      scanRing.receiveShadow = false;
-      this.scene.add(scanRing);
-      this.levelObjects.push(scanRing);
+      const scanRingOuter = new THREE.Mesh(new THREE.RingGeometry(1.6, 1.85, 48), scanOuterMat);
+      scanRingOuter.rotation.x = -Math.PI / 2;
+      scanRingOuter.position.set(scannerX, base.y + 0.5, frontRowZ);
+      scanRingOuter.name = 'VFX_ScannerOuter';
+      scanRingOuter.castShadow = false;
+      scanRingOuter.receiveShadow = false;
+      this.scene.add(scanRingOuter);
+      this.levelObjects.push(scanRingOuter);
+
+      // Inner ring (counter-phase, smaller)
+      const scanInnerMat = new MeshBasicNodeMaterial();
+      scanInnerMat.transparent = true;
+      scanInnerMat.side = THREE.DoubleSide;
+      scanInnerMat.blending = THREE.AdditiveBlending;
+      scanInnerMat.depthWrite = false;
+
+      scanInnerMat.positionNode = Fn(() => {
+        const pos = vec3(positionLocal).toVar();
+        const osc = sin(mul(time, float(1.5)).add(float(Math.PI)));
+        const t = mul(add(osc, float(1)), float(0.5));
+        pos.y.addAssign(mul(t, float(3.2)));
+        return pos;
+      })();
+
+      scanInnerMat.outputNode = Fn(() => {
+        const osc = sin(mul(time, float(1.5)).add(float(Math.PI)));
+        const t = osc.add(float(1)).mul(float(0.5));
+        const fadeEnvelope = sin(t.mul(float(Math.PI)));
+        const alpha = mul(fadeEnvelope, float(0.6));
+        return vec4(vec3(0.0, 0.8, 1.0).mul(float(2.0)), alpha);
+      })();
+
+      const scanRingInner = new THREE.Mesh(new THREE.RingGeometry(0.8, 1.0, 36), scanInnerMat);
+      scanRingInner.rotation.x = -Math.PI / 2;
+      scanRingInner.position.set(scannerX, base.y + 0.5, frontRowZ);
+      scanRingInner.name = 'VFX_ScannerInner';
+      scanRingInner.castShadow = false;
+      scanRingInner.receiveShadow = false;
+      this.scene.add(scanRingInner);
+      this.levelObjects.push(scanRingInner);
+
+      // Vertical beam column
+      const scanBeamMat = new MeshBasicNodeMaterial();
+      scanBeamMat.transparent = true;
+      scanBeamMat.blending = THREE.AdditiveBlending;
+      scanBeamMat.depthWrite = false;
+
+      scanBeamMat.outputNode = Fn(() => {
+        const uvVar = uv().toVar();
+        const shimmer = sin(uvVar.y.mul(float(40)).add(mul(time, float(4)))).mul(float(0.3)).add(float(0.7));
+        const edgeFade = float(1).sub(uvVar.x.sub(float(0.5)).abs().mul(float(2)));
+        const alpha = edgeFade.smoothstep(float(0), float(0.4)).mul(shimmer).mul(float(0.4));
+        return vec4(vec3(0.0, 0.9, 1.0).mul(float(2.0)), alpha);
+      })();
+
+      const scanBeam = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 5), scanBeamMat);
+      scanBeam.position.set(scannerX, base.y + 2.5, frontRowZ);
+      scanBeam.name = 'VFX_ScanBeam';
+      scanBeam.castShadow = false;
+      scanBeam.receiveShadow = false;
+      this.scene.add(scanBeam);
+      this.levelObjects.push(scanBeam);
 
       // ── Receiver wall backdrop (unchanged) ────────────────────────────────
 
@@ -2662,7 +2929,13 @@ export class LevelManager implements Disposable {
 
   /** Legacy sprite-based VFX bay (WebGL fallback). */
   private createVfxBayFallback(base: THREE.Vector3, bayWidth: number): void {
-    const rightX = Math.min(14, bayWidth * 0.32);
+    const halfW = bayWidth * 0.5;
+    const fireX = Math.min(10, halfW * 0.37);
+    const laserX = Math.min(16, halfW * 0.6);
+    const lightningX = 0;
+    const scannerX = -Math.min(8, halfW * 0.3);
+    const backRowZ = base.z - 3;
+    const frontRowZ = base.z + 3;
 
     // Ground glow plane under fire.
     const glowMat = new THREE.MeshStandardMaterial({
@@ -2670,7 +2943,7 @@ export class LevelManager implements Disposable {
     });
     const glowPlane = new THREE.Mesh(new THREE.PlaneGeometry(5, 4), glowMat);
     glowPlane.rotation.x = -Math.PI / 2;
-    glowPlane.position.set(rightX, base.y + 0.02, base.z + 2.2);
+    glowPlane.position.set(fireX, base.y + 0.02, frontRowZ);
     glowPlane.name = 'VFX_FireGlow';
     glowPlane.receiveShadow = false;
     glowPlane.castShadow = false;
@@ -2679,7 +2952,7 @@ export class LevelManager implements Disposable {
 
     // Fire point light.
     const fireLight = new THREE.PointLight(0xff6622, 15, 14, 2);
-    fireLight.position.set(rightX, base.y + 2.0, base.z + 2.2);
+    fireLight.position.set(fireX, base.y + 2.0, frontRowZ);
     fireLight.castShadow = false;
     fireLight.name = 'VFX_FireLight';
     this.scene.add(fireLight);
@@ -2690,24 +2963,24 @@ export class LevelManager implements Disposable {
       color: 0x220000, roughness: 0.2, metalness: 0.2, emissive: 0xff2a2a, emissiveIntensity: 2.6,
     });
     const laser = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 10, 10), laserMat);
-    laser.position.set(0, base.y + 1.2, base.z - 2.2);
-    laser.rotation.z = Math.PI / 2;
+    laser.position.set(laserX, base.y + 1.8, backRowZ);
+    laser.rotation.z = Math.PI * 0.35;
     laser.castShadow = false;
     laser.receiveShadow = false;
     laser.name = 'VFX_Laser';
     this.scene.add(laser);
     this.levelObjects.push(laser);
 
-    const laserLight = new THREE.PointLight(0xff3a3a, 10, 12, 2);
-    laserLight.position.set(0, base.y + 1.6, base.z - 2.2);
+    const laserLight = new THREE.PointLight(0xff3a3a, 12, 14, 2);
+    laserLight.position.set(laserX, base.y + 2.0, backRowZ);
     laserLight.castShadow = false;
     laserLight.name = 'VFX_LaserLight';
     this.scene.add(laserLight);
     this.levelObjects.push(laserLight);
 
     // Lightning point light (static fallback).
-    const lightningLight = new THREE.PointLight(0x88ccff, 8, 12, 2);
-    lightningLight.position.set(0, base.y + 2.5, base.z - 5.2);
+    const lightningLight = new THREE.PointLight(0x88ccff, 10, 14, 2);
+    lightningLight.position.set(lightningX, base.y + 2.5, backRowZ);
     lightningLight.castShadow = false;
     lightningLight.name = 'VFX_LightningLight';
     this.scene.add(lightningLight);
@@ -2720,7 +2993,7 @@ export class LevelManager implements Disposable {
     });
     const scanRing = new THREE.Mesh(new THREE.RingGeometry(1.6, 1.85, 48), scanMat);
     scanRing.rotation.x = -Math.PI / 2;
-    scanRing.position.set(0, base.y + 1.0, base.z + 2.5);
+    scanRing.position.set(scannerX, base.y + 0.5, frontRowZ);
     scanRing.name = 'VFX_Scanner';
     this.scene.add(scanRing);
     this.levelObjects.push(scanRing);
