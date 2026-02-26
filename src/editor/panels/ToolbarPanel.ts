@@ -5,6 +5,7 @@ export type TransformMode = 'translate' | 'rotate' | 'scale';
 export interface ToolbarCallbacks {
   onSave: () => void;
   onLoad: () => void;
+  onImportGLB: () => void;
   onUndo: () => void;
   onRedo: () => void;
   onToggleSnap: () => void;
@@ -36,6 +37,7 @@ export class ToolbarPanel extends EditorPanel {
     // --- Group 1: File operations ---
     el.appendChild(this.createBtn('Save', this.callbacks.onSave));
     el.appendChild(this.createBtn('Load', this.callbacks.onLoad));
+    el.appendChild(this.createBtn('Import', this.callbacks.onImportGLB));
     el.appendChild(this.createBtn('Undo', this.callbacks.onUndo));
     el.appendChild(this.createBtn('Redo', this.callbacks.onRedo));
 

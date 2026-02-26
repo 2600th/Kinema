@@ -40,6 +40,7 @@ async function bootstrap(): Promise<void> {
   const { AudioManager } = await import('@audio/AudioManager');
   const { VehicleManager } = await import('@vehicle/VehicleManager');
   const { MenuManager } = await import('@ui/menus/MenuManager');
+  const { LevelSaveStore } = await import('@level/LevelSaveStore');
   const { Game } = await import('./Game');
 
   const settings = UserSettingsStore.load();
@@ -145,6 +146,23 @@ async function bootstrap(): Promise<void> {
     levelLoaded = false;
   };
 
+  const startSavedLevel = async (key: string): Promise<void> => {
+    if (levelLoaded) {
+      game.teardownLevel();
+      levelManager.unload();
+      levelLoaded = false;
+    }
+    const data = LevelSaveStore.load(key);
+    if (!data) {
+      console.error(`[Kinema] Failed to load saved level "${key}"`);
+      return;
+    }
+    await levelManager.loadFromJSON(data);
+    playerController.spawn(levelManager.getSpawnPoint());
+    game.setupLevel();
+    levelLoaded = true;
+  };
+
   const menuManager = new MenuManager(
     eventBus,
     gameLoop,
@@ -154,6 +172,7 @@ async function bootstrap(): Promise<void> {
     camera,
     audioManager,
     startGame,
+    startSavedLevel,
     returnToMainMenu,
   );
   menuManager.showMainMenu();

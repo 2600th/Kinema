@@ -6,6 +6,8 @@ import type { GraphicsProfile } from '@core/UserSettings';
 import { COLLISION_GROUP_WORLD } from '@core/constants';
 import type { PhysicsWorld } from '@physics/PhysicsWorld';
 import { ColliderFactory } from '@physics/ColliderFactory';
+import type { LevelDataV2, SerializedObjectV2 } from '@editor/LevelSerializer';
+import { getBrushById } from '@editor/brushes/index';
 import {
   SHOWCASE_LAYOUT,
   SHOWCASE_STATION_ORDER,
@@ -193,6 +195,172 @@ export class LevelManager implements Disposable {
 
     this.eventBus.emit('level:loaded', { name });
     console.log(`[LevelManager] Level "${name}" loaded`);
+  }
+
+  /** Public accessor for the asset loader (used by editor for GLB import). */
+  getAssetLoader(): AssetLoader {
+    return this.assetLoader;
+  }
+
+  /**
+   * Load a level from editor JSON (LevelDataV2).
+   * Spawns all objects, creates physics, adds lighting.
+   */
+  async loadFromJSON(data: LevelDataV2): Promise<void> {
+    if (this.currentLevelName) {
+      this.unload();
+    }
+    this.spawnPoint = createDefaultSpawnPoint();
+
+    // Apply spawn point from JSON
+    if (data.spawnPoint?.position) {
+      const [x, y, z] = data.spawnPoint.position;
+      this.spawnPoint = { position: new THREE.Vector3(x, y, z) };
+    }
+
+    // Spawn each object
+    for (const entry of data.objects) {
+      await this.spawnJSONObject(entry);
+    }
+
+    this.currentLevelName = data.name || 'custom';
+    this.addLighting();
+    this.eventBus.emit('level:loaded', { name: this.currentLevelName });
+    console.log(`[LevelManager] JSON level "${this.currentLevelName}" loaded (${data.objects.length} objects)`);
+  }
+
+  private async spawnJSONObject(entry: SerializedObjectV2): Promise<void> {
+    let mesh: THREE.Mesh | null = null;
+
+    if (entry.source.type === 'primitive' && entry.source.primitive) {
+      mesh = this.createPrimitiveMesh(entry.source.primitive);
+    } else if (entry.source.type === 'brush' && entry.source.brush) {
+      mesh = this.createBrushMesh(entry.source.brush);
+    } else if (entry.source.type === 'glb' && entry.source.asset) {
+      mesh = await this.loadGLBObject(entry.source.asset);
+    }
+
+    if (!mesh) return;
+
+    // Apply transform
+    const [px, py, pz] = entry.transform.position;
+    const [rx, ry, rz] = entry.transform.rotation;
+    const [sx, sy, sz] = entry.transform.scale;
+    mesh.position.set(px, py, pz);
+    mesh.rotation.set(rx, ry, rz);
+    mesh.scale.set(sx, sy, sz);
+
+    // Apply material properties
+    if (entry.material && mesh.material instanceof THREE.MeshStandardMaterial) {
+      const mat = mesh.material;
+      mat.color.set(entry.material.color);
+      mat.roughness = entry.material.roughness;
+      mat.metalness = entry.material.metalness;
+      mat.emissive.set(entry.material.emissive);
+      mat.emissiveIntensity = entry.material.emissiveIntensity;
+      if (entry.material.opacity < 1) {
+        mat.transparent = true;
+        mat.opacity = entry.material.opacity;
+      }
+    }
+
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.name = entry.name;
+    this.scene.add(mesh);
+    this.levelObjects.push(mesh);
+
+    // Create physics body
+    const physType = entry.physics?.type ?? 'static';
+    let bodyDesc: RAPIER.RigidBodyDesc;
+    if (physType === 'dynamic') {
+      bodyDesc = RAPIER.RigidBodyDesc.dynamic();
+    } else if (physType === 'kinematic') {
+      bodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased();
+    } else {
+      bodyDesc = RAPIER.RigidBodyDesc.fixed();
+    }
+    bodyDesc.setTranslation(px, py, pz);
+    const body = this.physicsWorld.world.createRigidBody(bodyDesc);
+
+    // Approximate collider from geometry bounding box
+    mesh.geometry.computeBoundingBox();
+    const bb = mesh.geometry.boundingBox!;
+    const halfW = ((bb.max.x - bb.min.x) / 2) * sx;
+    const halfH = ((bb.max.y - bb.min.y) / 2) * sy;
+    const halfD = ((bb.max.z - bb.min.z) / 2) * sz;
+    const colliderDesc = RAPIER.ColliderDesc.cuboid(
+      Math.max(halfW, 0.01),
+      Math.max(halfH, 0.01),
+      Math.max(halfD, 0.01),
+    ).setCollisionGroups(COLLISION_GROUP_WORLD);
+    const collider = this.physicsWorld.world.createCollider(colliderDesc, body);
+
+    this.levelBodies.push(body);
+    this.levelColliders.push(collider);
+
+    // Track dynamic bodies for interpolation
+    if (physType === 'dynamic') {
+      this.dynamicBodies.push({
+        mesh,
+        body,
+        prevPos: mesh.position.clone(),
+        currPos: mesh.position.clone(),
+        prevQuat: mesh.quaternion.clone(),
+        currQuat: mesh.quaternion.clone(),
+        hasPose: false,
+      });
+    }
+  }
+
+  private createPrimitiveMesh(primitive: string): THREE.Mesh {
+    let geometry: THREE.BufferGeometry;
+    if (primitive === 'sphere') geometry = new THREE.SphereGeometry(0.5, 16, 16);
+    else if (primitive === 'cylinder') geometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 16);
+    else if (primitive === 'capsule') geometry = new THREE.CapsuleGeometry(0.4, 0.6, 6, 12);
+    else if (primitive === 'plane') geometry = new THREE.PlaneGeometry(1, 1);
+    else geometry = new THREE.BoxGeometry(1, 1, 1);
+    return new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0xb0c4de, roughness: 0.6 }));
+  }
+
+  private createBrushMesh(brushId: string): THREE.Mesh | null {
+    const brush = getBrushById(brushId);
+    if (!brush) return null;
+    const defaultParams = {
+      anchor: new THREE.Vector3(0, 0, 0),
+      current: new THREE.Vector3(1, 0, 1),
+      normal: new THREE.Vector3(0, 1, 0),
+      height: 1,
+    };
+    const geometry = brush.buildPreviewGeometry(defaultParams);
+    const material = brush.getDefaultMaterial();
+    return new THREE.Mesh(geometry, material);
+  }
+
+  private async loadGLBObject(assetPath: string): Promise<THREE.Mesh | null> {
+    try {
+      const gltf = await this.assetLoader.load(assetPath);
+      // Find the first mesh in the GLB scene
+      let foundMesh: THREE.Mesh | null = null;
+      gltf.scene.traverse((child) => {
+        if (!foundMesh && child instanceof THREE.Mesh) {
+          foundMesh = child.clone();
+        }
+      });
+      if (foundMesh) return foundMesh;
+      // If no individual mesh found, bake the whole scene into a group-like mesh
+      const clone = gltf.scene.clone();
+      // Wrap in a dummy mesh for consistent handling
+      const wrapper = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.01, 0.01), new THREE.MeshBasicMaterial({ visible: false }));
+      wrapper.add(clone);
+      return wrapper;
+    } catch (err) {
+      console.warn(`[LevelManager] Failed to load GLB "${assetPath}", using placeholder`, err);
+      // Magenta wireframe cube placeholder
+      const geo = new THREE.BoxGeometry(1, 1, 1);
+      const mat = new THREE.MeshBasicMaterial({ color: 0xff00ff, wireframe: true });
+      return new THREE.Mesh(geo, mat);
+    }
   }
 
   /** Unload all current level resources. */

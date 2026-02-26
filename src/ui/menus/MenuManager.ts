@@ -8,6 +8,7 @@ import type { InputManager } from '@input/InputManager';
 import { MainMenu } from './MainMenu';
 import { PauseMenu } from './PauseMenu';
 import { SettingsMenu } from './SettingsMenu';
+import { LevelSelectMenu } from './LevelSelectMenu';
 import './menus.css';
 
 interface MenuScreen {
@@ -27,6 +28,7 @@ export class MenuManager {
   private mainMenu: MainMenu;
   private pauseMenu: PauseMenu;
   private settingsMenu: SettingsMenu;
+  private levelSelectMenu: LevelSelectMenu;
 
   constructor(
     private eventBus: EventBus,
@@ -37,6 +39,7 @@ export class MenuManager {
     camera: OrbitFollowCamera,
     audioManager: AudioManager,
     private onPlay: () => Promise<void>,
+    private onPlayLevel: (key: string) => Promise<void>,
     private onReturnToMainMenu: () => Promise<void>,
   ) {
     this.overlay = document.createElement('div');
@@ -45,6 +48,7 @@ export class MenuManager {
 
     this.mainMenu = new MainMenu({
       onPlay: () => void this.handlePlay(),
+      onLevelSelect: () => this.push(this.levelSelectMenu),
       onSettings: () => this.push(this.settingsMenu),
       onQuit: () => this.handleQuit(),
     });
@@ -60,6 +64,11 @@ export class MenuManager {
       renderer: this.renderer,
       audioManager,
       eventBus: this.eventBus,
+      onBack: () => this.pop(),
+    });
+    this.levelSelectMenu = new LevelSelectMenu({
+      onSelectLevel: (key) => void this.handlePlaySavedLevel(key),
+      onPlayProcedural: () => void this.handlePlay(),
       onBack: () => this.pop(),
     });
 
@@ -88,6 +97,7 @@ export class MenuManager {
     this.mainMenu.dispose();
     this.pauseMenu.dispose();
     this.settingsMenu.dispose();
+    this.levelSelectMenu.dispose();
     this.overlay.remove();
     this.stopBackgroundLoop();
   }
@@ -135,6 +145,18 @@ export class MenuManager {
 
   private async handlePlay(): Promise<void> {
     await this.onPlay();
+    while (this.stack.length) {
+      this.pop();
+    }
+    this.resumeOnClose = false;
+    if (!this.gameLoop.isRunning()) {
+      this.gameLoop.start();
+    }
+    void this.requestPointerLock();
+  }
+
+  private async handlePlaySavedLevel(key: string): Promise<void> {
+    await this.onPlayLevel(key);
     while (this.stack.length) {
       this.pop();
     }

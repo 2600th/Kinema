@@ -12,6 +12,7 @@ import { SnapGrid } from './SnapGrid';
 import { FreeCamera } from './FreeCamera';
 import { CommandHistory } from './CommandHistory';
 import { LevelSerializer, type LevelData } from './LevelSerializer';
+import { LevelSaveStore } from '@level/LevelSaveStore';
 import type { EditorObject } from './EditorObject';
 import { ToolbarPanel } from './panels/ToolbarPanel';
 import { BrushPanel } from './panels/BrushPanel';
@@ -23,6 +24,7 @@ import { getBrushById, BRUSH_REGISTRY } from './brushes/index';
 type PlacementPhase = 'idle' | 'position';
 
 let brushNameCounter = 0;
+let glbNameCounter = 0;
 
 export class EditorManager {
   private active = false;
@@ -42,6 +44,10 @@ export class EditorManager {
   private activeBrush: BrushDefinition | null = null;
   private previewMesh: THREE.Mesh | null = null;
   private placementPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+  /* ---- GLB placement state ---- */
+  private glbPreview: THREE.Object3D | null = null;
+  private pendingGLBAsset: string | null = null;
 
   /* ---- Subsystems (kept) ---- */
   private gizmo: TransformGizmo;
@@ -75,6 +81,7 @@ export class EditorManager {
     this.toolbarPanel = new ToolbarPanel({
       onSave: () => this.saveLevel(),
       onLoad: () => this.loadLevel(),
+      onImportGLB: () => this.openGLBFilePicker(),
       onUndo: () => this.history.undo(),
       onRedo: () => this.history.redo(),
       onToggleSnap: () => this.toggleSnap(),
@@ -183,6 +190,8 @@ export class EditorManager {
     this.buildEditorObjects();
     this.syncHierarchy();
     this.bindEditorInput();
+    this.renderer.canvas.addEventListener('dragover', this.onDragOver);
+    this.renderer.canvas.addEventListener('drop', this.onDrop);
   }
 
   private exit(): void {
@@ -197,6 +206,8 @@ export class EditorManager {
     for (const panel of this.panels) panel.hide();
     this.cancelPlacement();
     this.setSelection(null);
+    this.renderer.canvas.removeEventListener('dragover', this.onDragOver);
+    this.renderer.canvas.removeEventListener('drop', this.onDrop);
     this.unbindEditorInput();
     this.gizmo.attach(null);
   }
@@ -225,7 +236,7 @@ export class EditorManager {
     if (e.button === 2 || e.button === 1) return; // right/middle for camera
 
     if (e.button === 0) {
-      if (this.placementPhase === 'position' && this.previewMesh) {
+      if (this.placementPhase === 'position' && (this.previewMesh || this.glbPreview)) {
         this.confirmPlacement();
         return;
       }
@@ -495,7 +506,9 @@ export class EditorManager {
   }
 
   private updatePlacementPreview(): void {
-    if (this.placementPhase !== 'position' || !this.previewMesh) return;
+    if (this.placementPhase !== 'position') return;
+    const target = this.previewMesh ?? this.glbPreview;
+    if (!target) return;
     this.raycaster.setFromCamera(this.mouse, this.renderer.camera);
     const point = new THREE.Vector3();
     this.raycaster.ray.intersectPlane(this.placementPlane, point);
@@ -504,10 +517,15 @@ export class EditorManager {
       point.y = Math.round(point.y / this.grid.positionSnap) * this.grid.positionSnap;
       point.z = Math.round(point.z / this.grid.positionSnap) * this.grid.positionSnap;
     }
-    this.previewMesh.position.copy(point);
+    target.position.copy(point);
   }
 
   private confirmPlacement(): void {
+    // GLB placement branch
+    if (this.glbPreview && this.pendingGLBAsset) {
+      this.confirmGLBPlacement();
+      return;
+    }
     if (!this.activeBrush || !this.previewMesh) return;
     const brush = this.activeBrush;
     const position = this.previewMesh.position.clone();
@@ -602,9 +620,157 @@ export class EditorManager {
       }
     }
     this.previewMesh = null;
+    if (this.glbPreview) {
+      this.renderer.scene.remove(this.glbPreview);
+    }
+    this.glbPreview = null;
+    this.pendingGLBAsset = null;
     this.placementPhase = 'idle';
     // Don't clear activeBrush here so brush bar keeps highlight if user wants another
   }
+
+  /* ==================================================================
+   *  GLB import + placement
+   * ================================================================== */
+
+  private openGLBFilePicker(): void {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.glb,.gltf';
+    input.addEventListener('change', () => {
+      const file = input.files?.[0];
+      if (file) void this.importGLBFile(file);
+    });
+    input.click();
+  }
+
+  private async importGLBFile(file: File): Promise<void> {
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      const gltf = await this.levelManager.getAssetLoader().load(objectUrl);
+      const assetPath = `/assets/models/${file.name}`;
+      const clone = gltf.scene.clone();
+      this.startGLBPlacement(clone, assetPath);
+    } catch (err) {
+      console.error('[Editor] Failed to import GLB:', err);
+    }
+  }
+
+  private startGLBPlacement(scene: THREE.Object3D, assetPath: string): void {
+    this.cancelPlacement();
+    this.pendingGLBAsset = assetPath;
+    this.glbPreview = scene;
+    // Make preview transparent
+    this.glbPreview.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.material) {
+        const mat = (child.material as THREE.Material).clone();
+        (mat as THREE.MeshStandardMaterial).transparent = true;
+        (mat as THREE.MeshStandardMaterial).opacity = 0.4;
+        (mat as THREE.MeshStandardMaterial).depthWrite = false;
+        child.material = mat;
+      }
+    });
+    this.renderer.scene.add(this.glbPreview);
+    this.placementPhase = 'position';
+  }
+
+  private confirmGLBPlacement(): void {
+    if (!this.glbPreview || !this.pendingGLBAsset) return;
+    const position = this.glbPreview.position.clone();
+    const assetPath = this.pendingGLBAsset;
+
+    // Remove the transparent preview
+    this.renderer.scene.remove(this.glbPreview);
+
+    // Create final opaque clone
+    const finalObj = this.glbPreview.clone();
+    finalObj.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.material) {
+        const mat = (child.material as THREE.Material).clone();
+        (mat as THREE.MeshStandardMaterial).transparent = false;
+        (mat as THREE.MeshStandardMaterial).opacity = 1;
+        (mat as THREE.MeshStandardMaterial).depthWrite = true;
+        child.material = mat;
+        child.castShadow = true;
+        child.receiveShadow = true;
+      }
+    });
+    finalObj.position.copy(position);
+
+    // Find first mesh for editor object, or use the group
+    let primaryMesh: THREE.Object3D = finalObj;
+    finalObj.traverse((child) => {
+      if (primaryMesh === finalObj && child instanceof THREE.Mesh) {
+        primaryMesh = child;
+      }
+    });
+
+    const editorObj: EditorObject = {
+      id: finalObj.uuid,
+      name: `GLB_${++glbNameCounter}`,
+      mesh: finalObj,
+      source: { type: 'glb', asset: assetPath },
+      transform: {
+        position: [position.x, position.y, position.z],
+        rotation: [0, 0, 0],
+        scale: [1, 1, 1],
+      },
+      parentId: null,
+      children: [],
+      visible: true,
+      locked: false,
+      physicsType: 'static',
+    };
+
+    finalObj.userData.editorSource = editorObj.source;
+
+    // Create static physics body with approximate bounding box
+    const box = new THREE.Box3().setFromObject(finalObj);
+    const size = box.getSize(new THREE.Vector3());
+    const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(position.x, position.y, position.z);
+    const body = this.physicsWorld.world.createRigidBody(bodyDesc);
+    const colliderDesc = RAPIER.ColliderDesc.cuboid(
+      Math.max(size.x / 2, 0.01),
+      Math.max(size.y / 2, 0.01),
+      Math.max(size.z / 2, 0.01),
+    );
+    const collider = this.physicsWorld.world.createCollider(colliderDesc, body);
+    editorObj.body = body;
+    editorObj.collider = collider;
+
+    this.history.push({
+      execute: () => {
+        this.addEditorObject(editorObj, this.renderer.scene);
+        this.syncHierarchy();
+        this.eventBus.emit('editor:objectAdded', { id: editorObj.id });
+      },
+      undo: () => {
+        this.removeEditorObject(editorObj);
+        this.syncHierarchy();
+        this.eventBus.emit('editor:objectRemoved', { id: editorObj.id });
+      },
+    });
+
+    this.setSelection(editorObj);
+    this.glbPreview = null;
+    this.pendingGLBAsset = null;
+    this.placementPhase = 'idle';
+  }
+
+  private onDragOver = (e: DragEvent): void => {
+    if (!this.active) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+  };
+
+  private onDrop = (e: DragEvent): void => {
+    if (!this.active) return;
+    e.preventDefault();
+    const file = e.dataTransfer?.files?.[0];
+    if (file && (file.name.endsWith('.glb') || file.name.endsWith('.gltf'))) {
+      void this.importGLBFile(file);
+    }
+  };
 
   /* ==================================================================
    *  Hierarchy operations
@@ -1062,8 +1228,11 @@ export class EditorManager {
    * ================================================================== */
 
   private async saveLevel(): Promise<void> {
-    const data = LevelSerializer.serialize('custom', this.editorObjects);
+    const name = window.prompt('Level name:', 'custom');
+    if (!name) return;
+    const data = LevelSerializer.serialize(name, this.editorObjects);
     LevelSerializer.download(data);
+    LevelSaveStore.save(data);
     this.eventBus.emit('editor:saved', { name: data.name });
   }
 
@@ -1095,17 +1264,16 @@ export class EditorManager {
     }
     this.editorObjects = this.editorObjects.filter((obj) => !obj.mesh.userData.editorSource);
 
-    // Spawn loaded objects (v1 format — Task 9 will update this for v2)
+    // Spawn loaded objects
     for (const entry of data.objects) {
-      this.spawnSerializedObject(entry);
+      await this.spawnSerializedObject(entry);
     }
 
     this.syncHierarchy();
     this.eventBus.emit('editor:loaded', { name: data.name });
   }
 
-  private spawnSerializedObject(entry: LevelData['objects'][number]): void {
-    // Simplified v1 spawn — creates basic primitives from serialized data
+  private async spawnSerializedObject(entry: LevelData['objects'][number]): Promise<void> {
     let obj: THREE.Object3D | null = null;
     if (entry.source.type === 'primitive' && entry.source.primitive) {
       let geometry: THREE.BufferGeometry;
@@ -1129,6 +1297,17 @@ export class EditorManager {
         const material = brush.getDefaultMaterial();
         obj = new THREE.Mesh(geometry, material);
       }
+    } else if (entry.source.type === 'glb' && entry.source.asset) {
+      try {
+        const gltf = await this.levelManager.getAssetLoader().load(entry.source.asset);
+        obj = gltf.scene.clone();
+      } catch (err) {
+        console.warn(`[Editor] Failed to load GLB "${entry.source.asset}", using placeholder`, err);
+        obj = new THREE.Mesh(
+          new THREE.BoxGeometry(1, 1, 1),
+          new THREE.MeshBasicMaterial({ color: 0xff00ff, wireframe: true }),
+        );
+      }
     }
     if (!obj) return;
 
@@ -1140,6 +1319,25 @@ export class EditorManager {
     const editorObj = this.buildEditorObject(obj);
     editorObj.name = entry.name;
     editorObj.source = entry.source;
+
+    // Apply material properties from serialized data
+    if (entry.material && obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshStandardMaterial) {
+      const mat = obj.material;
+      mat.color.set(entry.material.color);
+      mat.roughness = entry.material.roughness;
+      mat.metalness = entry.material.metalness;
+      mat.emissive.set(entry.material.emissive);
+      mat.emissiveIntensity = entry.material.emissiveIntensity;
+      if (entry.material.opacity < 1) {
+        mat.transparent = true;
+        mat.opacity = entry.material.opacity;
+      }
+      editorObj.material = entry.material;
+    }
+
+    if (entry.brushParams) {
+      editorObj.brushParams = entry.brushParams;
+    }
 
     // Create physics body if applicable
     if (entry.physics) {
