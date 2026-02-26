@@ -159,8 +159,52 @@ async function bootstrap(): Promise<void> {
     }
     await levelManager.loadFromJSON(data);
     playerController.spawn(levelManager.getSpawnPoint());
-    game.setupLevel();
+    game.setupCustomLevel();
     levelLoaded = true;
+  };
+
+  const startBlankLevelForEditor = async (): Promise<void> => {
+    if (levelLoaded) {
+      game.teardownLevel();
+      levelManager.unload();
+      levelLoaded = false;
+    }
+    // Minimal blank level: a floor platform so the player can stand
+    const blankLevel: import('@editor/LevelSerializer').LevelDataV2 = {
+      version: 2,
+      name: 'Untitled',
+      created: new Date().toISOString(),
+      modified: new Date().toISOString(),
+      spawnPoint: { position: [0, 2, 0] },
+      objects: [
+        {
+          id: 'floor-0',
+          name: 'Floor',
+          parentId: null,
+          source: { type: 'primitive', primitive: 'cube' },
+          transform: {
+            position: [0, -0.5, 0],
+            rotation: [0, 0, 0],
+            scale: [20, 1, 20],
+          },
+          physics: { type: 'static' },
+          material: {
+            color: '#4a5568',
+            roughness: 0.8,
+            metalness: 0,
+            emissive: '#000000',
+            emissiveIntensity: 0,
+            opacity: 1,
+          },
+        },
+      ],
+    };
+    await levelManager.loadFromJSON(blankLevel);
+    playerController.spawn(levelManager.getSpawnPoint());
+    game.setupCustomLevel();
+    levelLoaded = true;
+    // Open the editor
+    eventBus.emit('editor:toggle', undefined);
   };
 
   const menuManager = new MenuManager(
@@ -174,6 +218,7 @@ async function bootstrap(): Promise<void> {
     startGame,
     startSavedLevel,
     returnToMainMenu,
+    startBlankLevelForEditor,
   );
   menuManager.showMainMenu();
 

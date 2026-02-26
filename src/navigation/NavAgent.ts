@@ -47,6 +47,19 @@ export class NavAgent {
     scene.add(this.pathLine);
   }
 
+  highlight(durationMs = 2000): void {
+    const mat = this.mesh.material as THREE.MeshStandardMaterial;
+    const originalColor = mat.color.getHex();
+    mat.color.setHex(0x00ff88);
+    mat.emissive.setHex(0x00ff88);
+    mat.emissiveIntensity = 0.6;
+    setTimeout(() => {
+      mat.color.setHex(originalColor);
+      mat.emissive.setHex(0x000000);
+      mat.emissiveIntensity = 0;
+    }, durationMs);
+  }
+
   dispose(scene: THREE.Scene): void {
     scene.remove(this.mesh);
     this.mesh.geometry.dispose();

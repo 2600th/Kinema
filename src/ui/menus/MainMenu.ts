@@ -1,6 +1,7 @@
 interface MainMenuOptions {
   onPlay: () => void;
   onLevelSelect: () => void;
+  onCreateLevel: () => void;
   onSettings: () => void;
   onQuit: () => void;
 }
@@ -20,11 +21,13 @@ export class MainMenu {
 
     const playBtn = this.createButton('Play', this.options.onPlay);
     const levelSelectBtn = this.createButton('Level Select', this.options.onLevelSelect);
+    const createLevelBtn = this.createButton('Create Level', this.options.onCreateLevel);
     const settingsBtn = this.createButton('Settings', this.options.onSettings);
     const quitBtn = this.createButton('Quit', this.options.onQuit);
 
     this.root.appendChild(playBtn);
     this.root.appendChild(levelSelectBtn);
+    this.root.appendChild(createLevelBtn);
     this.root.appendChild(settingsBtn);
     this.root.appendChild(quitBtn);
   }

@@ -271,6 +271,14 @@ export class RendererManager implements Disposable {
       (this as { renderer: THREE.WebGLRenderer | WebGPURenderer }).renderer = wgpuRenderer;
       this.isWebGPUPipeline = true;
 
+      // Override device-lost handler to show a user-visible overlay
+      const defaultHandler = (wgpuRenderer as any)._onDeviceLost.bind(wgpuRenderer);
+      (wgpuRenderer as any).onDeviceLost = (info: { api: string; message: string; reason: string | null }) => {
+        defaultHandler(info);
+        console.error('[RendererManager] GPU device lost:', info);
+        this.showDeviceLostOverlay(info);
+      };
+
       // --- Pre-pass (opaque-only): normals + velocity + depth for AO/TRAA/SSR ---
       // WHY: AO computed from a transparent-inclusive depth buffer will "project" occlusion onto sprites/UI.
       // three.js reference: webgpu_postprocessing_ao example uses a prePass with transparent=false.
@@ -384,6 +392,12 @@ export class RendererManager implements Disposable {
       const buildPipeline = (profile: GraphicsProfile): TSLNode => {
         this.bloomNodes = []; // Clear to prevent accumulation leak
         this.ssrNode = null;
+
+        // Re-apply AO context so toggle changes take effect on rebuild
+        scenePass.contextNode = builtinAOContext(
+          this.gtaoEnabled ? ((aoSample as unknown as { r: unknown }).r as never) : (float(1) as never),
+        );
+
         let currentNode = scenePassColor;
 
         // Helper: preserve alpha while manipulating RGB.
@@ -452,8 +466,8 @@ export class RendererManager implements Disposable {
           u.quality.value = profile === 'cinematic' ? 0.7 : 0.5;
           this.ssrNode = ssrNode;
 
-          // Simple additive at fixed 0.18 strength (Lumen formula)
-          const nextRgb = add(currentRgb() as never, (ssrNode as unknown as { rgb: { mul: (n: number) => TSLNode } }).rgb.mul(0.18) as never) as TSLNode;
+          // Additive SSR blend driven by runtime ssrOpacity uniform
+          const nextRgb = add(currentRgb() as never, (ssrNode as unknown as { rgb: { mul: (n: unknown) => TSLNode } }).rgb.mul(ssrOpacityUniform) as never) as TSLNode;
           currentNode = keepAlphaWithRgb(currentNode, nextRgb);
         }
 
@@ -933,7 +947,7 @@ export class RendererManager implements Disposable {
     // 2. Cap pixel ratio by profile to avoid runaway GPU cost
     const maxPR = this.graphicsProfile === 'performance' ? 1 : this.graphicsProfile === 'balanced' ? 1.5 : 2;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPR) * this.resolutionScale);
-    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.enabled = this.shadowsEnabled;
 
     // 3. Rebuild the TSL node graph for the current profile
     if (this.isWebGPUPipeline && this.postProcessing && (this as any)._buildPipeline) {
@@ -944,6 +958,11 @@ export class RendererManager implements Disposable {
 
       // Re-apply the cached LUT to the new Lut3DNode (rebuild creates a placeholder)
       this.applyLutFromCache(this.lutName);
+
+      // Re-sync bloom strength to newly created bloom nodes
+      for (const node of this.bloomNodes) {
+        node.strength.value = this.bloomStrength;
+      }
     }
 
     this.handleResize();
@@ -986,7 +1005,51 @@ export class RendererManager implements Disposable {
     const h = window.innerHeight;
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    // Recalculate pixel ratio with profile-based cap (must be BEFORE setSize)
+    const maxPR = this.graphicsProfile === 'performance' ? 1
+      : this.graphicsProfile === 'balanced' ? 1.5 : 2;
+    this.renderer.setPixelRatio(
+      Math.min(window.devicePixelRatio, maxPR) * this.resolutionScale,
+    );
     this.renderer.setSize(w, h);
+  }
+
+  /** Show a full-screen overlay when the GPU device is lost. */
+  private showDeviceLostOverlay(info: { api: string; message: string; reason: string | null }): void {
+    if (document.getElementById('device-lost-overlay')) return;
+    const overlay = document.createElement('div');
+    overlay.id = 'device-lost-overlay';
+    Object.assign(overlay.style, {
+      position: 'fixed', inset: '0', zIndex: '99999',
+      background: 'rgba(0,0,0,0.85)', display: 'flex',
+      flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      color: '#fff', fontFamily: 'system-ui, sans-serif', textAlign: 'center',
+    } as CSSStyleDeclaration);
+
+    const h1 = document.createElement('h1');
+    h1.textContent = 'GPU Device Lost';
+    h1.style.margin = '0 0 12px';
+
+    const desc = document.createElement('p');
+    desc.textContent = 'The GPU connection was lost. This can happen when the driver crashes or the system resumes from sleep.';
+    Object.assign(desc.style, { maxWidth: '420px', lineHeight: '1.5', opacity: '0.8' });
+
+    const detail = document.createElement('p');
+    detail.textContent = `${info.api}: ${info.message || 'unknown'}`;
+    Object.assign(detail.style, {
+      fontSize: '12px', opacity: '0.5', fontFamily: 'monospace', margin: '8px 0 24px',
+    });
+
+    const btn = document.createElement('button');
+    btn.textContent = 'Reload Page';
+    Object.assign(btn.style, {
+      padding: '10px 28px', fontSize: '16px', cursor: 'pointer',
+      border: 'none', borderRadius: '6px', background: '#4488ff', color: '#fff',
+    });
+    btn.addEventListener('click', () => window.location.reload());
+
+    overlay.append(h1, desc, detail, btn);
+    document.body.appendChild(overlay);
   }
 
   dispose(): void {

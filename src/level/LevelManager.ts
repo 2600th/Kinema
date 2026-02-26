@@ -93,6 +93,7 @@ export class LevelManager implements Disposable {
   private navPatrolSystem: NavPatrolSystem | null = null;
   private navDebugOverlay: NavDebugOverlay | null = null;
   private textureAnisotropy = 8;
+  private _loadGeneration = 0;
 
   constructor(
     private scene: THREE.Scene,
@@ -365,6 +366,7 @@ export class LevelManager implements Disposable {
 
   /** Unload all current level resources. */
   unload(): void {
+    this._loadGeneration++;
     const name = this.currentLevelName;
 
     // Evict GLTF cache to avoid reusing disposed geometries/materials
@@ -1072,7 +1074,7 @@ export class LevelManager implements Disposable {
       11.4,
       2.25,
     );
-    this.createNavcatBay(hallFloor, bayTopY);
+    this.createNavcatBay(zNavigation, bayTopY);
 
     // Reserved empty bay for future additions (keep pedestal but no gameplay objects).
     this.createSectionLabel('Reserved\nFuture demos', new THREE.Vector3(0, 2.5, zFutureA), 8.8, 2.0);
@@ -1585,13 +1587,117 @@ export class LevelManager implements Disposable {
   }
 
   /**
-   * Navigation showcase bay: generates navmesh from the hall floor and spawns patrol agents.
-   * The hall floor is a single big mesh covering the entire corridor — NavMeshManager
-   * will build the navmesh from it and agents will naturally stay on walkable surfaces.
+   * Navigation showcase bay: creates a dedicated platform, generates a navmesh from it,
+   * and spawns patrol agents constrained to the navigation station area.
    */
-  private createNavcatBay(hallFloor: THREE.Mesh, _bayTopY: number): void {
+  private createNavcatBay(zStation: number, bayTopY: number): void {
+    // Dedicated navigation platform — agents are confined to this area only.
+    const platformWidth = 24;
+    const platformDepth = 20;
+    const platformThickness = 0.12;
+    const platformY = bayTopY + 0.01; // sits just above the bay pedestal
+    const surfaceY = platformY + platformThickness / 2;
+
+    const platformMat = new THREE.MeshStandardMaterial({
+      color: 0x1e2d3d,
+      roughness: 0.55,
+      metalness: 0.15,
+    });
+    const navPlatform = new THREE.Mesh(
+      new THREE.BoxGeometry(platformWidth, platformThickness, platformDepth),
+      platformMat,
+    );
+    navPlatform.position.set(0, platformY, zStation);
+    navPlatform.receiveShadow = true;
+    navPlatform.name = 'NavPlatform';
+    this.scene.add(navPlatform);
+    this.levelObjects.push(navPlatform);
+
+    // --- Obstacles for navmesh carving ---
+    const obstacleH = 1.2;
+    const obstacleMat = new THREE.MeshStandardMaterial({
+      color: 0x2a3a4a,
+      roughness: 0.4,
+      metalness: 0.3,
+    });
+    const obstacleAccent = new THREE.MeshStandardMaterial({
+      color: 0x334455,
+      roughness: 0.35,
+      metalness: 0.4,
+      emissive: 0x112233,
+      emissiveIntensity: 0.4,
+    });
+
+    const obstacles: THREE.Mesh[] = [];
+    const addObstacle = (mesh: THREE.Mesh) => {
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      this.scene.add(mesh);
+      this.levelObjects.push(mesh);
+      obstacles.push(mesh);
+    };
+
+    // L-wall: horizontal arm + vertical arm
+    const lWallH = new THREE.Mesh(new THREE.BoxGeometry(4, obstacleH, 0.4), obstacleMat);
+    lWallH.position.set(-3, surfaceY + obstacleH / 2, zStation - 1);
+    lWallH.name = 'NavObstacle_LWallH';
+    addObstacle(lWallH);
+
+    const lWallV = new THREE.Mesh(new THREE.BoxGeometry(0.4, obstacleH, 3), obstacleMat);
+    lWallV.position.set(-5, surfaceY + obstacleH / 2, zStation + 0.5);
+    lWallV.name = 'NavObstacle_LWallV';
+    addObstacle(lWallV);
+
+    // Horizontal wall (back area)
+    const hWall = new THREE.Mesh(new THREE.BoxGeometry(5, obstacleH, 0.4), obstacleAccent);
+    hWall.position.set(5, surfaceY + obstacleH / 2, zStation - 4);
+    hWall.name = 'NavObstacle_HWall';
+    addObstacle(hWall);
+
+    // Vertical wall (front area)
+    const vWall = new THREE.Mesh(new THREE.BoxGeometry(0.4, obstacleH, 4), obstacleAccent);
+    vWall.position.set(-7, surfaceY + obstacleH / 2, zStation + 3);
+    vWall.name = 'NavObstacle_VWall';
+    addObstacle(vWall);
+
+    // Column A (back-left)
+    const colA = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1.5, 12), obstacleMat);
+    colA.position.set(-4, surfaceY + 1.5 / 2, zStation - 5);
+    colA.name = 'NavObstacle_ColA';
+    addObstacle(colA);
+
+    // Column B (front-right)
+    const colB = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1.5, 12), obstacleMat);
+    colB.position.set(6, surfaceY + 1.5 / 2, zStation + 2);
+    colB.name = 'NavObstacle_ColB';
+    addObstacle(colB);
+
+    // Ensure world matrices are up to date for geometry extraction
+    navPlatform.updateWorldMatrix(true, false);
+    for (const obs of obstacles) obs.updateWorldMatrix(true, false);
+
+    // Add physics colliders so the player can't walk through obstacles
+    for (const obs of obstacles) {
+      this.levelColliders.push(this.colliderFactory.createTrimesh(obs));
+    }
+
+    // Create a padded invisible platform for navmesh generation.
+    // walkableRadiusVoxels * cellSize = 2 * 0.15 = 0.3 erosion per side;
+    // padding compensates so the resulting navmesh matches the visual platform.
+    const erosionPad = 0.3;
+    const navInputGeo = new THREE.BoxGeometry(
+      platformWidth + erosionPad * 2,
+      platformThickness,
+      platformDepth + erosionPad * 2,
+    );
+    const navInputMesh = new THREE.Mesh(navInputGeo);
+    navInputMesh.position.copy(navPlatform.position);
+    navInputMesh.updateWorldMatrix(true, false);
+
+    // Generate navmesh from padded platform + all obstacles
     this.navMeshManager = new NavMeshManager();
-    this.navMeshManager.generate([hallFloor]);
+    this.navMeshManager.generate([navInputMesh, ...obstacles]);
+    navInputGeo.dispose();
 
     const navMesh = this.navMeshManager.getNavMesh();
     if (!navMesh) {
@@ -2597,6 +2703,7 @@ export class LevelManager implements Disposable {
   }
 
   private async createVfxBay(base: THREE.Vector3, bayWidth: number): Promise<void> {
+    const gen = this._loadGeneration;
     // Try TSL GPU-driven path; fall back to legacy sprites if unavailable.
     try {
       const { MeshBasicNodeMaterial } = await import('three/webgpu');
@@ -2605,6 +2712,12 @@ export class LevelManager implements Disposable {
         texture, color, PI, TWO_PI, luminance,
       } = await import('three/tsl');
       const { mx_fractal_noise_float } = await import('three/tsl');
+
+      // Guard: if a new load/unload happened while awaiting imports, bail out
+      if (this._loadGeneration !== gen) {
+        console.log('[LevelManager] VFX bay creation aborted — level changed during import');
+        return;
+      }
 
       // Shared noise texture.
       this.vfxNoiseTexture = this.createNoiseTexture();

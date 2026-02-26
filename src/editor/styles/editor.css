@@ -69,6 +69,7 @@
 .ke-panel-body {
   padding: 8px;
   overflow-y: auto;
+  overflow-x: hidden;
   max-height: 70vh;
 }
 
@@ -182,7 +183,7 @@
 }
 
 .ke-inspector-label {
-  flex: 0 0 80px;
+  flex: 0 0 64px;
   font-size: var(--ke-font-size-sm);
   color: var(--ke-text-dim);
   text-align: right;

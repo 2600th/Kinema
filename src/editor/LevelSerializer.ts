@@ -92,12 +92,22 @@ export class LevelSerializer {
 
   static serialize(name: string, objects: EditorObject[]): LevelDataV2 {
     const now = new Date().toISOString();
+
+    // Derive spawn point from the first SpawnBrush object, fallback to default
+    let spawnPosition: [number, number, number] = [0, 2, 0];
+    const spawnObj = objects.find(
+      (obj) => obj.source.type === 'brush' && obj.source.brush === 'spawn',
+    );
+    if (spawnObj) {
+      spawnPosition = [...spawnObj.transform.position];
+    }
+
     return {
       version: 2,
       name,
       created: now,
       modified: now,
-      spawnPoint: { position: [0, 2, 0] },
+      spawnPoint: { position: spawnPosition },
       objects: objects.map((obj) => ({
         id: obj.id,
         name: obj.name,

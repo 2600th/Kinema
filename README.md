@@ -13,8 +13,9 @@
 - **Physics object interactions** — Grab/pull crates and barrels, pick up small objects, and throw them.
 - **Vehicles** — A drivable car and a flyable drone with camera handoff and input routing.
 - **Showcase level** — A centered, labeled corridor that contains all features (old + new) in non-overlapping stations for quick testing.
-- **Menus & settings** — Main menu, pause menu, and settings with persistent graphics/audio controls.
-- **Level editor** — In-game edit mode with free camera, gizmos, snapping, asset browser, and save/load.
+- **Menus & settings** — Main menu (Play, Level Select, Create Level, Settings, Quit), pause menu, and settings with persistent graphics/audio controls.
+- **Level editor** — In-game edit mode with free camera, gizmos, snapping, asset browser, brush system, and save/load. "Create Level" opens a blank scene directly into the editor.
+- **Navigation** — NavMesh generation via navcat, NavAgent pathfinding, patrol system, and debug overlay.
 - **Ambient audio** — Background music with Web Audio mixing and volume controls.
 - **Gameplay** — Checkpoints/respawn, objective tracking, HUD prompts and status messages.
 - **Debug panel** — FPS, physics/render metrics, and grouped controls for quality, environment, post-processing, and input tuning.
@@ -49,13 +50,15 @@ Vite will start a local server (typically `http://localhost:5173`). Open that UR
 
 ### 3. Focus the game and play
 
-- **Click "Play"** in the main menu to load the level.
+- **Click "Play"** in the main menu to load the procedural showcase level.
+- **Click "Create Level"** to open a blank scene with a floor and launch the editor directly.
+- **Click "Level Select"** to load a previously saved custom level.
 - **Click the canvas** so the page can capture the pointer (required for mouse look and pointer lock).
 - Move with **W A S D**, look with the **mouse**, jump with **Space**, interact with **E**.
 - Press **`` ` ``** (backtick) to open or close the **debug panel** for graphics and tuning.
-- Press **ESC** to open the pause menu; **F1** toggles the in-game editor.
+- Press **ESC** to open the pause menu; **F1** toggles the in-game editor (disabled while menus are open).
 
-That's enough to run the project and try the **procedural showcase corridor** (steps, slopes + SSR test, ladder, crouch/double-jump lanes, grab/pull, throwables, door/beacon, rope, vehicles, and moving platforms).
+That's enough to run the project and try the **procedural showcase corridor** (steps, slopes + SSR test, ladder, crouch/double-jump lanes, grab/pull, throwables, door/beacon, rope, vehicles, moving platforms, and nav-mesh patrol agents).
 
 ---
 
@@ -116,13 +119,15 @@ You can attach to the rope with `E` from the ground or in the air when in range.
 | Input | Action |
 |-------|--------|
 | Left mouse | Select object / place asset |
-| `W` / `E` / `R` | Translate / rotate / scale gizmo |
+| `W` / `E` / `R` | Translate / rotate / scale gizmo (only when an object is selected) |
 | `G` | Toggle grid |
 | `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
 | `Esc` | Cancel placement |
 | `Delete` / `Backspace` | Remove selected object |
+| Right mouse + drag | Free camera look |
+| `Q` / `E` | Camera down / up (when no object selected, `E` moves camera up) |
 
-Note: In **editor mode**, clicking the canvas **does not** enter pointer lock so you can freely use the cursor for UI editing.
+Note: In **editor mode**, clicking the canvas **does not** enter pointer lock so you can freely use the cursor for UI editing. `W`/`E`/`R` only switch gizmo mode when an object is selected, so `Q`/`E` vertical camera movement works freely otherwise.
 
 ### Runtime tuning (hotkeys)
 
@@ -263,6 +268,7 @@ Source lives under `src/`. Imports use **path aliases** so you don't rely on lon
 | `@audio` | `src/audio` |
 | `@vehicle` | `src/vehicle` |
 | `@editor` | `src/editor` |
+| `@navigation` | `src/navigation` |
 
 Example: `import { EventBus } from '@core/EventBus';` instead of `import { EventBus } from '../../core/EventBus';`.
 
@@ -303,7 +309,8 @@ src/
     PhysicsWorld.ts       Rapier world wrapper (default gravity -9.81)
     ColliderFactory.ts    Collider creation helpers
     PhysicsDebugView.ts   Wireframe debug renderer for Rapier colliders
-  editor/                 In-game level editor
+  editor/                 In-game level editor (brushes, gizmos, panels, serialization)
+  navigation/             NavMesh generation, pathfinding agents, patrol system, debug overlay
   renderer/
     RendererManager.ts    WebGPU/WebGL renderer, TSL pipeline, MRT, all post-FX
   ui/
@@ -312,13 +319,13 @@ src/
       DebugPanel.ts       Runtime debug overlay with all tunable controls
       HUD.ts              Gameplay HUD (prompts, objectives, status)
       FadeScreen.ts       Screen fade transitions
-    menus/                Main, pause, and settings menus
+    menus/                Main, pause, settings, and level select menus
   vehicle/                Vehicle controllers and manager
 ```
 
 ### Bootstrap flow
 
-`main.ts` initializes Rapier WASM, then constructs the renderer, physics world, input, level manager, player, camera, interaction, UI, audio, vehicles, and editor. The game loop starts after the main menu calls "Play" and the `procedural` level (centered showcase corridor) is loaded.
+`main.ts` initializes Rapier WASM, then constructs the renderer, physics world, input, level manager, player, camera, interaction, UI, audio, and vehicles. The main menu offers three entry points: **Play** (procedural showcase), **Level Select** (saved custom levels), and **Create Level** (blank scene + editor).
 
 ```
 main.ts
@@ -328,7 +335,11 @@ main.ts
   → new InteractionManager, UIManager, AudioManager, VehicleManager
   → new Game(all systems) — wires EventBus listeners, spawns interactables/checkpoints
   → new GameLoop(game, physicsWorld, renderer)
-  → new EditorManager, MenuManager → menu waits for "Play"
+  → new MenuManager → main menu with Play / Level Select / Create Level / Settings / Quit
+      ├─ Play          → levelManager.load('procedural') → game.setupLevel()
+      ├─ Level Select   → levelManager.loadFromJSON(saved) → game.setupCustomLevel()
+      └─ Create Level   → blank floor level → game.setupCustomLevel() → editor:toggle
+  → EditorManager lazy-loaded on first F1 or Create Level
 ```
 
 ---

@@ -41,6 +41,7 @@ export class MenuManager {
     private onPlay: () => Promise<void>,
     private onPlayLevel: (key: string) => Promise<void>,
     private onReturnToMainMenu: () => Promise<void>,
+    private onCreateLevel?: () => Promise<void>,
   ) {
     this.overlay = document.createElement('div');
     this.overlay.className = 'menu-overlay';
@@ -49,6 +50,7 @@ export class MenuManager {
     this.mainMenu = new MainMenu({
       onPlay: () => void this.handlePlay(),
       onLevelSelect: () => this.push(this.levelSelectMenu),
+      onCreateLevel: () => void this.handleCreateLevel(),
       onSettings: () => this.push(this.settingsMenu),
       onQuit: () => this.handleQuit(),
     });
@@ -165,6 +167,20 @@ export class MenuManager {
       this.gameLoop.start();
     }
     void this.requestPointerLock();
+  }
+
+  private async handleCreateLevel(): Promise<void> {
+    if (this.onCreateLevel) {
+      await this.onCreateLevel();
+    }
+    while (this.stack.length) {
+      this.pop();
+    }
+    this.resumeOnClose = false;
+    if (!this.gameLoop.isRunning()) {
+      this.gameLoop.start();
+    }
+    // Don't request pointer lock — editor needs free cursor
   }
 
   private async handleReturnToMainMenu(): Promise<void> {

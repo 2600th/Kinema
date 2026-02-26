@@ -395,7 +395,7 @@ export class InspectorPanel extends EditorPanel {
       input.step = '0.01';
       input.value = '0';
       input.title = `${label} ${axis}`;
-      Object.assign(input.style, { width: '70px' });
+      Object.assign(input.style, { flex: '1', minWidth: '0' });
       inputs.push(input);
       valueWrap.appendChild(input);
     }

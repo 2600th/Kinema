@@ -85,8 +85,11 @@ export class EditorManager {
       onUndo: () => this.history.undo(),
       onRedo: () => this.history.redo(),
       onToggleSnap: () => this.toggleSnap(),
-      onToggleGrid: () => this.grid.toggleGrid(),
-      onSetMode: (mode) => this.gizmo.setMode(mode),
+      onToggleGrid: () => {
+        this.grid.toggleGrid();
+        this.toolbarPanel.setGridActive(this.grid.isVisible());
+      },
+      onSetMode: (mode) => this.setTransformMode(mode),
     });
 
     this.brushPanel = new BrushPanel((brushId) => this.onBrushSelected(brushId));
@@ -189,6 +192,7 @@ export class EditorManager {
     for (const panel of this.panels) panel.show();
     this.buildEditorObjects();
     this.syncHierarchy();
+    this.syncToolbarState();
     this.bindEditorInput();
     this.renderer.canvas.addEventListener('dragover', this.onDragOver);
     this.renderer.canvas.addEventListener('drop', this.onDrop);
@@ -236,6 +240,9 @@ export class EditorManager {
     if (e.button === 2 || e.button === 1) return; // right/middle for camera
 
     if (e.button === 0) {
+      // Don't run selection raycast while transform gizmo is being dragged
+      if (this.gizmo.controls.dragging) return;
+
       if (this.placementPhase === 'position' && (this.previewMesh || this.glbPreview)) {
         this.confirmPlacement();
         return;
@@ -258,11 +265,14 @@ export class EditorManager {
     const tag = (e.target as HTMLElement)?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
-    if (e.code === 'KeyW' && !e.ctrlKey) this.gizmo.setMode('translate');
-    if (e.code === 'KeyE' && !e.ctrlKey) this.gizmo.setMode('rotate');
-    if (e.code === 'KeyR' && !e.ctrlKey) this.gizmo.setMode('scale');
+    if (e.code === 'KeyW' && !e.ctrlKey && this.selected) this.setTransformMode('translate');
+    if (e.code === 'KeyE' && !e.ctrlKey && this.selected) this.setTransformMode('rotate');
+    if (e.code === 'KeyR' && !e.ctrlKey && this.selected) this.setTransformMode('scale');
     if (e.code === 'Escape') this.cancelPlacement();
-    if (e.code === 'KeyG' && !e.ctrlKey) this.grid.toggleGrid();
+    if (e.code === 'KeyG' && !e.ctrlKey) {
+      this.grid.toggleGrid();
+      this.toolbarPanel.setGridActive(this.grid.isVisible());
+    }
     if (e.code === 'KeyZ' && e.ctrlKey) {
       this.history.undo();
       e.preventDefault();
@@ -1080,6 +1090,24 @@ export class EditorManager {
     }
     this.applyPhysicsTransform(this.selected);
     this.inspectorPanel.setSelection(this.selected);
+  }
+
+  /* ==================================================================
+   *  Transform mode + toolbar sync
+   * ================================================================== */
+
+  private currentTransformMode: 'translate' | 'rotate' | 'scale' = 'translate';
+
+  private setTransformMode(mode: 'translate' | 'rotate' | 'scale'): void {
+    this.currentTransformMode = mode;
+    this.gizmo.setMode(mode);
+    this.toolbarPanel.setActiveMode(mode);
+  }
+
+  private syncToolbarState(): void {
+    this.toolbarPanel.setActiveMode(this.currentTransformMode);
+    this.toolbarPanel.setSnapActive(this.grid.enabled);
+    this.toolbarPanel.setGridActive(this.grid.isVisible());
   }
 
   /* ==================================================================

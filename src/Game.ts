@@ -60,6 +60,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
   private navDebugOverlay: NavDebugOverlay | null = null;
   private navTargetMode = false;
   private _onNavTargetClick: ((e: MouseEvent) => void) | null = null;
+  private navTargetMarker: THREE.Mesh | null = null;
 
   constructor(
     private renderer: RendererManager,
@@ -398,6 +399,12 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     this.navDebugOverlay = this.levelManager.getNavDebugOverlay();
   }
 
+  /** Minimal level setup for custom/editor levels — no procedural showcase content. */
+  setupCustomLevel(): void {
+    this.clearRuntimeInteractables();
+    this.vehicleManager.clear();
+  }
+
   teardownLevel(): void {
     this.clearRuntimeInteractables();
     this.vehicleManager.clear();
@@ -688,6 +695,17 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       console.log(`[Settings] gamepadCurve=${settings.gamepadCurve.toFixed(2)}`);
     }
 
+    // Simulate GPU device loss (debug only)
+    if (e.ctrlKey && e.shiftKey && e.code === 'KeyL') {
+      e.preventDefault();
+      const r = this.renderer.renderer as any;
+      if (typeof r.onDeviceLost === 'function') {
+        r.onDeviceLost({ api: 'WebGPU', message: 'Simulated device loss (debug)', reason: null });
+        console.warn('[Game] Simulated GPU device loss via Ctrl+Shift+L');
+      }
+      return;
+    }
+
     // Navigation debug keys — only when editor is NOT active.
     if (this.editorManager?.isActive()) return;
 
@@ -701,6 +719,8 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       this.navTargetMode = !this.navTargetMode;
       console.log(`[Nav] target mode ${this.navTargetMode ? 'ON — click floor to redirect nearest agent' : 'OFF'}`);
       if (this.navTargetMode) {
+        // Exit pointer lock so the user gets a free cursor for clicking
+        document.exitPointerLock();
         this._onNavTargetClick = (ev: MouseEvent) => this.handleNavTargetClick(ev);
         window.addEventListener('click', this._onNavTargetClick);
       } else {
@@ -723,13 +743,66 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), this.renderer.camera);
     const hits = raycaster.intersectObjects(this.renderer.scene.children, true);
     for (const hit of hits) {
-      // Accept any mesh that has a collider-like name (floor, bay, etc.).
       if (hit.object instanceof THREE.Mesh) {
-        this.navPatrolSystem.requestTargetForNearest(hit.point);
+        const agent = this.navPatrolSystem.requestTargetForNearest(hit.point);
         console.log(`[Nav] target set at (${hit.point.x.toFixed(1)}, ${hit.point.y.toFixed(1)}, ${hit.point.z.toFixed(1)})`);
+
+        // Show target marker on the ground
+        this.showNavTargetMarker(hit.point);
+
+        // Highlight the responding agent
+        if (agent) agent.highlight();
+
+        // Auto-disable target mode; next canvas click will re-acquire pointer lock
+        this.navTargetMode = false;
+        if (this._onNavTargetClick) {
+          window.removeEventListener('click', this._onNavTargetClick);
+          this._onNavTargetClick = null;
+        }
         break;
       }
     }
+  }
+
+  private showNavTargetMarker(position: THREE.Vector3): void {
+    // Remove previous marker
+    if (this.navTargetMarker) {
+      this.renderer.scene.remove(this.navTargetMarker);
+      this.navTargetMarker.geometry.dispose();
+      (this.navTargetMarker.material as THREE.Material).dispose();
+    }
+
+    const geo = new THREE.RingGeometry(0.3, 0.5, 24);
+    geo.rotateX(-Math.PI / 2);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0x00ff88,
+      transparent: true,
+      opacity: 0.8,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    this.navTargetMarker = new THREE.Mesh(geo, mat);
+    this.navTargetMarker.position.set(position.x, position.y + 0.05, position.z);
+    this.navTargetMarker.name = 'NavTargetMarker';
+    this.renderer.scene.add(this.navTargetMarker);
+
+    // Fade out and remove after 3 seconds
+    let elapsed = 0;
+    const fadeInterval = setInterval(() => {
+      elapsed += 50;
+      const t = elapsed / 3000;
+      if (t >= 1) {
+        clearInterval(fadeInterval);
+        if (this.navTargetMarker) {
+          this.renderer.scene.remove(this.navTargetMarker);
+          this.navTargetMarker.geometry.dispose();
+          (this.navTargetMarker.material as THREE.Material).dispose();
+          this.navTargetMarker = null;
+        }
+        return;
+      }
+      mat.opacity = 0.8 * (1 - t);
+    }, 50);
   }
 
   dispose(): void {
@@ -737,6 +810,12 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     if (this._onNavTargetClick) {
       window.removeEventListener('click', this._onNavTargetClick);
       this._onNavTargetClick = null;
+    }
+    if (this.navTargetMarker) {
+      this.renderer.scene.remove(this.navTargetMarker);
+      this.navTargetMarker.geometry.dispose();
+      (this.navTargetMarker.material as THREE.Material).dispose();
+      this.navTargetMarker = null;
     }
     this.interactionManager.dispose();
     this.playerController.dispose();

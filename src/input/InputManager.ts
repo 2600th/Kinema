@@ -156,7 +156,7 @@ export class InputManager implements Disposable {
     if (e.code === 'Escape') {
       this.eventBus.emit('menu:toggle', undefined);
     }
-    if (e.code === 'F1') {
+    if (e.code === 'F1' && !this.inputSuppressed) {
       this.eventBus.emit('editor:toggle', undefined);
     }
   }

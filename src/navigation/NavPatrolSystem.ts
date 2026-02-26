@@ -65,10 +65,6 @@ export class NavPatrolSystem {
     );
   }
 
-  private static vec3ToObj(v: Vec3): { x: number; y: number; z: number } {
-    return { x: v[0], y: v[1], z: v[2] };
-  }
-
   update(dt: number): void {
     crowd.update(this.crowdInstance, this.navMesh, dt);
 
@@ -76,7 +72,18 @@ export class NavPatrolSystem {
       const agent = this.crowdInstance.agents[crowdAgentId];
       if (!agent) continue;
 
-      navAgent.updatePosition(NavPatrolSystem.vec3ToObj(agent.position));
+      const pos = agent.position;
+      navAgent.updatePosition({ x: pos[0], y: pos[1], z: pos[2] });
+
+      // Update path visualization from crowd corridor corners
+      if (agent.corners.length > 0) {
+        const points = agent.corners.map((c) => ({
+          x: c.position[0],
+          y: c.position[1],
+          z: c.position[2],
+        }));
+        navAgent.updatePathVisualization(this.scene, points);
+      }
 
       if (crowd.isAgentAtTarget(this.crowdInstance, crowdAgentId, 1.0)) {
         this.setRandomTarget(crowdAgentId);
@@ -84,17 +91,17 @@ export class NavPatrolSystem {
     }
   }
 
-  requestTargetForNearest(worldPos: THREE.Vector3): void {
-    let closest: { agentId: string; dist: number } | null = null;
+  requestTargetForNearest(worldPos: THREE.Vector3): NavAgent | null {
+    let closest: { agentId: string; dist: number; navAgent: NavAgent } | null = null;
 
     for (const { navAgent, crowdAgentId } of this.agents) {
       const dist = navAgent.mesh.position.distanceTo(worldPos);
       if (!closest || dist < closest.dist) {
-        closest = { agentId: crowdAgentId, dist };
+        closest = { agentId: crowdAgentId, dist, navAgent };
       }
     }
 
-    if (!closest) return;
+    if (!closest) return null;
 
     const targetPos: Vec3 = [worldPos.x, worldPos.y, worldPos.z];
     findNearestPoly(
@@ -112,11 +119,14 @@ export class NavPatrolSystem {
         this.nearestPolyResult.nodeRef,
         this.nearestPolyResult.position,
       );
+      return closest.navAgent;
     }
+    return null;
   }
 
   dispose(): void {
-    for (const { navAgent } of this.agents) {
+    for (const { navAgent, crowdAgentId } of this.agents) {
+      crowd.removeAgent(this.crowdInstance, crowdAgentId);
       navAgent.dispose(this.scene);
     }
     this.agents = [];
