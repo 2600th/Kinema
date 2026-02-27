@@ -51,6 +51,10 @@ async function bootstrap(): Promise<void> {
   renderer.setAntiAliasingMode(settings.value.aaMode);
   renderer.setResolutionScale(settings.value.resolutionScale);
   renderer.setShadowsEnabled(settings.value.shadowsEnabled);
+  renderer.setShadowQualityTier(settings.value.shadowQuality);
+  renderer.setEnvironmentRotationDegrees(settings.value.envRotationDegrees);
+  renderer.setCasEnabled(settings.value.casEnabled);
+  renderer.setCasStrength(settings.value.casStrength);
   console.log('[Kinema] Renderer initialized');
 
   const eventBus = new EventBus();
@@ -61,6 +65,7 @@ async function bootstrap(): Promise<void> {
   const levelManager = new LevelManager(renderer.scene, physicsWorld, eventBus, renderer.maxAnisotropy);
   levelManager.setGraphicsProfile(settings.value.graphicsProfile);
   levelManager.setShadowsEnabled(settings.value.shadowsEnabled);
+  levelManager.setShadowQualityTier(settings.value.shadowQuality);
   const playerController = new PlayerController(physicsWorld, renderer.scene, eventBus);
   const camera = new OrbitFollowCamera(renderer.camera, playerController, physicsWorld, eventBus);
   camera.setMouseSensitivity(settings.value.mouseSensitivity);

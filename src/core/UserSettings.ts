@@ -1,5 +1,6 @@
 export type GraphicsProfile = 'performance' | 'balanced' | 'cinematic';
-export type AntiAliasingMode = 'smaa' | 'fxaa' | 'taa' | 'none';
+export type AntiAliasingMode = 'smaa' | 'fxaa' | 'none';
+export type ShadowQualityTier = 'auto' | GraphicsProfile;
 
 export interface UserSettings {
   mouseSensitivity: number;
@@ -11,6 +12,10 @@ export interface UserSettings {
   aaMode: AntiAliasingMode;
   resolutionScale: number;
   shadowsEnabled: boolean;
+  shadowQuality: ShadowQualityTier;
+  envRotationDegrees: number;
+  casEnabled: boolean;
+  casStrength: number;
   cameraFov: number;
   masterVolume: number;
   musicVolume: number;
@@ -29,6 +34,10 @@ const MIN_CAMERA_FOV = 50;
 const MAX_CAMERA_FOV = 90;
 const MIN_RESOLUTION_SCALE = 0.5;
 const MAX_RESOLUTION_SCALE = 1.0;
+const MIN_ENV_ROTATION_DEGREES = -180;
+const MAX_ENV_ROTATION_DEGREES = 180;
+const MIN_CAS_STRENGTH = 0;
+const MAX_CAS_STRENGTH = 1;
 const MIN_VOLUME = 0;
 const MAX_VOLUME = 1;
 
@@ -38,11 +47,15 @@ export const DEFAULT_USER_SETTINGS: Readonly<UserSettings> = Object.freeze({
   rawMouseInput: false,
   gamepadDeadzone: 0.12,
   gamepadCurve: 1.4,
-  // Default aims for the best "out of the box" look now that SSGI is removed.
+  // Default aims for a stable deterministic image out of the box.
   graphicsProfile: 'cinematic',
-  aaMode: 'taa',
+  aaMode: 'smaa',
   resolutionScale: 1,
   shadowsEnabled: true,
+  shadowQuality: 'auto',
+  envRotationDegrees: 0,
+  casEnabled: true,
+  casStrength: 0.3,
   cameraFov: 65,
   masterVolume: 0.8,
   musicVolume: 0.5,
@@ -99,10 +112,13 @@ function parseSettings(raw: unknown): UserSettings {
       MAX_GAMEPAD_CURVE,
     ),
     graphicsProfile: profile,
-    aaMode:
-      value.aaMode === 'smaa' || value.aaMode === 'fxaa' || value.aaMode === 'taa' || value.aaMode === 'none'
-        ? value.aaMode
-        : DEFAULT_USER_SETTINGS.aaMode,
+    aaMode: (() => {
+      const rawMode = (value as Record<string, unknown>).aaMode;
+      // Back-compat: older builds stored 'taa'; map it to deterministic SMAA.
+      if (rawMode === 'taa') return 'smaa';
+      if (rawMode === 'smaa' || rawMode === 'fxaa' || rawMode === 'none') return rawMode;
+      return DEFAULT_USER_SETTINGS.aaMode;
+    })(),
     resolutionScale: clamp(
       Number.isFinite(value.resolutionScale)
         ? (value.resolutionScale as number)
@@ -112,6 +128,36 @@ function parseSettings(raw: unknown): UserSettings {
     ),
     shadowsEnabled:
       typeof value.shadowsEnabled === 'boolean' ? value.shadowsEnabled : DEFAULT_USER_SETTINGS.shadowsEnabled,
+    shadowQuality: (() => {
+      const rawShadowQuality = (value as Record<string, unknown>).shadowQuality;
+      if (
+        rawShadowQuality === 'auto'
+        || rawShadowQuality === 'performance'
+        || rawShadowQuality === 'balanced'
+        || rawShadowQuality === 'cinematic'
+      ) {
+        return rawShadowQuality;
+      }
+      return DEFAULT_USER_SETTINGS.shadowQuality;
+    })(),
+    envRotationDegrees: clamp(
+      Number.isFinite((value as Record<string, unknown>).envRotationDegrees)
+        ? ((value as Record<string, unknown>).envRotationDegrees as number)
+        : DEFAULT_USER_SETTINGS.envRotationDegrees,
+      MIN_ENV_ROTATION_DEGREES,
+      MAX_ENV_ROTATION_DEGREES,
+    ),
+    casEnabled:
+      typeof (value as Record<string, unknown>).casEnabled === 'boolean'
+        ? ((value as Record<string, unknown>).casEnabled as boolean)
+        : DEFAULT_USER_SETTINGS.casEnabled,
+    casStrength: clamp(
+      Number.isFinite((value as Record<string, unknown>).casStrength)
+        ? ((value as Record<string, unknown>).casStrength as number)
+        : DEFAULT_USER_SETTINGS.casStrength,
+      MIN_CAS_STRENGTH,
+      MAX_CAS_STRENGTH,
+    ),
     cameraFov: clamp(
       Number.isFinite(value.cameraFov) ? (value.cameraFov as number) : DEFAULT_USER_SETTINGS.cameraFov,
       MIN_CAMERA_FOV,

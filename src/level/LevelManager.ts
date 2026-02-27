@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import type { EventBus } from '@core/EventBus';
 import type { Disposable, SpawnPointData } from '@core/types';
-import type { GraphicsProfile } from '@core/UserSettings';
+import type { GraphicsProfile, ShadowQualityTier } from '@core/UserSettings';
 import { COLLISION_GROUP_WORLD } from '@core/constants';
 import type { PhysicsWorld } from '@physics/PhysicsWorld';
 import { ColliderFactory } from '@physics/ColliderFactory';
@@ -87,6 +87,7 @@ export class LevelManager implements Disposable {
   private shadowFrustumHelpers: THREE.CameraHelper[] = [];
   private shadowsEnabled = true;
   private graphicsProfile: GraphicsProfile = 'cinematic';
+  private shadowQualityTier: ShadowQualityTier = 'auto';
   private lightFollowPos = new THREE.Vector3(20, 30, 10);
   private lightTargetPos = new THREE.Vector3(0, 1, 0);
   private navMeshManager: NavMeshManager | null = null;
@@ -142,6 +143,15 @@ export class LevelManager implements Disposable {
   setGraphicsProfile(profile: GraphicsProfile): void {
     this.graphicsProfile = profile;
     this.applyDirectionalLightQuality();
+  }
+
+  setShadowQualityTier(tier: ShadowQualityTier): void {
+    this.shadowQualityTier = tier;
+    this.applyDirectionalLightQuality();
+  }
+
+  getShadowQualityTier(): ShadowQualityTier {
+    return this.shadowQualityTier;
   }
 
   setLightDebugEnabled(enabled: boolean): void {
@@ -2400,8 +2410,11 @@ export class LevelManager implements Disposable {
   }
 
   private getShadowMapSize(): number {
-    if (this.graphicsProfile === 'performance') return 1024;
-    if (this.graphicsProfile === 'balanced') return 2048;
+    const effectiveProfile = this.shadowQualityTier === 'auto'
+      ? this.graphicsProfile
+      : this.shadowQualityTier;
+    if (effectiveProfile === 'performance') return 1024;
+    if (effectiveProfile === 'balanced') return 2048;
     return 4096; // cinematic
   }
 

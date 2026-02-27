@@ -1,5 +1,5 @@
 import type { EventBus } from '@core/EventBus';
-import type { UserSettingsStore, GraphicsProfile, AntiAliasingMode } from '@core/UserSettings';
+import type { UserSettingsStore, GraphicsProfile, AntiAliasingMode, ShadowQualityTier } from '@core/UserSettings';
 import type { InputManager } from '@input/InputManager';
 import type { OrbitFollowCamera } from '@camera/OrbitFollowCamera';
 import type { RendererManager } from '@renderer/RendererManager';
@@ -159,7 +159,7 @@ export class SettingsMenu {
     );
 
     this.graphicsSection.appendChild(
-      this.createSelect('AA mode', settings.value.aaMode, ['none', 'fxaa', 'taa', 'smaa'], (value) => {
+      this.createSelect('AA mode', settings.value.aaMode, ['smaa', 'fxaa', 'none'], (value) => {
         const mode = value as AntiAliasingMode;
         settings.update({ aaMode: mode });
         eventBus.emit('debug:aaMode', { mode });
@@ -177,6 +177,24 @@ export class SettingsMenu {
       this.createToggle('Shadows', settings.value.shadowsEnabled, (value) => {
         settings.update({ shadowsEnabled: value });
         eventBus.emit('debug:shadows', value);
+      }),
+    );
+    this.graphicsSection.appendChild(
+      this.createSelect(
+        'Shadow quality',
+        settings.value.shadowQuality,
+        ['auto', 'performance', 'balanced', 'cinematic'],
+        (value) => {
+          const tier = value as ShadowQualityTier;
+          settings.update({ shadowQuality: tier });
+          eventBus.emit('debug:shadowQuality', { tier });
+        },
+      ),
+    );
+    this.graphicsSection.appendChild(
+      this.createSlider('Environment rotation', settings.value.envRotationDegrees, -180, 180, 1, (value) => {
+        const s = settings.update({ envRotationDegrees: value });
+        eventBus.emit('debug:environmentRotation', s.envRotationDegrees);
       }),
     );
 
@@ -201,6 +219,18 @@ export class SettingsMenu {
       }),
     );
     this.graphicsSection.appendChild(
+      this.createToggle('CAS sharpening', settings.value.casEnabled, (value) => {
+        const s = settings.update({ casEnabled: value });
+        eventBus.emit('debug:casEnabled', s.casEnabled);
+      }),
+    );
+    this.graphicsSection.appendChild(
+      this.createSlider('CAS strength', settings.value.casStrength, 0, 1, 0.05, (value) => {
+        const s = settings.update({ casStrength: value });
+        eventBus.emit('debug:casStrength', s.casStrength);
+      }),
+    );
+    this.graphicsSection.appendChild(
       this.createToggle('Vignette', flags.vignetteEnabled, (value) => {
         eventBus.emit('debug:vignetteEnabled', value);
       }),
@@ -208,11 +238,6 @@ export class SettingsMenu {
     this.graphicsSection.appendChild(
       this.createToggle('LUT', flags.lutEnabled, (value) => {
         eventBus.emit('debug:lutEnabled', value);
-      }),
-    );
-    this.graphicsSection.appendChild(
-      this.createToggle('TRAA', flags.traaEnabled, (value) => {
-        eventBus.emit('debug:traaEnabled', value);
       }),
     );
   }

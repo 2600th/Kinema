@@ -177,12 +177,11 @@ export interface EventMap {
   'debug:exposure': number;
   'debug:graphicsProfile': { profile: 'performance' | 'balanced' | 'cinematic' };
   'debug:aoOnly': boolean;
-  'debug:aaMode': { mode: 'smaa' | 'fxaa' | 'taa' | 'none' };
+  'debug:aaMode': { mode: 'smaa' | 'fxaa' | 'none' };
   'debug:ssaoEnabled': boolean;
   'debug:ssrEnabled': boolean;
   'debug:ssrOpacity': number;
   'debug:ssrResolutionScale': number;
-  'debug:ssgiEnabled': boolean;
   'debug:bloomEnabled': boolean;
   'debug:bloomStrength': number;
   'debug:vignetteEnabled': boolean;
@@ -190,10 +189,13 @@ export interface EventMap {
   'debug:lutEnabled': boolean;
   'debug:lutStrength': number;
   'debug:lutName': string;
-  'debug:traaEnabled': boolean;
   'debug:envBackgroundIntensity': number;
   'debug:envBackgroundBlurriness': number;
   'debug:environment': string;
+  'debug:environmentRotation': number;
+  'debug:shadowQuality': { tier: 'auto' | 'performance' | 'balanced' | 'cinematic' };
+  'debug:casEnabled': boolean;
+  'debug:casStrength': number;
   'debug:showShadowFrustums': boolean;
   'debug:flythrough': undefined;
   'debug:flythroughEnd': undefined;

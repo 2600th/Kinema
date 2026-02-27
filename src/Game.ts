@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { EventBus } from '@core/EventBus';
 import type { FixedUpdatable, Updatable, Disposable, PostPhysicsUpdatable } from '@core/types';
-import { UserSettingsStore } from '@core/UserSettings';
+import { UserSettingsStore, type ShadowQualityTier } from '@core/UserSettings';
 import { COLLISION_GROUP_INTERACTABLE, COLLISION_GROUP_WORLD } from '@core/constants';
 import type { RendererManager } from '@renderer/RendererManager';
 import type { PhysicsWorld } from '@physics/PhysicsWorld';
@@ -135,8 +135,9 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       this.renderer.setExposure(value);
     });
     this.eventBus.on('debug:graphicsProfile', ({ profile }) => {
-      const settings = this.settings.update({ graphicsProfile: profile });
-      this.renderer.setGraphicsProfile(settings.graphicsProfile);
+      this.renderer.setGraphicsProfile(profile);
+      const flags = this.renderer.getDebugFlags();
+      const settings = this.settings.update({ graphicsProfile: profile, aaMode: flags.aaMode });
       this.levelManager.setGraphicsProfile(settings.graphicsProfile);
       this.syncDebugPanel();
     });
@@ -147,6 +148,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     this.eventBus.on('debug:aaMode', ({ mode }) => {
       this.settings.update({ aaMode: mode });
       this.renderer.setAntiAliasingMode(mode);
+      this.syncDebugPanel();
     });
     this.eventBus.on('debug:ssaoEnabled', (enabled) => {
       this.renderer.setSsaoEnabled(enabled);
@@ -159,9 +161,6 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     });
     this.eventBus.on('debug:ssrResolutionScale', (scale) => {
       this.renderer.setSsrResolutionScale(scale);
-    });
-    this.eventBus.on('debug:ssgiEnabled', (enabled) => {
-      this.renderer.setSsgiEnabled(enabled);
     });
     this.eventBus.on('debug:bloomEnabled', (enabled) => {
       this.renderer.setBloomEnabled(enabled);
@@ -184,17 +183,36 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     this.eventBus.on('debug:lutName', (name) => {
       this.renderer.setLutName(name);
     });
-    this.eventBus.on('debug:traaEnabled', (enabled) => {
-      this.renderer.setTraaEnabled(enabled);
-    });
     this.eventBus.on('debug:envBackgroundIntensity', (intensity) => {
       this.renderer.setBackgroundIntensity(intensity);
     });
     this.eventBus.on('debug:envBackgroundBlurriness', (blurriness) => {
       this.renderer.setBackgroundBlurriness(blurriness);
     });
+    this.eventBus.on('debug:environmentRotation', (rotationDegrees) => {
+      this.settings.update({ envRotationDegrees: rotationDegrees });
+      this.renderer.setEnvironmentRotationDegrees(rotationDegrees);
+      this.syncDebugPanel();
+    });
     this.eventBus.on('debug:environment', (name) => {
       void this.renderer.setEnvironment(name);
+    });
+    this.eventBus.on('debug:shadowQuality', ({ tier }) => {
+      const shadowQuality = tier as ShadowQualityTier;
+      this.settings.update({ shadowQuality });
+      this.renderer.setShadowQualityTier(shadowQuality);
+      this.levelManager.setShadowQualityTier(shadowQuality);
+      this.syncDebugPanel();
+    });
+    this.eventBus.on('debug:casEnabled', (enabled) => {
+      this.settings.update({ casEnabled: enabled });
+      this.renderer.setCasEnabled(enabled);
+      this.syncDebugPanel();
+    });
+    this.eventBus.on('debug:casStrength', (strength) => {
+      this.settings.update({ casStrength: strength });
+      this.renderer.setCasStrength(strength);
+      this.syncDebugPanel();
     });
     this.eventBus.on('debug:showShadowFrustums', (enabled) => {
       this.levelManager.setShadowDebugEnabled(enabled);
@@ -360,7 +378,9 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     this.uiManager.debugPanel.syncRenderSettings({
       postProcessingEnabled: f.postProcessingEnabled,
       shadowsEnabled: f.shadowsEnabled,
+      shadowQuality: f.shadowQuality,
       graphicsProfile: f.graphicsProfile,
+      envRotationDegrees: f.envRotationDegrees,
       aaMode: f.aaMode,
       aoOnly: f.aoOnly,
       exposure: f.exposure,
@@ -368,15 +388,15 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       ssrEnabled: f.ssrEnabled,
       ssrOpacity: f.ssrOpacity,
       ssrResolutionScale: f.ssrResolutionScale,
-      ssgiEnabled: f.ssgiEnabled,
       bloomEnabled: f.bloomEnabled,
       bloomStrength: f.bloomStrength,
+      casEnabled: f.casEnabled,
+      casStrength: f.casStrength,
       vignetteEnabled: f.vignetteEnabled,
       vignetteDarkness: f.vignetteDarkness,
       lutEnabled: f.lutEnabled,
       lutStrength: f.lutStrength,
       lutName: f.lutName,
-      traaEnabled: f.traaEnabled,
       envName: f.envName,
       shadowFrustums: this.levelManager.getShadowDebugEnabled(),
     });
@@ -624,11 +644,13 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     }
     if (e.code === 'F6') {
       e.preventDefault();
-      const settings = this.settings.cycleGraphicsProfile();
-      this.renderer.setGraphicsProfile(settings.graphicsProfile);
+      const cycled = this.settings.cycleGraphicsProfile();
+      this.renderer.setGraphicsProfile(cycled.graphicsProfile);
+      const flags = this.renderer.getDebugFlags();
+      const settings = this.settings.update({ aaMode: flags.aaMode });
       this.levelManager.setGraphicsProfile(settings.graphicsProfile);
       this.syncDebugPanel();
-      console.log(`[Settings] graphicsProfile=${settings.graphicsProfile}`);
+      console.log(`[Settings] graphicsProfile=${settings.graphicsProfile}, aaMode=${settings.aaMode}`);
       return;
     }
     if (e.code === 'F7') {

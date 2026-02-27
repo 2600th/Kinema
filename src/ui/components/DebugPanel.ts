@@ -2,13 +2,16 @@ import type { EventBus } from '@core/EventBus';
 import type { Disposable, StateId } from '@core/types';
 import { LUT_NAMES, ENV_NAMES } from '@renderer/RendererManager';
 
-type AntiAliasingMode = 'smaa' | 'fxaa' | 'taa' | 'none';
+type AntiAliasingMode = 'smaa' | 'fxaa' | 'none';
 type GraphicsProfile = 'performance' | 'balanced' | 'cinematic';
+type ShadowQualityTier = 'auto' | GraphicsProfile;
 
 interface RenderSettingsSnapshot {
   postProcessingEnabled: boolean;
   shadowsEnabled: boolean;
+  shadowQuality: ShadowQualityTier;
   graphicsProfile: GraphicsProfile;
+  envRotationDegrees: number;
   aaMode: AntiAliasingMode;
   aoOnly: boolean;
   exposure: number;
@@ -16,18 +19,30 @@ interface RenderSettingsSnapshot {
   ssrEnabled: boolean;
   ssrOpacity: number;
   ssrResolutionScale: number;
-  ssgiEnabled: boolean;
   bloomEnabled: boolean;
   bloomStrength: number;
+  casEnabled: boolean;
+  casStrength: number;
   vignetteEnabled: boolean;
   vignetteDarkness: number;
   lutEnabled: boolean;
   lutStrength: number;
   lutName: string;
-  traaEnabled: boolean;
   envName: string;
   shadowFrustums: boolean;
 }
+
+type VisibilityState = Pick<
+  RenderSettingsSnapshot,
+  | 'postProcessingEnabled'
+  | 'graphicsProfile'
+  | 'aaMode'
+  | 'ssrEnabled'
+  | 'bloomEnabled'
+  | 'casEnabled'
+  | 'vignetteEnabled'
+  | 'lutEnabled'
+>;
 
 /**
  * Modern debug overlay inspired by recent three.js inspector styles.
@@ -253,6 +268,19 @@ export class DebugPanel implements Disposable {
       },
       (value: number) => value.toFixed(2),
     ));
+    envSection.appendChild(this.createRange(
+      'envRotationDegrees',
+      'Environment Rotation',
+      -180,
+      180,
+      1,
+      0,
+      'Rotates environment lighting/background around Y axis (degrees).',
+      (value: number) => {
+        this.eventBus.emit('debug:environmentRotation', value);
+      },
+      (value: number) => `${Math.round(value)} deg`,
+    ));
     envSection.appendChild(this.createSelect(
       'envName',
       'Environment',
@@ -274,16 +302,18 @@ export class DebugPanel implements Disposable {
       'Applies renderer quality presets.',
       (value) => {
         this.eventBus.emit('debug:graphicsProfile', { profile: value as GraphicsProfile });
+        this.updateVisibilityFromControls();
       },
     ));
     qualitySection.appendChild(this.createSelect(
       'aaMode',
       'Anti-aliasing',
-      ['smaa', 'fxaa', 'taa', 'none'],
+      ['smaa', 'fxaa', 'none'],
       'smaa',
       'Chooses edge smoothing mode for post-processing.',
       (value) => {
         this.eventBus.emit('debug:aaMode', { mode: value as AntiAliasingMode });
+        this.updateVisibilityFromControls();
       },
     ));
     qualitySection.appendChild(this.createCheckbox(
@@ -293,6 +323,7 @@ export class DebugPanel implements Disposable {
       'Toggles the complete post-processing pipeline.',
       (value) => {
         this.eventBus.emit('debug:postProcessing', value);
+        this.updateVisibilityFromControls();
       },
     ));
     qualitySection.appendChild(this.createCheckbox(
@@ -302,6 +333,16 @@ export class DebugPanel implements Disposable {
       'Enables or disables real-time shadow rendering.',
       (value) => {
         this.eventBus.emit('debug:shadows', value);
+      },
+    ));
+    qualitySection.appendChild(this.createSelect(
+      'shadowQuality',
+      'Shadow quality',
+      ['auto', 'performance', 'balanced', 'cinematic'],
+      'auto',
+      'Auto follows graphics profile; manual values override per-profile shadow map size.',
+      (value) => {
+        this.eventBus.emit('debug:shadowQuality', { tier: value as ShadowQualityTier });
       },
     ));
     qualitySection.appendChild(this.createRange(
@@ -320,15 +361,6 @@ export class DebugPanel implements Disposable {
     controls.appendChild(qualitySection);
 
     const postFxSection = this.createSection('Post FX');
-    postFxSection.appendChild(this.createCheckbox(
-      'traaEnabled',
-      'TRAA',
-      true,
-      'Temporal reprojection anti-aliasing (TSL pipeline).',
-      (value) => {
-        this.eventBus.emit('debug:traaEnabled', value);
-      },
-    ));
     postFxSection.appendChild(this.createCheckbox(
       'gtaoEnabled',
       'Ambient Occlusion',
@@ -354,6 +386,7 @@ export class DebugPanel implements Disposable {
       'Toggles screen-space reflections in the TSL pipeline.',
       (value) => {
         this.eventBus.emit('debug:ssrEnabled', value);
+        this.updateVisibilityFromControls();
       },
     ));
     postFxSection.appendChild(this.createRange(
@@ -383,21 +416,13 @@ export class DebugPanel implements Disposable {
       (value) => value.toFixed(2),
     ));
     postFxSection.appendChild(this.createCheckbox(
-      'ssgiEnabled',
-      'SSGI (cinematic)',
-      false,
-      'Screen-space global illumination — indirect light bounce. Cinematic profile only.',
-      (value) => {
-        this.eventBus.emit('debug:ssgiEnabled', value);
-      },
-    ));
-    postFxSection.appendChild(this.createCheckbox(
       'bloomEnabled',
       'Bloom',
       true,
       'Toggles bright highlight bloom.',
       (value) => {
         this.eventBus.emit('debug:bloomEnabled', value);
+        this.updateVisibilityFromControls();
       },
     ));
     postFxSection.appendChild(this.createRange(
@@ -414,12 +439,36 @@ export class DebugPanel implements Disposable {
       (value) => value.toFixed(2),
     ));
     postFxSection.appendChild(this.createCheckbox(
+      'casEnabled',
+      'CAS sharpening',
+      true,
+      'Contrast-adaptive sharpening applied after anti-aliasing.',
+      (value) => {
+        this.eventBus.emit('debug:casEnabled', value);
+        this.updateVisibilityFromControls();
+      },
+    ));
+    postFxSection.appendChild(this.createRange(
+      'casStrength',
+      'CAS strength',
+      0,
+      1,
+      0.01,
+      0.3,
+      'Controls CAS sharpening intensity.',
+      (value) => {
+        this.eventBus.emit('debug:casStrength', value);
+      },
+      (value) => value.toFixed(2),
+    ));
+    postFxSection.appendChild(this.createCheckbox(
       'vignetteEnabled',
       'Vignette',
       true,
       'Adds subtle edge darkening for depth focus.',
       (value) => {
         this.eventBus.emit('debug:vignetteEnabled', value);
+        this.updateVisibilityFromControls();
       },
     ));
     postFxSection.appendChild(this.createRange(
@@ -442,6 +491,7 @@ export class DebugPanel implements Disposable {
       'Strength blends in a simple color grade (3D LUT disabled in WebGPU; full LUT when re-enabled).',
       (value) => {
         this.eventBus.emit('debug:lutEnabled', value);
+        this.updateVisibilityFromControls();
       },
     ));
     postFxSection.appendChild(this.createSelect(
@@ -468,6 +518,8 @@ export class DebugPanel implements Disposable {
       (value) => value.toFixed(2),
     ));
     controls.appendChild(postFxSection);
+    // Ensure initial control visibility matches default selections.
+    this.updateVisibilityFromControls();
   }
 
   toggle(): void {
@@ -478,18 +530,20 @@ export class DebugPanel implements Disposable {
   syncRenderSettings(settings: RenderSettingsSnapshot): void {
     this.setCheckbox('postProcessing', settings.postProcessingEnabled);
     this.setCheckbox('shadows', settings.shadowsEnabled);
+    this.setSelect('shadowQuality', settings.shadowQuality);
     this.setSelect('graphics', settings.graphicsProfile);
+    this.setRange('envRotationDegrees', settings.envRotationDegrees);
     this.setSelect('aaMode', settings.aaMode);
     this.setCheckbox('aoOnly', settings.aoOnly);
     this.setRange('exposure', settings.exposure);
-    this.setCheckbox('traaEnabled', settings.traaEnabled);
     this.setCheckbox('gtaoEnabled', settings.ssaoEnabled);
     this.setCheckbox('ssrEnabled', settings.ssrEnabled);
     this.setRange('ssrOpacity', settings.ssrOpacity);
     this.setRange('ssrResolutionScale', settings.ssrResolutionScale);
-    this.setCheckbox('ssgiEnabled', settings.ssgiEnabled);
     this.setCheckbox('bloomEnabled', settings.bloomEnabled);
     this.setRange('bloomStrength', settings.bloomStrength);
+    this.setCheckbox('casEnabled', settings.casEnabled);
+    this.setRange('casStrength', settings.casStrength);
     this.setCheckbox('vignetteEnabled', settings.vignetteEnabled);
     this.setRange('vignetteDarkness', settings.vignetteDarkness);
     this.setCheckbox('lutEnabled', settings.lutEnabled);
@@ -497,31 +551,63 @@ export class DebugPanel implements Disposable {
     this.setSelect('lutName', settings.lutName);
     this.setSelect('envName', settings.envName);
     this.setCheckbox('shadowFrustums', settings.shadowFrustums);
-    this.updateVisibility(settings.graphicsProfile);
+    this.updateVisibility(settings);
   }
 
-  private updateVisibility(profile: GraphicsProfile): void {
-    const isBalanced = profile === 'balanced';
-    const isCinematic = profile === 'cinematic';
+  private updateVisibility(state: VisibilityState): void {
+    const supportsAdvancedFx = state.graphicsProfile !== 'performance';
+    const postFxActive = state.postProcessingEnabled;
+    const aaAllowsCas = state.aaMode !== 'none';
+    const ssrControlsVisible = postFxActive && supportsAdvancedFx;
+    const ssrTuningVisible = ssrControlsVisible && state.ssrEnabled;
+    const bloomControlsVisible = postFxActive && supportsAdvancedFx;
+    const casControlsVisible = postFxActive && aaAllowsCas;
 
-    // TRAA: optional in balanced/cinematic tiers.
-    this.setVisible('traaEnabled', isBalanced || isCinematic);
+    // SSR controls follow post-FX/profile relevance and the local SSR toggle.
+    this.setVisible('ssrEnabled', ssrControlsVisible);
+    this.setVisible('ssrOpacity', ssrTuningVisible);
+    this.setVisible('ssrResolutionScale', ssrTuningVisible);
 
-    // SSR: available in balanced/cinematic tiers.
-    this.setVisible('ssrEnabled', isBalanced || isCinematic);
-    this.setVisible('ssrOpacity', isBalanced || isCinematic);
-    this.setVisible('ssrResolutionScale', isBalanced || isCinematic);
+    // AO controls are part of post-FX debug.
+    this.setVisible('gtaoEnabled', postFxActive);
+    this.setVisible('aoOnly', postFxActive);
 
-    // SSGI: cinematic only.
-    this.setVisible('ssgiEnabled', isCinematic);
+    // Bloom controls should match active profile and toggle state.
+    this.setVisible('bloomEnabled', bloomControlsVisible);
+    this.setVisible('bloomStrength', bloomControlsVisible && state.bloomEnabled);
 
-    // GTAO: always available (cheap toggle).
-    this.setVisible('gtaoEnabled', true);
-    this.setVisible('aoOnly', true);
+    // CAS controls are only meaningful when post-FX is on and AA is active.
+    this.setVisible('casEnabled', casControlsVisible);
+    this.setVisible('casStrength', casControlsVisible && state.casEnabled);
 
-    // Bloom: balanced/cinematic.
-    this.setVisible('bloomEnabled', isBalanced || isCinematic);
-    this.setVisible('bloomStrength', isBalanced || isCinematic);
+    // Grading controls should only show their sliders/selectors when enabled.
+    this.setVisible('vignetteEnabled', postFxActive);
+    this.setVisible('vignetteDarkness', postFxActive && state.vignetteEnabled);
+    this.setVisible('lutEnabled', postFxActive);
+    this.setVisible('lutName', postFxActive && state.lutEnabled);
+    this.setVisible('lutStrength', postFxActive && state.lutEnabled);
+  }
+
+  private updateVisibilityFromControls(): void {
+    const graphicsProfile = this.getSelectValue('graphics', 'cinematic') as GraphicsProfile;
+    this.updateVisibility({
+      postProcessingEnabled: this.getCheckboxValue('postProcessing', true),
+      graphicsProfile,
+      aaMode: this.getSelectValue('aaMode', 'smaa') as AntiAliasingMode,
+      ssrEnabled: this.getCheckboxValue('ssrEnabled', false),
+      bloomEnabled: this.getCheckboxValue('bloomEnabled', true),
+      casEnabled: this.getCheckboxValue('casEnabled', true),
+      vignetteEnabled: this.getCheckboxValue('vignetteEnabled', true),
+      lutEnabled: this.getCheckboxValue('lutEnabled', true),
+    });
+  }
+
+  private getCheckboxValue(key: string, fallback: boolean): boolean {
+    return this.checkboxControls.get(key)?.checked ?? fallback;
+  }
+
+  private getSelectValue(key: string, fallback: string): string {
+    return this.selectControls.get(key)?.value ?? fallback;
   }
 
   private setVisible(key: string, visible: boolean): void {

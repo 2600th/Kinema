@@ -246,8 +246,15 @@ export class OrbitFollowCamera implements Updatable, Disposable {
       (input.forward || input.backward || input.left || input.right);
     const targetFov = this.baseFov + (sprinting ? this.config.sprintFovBoost : 0);
     const fovDamp = 1 - Math.exp(-this.config.fovDamping * dt);
-    this.camera.fov += (targetFov - this.camera.fov) * fovDamp;
-    this.camera.updateProjectionMatrix();
+    let nextFov = this.camera.fov + (targetFov - this.camera.fov) * fovDamp;
+    // Avoid endless subpixel projection jitter from asymptotic damping convergence.
+    if (Math.abs(targetFov - nextFov) < 0.0001) {
+      nextFov = targetFov;
+    }
+    if (Math.abs(nextFov - this.camera.fov) > 0.00001) {
+      this.camera.fov = nextFov;
+      this.camera.updateProjectionMatrix();
+    }
 
     this.camera.lookAt(this.pivotPosition);
   }

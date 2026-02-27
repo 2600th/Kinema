@@ -5,7 +5,7 @@ import { LUTCubeLoader } from 'three/addons/loaders/LUTCubeLoader.js';
 import { LUTImageLoader } from 'three/addons/loaders/LUTImageLoader.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import type { Disposable } from '@core/types';
-import type { GraphicsProfile } from '@core/UserSettings';
+import type { GraphicsProfile, ShadowQualityTier } from '@core/UserSettings';
 
 /** LUT preset definitions: name -> { file, format } */
 const LUT_PRESETS: ReadonlyArray<{ name: string; file: string; format: 'cube' | '3dl' | 'image' }> = [
@@ -41,8 +41,27 @@ type PostProcessing = import('three/webgpu').PostProcessing;
 // TSL nodes: use any for dynamic imports to avoid strict three/tsl type dependency
 type TSLPassNode = { setMRT(mrt: unknown): void; getTextureNode(name: string): unknown; getTexture(name: string): THREE.Texture };
 type TSLNode = unknown;
+type GTAONodeLike = {
+  resolutionScale: number;
+  useTemporalFiltering: boolean;
+  samples?: { value: number };
+  radius?: { value: number };
+  thickness?: { value: number };
+  distanceExponent?: { value: number };
+  distanceFallOff?: { value: number };
+  scale?: { value: number };
+  updateBeforeType?: string;
+  dispose?: () => void;
+};
+type DenoiseNodeLike = {
+  updateBeforeType?: string;
+  dispose?: () => void;
+};
 
-export type AntiAliasingMode = 'smaa' | 'fxaa' | 'taa' | 'none';
+export type AntiAliasingMode = 'smaa' | 'fxaa' | 'none';
+
+const CAMERA_CLIP_NEAR = 0.5;
+const CAMERA_CLIP_FAR = 600;
 
 /**
  * Wraps the renderer, scene, camera, and TSL post-processing chain.
@@ -53,18 +72,19 @@ export class RendererManager implements Disposable {
   public readonly scene: THREE.Scene;
   public readonly camera: THREE.PerspectiveCamera;
   private postProcessing: PostProcessing | null = null;
+  private buildPipelineFn: ((profile: GraphicsProfile) => TSLNode) | null = null;
+  private mainOutputNode: TSLNode | null = null;
+  private pipelineRebuildNeeded = false;
+  private pipelineDisposables: Array<{ dispose: () => void }> = [];
 
-  // SSRNode exists only in medium tier, but we keep a reference for parameter sync/debugging.
+  // Keep a reference for runtime SSR parameter sync/debugging.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private ssrNode: any | null = null;
-
-
   private bloomNodes: Array<{ strength: { value: number } }> = [];
   private isWebGPUPipeline = false;
 
-  private antiAliasingMode: AntiAliasingMode = 'taa';
+  private antiAliasingMode: AntiAliasingMode = 'smaa';
   private ssrEnabled = false;
-  private ssgiEnabled = false;
   private ssrResolutionScale = 0.5;
   private bloomEnabled = true;
   private vignetteEnabled = true;
@@ -85,15 +105,32 @@ export class RendererManager implements Disposable {
   private readonly hdrLoader = new HDRLoader();
   private postProcessingEnabled = true;
   private shadowsEnabled = true;
+  private shadowQualityTier: ShadowQualityTier = 'auto';
   private toneExposure = 0.9;
   private resolutionScale = 1;
+  private envRotationDegrees = 0;
   private aoOnlyView = false;
   private aoOnlyOutputNode: TSLNode | null = null;
+  private gtaoPass: GTAONodeLike | null = null;
+  private aoDenoisePass: DenoiseNodeLike | null = null;
+  private prePassNode: (TSLPassNode & { updateBeforeType?: string; dispose?: () => void }) | null = null;
+  private readonly aoFullResOnThisPlatform = (() => {
+    if (typeof navigator === 'undefined') return false;
+    const ua = navigator.userAgent ?? '';
+    const platform = (
+      navigator as Navigator & {
+        userAgentData?: { platform?: string };
+      }
+    ).userAgentData?.platform ?? navigator.platform ?? '';
+    const isMac = /Mac/i.test(platform) || /Macintosh/i.test(ua);
+    const isChrome = /Chrome/i.test(ua) && !/Edg|OPR|Brave/i.test(ua);
+    return isMac && isChrome;
+  })();
 
   private gtaoEnabled = true;
-
-  private traaEnabled = true;
   private bloomStrength = 0.1;
+  private casEnabled = true;
+  private casStrength = 0.3;
   private vignetteDarkness = 0.42;
   private ssrOpacity = 0.5;
   private lutPassNode: {
@@ -105,6 +142,9 @@ export class RendererManager implements Disposable {
     ssrOpacity: { value: number };
     vignetteDarkness: { value: number };
     lutIntensity: { value: number };
+    aoStrength: { value: number };
+    casStrength: { value: number };
+    casTexelSize: { value: THREE.Vector2 };
   } | null = null;
 
   private lastRenderStats = {
@@ -158,12 +198,13 @@ export class RendererManager implements Disposable {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0xd8dce8);
     this.scene.fog = new THREE.Fog(0xd8dce8, 140, 400);
+    this.applyEnvironmentRotation();
 
     this.camera = new THREE.PerspectiveCamera(
       65,
       window.innerWidth / window.innerHeight,
-      0.1,
-      1000,
+      CAMERA_CLIP_NEAR,
+      CAMERA_CLIP_FAR,
     );
     this.camera.position.set(0, 5, 10);
     this.camera.lookAt(0, 0, 0);
@@ -201,42 +242,36 @@ export class RendererManager implements Disposable {
     try {
       const { WebGPURenderer, PostProcessing } = await import('three/webgpu');
       const {
-        sample,
         pass,
         mrt,
         output,
-        diffuseColor,
         normalView,
-        velocity,
+        screenUV,
+        builtinAOContext,
         vec2,
         vec3,
         vec4,
+        convertToTexture,
         metalness,
         roughness,
-        screenUV,
-        builtinAOContext,
-        directionToColor,
-        colorToDirection,
         renderOutput,
         texture3D,
         uniform,
       } = await import('three/tsl');
       const { ao: gtao } = await import('three/addons/tsl/display/GTAONode.js');
-      const { traa } = await import('three/addons/tsl/display/TRAANode.js');
+      const { denoise } = await import('three/addons/tsl/display/DenoiseNode.js');
       const { fxaa } = await import('three/addons/tsl/display/FXAANode.js');
       const { smaa } = await import('three/addons/tsl/display/SMAANode.js');
       const { lut3D } = await import('three/addons/tsl/display/Lut3DNode.js');
-      const { ssgi } = await import('three/addons/tsl/display/SSGINode.js');
       // NOTE: hashBlur is intentionally not used; SSRNode already supports roughness-based blur via mips.
 
       const wgpuRenderer = new WebGPURenderer({
-        antialias: false, // MSAA off — TRAA/FXAA in the post-processing pipeline handles AA
+        antialias: false, // MSAA off — post-processing AA handles edges
         alpha: false,
         powerPreference: 'high-performance',
         requiredLimits: {
-          // MRT with 5 color attachments exceeds the 32-byte default even with RGBA8Unorm
-          // on some targets (GPU alignment can pad each attachment to 8 bytes).
-          maxColorAttachmentBytesPerSample: 64,
+          // Scene pass uses 2 HalfFloat MRT color attachments.
+          maxColorAttachmentBytesPerSample: 32,
         },
       } as any) as WebGPURenderer;
       (wgpuRenderer as any).info.autoReset = true; // FIX: Ensure info is reset every frame to avoid stat accumulation
@@ -264,6 +299,7 @@ export class RendererManager implements Disposable {
       this.scene.environmentIntensity = 0.7;
       this.scene.backgroundIntensity = 1.2;
       this.scene.backgroundBlurriness = 0.5;
+      this.applyEnvironmentRotation();
       pmremGenerator.dispose();
       this.createPmremGenerator = () => new PMREMGeneratorClass(this.renderer as any);
 
@@ -279,49 +315,42 @@ export class RendererManager implements Disposable {
         this.showDeviceLostOverlay(info);
       };
 
-      // --- Pre-pass (opaque-only): normals + velocity + depth for AO/TRAA/SSR ---
-      // WHY: AO computed from a transparent-inclusive depth buffer will "project" occlusion onto sprites/UI.
-      // three.js reference: webgpu_postprocessing_ao example uses a prePass with transparent=false.
-      const prePass = pass(this.scene, this.camera) as unknown as TSLPassNode & { transparent?: boolean; getLinearDepthNode?: () => unknown; getTextureNode: (name?: string) => unknown; getTexture: (name?: string) => THREE.Texture };
+      // --- Opaque-only pre-pass for AO inputs ---
+      const prePass = pass(this.scene, this.camera) as TSLPassNode & {
+        transparent?: boolean;
+        updateBeforeType?: string;
+        dispose?: () => void;
+      };
       prePass.transparent = false;
       prePass.setMRT(
         mrt({
-          output: directionToColor(normalView),
-          velocity,
+          output: normalView,
         }),
       );
+      prePass.getTexture('output').type = THREE.HalfFloatType;
+      const prePassNormal = prePass.getTextureNode('output') as TSLNode;
+      const prePassDepth = prePass.getTextureNode('depth') as TSLNode;
+      this.prePassNode = prePass;
 
-      const prePassNormalDecoded = sample((uvNode: unknown) =>
-        colorToDirection((prePass.getTextureNode('output') as { sample: (u: unknown) => unknown }).sample(uvNode) as never),
-      ) as TSLNode;
-      const prePassDepth = prePass.getTextureNode('depth');
-      const prePassVelocity = prePass.getTextureNode('velocity');
-
-      // Bandwidth optimization: 8-bit normals
-      prePass.getTexture('output').type = THREE.UnsignedByteType;
-
-      // --- Scene pass (full scene color; includes transparent sprites/UI) ---
+      // --- Scene pass (full scene color + gbuffer-like MRT inputs) ---
       const scenePass = pass(this.scene, this.camera) as TSLPassNode & { contextNode?: unknown; getTextureNode: (name: string) => unknown; getTexture: (name: string) => THREE.Texture };
       scenePass.setMRT(
         mrt({
           output,
-          diffuseColor,
           metalrough: vec2(metalness, roughness),
         }),
       );
 
-      const { add, uv, smoothstep, float, length: tslLength, max: tslMax, vec4: tslVec4 } = await import('three/tsl');
+      const { add, uv, smoothstep, float, mix, length: tslLength, max: tslMax, min: tslMin, vec4: tslVec4 } = await import('three/tsl');
       const { bloom } = await import('three/addons/tsl/display/BloomNode.js');
       const { ssr } = await import('three/addons/tsl/display/SSRNode.js');
 
-      // Bandwidth optimization: 8-bit precision for targets that don't need float.
-      // Reduces MRT total from 40 bytes (5×RGBA16F) to 28 bytes (2×RGBA16F + 3×RGBA8).
-      scenePass.getTexture('diffuseColor').type = THREE.UnsignedByteType;
-      scenePass.getTexture('metalrough').type = THREE.UnsignedByteType;
+      // Keep reflection-driving channels precise to avoid quantization artifacts.
+      scenePass.getTexture('metalrough').type = THREE.HalfFloatType;
 
       const scenePassColor = scenePass.getTextureNode('output');
-      const scenePassDiffuse = scenePass.getTextureNode('diffuseColor');
       const scenePassMetalrough = scenePass.getTextureNode('metalrough');
+      const scenePassDepth = scenePass.getTextureNode('depth');
 
       const metalnessNode = (scenePassMetalrough as TSLNode & { r: TSLNode }).r;
       const roughnessNode = (scenePassMetalrough as TSLNode & { g: TSLNode }).g;
@@ -332,6 +361,14 @@ export class RendererManager implements Disposable {
       const ssrOpacityUniform = uniform(this.ssrOpacity);
       const vignetteDarknessUniform = uniform(this.vignetteDarkness);
       const lutIntensityUniform = uniform(this.lutStrength);
+      const aoStrengthUniform = uniform(this.gtaoEnabled ? 1 : 0);
+      const casStrengthUniform = uniform(this.getEffectiveCasStrength());
+      const casTexelSizeUniform = uniform(
+        new THREE.Vector2(
+          1 / Math.max(window.innerWidth, 1),
+          1 / Math.max(window.innerHeight, 1),
+        ),
+      );
 
       // Placeholder 2x2x2 LUT for initial graph build (real LUT applied after batch load)
       const placeholderLut = new THREE.Data3DTexture(new Uint8Array(4 * 2 * 2 * 2), 2, 2, 2);
@@ -339,21 +376,23 @@ export class RendererManager implements Disposable {
       placeholderLut.type = THREE.UnsignedByteType;
       placeholderLut.needsUpdate = true;
 
-      // Shared Post-FX applicator (Vignette + LUT + Tone Mapping)
-      const applyFinalGrade = (colorInput: TSLNode): TSLNode => {
-        // 1. Scene Output (includes Tone Mapping and Color Space conversion)
-        const sceneOutput = renderOutput(colorInput as never);
+      const applyDisplayOutput = (colorInput: TSLNode): TSLNode => {
+        // Scene output transform (tone mapping + color space conversion).
+        return renderOutput(colorInput as never) as TSLNode;
+      };
 
-        // 2. Radial vignette
+      // Shared Post-FX applicator (Vignette + LUT). Expects display-space input.
+      const applyColorGrade = (displayColorInput: TSLNode): TSLNode => {
+        // 1. Radial vignette
         const uvCoord = uv();
         const dist = (uvCoord as { sub: (n: number) => { mul: (n: number) => TSLNode } }).sub(0.5).mul(2);
         const vignetteFactor = smoothstep(float(0.5), float(1.15), tslLength(dist as never) as never) as TSLNode;
         const one = float(1);
         const dark = (vignetteDarknessUniform as { mul: (n: TSLNode) => TSLNode }).mul(vignetteFactor as never) as TSLNode;
         const mult = tslMax(float(0), (one as { sub: (n: TSLNode) => TSLNode }).sub(dark as TSLNode) as never) as TSLNode;
-        const withVignette = (sceneOutput as { mul: (n: TSLNode) => TSLNode }).mul(mult as TSLNode) as TSLNode;
+        const withVignette = (displayColorInput as { mul: (n: TSLNode) => TSLNode }).mul(mult as TSLNode) as TSLNode;
 
-        // 3. LUT (Native TSL node) — capture node reference for runtime switching
+        // 2. LUT (Native TSL node) — capture node reference for runtime switching
         const lutNode = lut3D(withVignette as never, texture3D(placeholderLut), placeholderLut.image.width, lutIntensityUniform as never);
         this.lutPassNode = lutNode as unknown as {
           lutNode: { value: THREE.Data3DTexture };
@@ -363,40 +402,133 @@ export class RendererManager implements Disposable {
         return lutNode as TSLNode;
       };
 
+      // CAS-style sharpening pass applied after AA in display space.
+      const applyCasSharpen = (displayColorInput: TSLNode): TSLNode => {
+        const sourceTexture = convertToTexture(displayColorInput as never) as unknown as {
+          uvNode?: TSLNode;
+          sample: (uvNode: unknown) => TSLNode;
+        };
+        const sourceUv = (sourceTexture.uvNode ?? uv()) as TSLNode;
+        const texel = casTexelSizeUniform as unknown as { x: TSLNode; y: TSLNode };
+        const texelX = texel.x;
+        const texelY = texel.y;
+
+        const uvLeft = (sourceUv as unknown as { add: (n: unknown) => TSLNode }).add(
+          vec2((texelX as unknown as { negate: () => TSLNode }).negate() as never, float(0) as never) as never,
+        ) as TSLNode;
+        const uvRight = (sourceUv as unknown as { add: (n: unknown) => TSLNode }).add(
+          vec2(texelX as never, float(0) as never) as never,
+        ) as TSLNode;
+        const uvUp = (sourceUv as unknown as { add: (n: unknown) => TSLNode }).add(
+          vec2(float(0) as never, (texelY as unknown as { negate: () => TSLNode }).negate() as never) as never,
+        ) as TSLNode;
+        const uvDown = (sourceUv as unknown as { add: (n: unknown) => TSLNode }).add(
+          vec2(float(0) as never, texelY as never) as never,
+        ) as TSLNode;
+
+        const center = sourceTexture.sample(sourceUv as never) as unknown as { rgb: TSLNode; a: TSLNode };
+        const left = sourceTexture.sample(uvLeft as never) as unknown as { rgb: TSLNode };
+        const right = sourceTexture.sample(uvRight as never) as unknown as { rgb: TSLNode };
+        const up = sourceTexture.sample(uvUp as never) as unknown as { rgb: TSLNode };
+        const down = sourceTexture.sample(uvDown as never) as unknown as { rgb: TSLNode };
+
+        const luminance = (sampled: { rgb: TSLNode }): TSLNode => {
+          const rgb = sampled.rgb as unknown as { r: TSLNode; g: TSLNode; b: TSLNode };
+          return tslMax(rgb.r as never, rgb.g as never, rgb.b as never) as TSLNode;
+        };
+
+        const centerLum = luminance(center);
+        const leftLum = luminance(left);
+        const rightLum = luminance(right);
+        const upLum = luminance(up);
+        const downLum = luminance(down);
+        const localMax = tslMax(
+          centerLum as never,
+          leftLum as never,
+          rightLum as never,
+          upLum as never,
+          downLum as never,
+        ) as TSLNode;
+        const localMin = tslMin(
+          centerLum as never,
+          leftLum as never,
+          rightLum as never,
+          upLum as never,
+          downLum as never,
+        ) as TSLNode;
+        const localContrast = (localMax as unknown as { sub: (n: unknown) => TSLNode })
+          .sub(localMin as never) as TSLNode;
+        const adaptiveAmount = smoothstep(float(0.02), float(0.30), localContrast as never) as TSLNode;
+        const sharpenAmount = (casStrengthUniform as unknown as { mul: (n: unknown) => TSLNode })
+          .mul(adaptiveAmount as never) as TSLNode;
+
+        const horizontalNeighbors = add(left.rgb as never, right.rgb as never) as TSLNode;
+        const verticalNeighbors = add(up.rgb as never, down.rgb as never) as TSLNode;
+        const neighborAverage = (add(horizontalNeighbors as never, verticalNeighbors as never) as unknown as {
+          mul: (n: unknown) => TSLNode;
+        }).mul(float(0.25) as never) as TSLNode;
+        const detail = (center.rgb as unknown as { sub: (n: unknown) => TSLNode })
+          .sub(neighborAverage as never) as TSLNode;
+        const sharpenedRgb = (center.rgb as unknown as { add: (n: unknown) => TSLNode }).add(
+          (detail as unknown as { mul: (n: unknown) => TSLNode }).mul(sharpenAmount as never) as never,
+        ) as TSLNode;
+
+        return vec4(sharpenedRgb as never, center.a as never) as unknown as TSLNode;
+      };
+
       this.postFXUniforms = {
         ssrOpacity: ssrOpacityUniform as { value: number },
         vignetteDarkness: vignetteDarknessUniform as { value: number },
         lutIntensity: lutIntensityUniform as { value: number },
+        aoStrength: aoStrengthUniform as { value: number },
+        casStrength: casStrengthUniform as { value: number },
+        casTexelSize: casTexelSizeUniform as { value: THREE.Vector2 },
       };
 
-      // --- GTAO (computed from opaque pre-pass) + injected via AO context ---
-      const aoPass = gtao(prePassDepth as never, prePassNormalDecoded as never, this.camera) as unknown as {
-        resolutionScale: number;
-        useTemporalFiltering: boolean;
+      // --- GTAO (computed from opaque pre-pass depth + normal) ---
+      const aoPass = gtao(prePassDepth as never, prePassNormal as never, this.camera) as unknown as GTAONodeLike & {
         getTextureNode: () => { sample: (u: unknown) => unknown };
       };
-      aoPass.resolutionScale = this.graphicsProfile === 'performance' ? 0.5 : 0.5;
-      aoPass.useTemporalFiltering = true;
+      this.gtaoPass = aoPass;
 
-      const aoSample = (aoPass.getTextureNode() as { sample: (u: unknown) => unknown }).sample(screenUV);
+      const aoDenoised = denoise(
+        aoPass.getTextureNode() as never,
+        prePassDepth as never,
+        prePassNormal as never,
+        this.camera,
+      ) as unknown as TSLNode & DenoiseNodeLike & { r: TSLNode };
+      this.aoDenoisePass = aoDenoised;
+      this.syncGtaoSettings();
+      const aoSample = aoDenoised.r;
+      const aoLightingSample = (
+        (aoPass.getTextureNode() as unknown as { sample: (uvNode: unknown) => { r: TSLNode } })
+          .sample(screenUV as never)
+      ).r as TSLNode;
+      // NOTE: Debug view uses denoised AO for readability, while production lighting samples
+      // raw GTAO via builtinAOContext at screenUV. Denoise output can't be sampled in material
+      // context, so this intentionally diverges slightly from the final lit AO signal.
       // AO-only debug view (grayscale). Mirrors the example's AO-only output.
       // https://threejs.org/examples/?q=ao#webgpu_postprocessing_ao
-      this.aoOnlyOutputNode = vec4(vec3((aoSample as unknown as { r: unknown }).r as never), float(1) as never) as unknown as TSLNode;
-      // Attach AO to the scene shading pipeline (three.js official pattern).
-      // When disabled, provide a neutral AO factor of 1.
+      this.aoOnlyOutputNode = vec4(vec3(aoSample as never), float(1) as never) as unknown as TSLNode;
+      // Inject AO into scene lighting so transparents rendered later remain unaffected.
       scenePass.contextNode = builtinAOContext(
-        this.gtaoEnabled ? ((aoSample as unknown as { r: unknown }).r as never) : (float(1) as never),
+        mix(
+          float(1) as never,
+          aoLightingSample as never,
+          aoStrengthUniform as never,
+        ),
       );
 
       // Helper to build the graph based on graphics profile.
       const buildPipeline = (profile: GraphicsProfile): TSLNode => {
-        this.bloomNodes = []; // Clear to prevent accumulation leak
+        this.disposePipelineDisposables();
+        this.bloomNodes = [];
         this.ssrNode = null;
 
-        // Re-apply AO context so toggle changes take effect on rebuild
-        scenePass.contextNode = builtinAOContext(
-          this.gtaoEnabled ? ((aoSample as unknown as { r: unknown }).r as never) : (float(1) as never),
-        );
+        const trackTempNode = <T>(node: T): T => {
+          this.registerPipelineDisposable(node);
+          return node;
+        };
 
         let currentNode = scenePassColor;
 
@@ -406,61 +538,29 @@ export class RendererManager implements Disposable {
 
         const currentRgb = (): TSLNode => (currentNode as unknown as { rgb: TSLNode }).rgb;
 
-        // 0) SSGI — cinematic only, before SSR
-        //    Matches official Three.js webgpu_postprocessing_ssgi example compositing:
-        //    composite = sceneColor * AO_ssgi + diffuseColor * GI
-        //    Our sceneColor already has GTAO baked in via builtinAOContext, so we
-        //    apply SSGI's own AO on top and add the diffuse GI contribution.
-        if (this.ssgiEnabled && profile === 'cinematic') {
-          const ssgiNode = ssgi(scenePassColor as never, prePassDepth as never, prePassNormalDecoded as never, this.camera) as unknown as {
-            sliceCount: { value: number };
-            stepCount: { value: number };
-            giIntensity: { value: number };
-            radius: { value: number };
-            thickness: { value: number };
-            useTemporalFiltering: boolean;
-            rgb: TSLNode;
-            a: TSLNode;
-          };
-          ssgiNode.sliceCount.value = 2;
-          ssgiNode.stepCount.value = 8;
-          ssgiNode.giIntensity.value = 15;
-          ssgiNode.radius.value = 12;
-          ssgiNode.thickness.value = 0.5;
-          ssgiNode.useTemporalFiltering = true;
-
-          // Official compositing: vec4(sceneColor.rgb * ao + diffuse.rgb * gi, sceneColor.a)
-          const gi = ssgiNode.rgb;
-          const ao = ssgiNode.a;
-          const compositeRgb = add(
-            (currentRgb() as unknown as { mul: (n: TSLNode) => TSLNode }).mul(ao) as never,
-            (scenePassDiffuse as unknown as { rgb: { mul: (n: TSLNode) => TSLNode } }).rgb.mul(gi) as never,
-          ) as TSLNode;
-          currentNode = keepAlphaWithRgb(currentNode, compositeRgb);
-        }
-
-        // 1) Reflections (SSR) — Lumen reference parameters.
+        // 1) Reflections (SSR) — additive in linear space.
         //    SSRNode internally handles metalness/roughness from MRT input.
         //    With physically correct materials (non-metals at metalness <= 0.05),
         //    the SSR node naturally avoids non-reflective surfaces.
-        if (this.ssrEnabled && profile !== 'performance') {
-          const ssrNode = ssr(
+        if (this.isSsrActiveForPipeline() && profile !== 'performance') {
+          const ssrNode = trackTempNode(ssr(
             scenePassColor as never,
-            prePassDepth as never,
-            prePassNormalDecoded as never,
+            scenePassDepth as never,
+            // Opaque-only normals avoid transparent sprite/particle normal artifacts in SSR.
+            prePassNormal as never,
             metalnessNode as never,
             roughnessNode as never,
             this.camera,
-          ) as TSLNode;
+          )) as TSLNode;
 
-          (ssrNode as unknown as { resolutionScale: number }).resolutionScale = 0.7;
+          (ssrNode as unknown as { resolutionScale: number }).resolutionScale = this.ssrResolutionScale;
           const u = ssrNode as unknown as {
             maxDistance: { value: number };
             thickness: { value: number };
             quality: { value: number };
           };
           const blurQ = ssrNode as unknown as { blurQuality: { value: number } };
-          blurQ.blurQuality.value = 4;
+          blurQ.blurQuality.value = profile === 'cinematic' ? 3 : 2;
           u.maxDistance.value = 2.5;
           u.thickness.value = 0.03;
           u.quality.value = profile === 'cinematic' ? 0.7 : 0.5;
@@ -471,56 +571,67 @@ export class RendererManager implements Disposable {
           currentNode = keepAlphaWithRgb(currentNode, nextRgb);
         }
 
-        // 2) Bloom — full scene color at low threshold (Lumen reference)
+        // 2) Bloom — additive in linear space.
         if (this.bloomEnabled && profile !== 'performance') {
-          const bloomNode = bloom(scenePassColor as never, 0.1, 0.8, 0.05) as TSLNode & { strength: { value: number } };
+          const bloomNode = trackTempNode(
+            bloom(currentNode as never, 0.1, 0.8, 0.05),
+          ) as TSLNode & { strength: { value: number } };
           this.bloomNodes.push(bloomNode);
           const bloomRgb = (bloomNode as unknown as { rgb: TSLNode }).rgb;
           const nextRgb = add(currentRgb() as never, bloomRgb as never) as TSLNode;
           currentNode = keepAlphaWithRgb(currentNode, nextRgb);
         }
 
-        // 3) Anti-aliasing
+        // 3) AA in deterministic non-temporal mode.
+        let applySmaaAfterOutput = false;
+        let applyFxaaAfterOutput = false;
         switch (this.antiAliasingMode) {
           case 'none':
             break;
           case 'smaa':
-            // Official usage pattern: `smaa( node )` (see webgpu_postprocessing_ssr).
-            currentNode = smaa(currentNode as never) as TSLNode;
+            // SMAA edge detection works best in display space.
+            applySmaaAfterOutput = true;
             break;
           case 'fxaa':
-            currentNode = fxaa(currentNode as never) as TSLNode;
-            break;
-          case 'taa':
-          default:
-            // In this project, "taa" maps to TRAA when enabled (temporal reprojection AA).
-            // If disabled, fall back to FXAA so the mode still has an effect.
-            currentNode = this.traaEnabled
-              ? (traa(currentNode as never, prePassDepth as never, prePassVelocity as never, this.camera) as TSLNode)
-              : (fxaa(currentNode as never) as TSLNode);
+            // FXAA expects display-space input (tone mapped + color converted).
+            applyFxaaAfterOutput = true;
             break;
         }
 
-        // 4) Final Grading (Vignette + LUT + Tone Mapping)
-        currentNode = applyFinalGrade(currentNode);
+        // 4) Output transform
+        currentNode = applyDisplayOutput(currentNode);
+        if (applySmaaAfterOutput) {
+          currentNode = trackTempNode(smaa(currentNode as never)) as TSLNode;
+        }
+        if (applyFxaaAfterOutput) {
+          currentNode = trackTempNode(fxaa(currentNode as never)) as TSLNode;
+        }
+
+        // 5) CAS-style sharpening after AA.
+        currentNode = applyCasSharpen(currentNode);
+
+        // 6) Final Grading (Vignette + LUT)
+        currentNode = applyColorGrade(currentNode);
 
         return currentNode;
       };
 
       // Initialize with current profile
       const initialGraph = buildPipeline(this.graphicsProfile);
+      this.mainOutputNode = initialGraph;
 
       const postProcessing = new PostProcessing(
         wgpuRenderer,
-        (this.aoOnlyView && this.aoOnlyOutputNode ? this.aoOnlyOutputNode : initialGraph) as never,
+        (this.aoOnlyView && this.aoOnlyOutputNode ? this.aoOnlyOutputNode : this.mainOutputNode) as never,
       );
-      // We call renderOutput() manually in applyFinalGrade() — disable the automatic
+      // We call renderOutput() manually in applyDisplayOutput() — disable the automatic
       // color transform to prevent double tone mapping + color space conversion.
       (postProcessing as any).outputColorTransform = false;
       this.postProcessing = postProcessing;
 
-      // Store the builder function so we can call it later
-      (this as any)._buildPipeline = buildPipeline;
+      // Store the builder function so we can rebuild only on structural changes.
+      this.buildPipelineFn = buildPipeline;
+      this.pipelineRebuildNeeded = false;
 
       this.applyQualitySettings(); // Will trigger re-build if needed or just update uniforms
 
@@ -531,6 +642,13 @@ export class RendererManager implements Disposable {
       // Fallback: constructor already created a WebGLRenderer; we keep it and render via render().
       // When init() succeeds, WebGPURenderer may still use WebGL2 backend internally if WebGPU is unavailable.
       this.postProcessing = null;
+      this.buildPipelineFn = null;
+      this.mainOutputNode = null;
+      this.pipelineRebuildNeeded = false;
+      this.disposePipelineDisposables();
+      this.gtaoPass = null;
+      this.aoDenoisePass = null;
+      this.prePassNode = null;
       this.bloomNodes = [];
       this.postFXUniforms = null;
       const pmremGenerator = new THREE.PMREMGenerator(this.renderer as THREE.WebGLRenderer);
@@ -541,6 +659,7 @@ export class RendererManager implements Disposable {
       this.scene.environmentIntensity = 0.7;
       this.scene.backgroundIntensity = 1.2;
       this.scene.backgroundBlurriness = 0.5;
+      this.applyEnvironmentRotation();
       pmremGenerator.dispose();
       this.createPmremGenerator = () => new THREE.PMREMGenerator(this.renderer as THREE.WebGLRenderer);
     }
@@ -589,25 +708,49 @@ export class RendererManager implements Disposable {
     }
   }
 
+  private markPipelineDirty(): void {
+    this.pipelineRebuildNeeded = true;
+  }
+
+  private registerPipelineDisposable(node: unknown): void {
+    const disposable = node as { dispose?: () => void };
+    if (typeof disposable?.dispose === 'function') {
+      this.pipelineDisposables.push({ dispose: disposable.dispose.bind(disposable) });
+    }
+  }
+
+  private disposePipelineDisposables(): void {
+    for (const node of this.pipelineDisposables) {
+      try {
+        node.dispose();
+      } catch {
+        // Best-effort cleanup for node-managed render targets.
+      }
+    }
+    this.pipelineDisposables = [];
+  }
+
   setGraphicsProfile(profile: GraphicsProfile): void {
     this.graphicsProfile = profile;
     this.applyGraphicsProfileDefaults(profile);
+    this.markPipelineDirty();
     this.applyQualitySettings();
   }
 
   private applyGraphicsProfileDefaults(profile: GraphicsProfile): void {
-    // These defaults define the 3 player-facing profiles.
-    // They intentionally do NOT touch persisted settings like resolutionScale or aaMode.
+    // These defaults define the 3 player-facing profiles in deterministic AA mode.
+    // They intentionally do NOT touch persisted settings like resolutionScale.
     if (profile === 'performance') {
       this.gtaoEnabled = false;
       this.ssrEnabled = false;
-      this.ssgiEnabled = false;
-      this.traaEnabled = false;
       this.bloomEnabled = false;
       this.bloomStrength = 0.0;
+      this.casEnabled = false;
+      this.casStrength = 0;
       this.vignetteEnabled = false;
       this.lutEnabled = true;
       this.lutStrength = 0.28;
+      this.antiAliasingMode = 'fxaa';
       // Keep SSR params in a safe baseline if user enables it manually.
       this.ssrOpacity = 0.35;
       this.ssrResolutionScale = 0.45;
@@ -617,14 +760,15 @@ export class RendererManager implements Disposable {
     if (profile === 'balanced') {
       this.gtaoEnabled = true;
       this.ssrEnabled = false;
-      this.ssgiEnabled = false;
-      this.traaEnabled = true;
       this.bloomEnabled = true;
       this.bloomStrength = 0.1;
+      this.casEnabled = true;
+      this.casStrength = 0.2;
       this.vignetteEnabled = true;
       this.vignetteDarkness = 0.38;
       this.lutEnabled = true;
       this.lutStrength = 0.38;
+      this.antiAliasingMode = 'smaa';
       this.ssrOpacity = 0.4;
       this.ssrResolutionScale = 0.75;
       return;
@@ -633,36 +777,120 @@ export class RendererManager implements Disposable {
     // cinematic
     this.gtaoEnabled = true;
     this.ssrEnabled = true;
-    this.ssgiEnabled = false;
-    this.traaEnabled = true;
     this.bloomEnabled = true;
     this.bloomStrength = 0.1;
+    this.casEnabled = true;
+    this.casStrength = 0.3;
     this.vignetteEnabled = true;
     this.vignetteDarkness = 0.42;
     this.lutEnabled = true;
     this.lutStrength = 0.42;
+    this.antiAliasingMode = 'smaa';
     this.ssrOpacity = 0.5;
     this.ssrResolutionScale = 1.0;
   }
 
+  private getGtaoResolutionScale(profile: GraphicsProfile): number {
+    // Chrome/mac has shown stable AO only at full-resolution in this project.
+    if (this.aoFullResOnThisPlatform) return 1.0;
+    if (profile === 'performance') return 0.75;
+    if (profile === 'balanced') return 1.0;
+    return 1.0;
+  }
+
+  private getProfileMaxPixelRatio(profile: GraphicsProfile): number {
+    if (profile === 'performance') return 1.25;
+    if (profile === 'balanced') return 1.75;
+    return 2.5;
+  }
+
+  private getEffectiveShadowQualityProfile(): GraphicsProfile {
+    return this.shadowQualityTier === 'auto' ? this.graphicsProfile : this.shadowQualityTier;
+  }
+
+  private getEffectiveCasStrength(): number {
+    if (!this.casEnabled) return 0;
+    if (this.antiAliasingMode === 'none') return 0;
+    return this.casStrength;
+  }
+
+  private syncCasSettings(): void {
+    if (!this.postFXUniforms) return;
+    this.postFXUniforms.casStrength.value = this.getEffectiveCasStrength();
+  }
+
+  private syncCasTexelSize(): void {
+    if (!this.postFXUniforms) return;
+    const drawingSize = new THREE.Vector2();
+    this.renderer.getDrawingBufferSize(drawingSize);
+    if (drawingSize.x <= 0 || drawingSize.y <= 0) return;
+    this.postFXUniforms.casTexelSize.value.set(1 / drawingSize.x, 1 / drawingSize.y);
+  }
+
+  private applyEnvironmentRotation(): void {
+    const radians = THREE.MathUtils.degToRad(this.envRotationDegrees);
+    const rotation = new THREE.Euler(0, radians, 0);
+    const sceneWithRotation = this.scene as THREE.Scene & {
+      environmentRotation?: THREE.Euler;
+      backgroundRotation?: THREE.Euler;
+    };
+    sceneWithRotation.environmentRotation = rotation;
+    sceneWithRotation.backgroundRotation = rotation;
+  }
+
+  private isSsrActiveForPipeline(): boolean {
+    return this.ssrEnabled;
+  }
+
+  private syncGtaoSettings(): void {
+    if (this.postFXUniforms) {
+      this.postFXUniforms.aoStrength.value = this.gtaoEnabled ? 1 : 0;
+    }
+    if (!this.gtaoPass) return;
+    const isCinematic = this.graphicsProfile === 'cinematic';
+    const aoSamples = isCinematic ? 16 : this.graphicsProfile === 'balanced' ? 12 : 8;
+    if (this.gtaoPass.samples) {
+      this.gtaoPass.samples.value = aoSamples;
+    }
+    if (this.gtaoPass.radius) {
+      this.gtaoPass.radius.value = isCinematic ? 0.65 : this.graphicsProfile === 'balanced' ? 0.5 : 0.4;
+    }
+    if (this.gtaoPass.thickness) {
+      this.gtaoPass.thickness.value = 1.0;
+    }
+    if (this.gtaoPass.distanceExponent) {
+      this.gtaoPass.distanceExponent.value = 1.5;
+    }
+    if (this.gtaoPass.distanceFallOff) {
+      this.gtaoPass.distanceFallOff.value = 0.5;
+    }
+    if (this.gtaoPass.scale) {
+      this.gtaoPass.scale.value = 1.0;
+    }
+    this.gtaoPass.resolutionScale = this.getGtaoResolutionScale(this.graphicsProfile);
+    // Deterministic pipeline: always spatial AO only.
+    this.gtaoPass.useTemporalFiltering = false;
+    const shouldRenderAoPass = this.gtaoEnabled || this.aoOnlyView;
+    if (typeof this.gtaoPass.updateBeforeType !== 'undefined') {
+      this.gtaoPass.updateBeforeType = shouldRenderAoPass ? 'frame' : 'none';
+    }
+    if (this.aoDenoisePass && typeof this.aoDenoisePass.updateBeforeType !== 'undefined') {
+      this.aoDenoisePass.updateBeforeType = this.aoOnlyView ? 'frame' : 'none';
+    }
+    if (this.prePassNode && typeof this.prePassNode.updateBeforeType !== 'undefined') {
+      this.prePassNode.updateBeforeType = shouldRenderAoPass ? 'frame' : 'none';
+    }
+  }
+
   setPostProcessingEnabled(enabled: boolean): void {
     this.postProcessingEnabled = enabled;
+    this.syncGtaoSettings();
   }
 
   setAoOnlyView(enabled: boolean): void {
     this.aoOnlyView = enabled;
-    // Fast path: if WebGPU post-processing exists, just swap the output node.
-    // (applyQualitySettings will also re-apply this on rebuild.)
-    if (this.isWebGPUPipeline && this.postProcessing && this.aoOnlyOutputNode) {
-      if (enabled) {
-        (this.postProcessing as { outputNode: TSLNode }).outputNode = this.aoOnlyOutputNode;
-      } else if ((this as any)._buildPipeline) {
-        (this.postProcessing as { outputNode: TSLNode }).outputNode = (this as any)._buildPipeline(this.graphicsProfile);
-        // Toggling AO-only off rebuilds the graph; re-apply the cached LUT to the new Lut3DNode.
-        this.applyLutFromCache(this.lutName);
-      }
-      this.postProcessing.needsUpdate = true;
-    }
+    this.syncGtaoSettings();
+    this.refreshOutputNode();
   }
 
   setShadowsEnabled(enabled: boolean): void {
@@ -684,7 +912,9 @@ export class RendererManager implements Disposable {
   }
 
   setAntiAliasingMode(mode: AntiAliasingMode): void {
+    if (this.antiAliasingMode === mode) return;
     this.antiAliasingMode = mode;
+    this.markPipelineDirty();
     this.applyQualitySettings();
   }
 
@@ -704,6 +934,27 @@ export class RendererManager implements Disposable {
     this.scene.backgroundBlurriness = THREE.MathUtils.clamp(value, 0, 1);
   }
 
+  setEnvironmentRotationDegrees(value: number): void {
+    if (!Number.isFinite(value)) return;
+    this.envRotationDegrees = THREE.MathUtils.clamp(value, -180, 180);
+    this.applyEnvironmentRotation();
+  }
+
+  setShadowQualityTier(tier: ShadowQualityTier): void {
+    this.shadowQualityTier = tier;
+  }
+
+  setCasEnabled(enabled: boolean): void {
+    this.casEnabled = enabled;
+    this.syncCasSettings();
+  }
+
+  setCasStrength(value: number): void {
+    if (!Number.isFinite(value)) return;
+    this.casStrength = THREE.MathUtils.clamp(value, 0, 1);
+    this.syncCasSettings();
+  }
+
   async setEnvironment(name: string): Promise<void> {
     if (this.envName === name) return;
     this.envName = name;
@@ -713,6 +964,7 @@ export class RendererManager implements Disposable {
     if (cached) {
       this.scene.environment = cached.texture;
       this.scene.background = cached.texture;
+      this.applyEnvironmentRotation();
       return;
     }
 
@@ -734,6 +986,7 @@ export class RendererManager implements Disposable {
       if (this.envName === name) {
         this.scene.environment = envTarget.texture;
         this.scene.background = envTarget.texture;
+        this.applyEnvironmentRotation();
       }
     } catch (err) {
       console.warn(`[RendererManager] Failed to load environment: ${name}`, err);
@@ -742,33 +995,37 @@ export class RendererManager implements Disposable {
 
   setSsaoEnabled(enabled: boolean): void {
     this.gtaoEnabled = enabled;
-    this.applyQualitySettings();
+    this.syncGtaoSettings();
+    if (this.postProcessing) {
+      (this.postProcessing as { needsUpdate: boolean }).needsUpdate = true;
+    }
   }
 
   setSsrEnabled(enabled: boolean): void {
+    if (this.ssrEnabled === enabled) return;
     this.ssrEnabled = enabled;
-    this.applyQualitySettings();
-  }
-
-  setSsgiEnabled(enabled: boolean): void {
-    this.ssgiEnabled = enabled;
+    this.markPipelineDirty();
     this.applyQualitySettings();
   }
 
   setSsrOpacity(value: number): void {
     if (!Number.isFinite(value)) return;
     this.ssrOpacity = THREE.MathUtils.clamp(value, 0, 1);
-    if (this.postFXUniforms) this.postFXUniforms.ssrOpacity.value = this.ssrEnabled ? this.ssrOpacity : 0;
+    if (this.postFXUniforms) this.postFXUniforms.ssrOpacity.value = this.isSsrActiveForPipeline() ? this.ssrOpacity : 0;
   }
 
   setSsrResolutionScale(value: number): void {
     if (!Number.isFinite(value)) return;
     this.ssrResolutionScale = THREE.MathUtils.clamp(value, 0.25, 1);
-    this.applyQualitySettings();
+    if (this.ssrNode) {
+      (this.ssrNode as unknown as { resolutionScale: number }).resolutionScale = this.ssrResolutionScale;
+    }
   }
 
   setBloomEnabled(enabled: boolean): void {
+    if (this.bloomEnabled === enabled) return;
     this.bloomEnabled = enabled;
+    this.markPipelineDirty();
     this.applyQualitySettings();
   }
 
@@ -870,11 +1127,6 @@ export class RendererManager implements Disposable {
     }
   }
 
-  setTraaEnabled(enabled: boolean): void {
-    this.traaEnabled = enabled;
-    this.applyQualitySettings();
-  }
-
   getRenderStats(): Readonly<{ drawCalls: number; triangles: number; lines: number; points: number }> {
     return this.lastRenderStats;
   }
@@ -883,48 +1135,53 @@ export class RendererManager implements Disposable {
   getDebugFlags(): Readonly<{
     postProcessingEnabled: boolean;
     shadowsEnabled: boolean;
+    shadowQuality: ShadowQualityTier;
+    shadowQualityResolvedProfile: GraphicsProfile;
     exposure: number;
     graphicsProfile: GraphicsProfile;
+    envRotationDegrees: number;
     aaMode: AntiAliasingMode;
     aoOnly: boolean;
     ssaoEnabled: boolean;
     ssrEnabled: boolean;
     ssrOpacity: number;
     ssrResolutionScale: number;
-    ssgiEnabled: boolean;
     bloomEnabled: boolean;
     bloomStrength: number;
+    casEnabled: boolean;
+    casStrength: number;
     vignetteEnabled: boolean;
     vignetteDarkness: number;
     lutEnabled: boolean;
     lutStrength: number;
     lutName: string;
     lutReady: boolean;
-    traaEnabled: boolean;
     envName: string;
   }> {
-    const effectiveTraa = !!(this.postProcessingEnabled && this.isWebGPUPipeline && this.traaEnabled);
     return {
       postProcessingEnabled: this.postProcessingEnabled,
       shadowsEnabled: this.shadowsEnabled,
+      shadowQuality: this.shadowQualityTier,
+      shadowQualityResolvedProfile: this.getEffectiveShadowQualityProfile(),
       exposure: this.toneExposure,
       graphicsProfile: this.graphicsProfile,
+      envRotationDegrees: this.envRotationDegrees,
       aaMode: this.antiAliasingMode,
       aoOnly: this.aoOnlyView,
       ssaoEnabled: this.gtaoEnabled,
-      ssrEnabled: this.ssrEnabled,
+      ssrEnabled: this.isSsrActiveForPipeline(),
       ssrOpacity: this.ssrOpacity,
       ssrResolutionScale: this.ssrResolutionScale,
-      ssgiEnabled: this.ssgiEnabled,
       bloomEnabled: this.bloomEnabled,
       bloomStrength: this.bloomStrength,
+      casEnabled: this.casEnabled,
+      casStrength: this.casStrength,
       vignetteEnabled: this.vignetteEnabled,
       vignetteDarkness: this.vignetteDarkness,
       lutEnabled: this.lutEnabled,
       lutStrength: this.lutStrength,
       lutName: this.lutName,
       lutReady: this.lutReady,
-      traaEnabled: effectiveTraa,
       envName: this.envName,
     };
   }
@@ -935,26 +1192,27 @@ export class RendererManager implements Disposable {
   private applyQualitySettings(): void {
     // 1. Sync uniforms (cheap — no graph rebuild)
     if (this.postFXUniforms) {
-      this.postFXUniforms.ssrOpacity.value = this.ssrEnabled ? this.ssrOpacity : 0;
+      this.postFXUniforms.ssrOpacity.value = this.isSsrActiveForPipeline() ? this.ssrOpacity : 0;
       this.postFXUniforms.vignetteDarkness.value = this.vignetteEnabled ? this.vignetteDarkness : 0;
       this.postFXUniforms.lutIntensity.value = this.lutEnabled ? this.lutStrength : 0;
     }
+    this.syncGtaoSettings();
+    this.syncCasSettings();
     if (this.ssrNode) {
       // Keep SSR resolution scale in sync with runtime controls.
       (this.ssrNode as unknown as { resolutionScale: number }).resolutionScale = this.ssrResolutionScale;
     }
 
     // 2. Cap pixel ratio by profile to avoid runaway GPU cost
-    const maxPR = this.graphicsProfile === 'performance' ? 1 : this.graphicsProfile === 'balanced' ? 1.5 : 2;
+    const maxPR = this.getProfileMaxPixelRatio(this.graphicsProfile);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPR) * this.resolutionScale);
     this.renderer.shadowMap.enabled = this.shadowsEnabled;
 
-    // 3. Rebuild the TSL node graph for the current profile
-    if (this.isWebGPUPipeline && this.postProcessing && (this as any)._buildPipeline) {
-      const finalGraph = (this as any)._buildPipeline(this.graphicsProfile) as TSLNode;
-      const outputNode = this.aoOnlyView && this.aoOnlyOutputNode ? this.aoOnlyOutputNode : finalGraph;
-      (this.postProcessing as { outputNode: TSLNode }).outputNode = outputNode;
-      this.postProcessing.needsUpdate = true;
+    // 3. Rebuild the TSL node graph only when structural settings changed
+    if (this.pipelineRebuildNeeded && this.isWebGPUPipeline && this.postProcessing && this.buildPipelineFn) {
+      const finalGraph = this.buildPipelineFn(this.graphicsProfile);
+      this.mainOutputNode = finalGraph;
+      this.refreshOutputNode();
 
       // Re-apply the cached LUT to the new Lut3DNode (rebuild creates a placeholder)
       this.applyLutFromCache(this.lutName);
@@ -963,9 +1221,24 @@ export class RendererManager implements Disposable {
       for (const node of this.bloomNodes) {
         node.strength.value = this.bloomStrength;
       }
+      if (this.ssrNode) {
+        (this.ssrNode as unknown as { resolutionScale: number }).resolutionScale = this.ssrResolutionScale;
+      }
+
+      this.pipelineRebuildNeeded = false;
     }
 
     this.handleResize();
+  }
+
+  private refreshOutputNode(): void {
+    if (!this.postProcessing) return;
+    const nextOutput = this.aoOnlyView && this.aoOnlyOutputNode
+      ? this.aoOnlyOutputNode
+      : this.mainOutputNode;
+    if (!nextOutput) return;
+    (this.postProcessing as { outputNode: TSLNode }).outputNode = nextOutput;
+    this.postProcessing.needsUpdate = true;
   }
 
   getGraphicsProfile(): GraphicsProfile {
@@ -1006,12 +1279,12 @@ export class RendererManager implements Disposable {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     // Recalculate pixel ratio with profile-based cap (must be BEFORE setSize)
-    const maxPR = this.graphicsProfile === 'performance' ? 1
-      : this.graphicsProfile === 'balanced' ? 1.5 : 2;
+    const maxPR = this.getProfileMaxPixelRatio(this.graphicsProfile);
     this.renderer.setPixelRatio(
       Math.min(window.devicePixelRatio, maxPR) * this.resolutionScale,
     );
     this.renderer.setSize(w, h);
+    this.syncCasTexelSize();
   }
 
   /** Show a full-screen overlay when the GPU device is lost. */
@@ -1063,10 +1336,26 @@ export class RendererManager implements Disposable {
     if (this.postProcessing && typeof (this.postProcessing as { dispose?: () => void }).dispose === 'function') {
       (this.postProcessing as { dispose: () => void }).dispose();
     }
+    this.disposePipelineDisposables();
     this.postProcessing = null;
+    this.buildPipelineFn = null;
+    this.mainOutputNode = null;
+    this.pipelineRebuildNeeded = false;
     this.bloomNodes = [];
     this.postFXUniforms = null;
     this.lutPassNode = null;
+    if (typeof this.prePassNode?.dispose === 'function') {
+      this.prePassNode.dispose();
+    }
+    if (typeof this.aoDenoisePass?.dispose === 'function') {
+      this.aoDenoisePass.dispose();
+    }
+    if (typeof this.gtaoPass?.dispose === 'function') {
+      this.gtaoPass.dispose();
+    }
+    this.prePassNode = null;
+    this.aoDenoisePass = null;
+    this.gtaoPass = null;
     for (const tex of this.lutCache.values()) {
       tex.dispose();
     }
