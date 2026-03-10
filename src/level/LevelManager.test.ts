@@ -49,3 +49,73 @@ describe('LevelManager spawn handling', () => {
     expect(manager.getSpawnPoint().position.equals(defaultSpawn)).toBe(true);
   });
 });
+
+describe('LevelManager rotated body creation', () => {
+  let logSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    logSpy.mockRestore();
+  });
+
+  it('applies mesh rotation to rigid body when loading a rotated JSON object', async () => {
+    const scene = new THREE.Scene();
+    const setRotation = vi.fn();
+    const setTranslation = vi.fn();
+    const bodyDesc = {
+      setTranslation,
+      setRotation,
+    };
+    const body = {};
+    const collider = {};
+    const physicsWorld = {
+      world: {
+        createRigidBody: vi.fn(() => body),
+        createCollider: vi.fn(() => collider),
+      },
+      removeCollider: vi.fn(),
+      removeBody: vi.fn(),
+    };
+    const eventBus = { emit: vi.fn() };
+    const manager = new LevelManager(scene, physicsWorld as any, eventBus as any);
+
+    // Mock RAPIER module at the instance level
+    const RAPIER = await import('@dimforge/rapier3d-compat');
+    const fixedSpy = vi.spyOn(RAPIER.RigidBodyDesc, 'fixed').mockReturnValue(bodyDesc as any);
+    const cuboidSpy = vi.spyOn(RAPIER.ColliderDesc, 'cuboid').mockReturnValue({
+      setCollisionGroups: vi.fn().mockReturnThis(),
+    } as any);
+
+    const entry = {
+      id: 'test-1',
+      name: 'RotatedBlock',
+      parentId: null,
+      source: { type: 'primitive' as const, primitive: 'box' },
+      transform: {
+        position: [1, 2, 3] as [number, number, number],
+        rotation: [0, Math.PI / 4, 0] as [number, number, number],
+        scale: [1, 1, 1] as [number, number, number],
+      },
+      physics: { type: 'static' as const },
+    };
+
+    await (manager as any).spawnJSONObject(entry);
+
+    // Body translation must be set
+    expect(setTranslation).toHaveBeenCalledWith(1, 2, 3);
+
+    // Body rotation must be set with the mesh's quaternion (45 deg around Y)
+    expect(setRotation).toHaveBeenCalledTimes(1);
+    const rotArg = setRotation.mock.calls[0][0];
+    // For a 45-degree Y rotation, quaternion ≈ { x: 0, y: 0.3827, z: 0, w: 0.9239 }
+    expect(rotArg.x).toBeCloseTo(0, 4);
+    expect(rotArg.y).toBeCloseTo(Math.sin(Math.PI / 8), 3);
+    expect(rotArg.z).toBeCloseTo(0, 4);
+    expect(rotArg.w).toBeCloseTo(Math.cos(Math.PI / 8), 3);
+
+    fixedSpy.mockRestore();
+    cuboidSpy.mockRestore();
+  });
+});

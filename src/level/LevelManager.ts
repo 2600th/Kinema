@@ -292,6 +292,9 @@ export class LevelManager implements Disposable {
       bodyDesc = RAPIER.RigidBodyDesc.fixed();
     }
     bodyDesc.setTranslation(px, py, pz);
+    // Sync body rotation with mesh so rotated objects collide correctly.
+    const q = mesh.quaternion;
+    bodyDesc.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w });
     const body = this.physicsWorld.world.createRigidBody(bodyDesc);
 
     // Approximate collider from geometry bounding box
@@ -1704,9 +1707,12 @@ export class LevelManager implements Disposable {
     navInputMesh.position.copy(navPlatform.position);
     navInputMesh.updateWorldMatrix(true, false);
 
-    // Generate navmesh from padded platform + all obstacles
+    // Generate navmesh from padded platform + all obstacles.
+    // Seed the flood fill at the platform center so disconnected obstacle-top
+    // regions are pruned before any agents spawn.
+    const seedPoint = new THREE.Vector3(0, surfaceY, zStation);
     this.navMeshManager = new NavMeshManager();
-    this.navMeshManager.generate([navInputMesh, ...obstacles]);
+    this.navMeshManager.generate([navInputMesh, ...obstacles], seedPoint);
     navInputGeo.dispose();
 
     const navMesh = this.navMeshManager.getNavMesh();
@@ -1715,7 +1721,8 @@ export class LevelManager implements Disposable {
       return;
     }
 
-    this.navPatrolSystem = new NavPatrolSystem(this.scene, navMesh, 5);
+    const reachableFilter = this.navMeshManager.getReachableFilter();
+    this.navPatrolSystem = new NavPatrolSystem(this.scene, navMesh, 5, reachableFilter);
     this.navDebugOverlay = new NavDebugOverlay(this.scene, this.navMeshManager);
   }
 

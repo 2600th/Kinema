@@ -135,6 +135,8 @@ async function bootstrap(): Promise<void> {
     if (levelLoaded) return;
     await levelManager.load('procedural');
     playerController.spawn(levelManager.getSpawnPoint());
+    // Warm the Rapier query pipeline so first-tick raycasts are valid.
+    physicsWorld.step();
     game.setupLevel();
     if (musicUrl) {
       audioManager.playMusic(musicUrl, 2.0);
@@ -164,6 +166,7 @@ async function bootstrap(): Promise<void> {
     }
     await levelManager.loadFromJSON(data);
     playerController.spawn(levelManager.getSpawnPoint());
+    physicsWorld.step();
     game.setupCustomLevel();
     levelLoaded = true;
   };
@@ -206,6 +209,7 @@ async function bootstrap(): Promise<void> {
     };
     await levelManager.loadFromJSON(blankLevel);
     playerController.spawn(levelManager.getSpawnPoint());
+    physicsWorld.step();
     game.setupCustomLevel();
     levelLoaded = true;
     // Open the editor

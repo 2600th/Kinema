@@ -376,6 +376,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
   private syncDebugPanel(): void {
     const f = this.renderer.getDebugFlags();
     this.uiManager.debugPanel.syncRenderSettings({
+      activeBackend: f.activeBackend,
       postProcessingEnabled: f.postProcessingEnabled,
       shadowsEnabled: f.shadowsEnabled,
       shadowQuality: f.shadowQuality,
@@ -757,32 +758,36 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
 
   private handleNavTargetClick(ev: MouseEvent): void {
     if (!this.navPatrolSystem || !this.navTargetMode) return;
-    // Raycast from camera through mouse position to find floor hit.
+
+    // Only raycast the walkable navigation platform — not the whole scene.
+    const navPlatform = this.renderer.scene.getObjectByName('NavPlatform');
+    if (!navPlatform) return;
+
     const rect = this.renderer.canvas.getBoundingClientRect();
     const ndcX = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
     const ndcY = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
     const raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), this.renderer.camera);
-    const hits = raycaster.intersectObjects(this.renderer.scene.children, true);
-    for (const hit of hits) {
-      if (hit.object instanceof THREE.Mesh) {
-        const agent = this.navPatrolSystem.requestTargetForNearest(hit.point);
-        console.log(`[Nav] target set at (${hit.point.x.toFixed(1)}, ${hit.point.y.toFixed(1)}, ${hit.point.z.toFixed(1)})`);
+    const hits = raycaster.intersectObjects([navPlatform], false);
 
-        // Show target marker on the ground
-        this.showNavTargetMarker(hit.point);
+    if (hits.length === 0) return;
 
-        // Highlight the responding agent
-        if (agent) agent.highlight();
+    const hit = hits[0];
+    const agent = this.navPatrolSystem.requestTargetForNearest(hit.point);
 
-        // Auto-disable target mode; next canvas click will re-acquire pointer lock
-        this.navTargetMode = false;
-        if (this._onNavTargetClick) {
-          window.removeEventListener('click', this._onNavTargetClick);
-          this._onNavTargetClick = null;
-        }
-        break;
-      }
+    if (agent) {
+      console.log(`[Nav] target set at (${hit.point.x.toFixed(1)}, ${hit.point.y.toFixed(1)}, ${hit.point.z.toFixed(1)})`);
+      this.showNavTargetMarker(hit.point);
+      agent.highlight();
+    } else {
+      console.log('[Nav] click did not resolve to a walkable navmesh point');
+    }
+
+    // Auto-disable target mode; next canvas click will re-acquire pointer lock
+    this.navTargetMode = false;
+    if (this._onNavTargetClick) {
+      window.removeEventListener('click', this._onNavTargetClick);
+      this._onNavTargetClick = null;
     }
   }
 

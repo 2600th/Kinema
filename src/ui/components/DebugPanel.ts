@@ -7,6 +7,7 @@ type GraphicsProfile = 'performance' | 'balanced' | 'cinematic';
 type ShadowQualityTier = 'auto' | GraphicsProfile;
 
 interface RenderSettingsSnapshot {
+  activeBackend: string;
   postProcessingEnabled: boolean;
   shadowsEnabled: boolean;
   shadowQuality: ShadowQualityTier;
@@ -55,6 +56,7 @@ export class DebugPanel implements Disposable {
   private readonly graphWrap: HTMLDivElement;
   private readonly panel: HTMLDivElement;
   private readonly metrics: HTMLDivElement;
+  private readonly metricBackend: HTMLSpanElement;
   private readonly metricState: HTMLSpanElement;
   private readonly metricGrounded: HTMLSpanElement;
   private readonly metricSpeed: HTMLSpanElement;
@@ -166,6 +168,8 @@ export class DebugPanel implements Disposable {
     ].join(';');
     this.panel.appendChild(this.metrics);
 
+    this.metricBackend = this.addMetricRow('Backend');
+    this.metricBackend.textContent = '—';
     this.metricState = this.addMetricRow('State');
     this.metricGrounded = this.addMetricRow('Grounded');
     this.metricSpeed = this.addMetricRow('Speed');
@@ -488,7 +492,7 @@ export class DebugPanel implements Disposable {
       'lutEnabled',
       'Color grading LUT',
       true,
-      'Strength blends in a simple color grade (3D LUT disabled in WebGPU; full LUT when re-enabled).',
+      'Blends in 3D LUT color grading via native TSL Lut3DNode.',
       (value) => {
         this.eventBus.emit('debug:lutEnabled', value);
         this.updateVisibilityFromControls();
@@ -528,6 +532,7 @@ export class DebugPanel implements Disposable {
   }
 
   syncRenderSettings(settings: RenderSettingsSnapshot): void {
+    this.metricBackend.textContent = settings.activeBackend;
     this.setCheckbox('postProcessing', settings.postProcessingEnabled);
     this.setCheckbox('shadows', settings.shadowsEnabled);
     this.setSelect('shadowQuality', settings.shadowQuality);

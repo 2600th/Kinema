@@ -12,6 +12,14 @@ export default defineConfig({
     environment: 'node',
     include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
     exclude: ['**/node_modules/**', '**/dist/**'],
+    alias: {
+      // Rapier 0.17+ package has "type":"module" but its CJS entry still
+      // uses CommonJS exports. Force the ESM entry so vitest can load it.
+      '@dimforge/rapier3d-compat': resolve(
+        __dirname,
+        'node_modules/@dimforge/rapier3d-compat/rapier.es.js',
+      ),
+    },
   },
   resolve: {
     alias: {
@@ -34,9 +42,17 @@ export default defineConfig({
     target: 'esnext',
     rollupOptions: {
       output: {
-        manualChunks: {
-          'vendor-three': ['three'],
-          'vendor-rapier': ['@dimforge/rapier3d-compat'],
+        manualChunks(id) {
+          // Group three.js core and three/webgpu into a single vendor chunk.
+          // TSL display nodes (three/addons/tsl/display/*) remain as separate
+          // async chunks since they are dynamically imported by the post-processing pipeline.
+          if (id.includes('node_modules/three/')) {
+            if (id.includes('/addons/tsl/display/')) return undefined;
+            return 'vendor-three';
+          }
+          if (id.includes('node_modules/@dimforge/rapier3d-compat')) {
+            return 'vendor-rapier';
+          }
         },
       },
     },

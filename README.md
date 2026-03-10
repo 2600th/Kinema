@@ -15,11 +15,11 @@
 - **Showcase level** — A centered, labeled corridor that contains all features (old + new) in non-overlapping stations for quick testing.
 - **Menus & settings** — Main menu (Play, Level Select, Create Level, Settings, Quit), pause menu, and settings with persistent graphics/audio controls.
 - **Level editor** — In-game edit mode with free camera, gizmos, snapping, asset browser, brush system, and save/load. "Create Level" opens a blank scene directly into the editor.
-- **Navigation** — NavMesh generation via navcat, NavAgent pathfinding, patrol system, and debug overlay.
+- **Navigation** — NavMesh generation via navcat with flood-fill pruning of disconnected regions, NavAgent pathfinding, patrol system with retry-safe random point selection, and debug overlay.
 - **Ambient audio** — Background music with Web Audio mixing and volume controls.
 - **Gameplay** — Checkpoints/respawn, objective tracking, HUD prompts and status messages.
 - **Debug panel** — FPS, physics/render metrics, and grouped controls for quality, environment, post-processing, and input tuning.
-- **Rendering** — WebGPU + TSL post-processing when available with **graphics profiles** (**Performance / Balanced / Cinematic**). Effects include GTAO (opaque-only), SSR, TRAA (temporal AA), SMAA/FXAA, bloom, vignette, and LUT color grading. Falls back to WebGL2 otherwise.
+- **Rendering** — WebGPU + TSL post-processing when available with **graphics profiles** (**Performance / Balanced / Cinematic**). Effects include GTAO (opaque-only), SSR, SMAA/FXAA, CAS sharpening, bloom, vignette, and LUT color grading. Falls back to WebGL2 otherwise.
 
 ---
 
@@ -30,7 +30,7 @@
 - **Node.js 20+** (recommended; needed for modern ESM and Vite).
 - **npm 10+** (or compatible package manager).
 
-The project uses **Rapier** via `@dimforge/rapier3d-compat` (WASM). No extra native tools are required; the first run will load the WASM module in the browser.
+The project uses **Rapier 0.17** via `@dimforge/rapier3d-compat` (WASM) and **navcat** for navigation mesh generation. No extra native tools are required; the first run will load the WASM module in the browser.
 
 ### 1. Clone and install
 
@@ -149,20 +149,22 @@ Open with **`` ` ``**. Sections:
 - **Runtime views** — FPS / frame-time / memory graphs, collider wireframes, **light helpers**, **shadow frustums**, camera collision toggle.
 - **Environment** — Background intensity, background blur, HDR environment map selector (7 presets).
 - **Quality** — Graphics profile (**Performance / Balanced / Cinematic**), post-processing master toggle, shadows, exposure, anti-aliasing mode.
-- **Post FX** — GTAO (ambient occlusion), SSR (reflections), TRAA, bloom, vignette, LUT color grading, plus **AO-only debug view**.
+- **Post FX** — GTAO (ambient occlusion), SSR (reflections), bloom, CAS sharpening, vignette, LUT color grading, plus **AO-only debug view**.
 
 ---
 
 ## Rendering pipeline
 
 The WebGPU path uses Three.js r182 `WebGPURenderer` + TSL `PostProcessing` with:
-- an **opaque-only pre-pass** (depth + normals + velocity) for GTAO / TRAA / SSR stability, and
+- an **opaque-only pre-pass** (depth + normals) for GTAO and SSR stability, and
 - a **full scene pass** (includes transparent sprites/UI) for final color and material signals.
 
 ### Pass outputs (high level)
 
-- **Pre-pass (opaque-only)**: `depth`, `normalView` (encoded), `velocity`
-- **Scene pass (full scene)**: `output` (lit color), `diffuseColor`, `metalrough`, plus `depth`
+- **Pre-pass (opaque-only)**: `normalView` (HalfFloat), `depth`
+- **Scene pass (full scene)**: `output` (lit color), `metalrough` (HalfFloat vec2), `depth`
+
+The scene pass uses 2 HalfFloat MRT color attachments (`maxColorAttachmentBytesPerSample: 32`).
 
 GTAO is **injected into the shading context** via `builtinAOContext` (official three.js pattern) so AO does **not** corrupt transparent world UI sprites.
 
@@ -172,20 +174,21 @@ Profiles set sensible defaults and performance caps; most toggles can still be o
 
 | Profile | Defaults (typical) |
 |---------|---------------------|
-| **Performance** | GTAO on, SSR off, bloom off/low, simple AA |
-| **Balanced** | GTAO on, SSR optional, bloom on, TRAA optional |
-| **Cinematic** | GTAO on, SSR on, bloom on, TRAA on, stronger grading |
+| **Performance** | GTAO off, SSR off, bloom off, CAS off, FXAA |
+| **Balanced** | GTAO on, SSR off, bloom on, CAS on, SMAA |
+| **Cinematic** | GTAO on, SSR on, bloom on, CAS on, SMAA, stronger grading |
 
 ### Post-processing chain order (simplified)
 
 ```
-Pre-pass (opaque depth/normal/velocity)
-Scene pass (full scene color + material signals)
+Pre-pass (opaque depth/normal)
+Scene pass (full scene color + metalrough)
   → GTAO (in-shader via builtinAOContext)
   → SSR (optional, uses pre-pass depth/normal + metal/roughness)
   → Bloom (optional)
-  → Anti-aliasing (TRAA / SMAA / FXAA / none)
   → renderOutput() (tone mapping + sRGB conversion)
+  → Anti-aliasing (SMAA / FXAA / none)
+  → CAS sharpening (contrast-adaptive, after AA)
   → Vignette (radial darken)
   → LUT 3D color grading
 ```
@@ -244,7 +247,8 @@ If WebGPU is not available, the app uses a standard `WebGLRenderer` with `ACESFi
 
 - **TypeScript** (strict mode)
 - **Three.js r182** — `WebGPURenderer` + TSL node-based shading, `WebGLRenderer` fallback
-- **Rapier** — `@dimforge/rapier3d-compat` (3D physics, WASM)
+- **Rapier 0.17** — `@dimforge/rapier3d-compat` (3D physics, WASM)
+- **navcat 0.2** — Navigation mesh generation, crowd simulation, flood-fill pruning
 - **Vite** — Dev server, build, path aliases (`vite-plugin-wasm`, `vite-plugin-top-level-await`)
 - **Vitest** — Unit tests
 
@@ -310,7 +314,7 @@ src/
     ColliderFactory.ts    Collider creation helpers
     PhysicsDebugView.ts   Wireframe debug renderer for Rapier colliders
   editor/                 In-game level editor (brushes, gizmos, panels, serialization)
-  navigation/             NavMesh generation, pathfinding agents, patrol system, debug overlay
+  navigation/             NavMesh generation (with flood-fill pruning), pathfinding agents, patrol system, debug overlay
   renderer/
     RendererManager.ts    WebGPU/WebGL renderer, TSL pipeline, MRT, all post-FX
   ui/
@@ -412,10 +416,10 @@ The project uses a **rigid-body character** pattern:
 | No background music | Set `VITE_MUSIC_URL` (e.g. `/assets/audio/ambient-1.ogg`) or keep it unset to use the procedural fallback loop. |
 | Rope climb doesn't work | Hold **Shift** and then press **W** or **S** (climb is Shift + W/S). |
 | Very bright or "washed out" image | Lower **Exposure** and/or reduce grading (LUT strength, bloom). Try a different environment map. |
-| Anti-aliasing looks different | AA mode is selectable (TRAA / SMAA / FXAA / none). For best results with SSR, enable **TRAA**. |
+| Anti-aliasing looks different | AA mode is selectable (SMAA / FXAA / none). SMAA generally gives the best edge quality. |
 | Raw mouse not available | Some browsers/OS restrict pointer lock; the game falls back to normal pointer lock. |
 | WebGPU warnings when toggling shadows | Toggling shadows can briefly re-initialize shadow resources. If you see warnings, avoid rapid toggles; a refresh clears any transient state. |
-| WebGPU byte limit warnings | Expected on first compile; the renderer requests `maxColorAttachmentBytesPerSample: 64` to support the 5-target MRT. The adapter must support at least 64 bytes (most modern GPUs support 128). |
+| WebGPU byte limit warnings | Expected on first compile; the renderer requests `maxColorAttachmentBytesPerSample: 32` to support the 2-target HalfFloat MRT. Most modern GPUs support this comfortably. |
 | Build or type errors | Run `npm run build` and fix any `tsc` or Vite errors; ensure Node 20+ and a clean `npm install`. |
 | No post-processing (flat look) | WebGPU may not be available in your browser. Check the console for "WebGPU/TSL not available" — the app falls back to basic WebGL2 rendering. |
 

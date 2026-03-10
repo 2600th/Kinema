@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { WebGPURenderer, PostProcessing, PMREMGenerator } from 'three/webgpu';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { LUT3dlLoader } from 'three/addons/loaders/LUT3dlLoader.js';
 import { LUTCubeLoader } from 'three/addons/loaders/LUTCubeLoader.js';
@@ -35,9 +36,6 @@ const ENV_PRESETS: ReadonlyArray<{ name: string; file: string | null }> = [
 ];
 export const ENV_NAMES: readonly string[] = ENV_PRESETS.map(p => p.name);
 
-// WebGPU + TSL pipeline (dynamic import to allow fallback and avoid top-level side effects)
-type WebGPURenderer = import('three/webgpu').WebGPURenderer;
-type PostProcessing = import('three/webgpu').PostProcessing;
 // TSL nodes: use any for dynamic imports to avoid strict three/tsl type dependency
 type TSLPassNode = { setMRT(mrt: unknown): void; getTextureNode(name: string): unknown; getTexture(name: string): THREE.Texture };
 type TSLNode = unknown;
@@ -156,8 +154,28 @@ export class RendererManager implements Disposable {
 
   private _onResize = this.handleResize.bind(this);
 
-  /** Guard shadow update: skip ShadowNode.updateBeforeNode when shadowMap is null or light.castShadow is false (WebGPU). */
+  /**
+   * Guard shadow update: skip ShadowNode.updateBeforeNode when shadowMap is null
+   * or light.castShadow is false (WebGPU).
+   *
+   * WARNING: This patches the private `_nodes.constructor.prototype.updateBefore`
+   * internal of WebGPURenderer. It was written against Three.js r182 and may break
+   * on future releases. If this guard is no longer needed or the internal API
+   * changes, remove/update this method.
+   *
+   * Upstream issue: toggling shadows at runtime can trigger a null depthTexture
+   * crash inside ShadowNode, causing a black screen or device loss.
+   */
+  private static readonly EXPECTED_THREE_REVISION = '182';
+
   private patchShadowNodeForToggle(wgpuRenderer: WebGPURenderer): void {
+    if (THREE.REVISION !== RendererManager.EXPECTED_THREE_REVISION) {
+      console.warn(
+        `[RendererManager] Shadow toggle patch was written for Three.js r${RendererManager.EXPECTED_THREE_REVISION} ` +
+        `but running r${THREE.REVISION}. Skipping patch — verify shadow toggling still works.`,
+      );
+      return;
+    }
     try {
       const nodes = (wgpuRenderer as unknown as { _nodes?: { constructor: { prototype: { updateBefore: (ro: unknown) => void } }; getNodeFrameForRender: (ro: unknown) => { updateBeforeNode: (n: unknown) => void } } })._nodes;
       if (!nodes?.constructor?.prototype?.updateBefore) return;
@@ -240,7 +258,6 @@ export class RendererManager implements Disposable {
     document.body.style.backgroundAttachment = 'fixed';
 
     try {
-      const { WebGPURenderer, PostProcessing } = await import('three/webgpu');
       const {
         pass,
         mrt,
@@ -289,8 +306,7 @@ export class RendererManager implements Disposable {
 
       this.patchShadowNodeForToggle(wgpuRenderer);
 
-      const { PMREMGenerator: PMREMGeneratorClass } = await import('three/webgpu');
-      const pmremGenerator = new PMREMGeneratorClass(wgpuRenderer);
+      const pmremGenerator = new PMREMGenerator(wgpuRenderer);
       const envTarget = pmremGenerator.fromScene(new RoomEnvironment(), 0.04);
       this.environmentTarget = envTarget as unknown as THREE.WebGLRenderTarget<THREE.Texture>;
       this.envCache.set('Room Environment', this.environmentTarget);
@@ -301,7 +317,7 @@ export class RendererManager implements Disposable {
       this.scene.backgroundBlurriness = 0.5;
       this.applyEnvironmentRotation();
       pmremGenerator.dispose();
-      this.createPmremGenerator = () => new PMREMGeneratorClass(this.renderer as any);
+      this.createPmremGenerator = () => new PMREMGenerator(this.renderer as any);
 
       // Successful pipeline setup - NOW swap the renderer and set flag
       (this as { renderer: THREE.WebGLRenderer | WebGPURenderer }).renderer = wgpuRenderer;
@@ -651,16 +667,17 @@ export class RendererManager implements Disposable {
       this.prePassNode = null;
       this.bloomNodes = [];
       this.postFXUniforms = null;
-      const pmremGenerator = new THREE.PMREMGenerator(this.renderer as THREE.WebGLRenderer);
-      this.environmentTarget = pmremGenerator.fromScene(new RoomEnvironment(), 0.04);
-      this.envCache.set('Room Environment', this.environmentTarget);
-      this.scene.environment = this.environmentTarget.texture;
-      this.scene.background = this.environmentTarget.texture;
+      const webglPmrem = new THREE.PMREMGenerator(this.renderer as THREE.WebGLRenderer);
+      const envTarget = webglPmrem.fromScene(new RoomEnvironment(), 0.04);
+      this.environmentTarget = envTarget;
+      this.envCache.set('Room Environment', envTarget);
+      this.scene.environment = envTarget.texture;
+      this.scene.background = envTarget.texture;
       this.scene.environmentIntensity = 0.7;
       this.scene.backgroundIntensity = 1.2;
       this.scene.backgroundBlurriness = 0.5;
       this.applyEnvironmentRotation();
-      pmremGenerator.dispose();
+      webglPmrem.dispose();
       this.createPmremGenerator = () => new THREE.PMREMGenerator(this.renderer as THREE.WebGLRenderer);
     }
 
@@ -1133,6 +1150,7 @@ export class RendererManager implements Disposable {
 
   /** Returns current flags (effective state). */
   getDebugFlags(): Readonly<{
+    activeBackend: string;
     postProcessingEnabled: boolean;
     shadowsEnabled: boolean;
     shadowQuality: ShadowQualityTier;
@@ -1158,7 +1176,13 @@ export class RendererManager implements Disposable {
     lutReady: boolean;
     envName: string;
   }> {
+    let activeBackend = 'WebGLRenderer';
+    if (this.isWebGPUPipeline) {
+      const backend = (this.renderer as unknown as { backend?: { isWebGPUBackend?: boolean } }).backend;
+      activeBackend = backend?.isWebGPUBackend ? 'WebGPU' : 'WebGPU (WebGL2 backend)';
+    }
     return {
+      activeBackend,
       postProcessingEnabled: this.postProcessingEnabled,
       shadowsEnabled: this.shadowsEnabled,
       shadowQuality: this.shadowQualityTier,

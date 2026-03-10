@@ -3,6 +3,7 @@ import { crowd } from 'navcat/blocks';
 import {
   type NavMesh,
   type Vec3,
+  type QueryFilter,
   findRandomPoint,
   findNearestPoly,
   createFindNearestPolyResult,
@@ -10,25 +11,47 @@ import {
 } from 'navcat';
 import { NavAgent } from './NavAgent';
 
+/** Maximum attempts for findRandomPoint (reservoir sampling can fail). */
+const RANDOM_POINT_MAX_RETRIES = 8;
+
 export class NavPatrolSystem {
   private crowdInstance: crowd.Crowd;
   private agents: Array<{ navAgent: NavAgent; crowdAgentId: string }> = [];
-  private queryFilter = createDefaultQueryFilter();
+  private queryFilter: QueryFilter;
   private nearestPolyResult = createFindNearestPolyResult();
 
   constructor(
     private scene: THREE.Scene,
     private navMesh: NavMesh,
     agentCount: number,
+    reachableFilter?: QueryFilter | null,
   ) {
+    // Use the reachable-only filter when available so agents never target
+    // disconnected islands (obstacle tops, etc.).
+    this.queryFilter = reachableFilter ?? createDefaultQueryFilter();
     this.crowdInstance = crowd.create(0.5);
     this.spawnAgents(agentCount);
   }
 
+  /**
+   * Try findRandomPoint up to RANDOM_POINT_MAX_RETRIES times.
+   * Returns null if all attempts fail (extremely unlikely with enough retries).
+   */
+  private tryFindRandomPoint(): { position: Vec3; nodeRef: number } | null {
+    for (let i = 0; i < RANDOM_POINT_MAX_RETRIES; i++) {
+      const result = findRandomPoint(this.navMesh, this.queryFilter, Math.random);
+      if (result.success) return result;
+    }
+    return null;
+  }
+
   private spawnAgents(count: number): void {
     for (let i = 0; i < count; i++) {
-      const randomResult = findRandomPoint(this.navMesh, this.queryFilter, Math.random);
-      if (!randomResult.success) continue;
+      const randomResult = this.tryFindRandomPoint();
+      if (!randomResult) {
+        console.warn(`[NavPatrolSystem] Could not find spawn point for agent ${i} after ${RANDOM_POINT_MAX_RETRIES} retries`);
+        continue;
+      }
 
       const pos = randomResult.position;
       const navAgent = new NavAgent(this.scene, new THREE.Vector3(pos[0], pos[1], pos[2]));
@@ -55,8 +78,8 @@ export class NavPatrolSystem {
   }
 
   private setRandomTarget(agentId: string): void {
-    const randomResult = findRandomPoint(this.navMesh, this.queryFilter, Math.random);
-    if (!randomResult.success) return;
+    const randomResult = this.tryFindRandomPoint();
+    if (!randomResult) return;
     crowd.requestMoveTarget(
       this.crowdInstance,
       agentId,

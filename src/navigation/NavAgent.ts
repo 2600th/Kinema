@@ -4,6 +4,7 @@ export class NavAgent {
   readonly mesh: THREE.Mesh;
   readonly id: string;
   private pathLine: THREE.Line | null = null;
+  private pathLineMaterial: THREE.LineBasicMaterial | null = null;
 
   constructor(scene: THREE.Scene, position: THREE.Vector3) {
     const geometry = new THREE.CapsuleGeometry(0.25, 0.5, 4, 8);
@@ -26,25 +27,37 @@ export class NavAgent {
     scene: THREE.Scene,
     points: Array<{ x: number; y: number; z: number }>,
   ): void {
-    if (this.pathLine) {
-      scene.remove(this.pathLine);
-      this.pathLine.geometry.dispose();
-      (this.pathLine.material as THREE.Material).dispose();
-      this.pathLine = null;
+    if (points.length < 2) {
+      // Hide but keep the line object for reuse
+      if (this.pathLine) this.pathLine.visible = false;
+      return;
     }
 
-    if (points.length < 2) return;
+    if (!this.pathLine) {
+      // Create once, reuse every frame
+      this.pathLineMaterial = new THREE.LineBasicMaterial({
+        color: 0x00bcd4,
+        transparent: true,
+        opacity: 0.6,
+      });
+      const geometry = new THREE.BufferGeometry();
+      this.pathLine = new THREE.Line(geometry, this.pathLineMaterial);
+      scene.add(this.pathLine);
+    }
 
-    const lineGeometry = new THREE.BufferGeometry().setFromPoints(
-      points.map((p) => new THREE.Vector3(p.x, p.y + 0.1, p.z)),
+    // Update geometry buffer in-place — only allocates when point count changes.
+    const positions = new Float32Array(points.length * 3);
+    for (let i = 0; i < points.length; i++) {
+      positions[i * 3] = points[i].x;
+      positions[i * 3 + 1] = points[i].y + 0.1;
+      positions[i * 3 + 2] = points[i].z;
+    }
+    this.pathLine.geometry.setAttribute(
+      'position',
+      new THREE.BufferAttribute(positions, 3),
     );
-    const lineMaterial = new THREE.LineBasicMaterial({
-      color: 0x00bcd4,
-      transparent: true,
-      opacity: 0.6,
-    });
-    this.pathLine = new THREE.Line(lineGeometry, lineMaterial);
-    scene.add(this.pathLine);
+    this.pathLine.geometry.setDrawRange(0, points.length);
+    this.pathLine.visible = true;
   }
 
   highlight(durationMs = 2000): void {
@@ -68,7 +81,9 @@ export class NavAgent {
     if (this.pathLine) {
       scene.remove(this.pathLine);
       this.pathLine.geometry.dispose();
-      (this.pathLine.material as THREE.Material).dispose();
+    }
+    if (this.pathLineMaterial) {
+      this.pathLineMaterial.dispose();
     }
   }
 }

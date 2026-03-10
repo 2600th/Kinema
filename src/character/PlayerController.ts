@@ -629,24 +629,21 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     if (highHit) return;
 
     const lv = this.body.linvel();
+    // Velocity-only step assist: fold the step-up displacement into the
+    // vertical velocity so the physics solver handles it naturally without
+    // teleporting the dynamic body (which can cause jitter, missed contacts,
+    // or ghost-step behavior on edges).
+    // At 60 Hz, a displacement of d metres/frame ≈ d * 60 m/s in velocity.
+    const stepUpVel = (run ? 0.12 : 0.1) * 60; // was a teleport offset
+    const fwdNudgeVel = 0.05 * 60;              // was a teleport nudge
     const upBoost = run ? 3.4 : 3.0;
     const fwdBoost = run ? 1.35 : 1.2;
     if (lv.y < upBoost) {
       this.body.setLinvel(
         new RAPIER.Vector3(
-          lv.x + _stepForward.x * fwdBoost,
-          Math.max(lv.y, upBoost),
-          lv.z + _stepForward.z * fwdBoost,
-        ),
-        true,
-      );
-      const p = this.body.translation();
-      const stepUp = run ? 0.12 : 0.1;
-      this.body.setTranslation(
-        new RAPIER.Vector3(
-          p.x + _stepForward.x * 0.05,
-          p.y + stepUp,
-          p.z + _stepForward.z * 0.05,
+          lv.x + _stepForward.x * (fwdBoost + fwdNudgeVel),
+          Math.max(lv.y, upBoost + stepUpVel),
+          lv.z + _stepForward.z * (fwdBoost + fwdNudgeVel),
         ),
         true,
       );
@@ -676,12 +673,16 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       const stepHeight = groundAheadY - feetY;
       const maxStepHeight = run ? 0.34 : 0.28;
       if (stepHeight > 0.02 && stepHeight <= maxStepHeight) {
-        const p = this.body.translation();
-        this.body.setTranslation(
+        // Convert step-up displacement to velocity impulse instead of teleporting.
+        const curLv = this.body.linvel();
+        const clampedHeight = Math.min(stepHeight + 0.02, maxStepHeight);
+        const stepVel = clampedHeight * 60;
+        const fwdStepVel = 0.06 * 60;
+        this.body.setLinvel(
           new RAPIER.Vector3(
-            p.x + _stepForward.x * 0.06,
-            p.y + Math.min(stepHeight + 0.02, maxStepHeight),
-            p.z + _stepForward.z * 0.06,
+            curLv.x + _stepForward.x * fwdStepVel,
+            Math.max(curLv.y, stepVel),
+            curLv.z + _stepForward.z * fwdStepVel,
           ),
           true,
         );
@@ -995,25 +996,20 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       .addScaledVector(_grabForward, this.grabDistance);
     _grabTarget.y += this.grabOffsetY;
     const next = new RAPIER.Vector3(_grabTarget.x, _grabTarget.y, _grabTarget.z);
-    // Fix visual flicker when moving held objects:
-    // Some meshes sync from body.translation() each render frame; for kinematic bodies, translation
-    // only updates on the physics step when using setNextKinematicTranslation(). Also set the
-    // translation immediately so render-sync reads the current target, not the last physics step.
+    // Use only setNextKinematicTranslation so Rapier computes the correct
+    // derived velocity for collision response. Mesh interpolation captures
+    // the position after world.step() via postPhysicsUpdate().
     this.grabbedBody.setNextKinematicTranslation(next);
-    this.grabbedBody.setTranslation(next, true);
-    this.grabbedBody.setLinvel(new RAPIER.Vector3(0, 0, 0), true);
-    this.grabbedBody.setAngvel(new RAPIER.Vector3(0, 0, 0), true);
   }
 
   private updateCarriedObject(): void {
     if (!this.carriedObject) return;
     _carryTarget.set(_currentPos.x, _currentPos.y + this.currentCapsuleHalfHeight + 0.4, _currentPos.z);
     const next = new RAPIER.Vector3(_carryTarget.x, _carryTarget.y, _carryTarget.z);
+    // Use only setNextKinematicTranslation so Rapier computes the correct
+    // derived velocity for collision response. Mesh interpolation captures
+    // the position after world.step() via postPhysicsUpdate().
     this.carriedObject.body.setNextKinematicTranslation(next);
-    this.carriedObject.body.setTranslation(next, true);
-    this.carriedObject.body.setLinvel(new RAPIER.Vector3(0, 0, 0), true);
-    this.carriedObject.body.setAngvel(new RAPIER.Vector3(0, 0, 0), true);
-    // Mesh interpolation for throwable objects is handled in Game.update() via alpha.
   }
 
   private hasMovementInput(input: InputState): boolean {
