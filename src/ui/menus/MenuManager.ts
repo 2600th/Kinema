@@ -74,6 +74,12 @@ export class MenuManager {
       onBack: () => this.pop(),
     });
 
+    // Wire UI audio to all menu screens
+    this.wireButtonAudio(this.mainMenu.root);
+    this.wireButtonAudio(this.pauseMenu.root);
+    this.wireButtonAudio(this.settingsMenu.root);
+    this.wireButtonAudio(this.levelSelectMenu.root);
+
     this.eventBus.on('menu:toggle', () => {
       if (!this.stack.length) {
         if (this.gameLoop.isRunning()) {
@@ -211,6 +217,26 @@ export class MenuManager {
     if (this.backgroundTimer === null) return;
     window.clearInterval(this.backgroundTimer);
     this.backgroundTimer = null;
+  }
+
+  private wireButtonAudio(container: HTMLElement): void {
+    const wire = (el: Element): void => {
+      el.addEventListener('mouseenter', () => this.eventBus.emit('ui:hover', undefined));
+      el.addEventListener('click', () => this.eventBus.emit('ui:click', undefined));
+    };
+    // Wire existing buttons
+    container.querySelectorAll('button, [role="button"]').forEach(wire);
+    // Observe for dynamically added buttons
+    const observer = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        for (const node of m.addedNodes) {
+          if (!(node instanceof HTMLElement)) continue;
+          if (node.matches('button, [role="button"]')) wire(node);
+          node.querySelectorAll('button, [role="button"]').forEach(wire);
+        }
+      }
+    });
+    observer.observe(container, { childList: true, subtree: true });
   }
 
   private async requestPointerLock(): Promise<void> {

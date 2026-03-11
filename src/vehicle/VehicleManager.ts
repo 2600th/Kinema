@@ -10,6 +10,8 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
   private vehicles = new Map<string, VehicleController>();
   private active: VehicleController | null = null;
   private lastInput: InputState = NULL_INPUT;
+  /** Blocks immediate re-entry on the same tick as an exit. */
+  private exitCooldown = 0;
 
   constructor(
     private eventBus: EventBus,
@@ -46,12 +48,22 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
     this.exitVehicle(this.active);
   }
 
+  /** Force-exit the active vehicle (e.g. for level teardown). */
+  forceExit(): void {
+    if (!this.active) return;
+    this.exitVehicle(this.active);
+  }
+
   fixedUpdate(dt: number): void {
+    if (this.exitCooldown > 0) this.exitCooldown--;
     if (this.active?.setControlYaw) {
       this.active.setControlYaw(this.camera.getYaw());
     }
     if (this.active) {
       this.active.fixedUpdate(dt);
+      const lv = this.active.body.linvel();
+      const sn = Math.min(Math.hypot(lv.x, lv.z) / 18, 1);
+      this.eventBus.emit('vehicle:speedUpdate', { speedNorm: sn });
       return;
     }
     // Keep parked vehicles simulating (e.g., drone auto-landing).
@@ -87,15 +99,24 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
   }
 
   clear(): void {
+    // If the player is seated, restore ownership before disposing vehicles.
+    if (this.active) {
+      this.eventBus.emit('vehicle:engineStop', undefined);
+      this.camera.resetTarget();
+      this.camera.resetCameraConfig();
+      this.player.setEnabled(true);
+      this.player.setActive(true);
+      this.interactionManager.setEnabled(true);
+      this.active = null;
+    }
     for (const vehicle of this.vehicles.values()) {
       vehicle.dispose();
     }
     this.vehicles.clear();
-    this.active = null;
   }
 
   private enterVehicle(vehicle: VehicleController): void {
-    if (this.active) return;
+    if (this.active || this.exitCooldown > 0) return;
     this.active = vehicle;
     this.player.setActive(false);
     this.player.setEnabled(false);
@@ -108,18 +129,26 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
     });
     this.camera.snapToTarget();
     vehicle.enter(this.lastInput);
+    this.eventBus.emit('vehicle:engineStart', undefined);
   }
 
   private exitVehicle(vehicle: VehicleController): void {
     const spawn = vehicle.exit();
+    this.active = null;
+    // Spawn player BEFORE snapping camera so it targets the exit point,
+    // not the pre-spawn (stale) player position.
+    this.player.setEnabled(true);
+    this.player.setActive(true);
+    this.player.suppressInteract(2);
+    this.player.spawn(this.ensureSpawnPoint(spawn));
     this.camera.resetTarget();
     this.camera.resetCameraConfig();
     this.camera.snapToTarget();
-    this.player.setEnabled(true);
-    this.player.setActive(true);
-    this.player.spawn(this.ensureSpawnPoint(spawn));
     this.interactionManager.setEnabled(true);
-    this.active = null;
+    // Block re-entry for 2 ticks (this tick + next) to prevent same-frame re-entry
+    // from the interactPressed that triggered the exit.
+    this.exitCooldown = 2;
+    this.eventBus.emit('vehicle:engineStop', undefined);
     this.eventBus.emit('vehicle:exit', { position: spawn.position });
   }
 

@@ -41,6 +41,7 @@ async function bootstrap(): Promise<void> {
   const { VehicleManager } = await import('@vehicle/VehicleManager');
   const { MenuManager } = await import('@ui/menus/MenuManager');
   const { LevelSaveStore } = await import('@level/LevelSaveStore');
+  const { SHOWCASE_STATION_ORDER } = await import('@level/ShowcaseLayout');
   const { Game } = await import('./Game');
 
   const settings = UserSettingsStore.load();
@@ -115,20 +116,6 @@ async function bootstrap(): Promise<void> {
     })();
   });
 
-  const musicUrl = (() => {
-    const raw = (import.meta as unknown as { env?: Record<string, unknown> }).env?.VITE_MUSIC_URL;
-    if (typeof raw !== 'string' || raw.trim().length === 0) return null;
-    const trimmed = raw.trim();
-    // If relative to this module, resolve as file-relative. Otherwise treat as a normal URL/path.
-    if (trimmed.startsWith('.')) {
-      try {
-        return new URL(trimmed, import.meta.url).href;
-      } catch {
-        return trimmed;
-      }
-    }
-    return trimmed;
-  })();
   let levelLoaded = false;
 
   const startGame = async (): Promise<void> => {
@@ -138,9 +125,6 @@ async function bootstrap(): Promise<void> {
     // Warm the Rapier query pipeline so first-tick raycasts are valid.
     physicsWorld.step();
     game.setupLevel();
-    if (musicUrl) {
-      audioManager.playMusic(musicUrl, 2.0);
-    }
     levelLoaded = true;
   };
 
@@ -216,22 +200,39 @@ async function bootstrap(): Promise<void> {
     eventBus.emit('editor:toggle', undefined);
   };
 
-  const menuManager = new MenuManager(
-    eventBus,
-    gameLoop,
-    renderer,
-    settings,
-    inputManager,
-    camera,
-    audioManager,
-    startGame,
-    startSavedLevel,
-    returnToMainMenu,
-    startBlankLevelForEditor,
-  );
-  menuManager.showMainMenu();
+  const startStation = async (key: string): Promise<void> => {
+    if (levelLoaded) return;
+    await levelManager.loadStation(key as import('@level/ShowcaseLayout').ShowcaseStationKey);
+    playerController.spawn(levelManager.getSpawnPoint());
+    physicsWorld.step();
+    game.setupStation(key as import('@level/ShowcaseLayout').ShowcaseStationKey);
+    levelLoaded = true;
+  };
 
-  console.log('[Kinema] Game started');
+  // Check for ?station= query param to load a single station directly.
+  const params = new URLSearchParams(window.location.search);
+  const stationParam = params.get('station');
+  if (stationParam && SHOWCASE_STATION_ORDER.includes(stationParam as import('@level/ShowcaseLayout').ShowcaseStationKey)) {
+    await startStation(stationParam);
+    gameLoop.start();
+    console.log(`[Kinema] Station "${stationParam}" started directly`);
+  } else {
+    const menuManager = new MenuManager(
+      eventBus,
+      gameLoop,
+      renderer,
+      settings,
+      inputManager,
+      camera,
+      audioManager,
+      startGame,
+      startSavedLevel,
+      returnToMainMenu,
+      startBlankLevelForEditor,
+    );
+    menuManager.showMainMenu();
+    console.log('[Kinema] Game started');
+  }
 }
 
 bootstrap().catch((err) => {

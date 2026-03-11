@@ -1,24 +1,32 @@
+import * as Tone from 'tone';
 import type { PlayerController } from '@character/PlayerController';
 import type { EventBus } from '@core/EventBus';
 import type { Disposable, FixedUpdatable } from '@core/types';
 import type { InputManager } from '@input/InputManager';
 import type { UserSettingsStore } from '@core/UserSettings';
+import { SFXEngine } from './SFXEngine';
+import { MusicEngine } from './MusicEngine';
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
 
 /**
- * WebAudio manager for music and procedural SFX.
+ * Audio manager delegating to Tone.js-based SFX and Music engines.
  */
 export class AudioManager implements FixedUpdatable, Disposable {
-  private context: AudioContext | null = null;
-  private masterGain: GainNode | null = null;
-  private musicGain: GainNode | null = null;
-  private sfxGain: GainNode | null = null;
-  private currentTrack: AudioBufferSourceNode | null = null;
-  private currentTrackGain: GainNode | null = null;
-  private musicCache = new Map<string, AudioBuffer>();
-  private fallbackBuffer: AudioBuffer | null = null;
+  private sfxEngine: SFXEngine;
+  private musicEngine: MusicEngine;
+  private masterGain: Tone.Gain;
+  private sfxGain: Tone.Gain;
+  private musicGain: Tone.Gain;
   private unsubscribers: Array<() => void> = [];
   private footstepTimer = 0;
-  private ducked = false;
+  private toneStarted = false;
+  private pendingMusicFadeIn: number | null = null;
+  private lastLandedImpact = 0;
+  private lastLandedFrame = -1;
+  private frameCounter = 0;
 
   constructor(
     private eventBus: EventBus,
@@ -26,27 +34,15 @@ export class AudioManager implements FixedUpdatable, Disposable {
     private inputManager: InputManager,
     private settings: UserSettingsStore,
   ) {
-    if (typeof window === 'undefined') return;
+    this.masterGain = new Tone.Gain(1).toDestination();
+    this.sfxGain = new Tone.Gain(1).connect(this.masterGain);
+    this.musicGain = new Tone.Gain(1).connect(this.masterGain);
 
-    const withWebkit = globalThis as typeof globalThis & {
-      webkitAudioContext?: (new (contextOptions?: AudioContextOptions) => AudioContext) & typeof AudioContext;
-    };
-    const AudioCtx = withWebkit.AudioContext ?? withWebkit.webkitAudioContext;
-    if (!AudioCtx) return;
+    this.sfxEngine = new SFXEngine();
+    this.sfxEngine.output.connect(this.sfxGain);
 
-    try {
-      this.context = new AudioCtx();
-    } catch {
-      this.context = null;
-      return;
-    }
-
-    this.masterGain = this.context.createGain();
-    this.musicGain = this.context.createGain();
-    this.sfxGain = this.context.createGain();
-    this.masterGain.connect(this.context.destination);
-    this.musicGain.connect(this.masterGain);
-    this.sfxGain.connect(this.masterGain);
+    this.musicEngine = new MusicEngine();
+    this.musicEngine.output.connect(this.musicGain);
 
     this.setMasterVolume(this.settings.value.masterVolume);
     this.setMusicVolume(this.settings.value.musicVolume);
@@ -55,14 +51,31 @@ export class AudioManager implements FixedUpdatable, Disposable {
     this.bindEvents();
   }
 
-  fixedUpdate(dt: number): void {
-    if (!this.context || !this.sfxGain) return;
-    if (this.context.state !== 'running') {
-      if (this.inputManager.isLocked) {
-        void this.context.resume();
+  private async ensureToneStarted(): Promise<void> {
+    if (this.toneStarted) return;
+    try {
+      if (Tone.getContext().state !== 'running') {
+        await Tone.start();
       }
-      return;
+      this.toneStarted = true;
+      // Fulfil any pending music request that was queued before Tone started
+      if (this.pendingMusicFadeIn !== null) {
+        const fade = this.pendingMusicFadeIn;
+        this.pendingMusicFadeIn = null;
+        this.musicEngine.start(fade);
+      }
+    } catch {
+      // Tone.start() rejected — will retry on next user gesture
     }
+  }
+
+  fixedUpdate(dt: number): void {
+    this.frameCounter++;
+    // Resume audio context on first pointer lock (user gesture)
+    if (!this.toneStarted && this.inputManager.isLocked) {
+      void this.ensureToneStarted();
+    }
+    if (!this.toneStarted) return;
 
     const velocity = this.player.body.linvel();
     const planarSpeed = Math.hypot(velocity.x, velocity.z);
@@ -76,110 +89,104 @@ export class AudioManager implements FixedUpdatable, Disposable {
     this.footstepTimer -= dt;
     if (this.footstepTimer > 0) return;
 
-    this.playFootstep(planarSpeed);
+    this.sfxEngine.footstep(planarSpeed);
     const speedN = clamp((planarSpeed - 1.15) / 6.5, 0, 1);
     this.footstepTimer = 0.42 - speedN * 0.2;
   }
 
-  playMusic(url: string, fadeInSec = 2.0): void {
-    void this.startTrack(url, fadeInSec, true);
+  playMusic(fadeInSec = 2.0): void {
+    if (!this.toneStarted) {
+      // Queue the request — it will be fulfilled once Tone starts
+      this.pendingMusicFadeIn = fadeInSec;
+      void this.ensureToneStarted();
+      return;
+    }
+    this.musicEngine.start(fadeInSec);
   }
 
   stopMusic(fadeOutSec = 1.5): void {
-    if (!this.context || !this.currentTrack || !this.currentTrackGain) return;
-    const now = this.context.currentTime;
-    this.currentTrackGain.gain.cancelScheduledValues(now);
-    this.currentTrackGain.gain.setValueAtTime(this.currentTrackGain.gain.value, now);
-    this.currentTrackGain.gain.linearRampToValueAtTime(0, now + fadeOutSec);
-    const track = this.currentTrack;
-    window.setTimeout(() => {
-      try {
-        track.stop();
-      } catch {
-        // ignore
-      }
-      track.disconnect();
-    }, fadeOutSec * 1000 + 40);
-    this.currentTrack = null;
-    this.currentTrackGain = null;
-  }
-
-  crossfadeTo(url: string, durationSec = 2.0): void {
-    void this.startTrack(url, durationSec, false);
+    this.musicEngine.stop(fadeOutSec);
   }
 
   setMasterVolume(value: number): void {
-    if (!this.masterGain) return;
-    this.masterGain.gain.value = clamp(value, 0, 1);
+    this.masterGain.gain.rampTo(clamp(value, 0, 1), 0.05);
   }
 
   setMusicVolume(value: number): void {
-    if (!this.musicGain) return;
-    this.musicGain.gain.value = clamp(value, 0, 1);
+    this.musicGain.gain.rampTo(clamp(value, 0, 1), 0.05);
   }
 
   setSfxVolume(value: number): void {
-    if (!this.sfxGain) return;
-    this.sfxGain.gain.value = clamp(value, 0, 1);
+    this.sfxGain.gain.rampTo(clamp(value, 0, 1), 0.05);
+  }
+
+  startEngine(): void {
+    this.sfxEngine.startEngine();
+  }
+
+  updateEngine(speedNorm: number): void {
+    this.sfxEngine.updateEngine(speedNorm);
+  }
+
+  stopEngine(): void {
+    this.sfxEngine.stopEngine();
   }
 
   dispose(): void {
+    this.stopEngine();
     for (const unsub of this.unsubscribers) {
       unsub();
     }
     this.unsubscribers = [];
-    this.currentTrack?.stop();
-    this.currentTrack?.disconnect();
-    this.currentTrack = null;
-    this.currentTrackGain?.disconnect();
-    this.currentTrackGain = null;
-    this.musicGain?.disconnect();
-    this.musicGain = null;
-    this.sfxGain?.disconnect();
-    this.sfxGain = null;
-    this.masterGain?.disconnect();
-    this.masterGain = null;
-    if (this.context) {
-      void this.context.close();
-      this.context = null;
-    }
+    this.musicEngine.dispose();
+    this.sfxEngine.dispose();
+    this.musicGain.dispose();
+    this.sfxGain.dispose();
+    this.masterGain.dispose();
   }
 
   private bindEvents(): void {
     this.unsubscribers.push(
       this.eventBus.on('player:stateChanged', ({ current }) => {
         if (current === 'jump') {
-          this.playTone(320, 0.08, 'triangle', 0.06);
+          this.sfxEngine.jump();
+        }
+        if (current === 'airJump') {
+          this.sfxEngine.airJump();
         }
       }),
     );
     this.unsubscribers.push(
       this.eventBus.on('player:grounded', (grounded) => {
         if (grounded) {
-          this.playTone(110, 0.1, 'triangle', 0.05);
+          // Defer: if player:landed fires on the same frame with a hard impact,
+          // skip landSoft to avoid doubling with landHard.
+          const frame = this.frameCounter;
+          queueMicrotask(() => {
+            if (this.lastLandedFrame === frame && this.lastLandedImpact >= 3) return;
+            this.sfxEngine.landSoft();
+          });
         }
       }),
     );
     this.unsubscribers.push(
       this.eventBus.on('interaction:triggered', () => {
-        this.playTone(520, 0.06, 'square', 0.045);
+        this.sfxEngine.interact();
       }),
     );
     this.unsubscribers.push(
       this.eventBus.on('checkpoint:activated', () => {
-        this.playTone(520, 0.08, 'sine', 0.05);
-        this.playTone(780, 0.12, 'sine', 0.045, 0.09);
+        this.sfxEngine.checkpoint();
       }),
     );
     this.unsubscribers.push(
       this.eventBus.on('objective:completed', () => {
-        this.playTone(660, 0.08, 'triangle', 0.04);
+        this.sfxEngine.objectiveComplete();
       }),
     );
     this.unsubscribers.push(
       this.eventBus.on('player:respawned', () => {
-        this.playTone(240, 0.08, 'sawtooth', 0.06);
-        this.playTone(170, 0.12, 'sawtooth', 0.05, 0.08);
+        this.sfxEngine.respawn();
       }),
     );
     this.unsubscribers.push(
@@ -198,156 +205,45 @@ export class AudioManager implements FixedUpdatable, Disposable {
       }),
     );
     this.unsubscribers.push(
+      this.eventBus.on('player:landed', ({ impactSpeed }) => {
+        this.lastLandedImpact = impactSpeed;
+        this.lastLandedFrame = this.frameCounter;
+        if (impactSpeed < 3) return;
+        this.sfxEngine.landHard(impactSpeed);
+      }),
+    );
+    this.unsubscribers.push(
+      this.eventBus.on('vehicle:engineStart', () => this.startEngine()),
+    );
+    this.unsubscribers.push(
+      this.eventBus.on('vehicle:engineStop', () => this.stopEngine()),
+    );
+    this.unsubscribers.push(
+      this.eventBus.on('vehicle:speedUpdate', ({ speedNorm }) => this.updateEngine(speedNorm)),
+    );
+    this.unsubscribers.push(
       this.eventBus.on('menu:opened', ({ screen }) => {
-        if (screen !== 'pause') return;
-        if (this.ducked) return;
-        this.ducked = true;
-        if (this.musicGain) {
-          this.musicGain.gain.value *= 0.3;
+        if (screen === 'pause') {
+          this.sfxEngine.menuOpen();
+          this.musicEngine.duck();
         }
       }),
     );
     this.unsubscribers.push(
       this.eventBus.on('menu:closed', () => {
-        if (!this.ducked) return;
-        this.ducked = false;
-        this.setMusicVolume(this.settings.value.musicVolume);
+        this.sfxEngine.menuClose();
+        this.musicEngine.unduck();
+      }),
+    );
+    this.unsubscribers.push(
+      this.eventBus.on('ui:click', () => {
+        this.sfxEngine.uiClick();
+      }),
+    );
+    this.unsubscribers.push(
+      this.eventBus.on('ui:hover', () => {
+        this.sfxEngine.uiHover();
       }),
     );
   }
-
-  private async startTrack(url: string, fadeSec: number, stopPrevious: boolean): Promise<void> {
-    if (!this.context || !this.musicGain) return;
-    if (this.context.state !== 'running') {
-      try {
-        await this.context.resume();
-      } catch {
-        // ignore
-      }
-    }
-    const buffer = await this.loadBuffer(url);
-    if (!buffer) return;
-
-    const source = this.context.createBufferSource();
-    source.buffer = buffer;
-    source.loop = true;
-    const gainNode = this.context.createGain();
-    gainNode.gain.value = 0;
-    source.connect(gainNode);
-    gainNode.connect(this.musicGain);
-
-    const now = this.context.currentTime;
-    gainNode.gain.setValueAtTime(0, now);
-    gainNode.gain.linearRampToValueAtTime(1, now + Math.max(0.1, fadeSec));
-    source.start();
-
-    if (stopPrevious && this.currentTrack && this.currentTrackGain) {
-      this.stopMusic(fadeSec);
-    } else if (this.currentTrack && this.currentTrackGain) {
-      this.currentTrackGain.gain.cancelScheduledValues(now);
-      this.currentTrackGain.gain.setValueAtTime(this.currentTrackGain.gain.value, now);
-      this.currentTrackGain.gain.linearRampToValueAtTime(0, now + Math.max(0.1, fadeSec));
-      const old = this.currentTrack;
-      window.setTimeout(() => {
-        try {
-          old.stop();
-        } catch {
-          // ignore
-        }
-        old.disconnect();
-      }, fadeSec * 1000 + 40);
-    }
-
-    this.currentTrack = source;
-    this.currentTrackGain = gainNode;
-  }
-
-  private async loadBuffer(url: string): Promise<AudioBuffer | null> {
-    if (!this.context) return null;
-    const cached = this.musicCache.get(url);
-    if (cached) return cached;
-    try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`Audio fetch failed: ${res.status}`);
-      const data = await res.arrayBuffer();
-      const buffer = await this.context.decodeAudioData(data);
-      this.musicCache.set(url, buffer);
-      return buffer;
-    } catch {
-      const fallback = this.createFallbackAmbientBuffer();
-      if (fallback) {
-        this.musicCache.set(url, fallback);
-        return fallback;
-      }
-      return null;
-    }
-  }
-
-  private createFallbackAmbientBuffer(): AudioBuffer | null {
-    if (!this.context) return null;
-    if (this.fallbackBuffer) return this.fallbackBuffer;
-    const sampleRate = this.context.sampleRate;
-    const duration = 8;
-    const length = Math.floor(sampleRate * duration);
-    const buffer = this.context.createBuffer(2, length, sampleRate);
-    const fadeSamples = Math.max(1, Math.floor(sampleRate * 0.1));
-    for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
-      const data = buffer.getChannelData(channel);
-      for (let i = 0; i < length; i += 1) {
-        const t = i / sampleRate;
-        // Slow LFO for sweeping effect
-        const lfo = 0.6 + 0.4 * Math.sin(t * Math.PI * 0.25 + channel * Math.PI);
-        // Deep bass triad (sci-fi thrum)
-        const fundamental = 55; // Low A
-        const tone1 = Math.sin(2 * Math.PI * fundamental * t);
-        const tone2 = Math.sin(2 * Math.PI * (fundamental * 1.5) * t) * 0.5; // Fifth
-        const tone3 = Math.sin(2 * Math.PI * (fundamental * 2.01) * t) * 0.25; // Detuned Octave
-        const rumble = Math.sin(2 * Math.PI * 27.5 * t) * 0.8;
-
-        let value = ((tone1 + tone2 + tone3 + rumble) * 0.05) * lfo;
-        // Soften clipping softly
-        value = Math.atan(value) * 0.6;
-
-        if (i < fadeSamples) {
-          value *= i / fadeSamples;
-        } else if (i > length - fadeSamples) {
-          value *= (length - i) / fadeSamples;
-        }
-        data[i] = value;
-      }
-    }
-    this.fallbackBuffer = buffer;
-    return buffer;
-  }
-
-  private playFootstep(planarSpeed: number): void {
-    const freq = 120 + Math.random() * 50 + Math.min(planarSpeed * 8, 55);
-    this.playTone(freq, 0.05, 'triangle', 0.03);
-  }
-
-  private playTone(
-    frequency: number,
-    duration: number,
-    type: OscillatorType,
-    gain: number,
-    delay = 0,
-  ): void {
-    if (!this.context || !this.sfxGain || this.context.state !== 'running') return;
-    const when = this.context.currentTime + delay;
-    const osc = this.context.createOscillator();
-    const amp = this.context.createGain();
-    osc.type = type;
-    osc.frequency.setValueAtTime(frequency, when);
-    amp.gain.setValueAtTime(0.0001, when);
-    amp.gain.exponentialRampToValueAtTime(gain, when + 0.015);
-    amp.gain.exponentialRampToValueAtTime(0.0001, when + duration);
-    osc.connect(amp);
-    amp.connect(this.sfxGain);
-    osc.start(when);
-    osc.stop(when + duration + 0.02);
-  }
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
 }

@@ -19,6 +19,8 @@ export interface InputState {
   readonly primaryPressed: boolean;
   readonly altitudeUp: boolean;
   readonly altitudeDown: boolean;
+  readonly moveX: number;   // -1..1 (left/right analog axis)
+  readonly moveY: number;   // -1..1 (backward/forward analog axis)
   readonly sprint: boolean;
   readonly mouseDeltaX: number;
   readonly mouseDeltaY: number;
@@ -41,6 +43,8 @@ export const NULL_INPUT: InputState = Object.freeze({
   primaryPressed: false,
   altitudeUp: false,
   altitudeDown: false,
+  moveX: 0,
+  moveY: 0,
   sprint: false,
   mouseDeltaX: 0,
   mouseDeltaY: 0,
@@ -135,6 +139,9 @@ export interface CameraConfig {
   collisionOffset: number;
   collisionSpeed: number;
   spherecastRadius: number;
+  lookAhead: number;
+  speedFovBoost: number;
+  lateralDriftScale: number;
 }
 
 /** Spawn point data extracted from level */
@@ -148,6 +155,7 @@ export interface EventMap {
   'input:state': InputState;
   'player:stateChanged': { previous: StateId; current: StateId };
   'player:grounded': boolean;
+  'player:landed': { impactSpeed: number };
   'player:respawned': { reason: string };
   'interaction:focusChanged': { id: string | null; label: string | null };
   'interaction:triggered': { id: string };
@@ -165,6 +173,9 @@ export interface EventMap {
   'level:unloaded': { name: string };
   'vehicle:enter': { vehicle: VehicleController };
   'vehicle:exit': { position: THREE.Vector3 };
+  'vehicle:engineStart': undefined;
+  'vehicle:engineStop': undefined;
+  'vehicle:speedUpdate': { speedNorm: number };
   'menu:toggle': undefined;
   'menu:opened': { screen: string };
   'menu:closed': undefined;
@@ -197,8 +208,6 @@ export interface EventMap {
   'debug:casEnabled': boolean;
   'debug:casStrength': number;
   'debug:showShadowFrustums': boolean;
-  'debug:flythrough': undefined;
-  'debug:flythroughEnd': undefined;
   'editor:toggle': undefined;
   'editor:opened': undefined;
   'editor:closed': undefined;
@@ -210,4 +219,6 @@ export interface EventMap {
   'audio:musicVolume': number;
   'audio:sfxVolume': number;
   'audio:masterVolume': number;
+  'ui:click': undefined;
+  'ui:hover': undefined;
 }

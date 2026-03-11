@@ -9,11 +9,24 @@ import type { VehicleController } from './VehicleController';
 const _forward = new THREE.Vector3();
 const _quat = new THREE.Quaternion();
 const _tempEuler = new THREE.Euler(0, 0, 0, 'YXZ');
-const _prevPos = new THREE.Vector3();
-const _currPos = new THREE.Vector3();
-const _prevQuat = new THREE.Quaternion();
-const _currQuat = new THREE.Quaternion();
-const _lateral = new THREE.Vector3();
+const _yAxisUp = new THREE.Vector3(0, 1, 0);
+const _yawEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+const _wheelWorldPos = new THREE.Vector3();
+const _carRight = new THREE.Vector3();
+const _exitProbe = new THREE.Vector3();
+const _exitCandidates = [
+  new THREE.Vector3(-1.5, 0, 0),   // driver side (left)
+  new THREE.Vector3( 1.5, 0, 0),   // passenger side (right)
+  new THREE.Vector3( 0,   0, 2.5), // rear
+];
+
+const _crv3A = new RAPIER.Vector3(0, 0, 0);
+const _crv3B = new RAPIER.Vector3(0, 0, 0);
+
+function _setCRV(v: RAPIER.Vector3, x: number, y: number, z: number): RAPIER.Vector3 {
+  v.x = x; v.y = y; v.z = z;
+  return v;
+}
 
 export class CarController implements VehicleController {
   readonly id: string;
@@ -31,6 +44,11 @@ export class CarController implements VehicleController {
   private yaw = 0;
   private steerAngle = 0;
   private hasPose = false;
+  // Per-instance interpolation buffers (module-scope would be shared across instances).
+  private readonly _prevPos = new THREE.Vector3();
+  private readonly _currPos = new THREE.Vector3();
+  private readonly _prevQuat = new THREE.Quaternion();
+  private readonly _currQuat = new THREE.Quaternion();
   /** Steer pivot groups for front wheels (rotation.y = steerAngle). */
   private frontWheelSteers: THREE.Object3D[] = [];
   /** Spin groups inside front steer pivots (rotation.x += roll). */
@@ -49,6 +67,18 @@ export class CarController implements VehicleController {
   private readonly maxSteerAngle = Math.PI / 6;
   private readonly steerSpeed = 8;
   private readonly wheelRadius = 0.32;
+
+  // 4-wheel suspension
+  private readonly wheelOffsetPositions = [
+    new THREE.Vector3( 1.1, 0.32, -1.5),  // front-right
+    new THREE.Vector3(-1.1, 0.32, -1.5),  // front-left
+    new THREE.Vector3( 1.1, 0.32,  1.5),  // rear-right
+    new THREE.Vector3(-1.1, 0.32,  1.5),  // rear-left
+  ];
+  private readonly suspensionRestLength = 0.6;
+  private readonly suspensionStiffness = 18;
+  private readonly suspensionDamping = 3.5;
+  private readonly wheelCompressions = [0, 0, 0, 0];
 
   constructor(
     id: string,
@@ -80,22 +110,46 @@ export class CarController implements VehicleController {
   enter(_input: InputState): void {
     this.input = _input;
     const rot = this.body.rotation();
-    _tempEuler.setFromQuaternion(new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w), 'YXZ');
+    _quat.set(rot.x, rot.y, rot.z, rot.w);
+    _tempEuler.setFromQuaternion(_quat, 'YXZ');
     this.yaw = _tempEuler.y;
   }
 
   exit(): SpawnPointData {
     const pos = this.body.translation();
+    const rot = this.body.rotation();
     // Clear driving state so the parked car coasts to a stop.
     this.input = null;
     this.speed = 0;
     this.steerAngle = 0;
     this.lateralSlip = 0;
-    this.body.setLinvel(new RAPIER.Vector3(0, 0, 0), true);
-    this.body.setAngvel(new RAPIER.Vector3(0, 0, 0), true);
-    return {
-      position: new THREE.Vector3(pos.x, pos.y, pos.z).add(this.exitOffset),
-    };
+    this.body.setLinvel(_setCRV(_crv3A, 0, 0, 0), true);
+    this.body.setAngvel(_setCRV(_crv3B, 0, 0, 0), true);
+    _quat.set(rot.x, rot.y, rot.z, rot.w);
+    const basePos = new THREE.Vector3(pos.x, pos.y, pos.z);
+
+    // Probe multiple exit candidates, pick first clear one
+    for (const candidate of _exitCandidates) {
+      _exitProbe.copy(candidate).applyQuaternion(_quat).add(basePos);
+      const dx = _exitProbe.x - basePos.x;
+      const dz = _exitProbe.z - basePos.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist < 0.001) continue;
+      const blocked = this.physicsWorld.castRay(
+        _setCRV(_crv3A, basePos.x, basePos.y + 0.5, basePos.z),
+        _setCRV(_crv3B, dx / dist, 0, dz / dist),
+        dist,
+        undefined,
+        this.body,
+        (c) => !c.isSensor(),
+      );
+      if (!blocked || blocked.timeOfImpact >= dist - 0.1) {
+        return { position: _exitProbe.clone() };
+      }
+    }
+    // Fallback: use first candidate anyway
+    _exitProbe.copy(_exitCandidates[0]).applyQuaternion(_quat).add(basePos);
+    return { position: _exitProbe.clone() };
   }
 
   setInput(input: InputState): void {
@@ -107,8 +161,8 @@ export class CarController implements VehicleController {
     const input = this.input;
     this.simTime += dt;
 
-    const accelInput = (input.forward ? 1 : 0) - (input.backward ? 1 : 0);
-    const steerInput = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+    const accelInput = input.moveY;
+    const steerInput = input.moveX;
     const boosting = input.sprint;
     const handbrake = input.jump;
 
@@ -122,18 +176,15 @@ export class CarController implements VehicleController {
     // Acceleration with proper brake-before-reverse logic.
     if (accelInput > 0) {
       if (this.speed < -0.3) {
-        // Moving backward — brake to stop first.
         this.speed = THREE.MathUtils.damp(this.speed, 0, brakeRate, dt);
       } else {
-        this.speed = THREE.MathUtils.damp(this.speed, maxForward, accelRate, dt);
+        this.speed = THREE.MathUtils.damp(this.speed, maxForward * accelInput, accelRate, dt);
       }
     } else if (accelInput < 0) {
       if (this.speed > 0.3) {
-        // Moving forward — brake to stop first.
         this.speed = THREE.MathUtils.damp(this.speed, 0, brakeRate, dt);
       } else {
-        // Actually reverse (slower acceleration, lower top speed).
-        this.speed = THREE.MathUtils.damp(this.speed, -maxReverse, reverseAccelRate, dt);
+        this.speed = THREE.MathUtils.damp(this.speed, -maxReverse * Math.abs(accelInput), reverseAccelRate, dt);
       }
     } else {
       this.speed = THREE.MathUtils.damp(this.speed, 0, coastRate, dt);
@@ -143,7 +194,12 @@ export class CarController implements VehicleController {
       this.speed = THREE.MathUtils.damp(this.speed, 0, brakeRate, dt);
     }
 
-    const targetSteer = steerInput * this.maxSteerAngle;
+    // Speed-dependent steering: reduce max steer at high speed
+    const speedAbs = Math.abs(this.speed);
+    const speedNorm = THREE.MathUtils.clamp(speedAbs / Math.max(0.01, maxForward), 0, 1);
+    const steerReduction = 1 - speedNorm * 0.5;
+    const effectiveMaxSteer = this.maxSteerAngle * steerReduction;
+    const targetSteer = steerInput * effectiveMaxSteer;
     this.steerAngle = THREE.MathUtils.damp(
       this.steerAngle,
       targetSteer,
@@ -152,63 +208,98 @@ export class CarController implements VehicleController {
     );
 
     // Forward is -Z in the rest of the project; turn right on D (steerInput=+1).
-    const speedAbs = Math.abs(this.speed);
-    const speedNorm = THREE.MathUtils.clamp(speedAbs / Math.max(0.01, maxForward), 0, 1);
     const speedFactor = 0.22 + 0.78 * speedNorm;
     const steerSign = Math.sign(this.speed !== 0 ? this.speed : accelInput !== 0 ? accelInput : 1);
     const turnRate = (handbrake ? 1.35 : 1.0) * 2.9;
 
-    // Explicit yaw update (ensures exact turn logic without relying on velocity constraints)
     this.yaw -= this.steerAngle * steerSign * speedFactor * dt * turnRate;
-    _quat.setFromEuler(new THREE.Euler(0, this.yaw, 0, 'YXZ'));
+    _yawEuler.set(0, this.yaw, 0);
+    _quat.setFromEuler(_yawEuler);
 
-    _forward.set(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw);
+    _forward.set(0, 0, -1).applyAxisAngle(_yAxisUp, this.yaw);
+    _carRight.set(1, 0, 0).applyAxisAngle(_yAxisUp, this.yaw);
 
-    // Lateral drift.
+    // Override the physics rotation with our computed yaw
+    this.body.setRotation(toRapierQuat(_quat), true);
+
+    const pos = this.body.translation();
+    const currentVel = this.body.linvel();
+
+    // --- 4-Wheel Suspension Raycasts ---
+    let anyWheelGrounded = false;
+    for (let i = 0; i < 4; i++) {
+      const localPos = this.wheelOffsetPositions[i];
+      // Transform wheel position to world space
+      _wheelWorldPos.copy(localPos).applyQuaternion(_quat);
+      _wheelWorldPos.x += pos.x;
+      _wheelWorldPos.y += pos.y;
+      _wheelWorldPos.z += pos.z;
+
+      const rayHit = this.physicsWorld.castRay(
+        _setCRV(_crv3A, _wheelWorldPos.x, _wheelWorldPos.y, _wheelWorldPos.z),
+        _setCRV(_crv3B, 0, -1, 0),
+        this.suspensionRestLength + 0.5,
+        undefined,
+        this.body,
+        (c) => !c.isSensor(),
+      );
+
+      if (rayHit && rayHit.timeOfImpact < this.suspensionRestLength + 0.3) {
+        anyWheelGrounded = true;
+        const compression = this.suspensionRestLength - rayHit.timeOfImpact;
+        const prevCompression = this.wheelCompressions[i];
+        const compressionVelocity = (compression - prevCompression) / dt;
+        this.wheelCompressions[i] = compression;
+
+        const springForce = this.suspensionStiffness * compression - this.suspensionDamping * compressionVelocity;
+        const impulse = Math.max(0, springForce) * dt;
+        this.body.applyImpulseAtPoint(
+          _setCRV(_crv3A, 0, impulse, 0),
+          _setCRV(_crv3B, _wheelWorldPos.x, _wheelWorldPos.y, _wheelWorldPos.z),
+          true,
+        );
+      } else {
+        this.wheelCompressions[i] = 0;
+      }
+    }
+
+    // --- Lateral grip ---
+    const lateralVel = currentVel.x * _carRight.x + currentVel.z * _carRight.z;
+    const gripFactor = handbrake ? 0.3 : 0.92;
+    const gripImpulse = -lateralVel * gripFactor * dt * this.body.mass();
+    this.body.applyImpulse(
+      _setCRV(_crv3A, _carRight.x * gripImpulse, 0, _carRight.z * gripImpulse),
+      true,
+    );
+
+    // --- Drive force ---
+    if (anyWheelGrounded) {
+      const driveImpulse = this.speed * dt * 2.5;
+      const curForwardVel = currentVel.x * _forward.x + currentVel.z * _forward.z;
+      const driveDelta = this.speed - curForwardVel;
+      const driveForce = THREE.MathUtils.clamp(driveDelta * 3.0, -driveImpulse, driveImpulse);
+      this.body.applyImpulse(
+        _setCRV(_crv3A, _forward.x * driveForce, 0, _forward.z * driveForce),
+        true,
+      );
+    } else {
+      // Free fall: apply gravity assist
+      this.body.applyImpulse(_setCRV(_crv3A, 0, -18.0 * dt, 0), true);
+    }
+
+    // Lateral drift tracking for visuals
     const driftFactor = handbrake ? 0.08 : 0.02;
     const targetSlip = this.steerAngle * speedNorm * driftFactor * speedAbs;
     this.lateralSlip = THREE.MathUtils.damp(this.lateralSlip, targetSlip, 4.0, dt);
-    _lateral.set(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw);
-
-    // Suspension bounce.
-    this.suspensionOffset = Math.sin(this.simTime * 8.0) * speedNorm * 0.015;
 
     // Visual body roll (damped toward target).
     const targetRoll = -this.steerAngle * speedNorm * 0.06;
     this.visualRoll = THREE.MathUtils.damp(this.visualRoll, targetRoll, 6.0, dt);
 
-    const pos = this.body.translation();
-    const desiredVelocity = new THREE.Vector3()
-      .addScaledVector(_forward, this.speed)
-      .addScaledVector(_lateral, this.lateralSlip);
-
-    // Ground snap: raycast down to follow terrain.
-    const rayOffset = 0.8;
-    const rayOrigin = new RAPIER.Vector3(pos.x, pos.y + rayOffset, pos.z);
-    const rayHit = this.physicsWorld.castRay(
-      rayOrigin,
-      new RAPIER.Vector3(0, -1, 0),
-      4.0,
-      undefined,
-      this.body,
-      (c) => !c.isSensor(),
-    );
-
-    if (rayHit && rayHit.timeOfImpact < 2.5) {
-      const distToGround = rayHit.timeOfImpact;
-      // Target: wheels sit near ground level (tire bottom at y=0.0 in local space).
-      const targetDist = rayOffset + 0.05;
-      desiredVelocity.y = (distToGround - targetDist) * -15;
-    } else {
-      // free fall
-      const currentVel = this.body.linvel();
-      desiredVelocity.y = currentVel.y - 18.0 * dt;
-    }
-
-    this.body.setLinvel(new RAPIER.Vector3(desiredVelocity.x, desiredVelocity.y, desiredVelocity.z), true);
-
-    // Override the physics rotation with our computed yaw
-    this.body.setRotation(toRapierQuat(_quat), true);
+    // Suspension visual offset from average wheel compression
+    const avgCompression = (this.wheelCompressions[0] + this.wheelCompressions[1] +
+      this.wheelCompressions[2] + this.wheelCompressions[3]) * 0.25;
+    this.suspensionOffset = avgCompression * 0.15;
 
     this.updateWheelVisuals(dt);
   }
@@ -217,24 +308,24 @@ export class CarController implements VehicleController {
     const pos = this.body.translation();
     const rot = this.body.rotation();
     if (!this.hasPose) {
-      _prevPos.set(pos.x, pos.y, pos.z);
-      _currPos.set(pos.x, pos.y, pos.z);
-      _prevQuat.set(rot.x, rot.y, rot.z, rot.w);
-      _currQuat.set(rot.x, rot.y, rot.z, rot.w);
+      this._prevPos.set(pos.x, pos.y, pos.z);
+      this._currPos.set(pos.x, pos.y, pos.z);
+      this._prevQuat.set(rot.x, rot.y, rot.z, rot.w);
+      this._currQuat.set(rot.x, rot.y, rot.z, rot.w);
       this.hasPose = true;
     } else {
-      _prevPos.copy(_currPos);
-      _prevQuat.copy(_currQuat);
-      _currPos.set(pos.x, pos.y, pos.z);
-      _currQuat.set(rot.x, rot.y, rot.z, rot.w);
+      this._prevPos.copy(this._currPos);
+      this._prevQuat.copy(this._currQuat);
+      this._currPos.set(pos.x, pos.y, pos.z);
+      this._currQuat.set(rot.x, rot.y, rot.z, rot.w);
     }
   }
 
   update(_dt: number, alpha: number): void {
     if (!this.hasPose) return;
-    this.mesh.position.lerpVectors(_prevPos, _currPos, alpha);
+    this.mesh.position.lerpVectors(this._prevPos, this._currPos, alpha);
     this.mesh.position.y += this.suspensionOffset;
-    this.mesh.quaternion.slerpQuaternions(_prevQuat, _currQuat, alpha);
+    this.mesh.quaternion.slerpQuaternions(this._prevQuat, this._currQuat, alpha);
     if (this.cabinMesh) {
       this.cabinMesh.rotation.z = this.visualRoll;
     }

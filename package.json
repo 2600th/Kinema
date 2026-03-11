@@ -13,7 +13,8 @@
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.17.3",
     "navcat": "0.2.0",
-    "three": "^0.182.0"
+    "three": "^0.182.0",
+    "tone": "^15.1.22"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

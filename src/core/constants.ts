@@ -95,6 +95,9 @@ export const DEFAULT_CAMERA_CONFIG: CameraConfig = {
   collisionOffset: 0.7,
   collisionSpeed: 4,
   spherecastRadius: 0.2,
+  lookAhead: 1.5,
+  speedFovBoost: 4,
+  lateralDriftScale: 0.35,
 };
 
 /** Interaction sensor dimensions */

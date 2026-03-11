@@ -7,7 +7,7 @@ import type { RendererManager } from '@renderer/RendererManager';
 import type { PhysicsWorld } from '@physics/PhysicsWorld';
 import type { InputManager } from '@input/InputManager';
 import type { LevelManager } from '@level/LevelManager';
-import { getShowcaseBayTopY, getShowcaseStationZ } from '@level/ShowcaseLayout';
+import { getShowcaseBayTopY, getShowcaseStationZ, type ShowcaseStationKey } from '@level/ShowcaseLayout';
 import type { PlayerController } from '@character/PlayerController';
 import type { OrbitFollowCamera } from '@camera/OrbitFollowCamera';
 import type { InteractionManager } from '@interaction/InteractionManager';
@@ -218,25 +218,6 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       this.levelManager.setShadowDebugEnabled(enabled);
       this.syncDebugPanel();
     });
-    this.eventBus.on('debug:flythrough', () => {
-      if (this.camera.isFlythrough) return; // Already in flythrough
-      this.playerController.setActive(false);
-      this.playerController.setEnabled(false);
-      this.uiManager.hud.hideObjective();
-      this.uiManager.hud.hidePrompt();
-      const crosshair = document.getElementById('crosshair');
-      if (crosshair) crosshair.style.opacity = '0';
-      this.camera.startFlythrough();
-    });
-    this.eventBus.on('debug:flythroughEnd', () => {
-      this.playerController.setActive(true);
-      this.playerController.setEnabled(true);
-      this.uiManager.hud.showObjective();
-      const crosshair = document.getElementById('crosshair');
-      if (crosshair) crosshair.style.opacity = '0.5';
-      this.playerController.respawn();
-    });
-
     this.syncDebugPanel();
 
     // Debug toggle on backtick
@@ -339,7 +320,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     if (!this.vehicleManager.isActive()) {
       this.playerController.update(dt, alpha);
     }
-    const lightingPos = this.camera.isFlythrough ? this.camera.position : this.playerController.position;
+    const lightingPos = this.playerController.position;
     this.levelManager.updateLighting(lightingPos);
     this.levelManager.update(dt, alpha);
     // Always update vehicles (active + parked) so parked drone/vehicles visually follow physics.
@@ -413,7 +394,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       { id: 'activate-beacon', text: 'Activate the beacon' },
     ]);
     // Ambient sci-fi drone sound
-    this.audioManager.playMusic('/assets/audio/aberrantrealities-very-few-in-level-2-336578.mp3', 2.0);
+    this.audioManager.playMusic(2.0);
 
     // Wire navigation systems from LevelManager.
     this.navPatrolSystem = this.levelManager.getNavPatrolSystem();
@@ -426,12 +407,76 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     this.vehicleManager.clear();
   }
 
+  /** Setup only the interactables for a single showcase station (debug/test). */
+  setupStation(key: ShowcaseStationKey): void {
+    this.clearRuntimeInteractables();
+    this.vehicleManager.clear();
+
+    switch (key) {
+      case 'door': {
+        const bayTopY = getShowcaseBayTopY();
+        const zDoor = getShowcaseStationZ('door');
+        const beacon = new ObjectiveBeacon(
+          'beacon1',
+          new THREE.Vector3(4, bayTopY, zDoor),
+          this.renderer.scene,
+          this.physicsWorld,
+        );
+        this.interactionManager.register(beacon);
+        const door = new Door(
+          'door1',
+          new THREE.Vector3(0, bayTopY, zDoor),
+          this.renderer.scene,
+          this.physicsWorld,
+        );
+        this.interactionManager.register(door);
+        this.runtimeInteractables.push(beacon, door);
+        break;
+      }
+      case 'movement': {
+        const bayTopY = getShowcaseBayTopY();
+        const zMovement = getShowcaseStationZ('movement');
+        const rope = new PhysicsRope(
+          'rope1',
+          new THREE.Vector3(-14, bayTopY + 6.2, zMovement + 2),
+          this.renderer.scene,
+          this.physicsWorld,
+          this.playerController,
+        );
+        this.rope = rope;
+        this.interactionManager.register(rope);
+        this.runtimeInteractables.push(rope);
+        break;
+      }
+      case 'grab':
+        this.spawnGrabbables();
+        break;
+      case 'throw':
+        this.spawnThrowableObjects();
+        break;
+      case 'vehicles':
+        this.spawnVehicles();
+        break;
+      // Other stations only have LevelManager geometry (no runtime interactables)
+    }
+  }
+
   teardownLevel(): void {
     this.clearRuntimeInteractables();
     this.vehicleManager.clear();
     this.navPatrolSystem = null;
     this.navDebugOverlay = null;
     this.navTargetMode = false;
+    if (this._onNavTargetClick) {
+      window.removeEventListener('click', this._onNavTargetClick);
+      this._onNavTargetClick = null;
+    }
+    if (this.navTargetMarker) {
+      this.renderer.scene.remove(this.navTargetMarker);
+      this.navTargetMarker.geometry.dispose();
+      (this.navTargetMarker.material as THREE.Material).dispose();
+      this.navTargetMarker = null;
+    }
   }
 
   setEditorManager(manager: EditorManager): void {
@@ -588,7 +633,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     this.vehicleManager.register(car);
 
     const droneSeat = this.createVehicleSeat('seat-drone', 'Fly', drone, new THREE.Vector3(0, 0.6, 0));
-    const carSeat = this.createVehicleSeat('seat-car', 'Drive', car, new THREE.Vector3(0, 0.5, 1));
+    const carSeat = this.createVehicleSeat('seat-car', 'Drive', car, new THREE.Vector3(-1.5, 0.5, -1.0));
     this.interactionManager.register(droneSeat);
     this.interactionManager.register(carSeat);
     this.runtimeInteractables.push(droneSeat, carSeat);
@@ -636,11 +681,6 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
   private handleDebugKeyDown(e: KeyboardEvent): void {
     if (e.code === 'Backquote') {
       this.eventBus.emit('debug:toggle', undefined);
-      return;
-    }
-    if (e.code === 'F5') {
-      e.preventDefault();
-      this.eventBus.emit('debug:flythrough', undefined);
       return;
     }
     if (e.code === 'F6') {

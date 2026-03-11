@@ -5,6 +5,8 @@ import type { PlayerController } from '@character/PlayerController';
 import type { IInteractable } from '../Interactable';
 import type { VehicleController } from '@vehicle/VehicleController';
 
+const _rotatedOffset = new THREE.Vector3();
+
 export class VehicleSeat implements IInteractable {
   readonly id: string;
   readonly label: string;
@@ -37,6 +39,16 @@ export class VehicleSeat implements IInteractable {
 
   interact(_player: PlayerController): void {
     this.eventBus.emit('vehicle:enter', { vehicle: this.vehicle });
+  }
+
+  getIgnoredColliderHandles(): number[] {
+    const handles: number[] = [];
+    const body = this.vehicle.body;
+    for (let i = 0, n = body.numColliders(); i < n; i++) {
+      const c = body.collider(i);
+      if (c) handles.push(c.handle);
+    }
+    return handles;
   }
 
   dispose(): void {
@@ -73,7 +85,9 @@ export class VehicleSeat implements IInteractable {
   }
 
   private syncPosition(): void {
-    const p = this.vehicle.mesh.position;
-    this.position.copy(p).add(this.offset);
+    // Rotate offset by the vehicle's current orientation so the prompt
+    // stays on the correct side after the vehicle turns.
+    _rotatedOffset.copy(this.offset).applyQuaternion(this.vehicle.mesh.quaternion);
+    this.position.copy(this.vehicle.mesh.position).add(_rotatedOffset);
   }
 }

@@ -12,6 +12,10 @@ const _pivotPos = new THREE.Vector3();
 const _targetPos = new THREE.Vector3();
 const _idealDir = new THREE.Vector3();
 const _spherical = new THREE.Spherical();
+const _velDir = new THREE.Vector3();
+const _camRight = new THREE.Vector3();
+const _worldUp = new THREE.Vector3(0, 1, 0);
+const _zeroVec = new THREE.Vector3();
 
 /**
  * Orbit-follow camera with spring arm collision.
@@ -39,9 +43,9 @@ export class OrbitFollowCamera implements Updatable, Disposable {
   private inputProvider: (() => InputState | null) | null = null;
   private collisionShape: RAPIER.Ball | null = null;
   private collisionShapeRadius = 0;
-
-  public isFlythrough = false;
-  private flythroughTime = 0;
+  private landingDip = 0;
+  private lookAheadOffset = new THREE.Vector3();
+  private lateralDriftCurrent = 0;
 
   get position(): THREE.Vector3 {
     return this.camera.position;
@@ -54,6 +58,9 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     private eventBus: EventBus,
   ) {
     this.baseFov = this.camera.fov;
+    this.eventBus.on('player:landed', ({ impactSpeed }) => {
+      this.landingDip = -Math.min(impactSpeed * 0.04, 0.4);
+    });
   }
 
   /** Process mouse deltas (called externally with raw input). */
@@ -104,6 +111,19 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     this.pivotPosition.copy(_pivotPos);
     this.targetDistance = this.config.distance;
     this.currentDistance = this.config.distance;
+
+    // Clear transient state so the camera doesn't smear from previous framing
+    this.lookAheadOffset.set(0, 0, 0);
+    this.lateralDriftCurrent = 0;
+    this.landingDip = 0;
+
+    // Place camera at the exact snap position immediately
+    this.yaw = this.targetYaw;
+    this.pitch = this.targetPitch;
+    _spherical.set(1, Math.PI / 2 - this.pitch, this.yaw);
+    _idealDir.setFromSpherical(_spherical);
+    this.camera.position.copy(this.pivotPosition).addScaledVector(_idealDir, this.currentDistance);
+    this.camera.lookAt(this.pivotPosition);
   }
 
   resetTarget(): void {
@@ -138,40 +158,8 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     return this.yaw;
   }
 
-  startFlythrough(): void {
-    this.isFlythrough = true;
-    this.flythroughTime = 0;
-  }
-
   /** Render-frame update — position camera with collision. */
   update(dt: number, _alpha: number): void {
-    if (this.isFlythrough) {
-      this.flythroughTime += dt;
-      const duration = 20.0;
-      const progress = this.flythroughTime / duration;
-      if (progress >= 1.0) {
-        this.isFlythrough = false;
-        this.snapToTarget();
-        this.yaw = this.targetYaw;
-        this.pitch = this.targetPitch;
-        this.eventBus.emit('debug:flythroughEnd', undefined);
-      } else {
-        const startZ = 200;
-        const endZ = -270;
-
-        // Easing function for smooth start/stop
-        const t = progress < 0.5 ? 2 * progress * progress : -1 + (4 - 2 * progress) * progress;
-
-        const z = startZ + (endZ - startZ) * t;
-        const x = Math.sin(t * Math.PI * 4) * 5;
-        const y = 3.5 + Math.sin(t * Math.PI * 8) * 0.5;
-
-        this.camera.position.set(x, y, z);
-        this.camera.lookAt(x * 0.5, y - 0.5, z - 15);
-        return;
-      }
-    }
-
     // Smooth camera rotation for a less abrupt orbit response.
     const rotationDamp = 1 - Math.exp(-this.config.rotationDamping * dt);
     this.yaw += (this.targetYaw - this.yaw) * rotationDamp;
@@ -182,6 +170,36 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     const crouchCameraOffset = this.target ? 0 : this.player.getCameraHeightOffset();
     const heightOffset = this.targetHeightOverride ?? this.config.heightOffset;
     _pivotPos.set(targetPos.x, targetPos.y + heightOffset - crouchCameraOffset, targetPos.z);
+    // Landing dip: decays back to zero
+    this.landingDip = THREE.MathUtils.damp(this.landingDip, 0, 12, dt);
+    _pivotPos.y += this.landingDip;
+
+    // Velocity-aware camera: look-ahead + lateral drift
+    const body = this.targetBody ?? this.player.body;
+    const lv = body.linvel();
+    const planarSpeed = Math.hypot(lv.x, lv.z);
+    const speedNorm = Math.min(planarSpeed / 14, 1);
+
+    // Look-ahead: offset pivot along velocity direction
+    if (planarSpeed > 0.5) {
+      _velDir.set(lv.x, 0, lv.z).normalize();
+      const aheadAmount = speedNorm * this.config.lookAhead;
+      _velDir.multiplyScalar(aheadAmount);
+      this.lookAheadOffset.lerp(_velDir, 1 - Math.exp(-4 * dt));
+    } else {
+      this.lookAheadOffset.lerp(_zeroVec, 1 - Math.exp(-6 * dt));
+    }
+    _pivotPos.add(this.lookAheadOffset);
+
+    // Lateral drift: shift pivot when strafing
+    const inputForDrift = this.target ? this.inputProvider?.() : this.player.lastInputSnapshot;
+    if (inputForDrift) {
+      const drift = inputForDrift.moveX * this.config.lateralDriftScale;
+      this.lateralDriftCurrent = THREE.MathUtils.damp(this.lateralDriftCurrent, drift, 5, dt);
+      _camRight.set(1, 0, 0).applyAxisAngle(_worldUp, this.yaw);
+      _pivotPos.addScaledVector(_camRight, this.lateralDriftCurrent);
+    }
+
     if (this.pivotPosition.lengthSq() < 0.0001) {
       this.pivotPosition.copy(_pivotPos);
     } else {
@@ -244,7 +262,9 @@ export class OrbitFollowCamera implements Updatable, Disposable {
       !!input &&
       input.sprint &&
       (input.forward || input.backward || input.left || input.right);
-    const targetFov = this.baseFov + (sprinting ? this.config.sprintFovBoost : 0);
+    const speedFov = speedNorm * this.config.speedFovBoost;
+    const sprintFov = sprinting ? this.config.sprintFovBoost : 0;
+    const targetFov = this.baseFov + Math.max(speedFov, sprintFov);
     const fovDamp = 1 - Math.exp(-this.config.fovDamping * dt);
     let nextFov = this.camera.fov + (targetFov - this.camera.fov) * fovDamp;
     // Avoid endless subpixel projection jitter from asymptotic damping convergence.

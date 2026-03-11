@@ -231,18 +231,6 @@ export class DebugPanel implements Disposable {
       },
     ));
 
-    // Flythrough button
-    const btnRow = document.createElement('div');
-    btnRow.style.cssText = 'display:flex;justify-content:center;margin-top:8px;';
-    const flyBtn = document.createElement('button');
-    flyBtn.textContent = '▶ Cinematic Flythrough';
-    flyBtn.style.cssText = 'background:#1d4ed8;color:white;border:none;border-radius:4px;padding:6px 12px;font-weight:600;cursor:pointer;';
-    flyBtn.addEventListener('click', () => {
-      this.eventBus.emit('debug:flythrough', undefined);
-    });
-    btnRow.appendChild(flyBtn);
-    runtimeSection.appendChild(btnRow);
-
     controls.appendChild(runtimeSection);
 
     const envSection = this.createSection('Environment');

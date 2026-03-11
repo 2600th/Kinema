@@ -413,7 +413,7 @@ The project uses a **rigid-body character** pattern:
 | Issue | What to try |
 |-------|-------------|
 | Controls don't respond | Click the canvas to focus it and enable pointer lock. |
-| No background music | Set `VITE_MUSIC_URL` (e.g. `/assets/audio/ambient-1.ogg`) or keep it unset to use the procedural fallback loop. |
+| No background music | Music is procedurally generated via Tone.js. Click the canvas to trigger a user gesture so the browser allows audio playback. |
 | Rope climb doesn't work | Hold **Shift** and then press **W** or **S** (climb is Shift + W/S). |
 | Very bright or "washed out" image | Lower **Exposure** and/or reduce grading (LUT strength, bloom). Try a different environment map. |
 | Anti-aliasing looks different | AA mode is selectable (SMAA / FXAA / none). SMAA generally gives the best edge quality. |

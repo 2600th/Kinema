@@ -35,10 +35,22 @@ export class LevelSaveStore {
 
   /** Save (or overwrite) a level. Generates key from name if new. */
   static save(data: LevelDataV2): void {
-    const key = LEVEL_PREFIX + slugify(data.name || 'untitled');
+    const index = LevelSaveStore.list();
+    let key = LEVEL_PREFIX + slugify(data.name || 'untitled');
+
+    // If the slug already exists under a different display name, disambiguate
+    // so two levels with similar names don't silently overwrite each other.
+    const collision = index.find((m) => m.key === key);
+    if (collision && collision.name !== data.name) {
+      let suffix = 2;
+      while (index.some((m) => m.key === `${key}-${suffix}`)) {
+        suffix++;
+      }
+      key = `${key}-${suffix}`;
+    }
+
     localStorage.setItem(key, JSON.stringify(data));
 
-    const index = LevelSaveStore.list();
     const existing = index.findIndex((m) => m.key === key);
     const meta: LevelSaveMeta = {
       key,

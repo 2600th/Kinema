@@ -48,6 +48,17 @@ const _carryTarget = new THREE.Vector3();
 const _rapierDown = new RAPIER.Vector3(0, -1, 0);
 const _rapierUp = new RAPIER.Vector3(0, 1, 0);
 
+// Pre-allocated Rapier vectors to avoid per-frame GC pressure.
+// Use A/B/C when multiple live vectors are needed simultaneously (e.g. applyImpulseAtPoint).
+const _rv3A = new RAPIER.Vector3(0, 0, 0);
+const _rv3B = new RAPIER.Vector3(0, 0, 0);
+
+/** Set x/y/z on a pre-allocated RAPIER.Vector3 and return it. */
+function _setRV(v: RAPIER.Vector3, x: number, y: number, z: number): RAPIER.Vector3 {
+  v.x = x; v.y = y; v.z = z;
+  return v;
+}
+
 interface CarryableObject {
   readonly id: string;
   readonly body: RAPIER.RigidBody;
@@ -75,6 +86,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   private lastInput: InputState | null = null;
 
   private canJump = false;
+  private jumpActive = false;
+  private prevVerticalVelocity = 0;
   private jumpBufferRemaining = 0;
   private remainingAirJumps = this.config.maxAirJumps;
   private isOnMovingObject = false;
@@ -105,6 +118,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   private carriedBodyType: number | null = null;
   private carriedGravityScale: number | null = null;
   private carriedCollisionGroups: number | null = null;
+  private interactSuppressFrames = 0;
 
   get lastInputSnapshot(): InputState | null {
     return this.lastInput;
@@ -191,8 +205,10 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     }
 
     this.verticalVelocity = 0;
+    this.prevVerticalVelocity = 0;
     this.isGrounded = false;
     this.canJump = false;
+    this.jumpActive = false;
     this.actualSlopeAngle = 0;
     _movingObjectVelocity.set(0, 0, 0);
     this.currentGroundBody = null;
@@ -214,8 +230,18 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
   fixedUpdate(dt: number): void {
     if (!this.active) return;
-    const input = this.lastInput;
+    let input = this.lastInput;
     if (!input) return;
+
+    // Mask interactPressed for a few frames after vehicle exit to prevent
+    // the same press from triggering a grounded interaction.
+    if (this.interactSuppressFrames > 0) {
+      this.interactSuppressFrames--;
+      if (input.interactPressed) {
+        input = { ...input, interactPressed: false };
+      }
+    }
+
     let consumeInteractPressed = false;
     let consumeJumpPressed = false;
 
@@ -255,6 +281,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     const vel = this.body.linvel();
     _currentPos.set(pos.x, pos.y, pos.z);
     _currentVel.set(vel.x, vel.y, vel.z);
+    this.prevVerticalVelocity = this.verticalVelocity;
     this.verticalVelocity = _currentVel.y;
 
     if (this.ropeAttached) {
@@ -322,9 +349,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       _currentPos.z,
     );
 
-    const rayOrigin = new RAPIER.Vector3(_rayOrigin.x, _rayOrigin.y, _rayOrigin.z);
     const floatingRayHit = this.physicsWorld.castRay(
-      rayOrigin,
+      _setRV(_rv3A, _rayOrigin.x, _rayOrigin.y, _rayOrigin.z),
       _rapierDown,
       this.config.floatingRayLength,
       undefined,
@@ -334,9 +360,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
     _slopeForward.set(0, 0, 1).applyQuaternion(this.mesh.quaternion);
     _slopeRayOrigin.copy(_rayOrigin).addScaledVector(_slopeForward, this.config.slopeRayOriginOffset);
-    const slopeRayOrigin = new RAPIER.Vector3(_slopeRayOrigin.x, _slopeRayOrigin.y, _slopeRayOrigin.z);
     const slopeRayHit = this.physicsWorld.castRay(
-      slopeRayOrigin,
+      _setRV(_rv3A, _slopeRayOrigin.x, _slopeRayOrigin.y, _slopeRayOrigin.z),
       _rapierDown,
       this.config.slopeRayLength,
       undefined,
@@ -348,7 +373,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     _actualSlopeNormal.set(0, 1, 0);
     if (slopeRayHit) {
       const n = this.physicsWorld.castRayAndGetNormal(
-        slopeRayOrigin,
+        _setRV(_rv3A, _slopeRayOrigin.x, _slopeRayOrigin.y, _slopeRayOrigin.z),
         _rapierDown,
         this.config.slopeRayLength,
         undefined,
@@ -356,7 +381,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       );
       if (n) {
         _actualSlopeNormal.set(n.normal.x, n.normal.y, n.normal.z).normalize();
-        this.actualSlopeAngle = _actualSlopeNormal.angleTo(new THREE.Vector3(0, 1, 0));
+        this.actualSlopeAngle = _actualSlopeNormal.angleTo(_worldUp);
       }
     }
 
@@ -378,6 +403,18 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     }
     if (this.isGrounded !== wasGrounded) {
       this.eventBus.emit('player:grounded', this.isGrounded);
+    }
+    // Landing event: emit impact speed for camera dip / audio
+    if (this.isGrounded && !wasGrounded) {
+      const impactSpeed = Math.abs(this.prevVerticalVelocity);
+      this.eventBus.emit('player:landed', { impactSpeed });
+      this.jumpActive = false;
+    }
+
+    // Variable jump: cut jump short when player releases jump key while rising
+    if (!input.jump && this.verticalVelocity > 0 && this.jumpActive) {
+      this.setGravityScale(this.config.fallingGravityScale * 1.5);
+      this.jumpActive = false;
     }
 
     this.currentGroundBody = null;
@@ -425,11 +462,11 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     }
 
     const movementLockedNow = this.fsm.current === 'interact';
-    const hasMovement = !movementLockedNow && (input.forward || input.backward || input.left || input.right);
+    const hasMovement = !movementLockedNow && (input.moveX !== 0 || input.moveY !== 0);
     const run = this.fsm.current !== 'grab' && input.sprint && !this.isCrouched;
     // Movement: use velocity steering (character-controller feel) instead of impulse accumulation.
     // WHY: Impulse-based locomotion felt floaty and caused direction drift when releasing strafe.
-    this.applyMoveVelocity(desiredInputDir, run, hasMovement, dt);
+    this.applyMoveVelocity(desiredInputDir, run, hasMovement, dt, input);
     if (hasMovement) {
       this.applyStepAssist(desiredInputDir, run);
     }
@@ -455,13 +492,13 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       const floatingForce =
         this.config.floatingSpringK * (this.floatingDistance - floatingRayHit.timeOfImpact) -
         _currentVel.y * this.config.floatingDampingC;
-      this.body.applyImpulse(new RAPIER.Vector3(0, floatingForce, 0), false);
+      this.body.applyImpulse(_setRV(_rv3A, 0, floatingForce, 0), false);
 
       const standingBody = floatingRayHit.collider.parent();
       if (standingBody && floatingForce > 0 && this.shouldApplyGroundReaction(standingBody)) {
         standingBody.applyImpulseAtPoint(
-          new RAPIER.Vector3(0, -floatingForce, 0),
-          new RAPIER.Vector3(_standingForcePoint.x, _standingForcePoint.y, _standingForcePoint.z),
+          _setRV(_rv3A, 0, -floatingForce, 0),
+          _setRV(_rv3B, _standingForcePoint.x, _standingForcePoint.y, _standingForcePoint.z),
           true,
         );
       }
@@ -496,12 +533,14 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     run: boolean,
     hasMovement: boolean,
     dt: number,
+    input?: InputState | null,
   ): void {
-    // Target speed based on stance/state.
+    // Target speed based on stance/state, scaled by analog stick magnitude.
     const crouchMult = this.isCrouched ? this.config.crouchSpeedMultiplier : 1;
     const grabMult = this.fsm.current === 'grab' ? this.config.crouchSpeedMultiplier : 1;
+    const stickMag = input ? Math.min(1, Math.hypot(input.moveX, input.moveY)) : 1;
     const targetSpeed =
-      this.config.moveSpeed * crouchMult * grabMult * (run ? this.config.sprintMultiplier : 1);
+      this.config.moveSpeed * crouchMult * grabMult * (run ? this.config.sprintMultiplier : 1) * stickMag;
 
     // Desired horizontal velocity (camera-relative input), plus moving-platform contribution.
     const platformVx = this.isOnMovingObject ? _movingObjectVelocity.x : 0;
@@ -558,10 +597,11 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     const nextVx = relVx + platformVx;
     const nextVz = relVz + platformVz;
 
-    this.body.setLinvel(new RAPIER.Vector3(nextVx, lv.y, nextVz), true);
+    this.body.setLinvel(_setRV(_rv3A, nextVx, lv.y, nextVz), true);
   }
 
   private applyJumpImpulse(run: boolean, airJump: boolean): void {
+    this.jumpActive = true;
     const jumpVel =
       (run ? this.config.sprintJumpMultiplier : 1) *
       this.config.jumpForce *
@@ -573,15 +613,15 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       .add(_jumpVelocityVec);
 
     this.body.setLinvel(
-      new RAPIER.Vector3(_jumpDirection.x, _jumpDirection.y, _jumpDirection.z),
+      _setRV(_rv3A, _jumpDirection.x, _jumpDirection.y, _jumpDirection.z),
       true,
     );
 
     if (this.currentGroundBody && this.shouldApplyGroundReaction(this.currentGroundBody)) {
       const down = -jumpVel * this.config.jumpForceToGroundMultiplier * 0.5;
       this.currentGroundBody.applyImpulseAtPoint(
-        new RAPIER.Vector3(0, down, 0),
-        new RAPIER.Vector3(_standingForcePoint.x, _standingForcePoint.y, _standingForcePoint.z),
+        _setRV(_rv3A, 0, down, 0),
+        _setRV(_rv3B, _standingForcePoint.x, _standingForcePoint.y, _standingForcePoint.z),
         true,
       );
     }
@@ -609,8 +649,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     );
 
     const lowHit = this.physicsWorld.castRay(
-      new RAPIER.Vector3(_stepProbeLowOrigin.x, _stepProbeLowOrigin.y, _stepProbeLowOrigin.z),
-      new RAPIER.Vector3(_stepForward.x, _stepForward.y, _stepForward.z),
+      _setRV(_rv3A, _stepProbeLowOrigin.x, _stepProbeLowOrigin.y, _stepProbeLowOrigin.z),
+      _setRV(_rv3B, _stepForward.x, _stepForward.y, _stepForward.z),
       probeDist,
       undefined,
       this.body,
@@ -619,8 +659,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     if (!lowHit || lowHit.timeOfImpact > probeDist) return;
 
     const highHit = this.physicsWorld.castRay(
-      new RAPIER.Vector3(_stepProbeHighOrigin.x, _stepProbeHighOrigin.y, _stepProbeHighOrigin.z),
-      new RAPIER.Vector3(_stepForward.x, _stepForward.y, _stepForward.z),
+      _setRV(_rv3A, _stepProbeHighOrigin.x, _stepProbeHighOrigin.y, _stepProbeHighOrigin.z),
+      _setRV(_rv3B, _stepForward.x, _stepForward.y, _stepForward.z),
       probeDist,
       undefined,
       this.body,
@@ -640,7 +680,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     const fwdBoost = run ? 1.35 : 1.2;
     if (lv.y < upBoost) {
       this.body.setLinvel(
-        new RAPIER.Vector3(
+        _setRV(_rv3A,
           lv.x + _stepForward.x * (fwdBoost + fwdNudgeVel),
           Math.max(lv.y, upBoost + stepUpVel),
           lv.z + _stepForward.z * (fwdBoost + fwdNudgeVel),
@@ -656,11 +696,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       _currentPos.z + _stepForward.z * (run ? 0.58 : 0.5),
     );
     const downHit = this.physicsWorld.castRay(
-      new RAPIER.Vector3(
-        _stepGroundProbeOrigin.x,
-        _stepGroundProbeOrigin.y,
-        _stepGroundProbeOrigin.z,
-      ),
+      _setRV(_rv3A, _stepGroundProbeOrigin.x, _stepGroundProbeOrigin.y, _stepGroundProbeOrigin.z),
       _rapierDown,
       1.4,
       undefined,
@@ -679,7 +715,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
         const stepVel = clampedHeight * 60;
         const fwdStepVel = 0.06 * 60;
         this.body.setLinvel(
-          new RAPIER.Vector3(
+          _setRV(_rv3A,
             curLv.x + _stepForward.x * fwdStepVel,
             Math.max(curLv.y, stepVel),
             curLv.z + _stepForward.z * fwdStepVel,
@@ -707,11 +743,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     const lv = this.body.linvel();
     this.setGravityScale(0);
     this.body.setLinvel(
-      new RAPIER.Vector3(
-        lv.x * 0.2,
-        climbDir * climbSpeed,
-        lv.z * 0.2,
-      ),
+      _setRV(_rv3A, lv.x * 0.2, climbDir * climbSpeed, lv.z * 0.2),
       true,
     );
 
@@ -721,7 +753,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       this.jumpBufferRemaining = 0;
       this.remainingAirJumps = this.config.maxAirJumps;
       this.body.setLinvel(
-        new RAPIER.Vector3(lv.x * 0.6, Math.max(this.config.jumpForce * 0.9, 3.2), lv.z * 0.6),
+        _setRV(_rv3A, lv.x * 0.6, Math.max(this.config.jumpForce * 0.9, 3.2), lv.z * 0.6),
         true,
       );
     }
@@ -768,7 +800,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     const deltaHalf = this.currentCapsuleHalfHeight - targetHalf;
     this.currentCapsuleHalfHeight = targetHalf;
     this.collider.setHalfHeight(targetHalf);
-    this.body.setTranslation(new RAPIER.Vector3(pos.x, pos.y - deltaHalf, pos.z), true);
+    this.body.setTranslation(_setRV(_rv3A, pos.x, pos.y - deltaHalf, pos.z), true);
     this.body.wakeUp();
     this.currPosition.set(pos.x, pos.y - deltaHalf, pos.z);
     this.prevPosition.set(pos.x, pos.y - deltaHalf, pos.z);
@@ -835,7 +867,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       z,
     );
     const hit = this.physicsWorld.castRay(
-      new RAPIER.Vector3(_standProbeOrigin.x, _standProbeOrigin.y, _standProbeOrigin.z),
+      _setRV(_rv3A, _standProbeOrigin.x, _standProbeOrigin.y, _standProbeOrigin.z),
       _rapierUp,
       probeLength,
       undefined,
@@ -879,6 +911,10 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.active = active;
   }
 
+  suppressInteract(frames = 2): void {
+    this.interactSuppressFrames = frames;
+  }
+
   setEnabled(enabled: boolean): void {
     this.body.setEnabled(enabled);
     this.mesh.visible = enabled;
@@ -918,7 +954,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     body.setBodyType(bodyType, true);
     body.setGravityScale(this.grabbedGravityScale ?? 1, true);
     const forward = this.getCameraForward().setY(0).normalize();
-    body.applyImpulse(new RAPIER.Vector3(forward.x * 0.25, 0, forward.z * 0.25), true);
+    body.applyImpulse(_setRV(_rv3A, forward.x * 0.25, 0, forward.z * 0.25), true);
     this.grabbedBody = null;
     this.grabbedBodyType = null;
     this.grabbedGravityScale = null;
@@ -949,11 +985,11 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     // velocities and tunnel through walls even with contact events enabled.
     const targetSpeed = Math.max(0.5, Math.min(object.throwForce, 10));
     object.body.setLinvel(
-      new RAPIER.Vector3(forward.x * targetSpeed, forward.y * targetSpeed, forward.z * targetSpeed),
+      _setRV(_rv3A, forward.x * targetSpeed, forward.y * targetSpeed, forward.z * targetSpeed),
       true,
     );
     // Add some spin for readability.
-    object.body.setAngvel(new RAPIER.Vector3(forward.z * 6, 5, -forward.x * 6), true);
+    object.body.setAngvel(_setRV(_rv3B, forward.z * 6, 5, -forward.x * 6), true);
     this.eventBus.emit('interaction:throw', { direction: forward.clone(), force: targetSpeed });
   }
 
@@ -964,8 +1000,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     _carryTarget.copy(this.currPosition).addScaledVector(forward, 0.8);
     _carryTarget.y += this.currentCapsuleHalfHeight + 0.2;
     this.releaseCarryBody();
-    object.body.setTranslation(new RAPIER.Vector3(_carryTarget.x, _carryTarget.y, _carryTarget.z), true);
-    object.body.setLinvel(new RAPIER.Vector3(0, 0, 0), true);
+    object.body.setTranslation(_setRV(_rv3A, _carryTarget.x, _carryTarget.y, _carryTarget.z), true);
+    object.body.setLinvel(_setRV(_rv3B, 0, 0, 0), true);
     this.eventBus.emit('interaction:drop', undefined);
   }
 
@@ -995,25 +1031,23 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       .set(_currentPos.x, _currentPos.y, _currentPos.z)
       .addScaledVector(_grabForward, this.grabDistance);
     _grabTarget.y += this.grabOffsetY;
-    const next = new RAPIER.Vector3(_grabTarget.x, _grabTarget.y, _grabTarget.z);
     // Use only setNextKinematicTranslation so Rapier computes the correct
     // derived velocity for collision response. Mesh interpolation captures
     // the position after world.step() via postPhysicsUpdate().
-    this.grabbedBody.setNextKinematicTranslation(next);
+    this.grabbedBody.setNextKinematicTranslation(_setRV(_rv3A, _grabTarget.x, _grabTarget.y, _grabTarget.z));
   }
 
   private updateCarriedObject(): void {
     if (!this.carriedObject) return;
     _carryTarget.set(_currentPos.x, _currentPos.y + this.currentCapsuleHalfHeight + 0.4, _currentPos.z);
-    const next = new RAPIER.Vector3(_carryTarget.x, _carryTarget.y, _carryTarget.z);
     // Use only setNextKinematicTranslation so Rapier computes the correct
     // derived velocity for collision response. Mesh interpolation captures
     // the position after world.step() via postPhysicsUpdate().
-    this.carriedObject.body.setNextKinematicTranslation(next);
+    this.carriedObject.body.setNextKinematicTranslation(_setRV(_rv3A, _carryTarget.x, _carryTarget.y, _carryTarget.z));
   }
 
   private hasMovementInput(input: InputState): boolean {
-    return input.forward || input.backward || input.left || input.right;
+    return input.moveX !== 0 || input.moveY !== 0;
   }
 
   setLadderZones(zones: readonly THREE.Box3[]): void {
@@ -1060,20 +1094,12 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   }
 
   computeMovementDirection(input: InputState): THREE.Vector3 {
-    _desiredMove.set(0, 0, 0);
-
     const fwd = this.getCameraForward();
     const rgt = this.getCameraRight();
-
-    if (input.forward) _desiredMove.add(fwd);
-    if (input.backward) _desiredMove.sub(fwd);
-    if (input.right) _desiredMove.add(rgt);
-    if (input.left) _desiredMove.sub(rgt);
-
-    if (_desiredMove.lengthSq() > 0) {
-      _desiredMove.normalize();
-    }
-
+    _desiredMove.set(0, 0, 0);
+    _desiredMove.addScaledVector(fwd, input.moveY);
+    _desiredMove.addScaledVector(rgt, input.moveX);
+    if (_desiredMove.lengthSq() > 1) _desiredMove.normalize();
     return _desiredMove;
   }
 

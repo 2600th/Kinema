@@ -13,6 +13,7 @@ import {
   SHOWCASE_STATION_ORDER,
   getShowcaseBayTopY,
   getShowcaseStationZ,
+  type ShowcaseStationKey,
 } from '@level/ShowcaseLayout';
 import { NavMeshManager } from '@navigation/NavMeshManager';
 import { NavPatrolSystem } from '@navigation/NavPatrolSystem';
@@ -42,6 +43,8 @@ export class LevelManager implements Disposable {
   private levelObjects: THREE.Object3D[] = [];
   private levelColliders: RAPIER.Collider[] = [];
   private levelBodies: RAPIER.RigidBody[] = [];
+  /** Per-object imported GLB asset paths loaded during JSON import. */
+  private importedAssetPaths = new Set<string>();
   private spawnPoint: SpawnPointData = createDefaultSpawnPoint();
   private movingPlatforms: Array<{
     mesh: THREE.Mesh;
@@ -65,7 +68,7 @@ export class LevelManager implements Disposable {
     moveDirectionX?: number;
   }> = [];
   private dynamicBodies: Array<{
-    mesh: THREE.Mesh;
+    mesh: THREE.Object3D;
     body: RAPIER.RigidBody;
     prevPos: THREE.Vector3;
     currPos: THREE.Vector3;
@@ -95,6 +98,7 @@ export class LevelManager implements Disposable {
   private navDebugOverlay: NavDebugOverlay | null = null;
   private textureAnisotropy = 8;
   private _loadGeneration = 0;
+  private stationFilter: ShowcaseStationKey | null = null;
 
   constructor(
     private scene: THREE.Scene,
@@ -119,7 +123,7 @@ export class LevelManager implements Disposable {
   }
 
   /** Dynamic rigid bodies created by the level (for grab interactions). */
-  getDynamicBodies(): ReadonlyArray<{ mesh: THREE.Mesh; body: RAPIER.RigidBody }> {
+  getDynamicBodies(): ReadonlyArray<{ mesh: THREE.Object3D; body: RAPIER.RigidBody }> {
     // Expose only mesh/body; internal pose buffers are an implementation detail.
     return this.dynamicBodies;
   }
@@ -208,6 +212,21 @@ export class LevelManager implements Disposable {
     console.log(`[LevelManager] Level "${name}" loaded`);
   }
 
+  /** Load a single showcase station in isolation for debugging. */
+  async loadStation(key: ShowcaseStationKey): Promise<void> {
+    if (this.currentLevelName) {
+      this.unload();
+    }
+    this.spawnPoint = createDefaultSpawnPoint();
+    this.stationFilter = key;
+    this.buildProceduralLevel();
+    this.stationFilter = null;
+    this.currentLevelName = `station:${key}`;
+    this.addLighting();
+    this.eventBus.emit('level:loaded', { name: `station:${key}` });
+    console.log(`[LevelManager] Station "${key}" loaded`);
+  }
+
   /** Public accessor for the asset loader (used by editor for GLB import). */
   getAssetLoader(): AssetLoader {
     return this.assetLoader;
@@ -241,45 +260,53 @@ export class LevelManager implements Disposable {
   }
 
   private async spawnJSONObject(entry: SerializedObjectV2): Promise<void> {
-    let mesh: THREE.Mesh | null = null;
+    let obj: THREE.Object3D | null = null;
 
     if (entry.source.type === 'primitive' && entry.source.primitive) {
-      mesh = this.createPrimitiveMesh(entry.source.primitive);
+      obj = this.createPrimitiveMesh(entry.source.primitive);
     } else if (entry.source.type === 'brush' && entry.source.brush) {
-      mesh = this.createBrushMesh(entry.source.brush);
+      obj = this.createBrushMesh(entry.source.brush);
     } else if (entry.source.type === 'glb' && entry.source.asset) {
-      mesh = await this.loadGLBObject(entry.source.asset);
+      obj = await this.loadGLBObject(entry.source.asset);
     }
 
-    if (!mesh) return;
+    if (!obj) return;
 
     // Apply transform
     const [px, py, pz] = entry.transform.position;
     const [rx, ry, rz] = entry.transform.rotation;
     const [sx, sy, sz] = entry.transform.scale;
-    mesh.position.set(px, py, pz);
-    mesh.rotation.set(rx, ry, rz);
-    mesh.scale.set(sx, sy, sz);
+    obj.position.set(px, py, pz);
+    obj.rotation.set(rx, ry, rz);
+    obj.scale.set(sx, sy, sz);
 
-    // Apply material properties
-    if (entry.material && mesh.material instanceof THREE.MeshStandardMaterial) {
-      const mat = mesh.material;
-      mat.color.set(entry.material.color);
-      mat.roughness = entry.material.roughness;
-      mat.metalness = entry.material.metalness;
-      mat.emissive.set(entry.material.emissive);
-      mat.emissiveIntensity = entry.material.emissiveIntensity;
-      if (entry.material.opacity < 1) {
-        mat.transparent = true;
-        mat.opacity = entry.material.opacity;
-      }
+    // Apply material properties to all standard materials in the hierarchy
+    if (entry.material) {
+      obj.traverse((child) => {
+        if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshStandardMaterial) {
+          const mat = child.material;
+          mat.color.set(entry.material!.color);
+          mat.roughness = entry.material!.roughness;
+          mat.metalness = entry.material!.metalness;
+          mat.emissive.set(entry.material!.emissive);
+          mat.emissiveIntensity = entry.material!.emissiveIntensity;
+          if (entry.material!.opacity < 1) {
+            mat.transparent = true;
+            mat.opacity = entry.material!.opacity;
+          }
+        }
+      });
     }
 
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    mesh.name = entry.name;
-    this.scene.add(mesh);
-    this.levelObjects.push(mesh);
+    obj.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+      }
+    });
+    obj.name = entry.name;
+    this.scene.add(obj);
+    this.levelObjects.push(obj);
 
     // Create physics body
     const physType = entry.physics?.type ?? 'static';
@@ -292,14 +319,31 @@ export class LevelManager implements Disposable {
       bodyDesc = RAPIER.RigidBodyDesc.fixed();
     }
     bodyDesc.setTranslation(px, py, pz);
-    // Sync body rotation with mesh so rotated objects collide correctly.
-    const q = mesh.quaternion;
+    const q = obj.quaternion;
     bodyDesc.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w });
     const body = this.physicsWorld.world.createRigidBody(bodyDesc);
 
-    // Approximate collider from geometry bounding box
-    mesh.geometry.computeBoundingBox();
-    const bb = mesh.geometry.boundingBox!;
+    // Approximate collider from bounding box — compute from full hierarchy
+    const bb = new THREE.Box3();
+    if (obj instanceof THREE.Mesh && obj.geometry) {
+      obj.geometry.computeBoundingBox();
+      bb.copy(obj.geometry.boundingBox!);
+    } else {
+      // Compute combined BB from all descendant meshes in obj-local space.
+      // obj is at identity before scene attachment, so child matrixWorld = local offset.
+      obj.updateMatrixWorld(true);
+      obj.traverse((child) => {
+        if (child instanceof THREE.Mesh && child.geometry) {
+          child.geometry.computeBoundingBox();
+          const childBox = child.geometry.boundingBox!.clone();
+          childBox.applyMatrix4(child.matrixWorld);
+          bb.union(childBox);
+        }
+      });
+    }
+    if (bb.isEmpty()) {
+      bb.set(new THREE.Vector3(-0.5, -0.5, -0.5), new THREE.Vector3(0.5, 0.5, 0.5));
+    }
     const halfW = ((bb.max.x - bb.min.x) / 2) * sx;
     const halfH = ((bb.max.y - bb.min.y) / 2) * sy;
     const halfD = ((bb.max.z - bb.min.z) / 2) * sz;
@@ -316,12 +360,12 @@ export class LevelManager implements Disposable {
     // Track dynamic bodies for interpolation
     if (physType === 'dynamic') {
       this.dynamicBodies.push({
-        mesh,
+        mesh: obj,
         body,
-        prevPos: mesh.position.clone(),
-        currPos: mesh.position.clone(),
-        prevQuat: mesh.quaternion.clone(),
-        currQuat: mesh.quaternion.clone(),
+        prevPos: obj.position.clone(),
+        currPos: obj.position.clone(),
+        prevQuat: obj.quaternion.clone(),
+        currQuat: obj.quaternion.clone(),
         hasPose: false,
       });
     }
@@ -351,26 +395,25 @@ export class LevelManager implements Disposable {
     return new THREE.Mesh(geometry, material);
   }
 
-  private async loadGLBObject(assetPath: string): Promise<THREE.Mesh | null> {
+  private async loadGLBObject(assetPath: string): Promise<THREE.Object3D | null> {
     try {
+      this.importedAssetPaths.add(assetPath);
       const gltf = await this.assetLoader.load(assetPath);
-      // Find the first mesh in the GLB scene
-      let foundMesh: THREE.Mesh | null = null;
-      gltf.scene.traverse((child) => {
-        if (!foundMesh && child instanceof THREE.Mesh) {
-          foundMesh = child.clone();
+      // Clone the entire scene so multi-mesh GLBs keep all children.
+      // Deep-clone geometry and material per-mesh so disposal during unload
+      // doesn't invalidate the cached GLTF for future reloads.
+      const clone = gltf.scene.clone(true);
+      clone.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry = child.geometry.clone();
+          child.material = Array.isArray(child.material)
+            ? child.material.map((m: THREE.Material) => m.clone())
+            : child.material.clone();
         }
       });
-      if (foundMesh) return foundMesh;
-      // If no individual mesh found, bake the whole scene into a group-like mesh
-      const clone = gltf.scene.clone();
-      // Wrap in a dummy mesh for consistent handling
-      const wrapper = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.01, 0.01), new THREE.MeshBasicMaterial({ visible: false }));
-      wrapper.add(clone);
-      return wrapper;
+      return clone;
     } catch (err) {
       console.warn(`[LevelManager] Failed to load GLB "${assetPath}", using placeholder`, err);
-      // Magenta wireframe cube placeholder
       const geo = new THREE.BoxGeometry(1, 1, 1);
       const mat = new THREE.MeshBasicMaterial({ color: 0xff00ff, wireframe: true });
       return new THREE.Mesh(geo, mat);
@@ -386,6 +429,11 @@ export class LevelManager implements Disposable {
     if (name && name !== 'procedural') {
       this.assetLoader.evict(`/assets/levels/${name}.glb`);
     }
+    // Evict per-object imported GLB assets
+    for (const assetPath of this.importedAssetPaths) {
+      this.assetLoader.evict(assetPath);
+    }
+    this.importedAssetPaths.clear();
 
     // Remove physics
     for (const collider of this.levelColliders) {
@@ -701,7 +749,25 @@ export class LevelManager implements Disposable {
     const kinematicPlatformMat = new THREE.MeshStandardMaterial({ color: 0xccaa22, roughness: 0.85, metalness: 0.05 });
     const floatingPlatformMat = new THREE.MeshStandardMaterial({ color: 0x3366aa, roughness: 0.85, metalness: 0.05 });
 
+    // Station filter: when set, only build the target station + a minimal floor.
+    const buildAll = this.stationFilter === null;
+    const isTarget = (key: ShowcaseStationKey): boolean => buildAll || this.stationFilter === key;
+
+    if (!buildAll) {
+      // Minimal floor so the player doesn't fall through
+      const stationZ = getShowcaseStationZ(this.stationFilter!);
+      const stationFloor = new THREE.Mesh(new THREE.BoxGeometry(60, 1, 30), floorMat);
+      stationFloor.position.set(0, -1.5, stationZ);
+      stationFloor.name = 'StationFloor_col';
+      stationFloor.receiveShadow = true;
+      this.scene.add(stationFloor);
+      this.levelObjects.push(stationFloor);
+      stationFloor.updateWorldMatrix(true, false);
+      this.levelColliders.push(this.colliderFactory.createTrimesh(stationFloor));
+    }
+
     // Broad floor
+    if (buildAll) {
     const floor = new THREE.Mesh(new THREE.BoxGeometry(300, 5, 300), floorMat);
     // WHY: The showcase hall floor surface sits at y=-1.0. If the broad floor
     // also has its top face at y=-1.0, the two coplanar surfaces z-fight and
@@ -713,6 +779,7 @@ export class LevelManager implements Disposable {
     this.levelObjects.push(floor);
     floor.updateWorldMatrix(true, false);
     this.levelColliders.push(this.colliderFactory.createTrimesh(floor));
+    } // end buildAll broad floor
 
     // === Showcase corridor (inspired by Unity/Unreal sample bays) ===
     // Centered at world origin and used for *all* features (old + new).
@@ -732,6 +799,11 @@ export class LevelManager implements Disposable {
     const hallWallMat = new THREE.MeshStandardMaterial({ color: 0xd8dce5, roughness: 0.9, metalness: 0.0 });
     const bayMat = new THREE.MeshStandardMaterial({ color: 0x404858, roughness: 0.75, metalness: 0.05 });
 
+    const wallThickness = 0.6;
+    const wallHeight = 18;
+
+    // Corridor structure (skip in single-station mode)
+    if (buildAll) {
     const hallFloor = new THREE.Mesh(new THREE.BoxGeometry(hallWidth, 0.6, hallLength), hallFloorMat);
     hallFloor.position.set(0, -1.3, showcaseCenterZ);
     hallFloor.name = 'ShowcaseFloor_col';
@@ -741,9 +813,7 @@ export class LevelManager implements Disposable {
     hallFloor.updateWorldMatrix(true, false);
     this.levelColliders.push(this.colliderFactory.createTrimesh(hallFloor));
 
-    const wallThickness = 0.6;
     // Taller corridor so drone camera pivot doesn't end up inside the ceiling.
-    const wallHeight = 18;
     const leftWall = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, wallHeight, hallLength), hallWallMat);
     leftWall.position.set(-hallWidth / 2 - wallThickness / 2, wallHeight / 2 - 1.0, showcaseCenterZ);
     leftWall.name = 'ShowcaseWallL_col';
@@ -790,9 +860,11 @@ export class LevelManager implements Disposable {
     this.levelObjects.push(ceiling);
     ceiling.updateWorldMatrix(true, false);
     this.levelColliders.push(this.colliderFactory.createTrimesh(ceiling));
+    } // end buildAll corridor structure
 
-    // Bay pedestals (grid stations) along the corridor.
-    const bayZ = SHOWCASE_STATION_ORDER.map((k) => getShowcaseStationZ(k));
+    // Bay pedestals: all in normal mode, single target in station mode.
+    const stationKeys = buildAll ? SHOWCASE_STATION_ORDER : [this.stationFilter!];
+    const bayZ = stationKeys.map((k) => getShowcaseStationZ(k));
     bayZ.forEach((z, i) => {
       const pedestal = new THREE.Mesh(new THREE.BoxGeometry(bayWidth, bayPedestalHeight, bayLength), bayMat);
       pedestal.position.set(0, bayPedestalY, z);
@@ -807,7 +879,7 @@ export class LevelManager implements Disposable {
     // Ceiling accent lights above each bay (no shadows) for clearer readability.
     // WHY: keeps the corridor visually appealing without adding expensive shadowed lights.
     // Colors progress warm→cool along the corridor for a visual journey.
-    const ceilingY = -1.0 + wallHeight - 0.45;
+    const ceilingY = 17 - 0.45;
     const warmPanel = new THREE.Color(0xd0e0ff);
     const coolPanel = new THREE.Color(0xe0e8ff);
     const warmLight = new THREE.Color(0xc8d8ff);
@@ -841,11 +913,19 @@ export class LevelManager implements Disposable {
       this.levelObjects.push(light);
     });
 
-    // Spawn the player near the first showcase station (steps at z=170).
-    this.spawnPoint = {
-      position: new THREE.Vector3(0, 2, showcaseCenterZ + hallLength / 2 - 160),
-      rotation: new THREE.Euler(0, Math.PI, 0),
-    };
+    // Spawn point: near corridor entrance in full mode, near target station in station mode.
+    if (buildAll) {
+      this.spawnPoint = {
+        position: new THREE.Vector3(0, 2, showcaseCenterZ + hallLength / 2 - 160),
+        rotation: new THREE.Euler(0, Math.PI, 0),
+      };
+    } else {
+      const targetZ = getShowcaseStationZ(this.stationFilter!);
+      this.spawnPoint = {
+        position: new THREE.Vector3(0, 2, targetZ + 10),
+        rotation: new THREE.Euler(0, Math.PI, 0),
+      };
+    }
 
     // Station Z coordinates used below.
     const zSteps = getShowcaseStationZ('steps');
@@ -863,6 +943,9 @@ export class LevelManager implements Disposable {
     const zNavigation = getShowcaseStationZ('navigation');
     const zFutureA = getShowcaseStationZ('futureA');
 
+    // --- Per-station geometry (gated by isTarget) ---
+
+    if (isTarget('steps')) {
     // Rough plane section (materials + footing). Kept inside the showcase corridor.
     const roughPlane = new THREE.Mesh(new THREE.BoxGeometry(10, 0.6, 10), obstacleMat);
     roughPlane.position.set(20, bayTopY + 0.3, zSteps + 2);
@@ -874,6 +957,32 @@ export class LevelManager implements Disposable {
     roughPlane.updateWorldMatrix(true, false);
     this.levelColliders.push(this.colliderFactory.createTrimesh(roughPlane));
 
+    // Step series
+    const addStep = (name: string, size: THREE.Vector3, pos: THREE.Vector3) => {
+      const step = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), stepMat);
+      step.position.copy(pos);
+      step.name = name;
+      step.receiveShadow = true;
+      this.scene.add(step);
+      this.levelObjects.push(step);
+      step.updateWorldMatrix(true, false);
+      this.levelColliders.push(this.colliderFactory.createTrimesh(step));
+    };
+    addStep('Step0_col', new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(-8, bayTopY + 0.07, zSteps - 6));
+    addStep('Step1_col', new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(-8, bayTopY + 0.07, zSteps - 5));
+    addStep('Step2_col', new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(-8, bayTopY + 0.07, zSteps - 4));
+    addStep('Step3_col', new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(-8, bayTopY + 0.07, zSteps - 3));
+    addStep('Step4_col', new THREE.Vector3(4, 0.2, 4), new THREE.Vector3(-8, bayTopY + 0.1, zSteps));
+    this.createSectionLabel(
+      'Steps & Autostep\nAutomatic stair climbing',
+      new THREE.Vector3(0, 2.0, zSteps + 3),
+      8.4,
+      1.75,
+    );
+    this.createStaircase(new THREE.Vector3(8, bayTopY, zSteps - 6), 10, 0.14, 0.78, 4.8, stepMat);
+    } // end steps
+
+    if (isTarget('slopes')) {
     // Slope lane: ~23.5, 43.1, 62.7 degrees (showcase station)
     const slopeAngles = [23.5, 43.1, 62.7];
     slopeAngles.forEach((deg, i) => {
@@ -912,31 +1021,9 @@ export class LevelManager implements Disposable {
       7.2,
       1.55,
     );
+    } // end slopes
 
-    // Step series
-    const addStep = (name: string, size: THREE.Vector3, pos: THREE.Vector3) => {
-      const step = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), stepMat);
-      step.position.copy(pos);
-      step.name = name;
-      step.receiveShadow = true;
-      this.scene.add(step);
-      this.levelObjects.push(step);
-      step.updateWorldMatrix(true, false);
-      this.levelColliders.push(this.colliderFactory.createTrimesh(step));
-    };
-    addStep('Step0_col', new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(-8, bayTopY + 0.07, zSteps - 6));
-    addStep('Step1_col', new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(-8, bayTopY + 0.07, zSteps - 5));
-    addStep('Step2_col', new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(-8, bayTopY + 0.07, zSteps - 4));
-    addStep('Step3_col', new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(-8, bayTopY + 0.07, zSteps - 3));
-    addStep('Step4_col', new THREE.Vector3(4, 0.2, 4), new THREE.Vector3(-8, bayTopY + 0.1, zSteps));
-    this.createSectionLabel(
-      'Steps & Autostep\nAutomatic stair climbing',
-      new THREE.Vector3(0, 2.0, zSteps + 3),
-      8.4,
-      1.75,
-    );
-    this.createStaircase(new THREE.Vector3(8, bayTopY, zSteps - 6), 10, 0.14, 0.78, 4.8, stepMat);
-
+    if (isTarget('movement')) {
     // Combined movement bay: ladder + crouch + rope in a single platform stage.
     this.createLadder('MainLadder', new THREE.Vector3(14, bayTopY, zMovement), 4.2, obstacleMat);
     this.createCrouchCourse(new THREE.Vector3(0, bayTopY, zMovement), obstacleMat);
@@ -946,6 +1033,9 @@ export class LevelManager implements Disposable {
       11.2,
       2.25,
     );
+    } // end movement
+
+    if (isTarget('doubleJump')) {
     this.createDoubleJumpCourse(new THREE.Vector3(-6, bayTopY, zDoubleJump), stepMat);
     this.createSectionLabel(
       'Double Jump\nSpace \u2022 Multi-tier jump platforms',
@@ -953,34 +1043,15 @@ export class LevelManager implements Disposable {
       7.6,
       1.65,
     );
+    } // end doubleJump
 
-    // Showcase cluster (physics interactions + vehicles). Kept away from the moving platform suites.
+    if (isTarget('grab')) {
     this.createSectionLabel(
       'Grab & Pull\nPress F to grab / release',
       new THREE.Vector3(0, 2.55, zGrab),
       10.2,
       2.2,
     );
-    this.createSectionLabel(
-      'Pick Up & Throw\nF to pick up \u2022 LMB to throw \u2022 C to drop',
-      new THREE.Vector3(0, 2.55, zThrow),
-      11.0,
-      2.25,
-    );
-    this.createSectionLabel(
-      'Door & Beacon\nPress F near objects',
-      new THREE.Vector3(0, 2.55, zDoor),
-      10.2,
-      2.15,
-    );
-    this.createSectionLabel(
-      'Vehicles\nF to enter / exit \u2022 E/Q altitude (drone)',
-      new THREE.Vector3(0, 2.55, zVehicles),
-      9.2,
-      2.05,
-    );
-    // Rope signage is included in the movement bay label above.
-
     const grabbableMat = new THREE.MeshStandardMaterial({ color: 0x4fa8d8, roughness: 0.5, metalness: 0.1 });
     this.createDynamicBox('PushCubeS', new THREE.Vector3(0, bayTopY + 0.5, zGrab + 2), new THREE.Vector3(1, 1, 1), grabbableMat, { grabbable: true });
     this.createDynamicBox('PushCubeM', new THREE.Vector3(0, bayTopY + 0.75, zGrab), new THREE.Vector3(1.5, 1.5, 1.5), grabbableMat, { grabbable: true });
@@ -988,7 +1059,36 @@ export class LevelManager implements Disposable {
     this.createDynamicBox('PushCubeTinyA', new THREE.Vector3(3.5, bayTopY + 0.25, zGrab), new THREE.Vector3(0.5, 0.5, 0.5), obstacleMat, { grabbable: false });
     this.createDynamicBox('PushCubeTinyB', new THREE.Vector3(-3.5, bayTopY + 0.25, zGrab), new THREE.Vector3(0.5, 0.5, 0.5), obstacleMat, { grabbable: false });
     this.createSpinningToy(new THREE.Vector3(14, 2.5, zGrab - 2), obstacleMat);
+    } // end grab
 
+    if (isTarget('throw')) {
+    this.createSectionLabel(
+      'Pick Up & Throw\nF to pick up \u2022 LMB to throw \u2022 C to drop',
+      new THREE.Vector3(0, 2.55, zThrow),
+      11.0,
+      2.25,
+    );
+    } // end throw
+
+    if (isTarget('door')) {
+    this.createSectionLabel(
+      'Door & Beacon\nPress F near objects',
+      new THREE.Vector3(0, 2.55, zDoor),
+      10.2,
+      2.15,
+    );
+    } // end door
+
+    if (isTarget('vehicles')) {
+    this.createSectionLabel(
+      'Vehicles\nF to enter / exit \u2022 E/Q altitude (drone)',
+      new THREE.Vector3(0, 2.55, zVehicles),
+      9.2,
+      2.05,
+    );
+    } // end vehicles
+
+    if (isTarget('platformsMoving')) {
     // Platform stage A: kinematic moving platforms (single bay).
     this.createKinematicPlatform(
       'SideMovePlatform',
@@ -1023,7 +1123,9 @@ export class LevelManager implements Disposable {
       9.2,
       1.9,
     );
+    } // end platformsMoving
 
+    if (isTarget('platformsPhysics')) {
     // Platform stage B: dynamic/pushable platforms + rotating drum (single bay).
     this.createFloatingPlatform(
       'FloatingPlatformA',
@@ -1061,7 +1163,9 @@ export class LevelManager implements Disposable {
       11.4,
       2.05,
     );
+    } // end platformsPhysics
 
+    if (isTarget('materials')) {
     // Materials bay.
     this.createSectionLabel(
       'Materials\nGlass \u2022 Mirror \u2022 Copper \u2022 Ceramic \u2022 Emissive\nRough \u2022 Metal \u2022 Brushed \u2022 Iridescent \u2022 Lava',
@@ -1070,7 +1174,9 @@ export class LevelManager implements Disposable {
       2.45,
     );
     this.createMaterialsBay(new THREE.Vector3(0, bayTopY, zMaterials), bayWidth, obstacleMat);
+    } // end materials
 
+    if (isTarget('vfx')) {
     // VFX bay.
     this.createSectionLabel(
       'Visual Effects\nTornado \u2022 Fire \u2022 Laser \u2022 Lightning \u2022 Scanner',
@@ -1079,7 +1185,9 @@ export class LevelManager implements Disposable {
       2.15,
     );
     void this.createVfxBay(new THREE.Vector3(0, bayTopY, zVfx), bayWidth);
+    } // end vfx
 
+    if (isTarget('navigation')) {
     // Navigation bay: navmesh + patrol agents.
     this.createSectionLabel(
       'Navigation\nNavMesh \u2022 Crowd Patrol \u2022 N=debug \u2022 T=target',
@@ -1088,11 +1196,15 @@ export class LevelManager implements Disposable {
       2.25,
     );
     this.createNavcatBay(zNavigation, bayTopY);
+    } // end navigation
 
+    if (isTarget('futureA')) {
     // Reserved empty bay for future additions (keep pedestal but no gameplay objects).
     this.createSectionLabel('Reserved\nFuture demos', new THREE.Vector3(0, 2.5, zFutureA), 8.8, 2.0);
+    } // end futureA
 
-    // --- Visual polish ---
+    // --- Visual polish (skip in single-station mode) ---
+    if (buildAll) {
     this.addFloorCenterline(hallLength, showcaseCenterZ);
     this.addBayAccentBorders(bayZ, bayWidth, bayLength, bayPedestalY, bayPedestalHeight);
     this.addCorridorTrim(hallWidth, wallHeight, hallLength, showcaseCenterZ, wallThickness);
@@ -1107,6 +1219,7 @@ export class LevelManager implements Disposable {
     this.addWallRecessedPanels(bayZ, hallWidth, wallHeight, wallThickness);
     this.addReflectiveFloorPatches(bayZ, bayWidth, bayLength, bayPedestalY);
     this.addBackWallPartition(hallWidth, wallHeight, showcaseCenterZ, hallLength, hallWallMat);
+    } // end buildAll visual polish
 
     // spawnPoint is set to the showcase corridor near the top of this method.
   }

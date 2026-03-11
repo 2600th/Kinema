@@ -16,6 +16,8 @@ type GamepadSnapshot = {
   sprint: boolean;
   lookX: number;
   lookY: number;
+  moveX: number;
+  moveY: number;
 };
 
 /**
@@ -79,6 +81,10 @@ export class InputManager implements Disposable {
   /** Snapshot current input state, reset deltas, emit event. */
   poll(): InputState {
     if (this.inputSuppressed) {
+      // Reset mouse deltas so they don't leak into the first unsuppressed frame.
+      this.mouseDX = 0;
+      this.mouseDY = 0;
+      this.mouseWheel = 0;
       this.eventBus.emit('input:state', NULL_INPUT);
       return NULL_INPUT;
     }
@@ -99,6 +105,17 @@ export class InputManager implements Disposable {
     this.prevInteract = interact;
     this.prevPrimary = primary;
 
+    // Compute analog move axes
+    const kbX = (this.locked && (this.keys.has('KeyD') || this.keys.has('ArrowRight')) ? 1 : 0)
+              - (this.locked && (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) ? 1 : 0);
+    const kbY = (this.locked && (this.keys.has('KeyW') || this.keys.has('ArrowUp')) ? 1 : 0)
+              - (this.locked && (this.keys.has('KeyS') || this.keys.has('ArrowDown')) ? 1 : 0);
+    const rawMoveX = gamepad.moveX !== 0 ? gamepad.moveX : kbX;
+    const rawMoveY = gamepad.moveY !== 0 ? gamepad.moveY : kbY;
+    const moveMag = Math.hypot(rawMoveX, rawMoveY);
+    const moveX = moveMag > 1 ? rawMoveX / moveMag : rawMoveX;
+    const moveY = moveMag > 1 ? rawMoveY / moveMag : rawMoveY;
+
     const state: InputState = Object.freeze({
       forward: (this.locked && (this.keys.has('KeyW') || this.keys.has('ArrowUp'))) || gamepad.forward,
       backward: (this.locked && (this.keys.has('KeyS') || this.keys.has('ArrowDown'))) || gamepad.backward,
@@ -114,6 +131,8 @@ export class InputManager implements Disposable {
       primaryPressed,
       altitudeUp,
       altitudeDown,
+      moveX,
+      moveY,
       sprint: (this.locked && (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight'))) || gamepad.sprint,
       mouseDeltaX: this.mouseDX + gamepad.lookX * GAMEPAD_LOOK_SPEED,
       mouseDeltaY: this.mouseDY + gamepad.lookY * GAMEPAD_LOOK_SPEED,
@@ -147,6 +166,10 @@ export class InputManager implements Disposable {
   }
 
   private handleKeyDown(e: KeyboardEvent): void {
+    // Don't capture game keys while typing in text fields (editor inspector, settings, etc.)
+    const tag = (e.target as HTMLElement)?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
     this.keys.add(e.code);
 
     // Prevent default for game keys
@@ -223,41 +246,20 @@ export class InputManager implements Disposable {
   }
 
   private readGamepadState(): GamepadSnapshot {
+    const nullSnap: GamepadSnapshot = {
+      forward: false, backward: false, left: false, right: false,
+      crouch: false, jump: false, interact: false, sprint: false,
+      lookX: 0, lookY: 0, moveX: 0, moveY: 0,
+    };
     const api = navigator.getGamepads?.bind(navigator);
-    if (!api) {
-      return {
-        forward: false,
-        backward: false,
-        left: false,
-        right: false,
-        crouch: false,
-        jump: false,
-        interact: false,
-        sprint: false,
-        lookX: 0,
-        lookY: 0,
-      };
-    }
+    if (!api) return nullSnap;
 
     const pads = api();
     const pad = Array.from(pads).find((entry) => !!entry && entry.connected) ?? null;
-    if (!pad) {
-      return {
-        forward: false,
-        backward: false,
-        left: false,
-        right: false,
-        crouch: false,
-        jump: false,
-        interact: false,
-        sprint: false,
-        lookX: 0,
-        lookY: 0,
-      };
-    }
+    if (!pad) return nullSnap;
 
-    const moveX = this.applyDeadzoneCurve(pad.axes[0] ?? 0);
-    const moveY = this.applyDeadzoneCurve(pad.axes[1] ?? 0);
+    const gpMoveX = this.applyDeadzoneCurve(pad.axes[0] ?? 0);
+    const gpMoveY = this.applyDeadzoneCurve(pad.axes[1] ?? 0);
     const lookX = this.applyDeadzoneCurve(pad.axes[2] ?? 0);
     const lookY = this.applyDeadzoneCurve(pad.axes[3] ?? 0);
 
@@ -267,16 +269,18 @@ export class InputManager implements Disposable {
     };
 
     return {
-      forward: moveY < -GAMEPAD_MOVE_THRESHOLD,
-      backward: moveY > GAMEPAD_MOVE_THRESHOLD,
-      left: moveX < -GAMEPAD_MOVE_THRESHOLD,
-      right: moveX > GAMEPAD_MOVE_THRESHOLD,
+      forward: gpMoveY < -GAMEPAD_MOVE_THRESHOLD,
+      backward: gpMoveY > GAMEPAD_MOVE_THRESHOLD,
+      left: gpMoveX < -GAMEPAD_MOVE_THRESHOLD,
+      right: gpMoveX > GAMEPAD_MOVE_THRESHOLD,
       crouch: pressed(1), // B / Circle
       jump: pressed(0), // A / Cross
       interact: pressed(2), // X / Square
       sprint: pressed(10) || pressed(4), // Left stick press or LB
       lookX,
       lookY,
+      moveX: gpMoveX,
+      moveY: -gpMoveY, // invert: stick up (negative) = forward (positive moveY)
     };
   }
 
