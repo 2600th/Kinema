@@ -152,6 +152,9 @@ export class SettingsMenu {
     const { settings, renderer, eventBus } = this.options;
     const flags = renderer.getDebugFlags();
 
+    // --- Profile & Resolution ---
+    this.graphicsSection.appendChild(this.createSectionHeader('Profile & Resolution'));
+
     this.graphicsSection.appendChild(
       this.createSelect('Graphics profile', settings.value.graphicsProfile, ['performance', 'balanced', 'cinematic'], (value) => {
         eventBus.emit('debug:graphicsProfile', { profile: value as GraphicsProfile });
@@ -172,6 +175,9 @@ export class SettingsMenu {
         renderer.setResolutionScale(s.resolutionScale);
       }),
     );
+
+    // --- Lighting & Shadows ---
+    this.graphicsSection.appendChild(this.createSectionHeader('Lighting & Shadows'));
 
     this.graphicsSection.appendChild(
       this.createToggle('Shadows', settings.value.shadowsEnabled, (value) => {
@@ -197,6 +203,9 @@ export class SettingsMenu {
         eventBus.emit('debug:environmentRotation', s.envRotationDegrees);
       }),
     );
+
+    // --- Post Effects ---
+    this.graphicsSection.appendChild(this.createSectionHeader('Post Effects'));
 
     this.graphicsSection.appendChild(
       this.createToggle('Post-processing', flags.postProcessingEnabled, (value) => {
@@ -289,6 +298,13 @@ export class SettingsMenu {
     this.controlsSection.classList.toggle('active', section === 'controls');
     this.graphicsSection.classList.toggle('active', section === 'graphics');
     this.audioSection.classList.toggle('active', section === 'audio');
+  }
+
+  private createSectionHeader(title: string): HTMLHeadingElement {
+    const h3 = document.createElement('h3');
+    h3.className = 'menu-section-header';
+    h3.textContent = title;
+    return h3;
   }
 
   private createSlider(

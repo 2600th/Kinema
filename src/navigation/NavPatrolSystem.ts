@@ -19,6 +19,7 @@ export class NavPatrolSystem {
   private agents: Array<{ navAgent: NavAgent; crowdAgentId: string }> = [];
   private queryFilter: QueryFilter;
   private nearestPolyResult = createFindNearestPolyResult();
+  private _pointsBuf: Array<{ x: number; y: number; z: number }> = [];
 
   constructor(
     private scene: THREE.Scene,
@@ -100,12 +101,18 @@ export class NavPatrolSystem {
 
       // Update path visualization from crowd corridor corners
       if (agent.corners.length > 0) {
-        const points = agent.corners.map((c) => ({
-          x: c.position[0],
-          y: c.position[1],
-          z: c.position[2],
-        }));
-        navAgent.updatePathVisualization(this.scene, points);
+        const corners = agent.corners;
+        const buf = this._pointsBuf;
+        // Grow buffer if needed, reuse existing objects.
+        while (buf.length < corners.length) buf.push({ x: 0, y: 0, z: 0 });
+        buf.length = corners.length;
+        for (let i = 0; i < corners.length; i++) {
+          const c = corners[i];
+          buf[i].x = c.position[0];
+          buf[i].y = c.position[1];
+          buf[i].z = c.position[2];
+        }
+        navAgent.updatePathVisualization(this.scene, buf);
       }
 
       if (crowd.isAgentAtTarget(this.crowdInstance, crowdAgentId, 1.0)) {

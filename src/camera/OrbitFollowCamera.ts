@@ -46,6 +46,12 @@ export class OrbitFollowCamera implements Updatable, Disposable {
   private landingDip = 0;
   private lookAheadOffset = new THREE.Vector3();
   private lateralDriftCurrent = 0;
+  private unsubs: (() => void)[] = [];
+
+  // Pre-allocated Rapier temps for castShape (avoid per-frame heap allocs).
+  private _rv3Origin = new RAPIER.Vector3(0, 0, 0);
+  private _rv3Dir = new RAPIER.Vector3(0, 0, 0);
+  private _rQuatIdentity = new RAPIER.Quaternion(0, 0, 0, 1);
 
   get position(): THREE.Vector3 {
     return this.camera.position;
@@ -58,9 +64,11 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     private eventBus: EventBus,
   ) {
     this.baseFov = this.camera.fov;
-    this.eventBus.on('player:landed', ({ impactSpeed }) => {
-      this.landingDip = -Math.min(impactSpeed * 0.04, 0.4);
-    });
+    this.unsubs.push(
+      this.eventBus.on('player:landed', ({ impactSpeed }) => {
+        this.landingDip = -Math.min(impactSpeed * 0.04, 0.4);
+      }),
+    );
   }
 
   /** Process mouse deltas (called externally with raw input). */
@@ -216,14 +224,18 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     let desiredDistance = ropeAttached
       ? Math.max(this.targetDistance, this.ropeCameraMinDistance)
       : this.targetDistance;
-    const origin = new RAPIER.Vector3(this.pivotPosition.x, this.pivotPosition.y, this.pivotPosition.z);
-    const dir = new RAPIER.Vector3(_idealDir.x, _idealDir.y, _idealDir.z);
+    this._rv3Origin.x = this.pivotPosition.x;
+    this._rv3Origin.y = this.pivotPosition.y;
+    this._rv3Origin.z = this.pivotPosition.z;
+    this._rv3Dir.x = _idealDir.x;
+    this._rv3Dir.y = _idealDir.y;
+    this._rv3Dir.z = _idealDir.z;
     const rayHit =
       this.collisionEnabled && !ropeAttached
         ? this.physicsWorld.castShape(
-          origin,
-          new RAPIER.Quaternion(0, 0, 0, 1),
-          dir,
+          this._rv3Origin,
+          this._rQuatIdentity,
+          this._rv3Dir,
           this.getCollisionShape(),
           0, // targetDistance
           desiredDistance, // maxToi (direction is unit vector)
@@ -289,6 +301,7 @@ export class OrbitFollowCamera implements Updatable, Disposable {
   }
 
   dispose(): void {
-    // No event subscriptions to clean up — mouse input handled externally
+    for (const unsub of this.unsubs) unsub();
+    this.unsubs.length = 0;
   }
 }

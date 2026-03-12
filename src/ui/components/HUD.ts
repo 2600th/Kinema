@@ -9,6 +9,7 @@ export class HUD implements Disposable {
   private holdFill: HTMLDivElement;
   private objective: HTMLDivElement;
   private status: HTMLDivElement;
+  private crosshair: HTMLDivElement;
   private statusTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(parent: HTMLElement) {
@@ -115,8 +116,8 @@ export class HUD implements Disposable {
     `;
     parent.appendChild(this.status);
 
-    const crosshair = document.createElement('div');
-    crosshair.style.cssText = `
+    this.crosshair = document.createElement('div');
+    this.crosshair.style.cssText = `
       position: absolute;
       top: 50%;
       left: 50%;
@@ -129,7 +130,7 @@ export class HUD implements Disposable {
       pointer-events: none;
       z-index: 1000;
     `;
-    parent.appendChild(crosshair);
+    parent.appendChild(this.crosshair);
   }
 
   showPrompt(text: string): void {
@@ -186,5 +187,6 @@ export class HUD implements Disposable {
     this.holdWrap.remove();
     this.objective.remove();
     this.status.remove();
+    this.crosshair.remove();
   }
 }

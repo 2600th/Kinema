@@ -17,7 +17,6 @@ export class AirState extends State {
 
   handleInput(input: InputState, isGrounded: boolean): StateId | null {
     if (!isGrounded) {
-      if (input.interactPressed) return 'interact';
       return null;
     }
 

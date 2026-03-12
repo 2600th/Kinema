@@ -10,6 +10,9 @@ import type { PlayerController } from '@character/PlayerController';
 import { ColliderFactory } from '@physics/ColliderFactory';
 import type { IInteractable } from './Interactable';
 
+const _losOrigin = { x: 0, y: 0, z: 0 } as RAPIER.Vector3;
+const _losDir = { x: 0, y: 0, z: 0 } as RAPIER.Vector3;
+
 interface HoldInteraction {
   id: string;
   elapsed: number;
@@ -84,24 +87,28 @@ export class InteractionManager implements FixedUpdatable, Disposable {
     this.updateFocus(this.getClosestVisibleInteractableId(position));
   }
 
-  private getClosestVisibleInteractableId(position: { x: number; y: number; z: number }): string | null {
-    const candidates = Array.from(this.interactables.entries())
-      .map(([id, ia]) => ({
-        id,
-        interactable: ia,
-        distance: Math.sqrt(
-          (position.x - ia.position.x) ** 2 +
-            (position.y - ia.position.y) ** 2 +
-            (position.z - ia.position.z) ** 2,
-        ),
-        position: ia.position,
-      }))
-      .filter((e) => e.distance <= INTERACTION_SENSOR_RADIUS + 0.1)
-      .sort((a, b) => a.distance - b.distance);
+  private _candidateBuffer: Array<{ id: string; interactable: IInteractable; distance: number }> = [];
 
-    for (const candidate of candidates) {
-      if (this.isLineOfSightClear(position, candidate.interactable)) {
-        return candidate.id;
+  private getClosestVisibleInteractableId(position: { x: number; y: number; z: number }): string | null {
+    const maxRange = INTERACTION_SENSOR_RADIUS + 0.1;
+    const buf = this._candidateBuffer;
+    buf.length = 0;
+
+    for (const [id, ia] of this.interactables) {
+      const dx = position.x - ia.position.x;
+      const dy = position.y - ia.position.y;
+      const dz = position.z - ia.position.z;
+      const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (distance <= maxRange) {
+        buf.push({ id, interactable: ia, distance });
+      }
+    }
+
+    buf.sort((a, b) => a.distance - b.distance);
+
+    for (let i = 0; i < buf.length; i++) {
+      if (this.isLineOfSightClear(position, buf[i].interactable)) {
+        return buf[i].id;
       }
     }
 
@@ -125,9 +132,11 @@ export class InteractionManager implements FixedUpdatable, Disposable {
     }
 
     const invLength = 1 / maxDistance;
+    _losOrigin.x = position.x; _losOrigin.y = originY; _losOrigin.z = position.z;
+    _losDir.x = dx * invLength; _losDir.y = dy * invLength; _losDir.z = dz * invLength;
     const rayHit = this.physicsWorld.castRay(
-      { x: position.x, y: originY, z: position.z } as RAPIER.Vector3,
-      { x: dx * invLength, y: dy * invLength, z: dz * invLength } as RAPIER.Vector3,
+      _losOrigin,
+      _losDir,
       maxDistance,
       undefined,
       this.player.body,

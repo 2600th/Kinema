@@ -16,6 +16,8 @@ interface CheckpointEntry {
 export class CheckpointManager implements FixedUpdatable, Disposable {
   private checkpoints: CheckpointEntry[] = [];
   private activeCheckpointId: string | null = null;
+  private sharedGeometry: THREE.TorusGeometry | null = null;
+  private sharedMaterial: THREE.MeshStandardMaterial | null = null;
 
   constructor(
     private scene: THREE.Scene,
@@ -24,15 +26,18 @@ export class CheckpointManager implements FixedUpdatable, Disposable {
   ) {}
 
   addCheckpoint(id: string, position: THREE.Vector3, radius = 2.2): void {
-    const mesh = new THREE.Mesh(
-      new THREE.TorusGeometry(radius * 0.6, 0.1, 10, 24),
-      new THREE.MeshStandardMaterial({
+    if (!this.sharedGeometry) {
+      this.sharedGeometry = new THREE.TorusGeometry(radius * 0.6, 0.1, 10, 24);
+    }
+    if (!this.sharedMaterial) {
+      this.sharedMaterial = new THREE.MeshStandardMaterial({
         color: 0x66ccff,
         emissive: 0x003344,
         roughness: 0.55,
         metalness: 0.2,
-      }),
-    );
+      });
+    }
+    const mesh = new THREE.Mesh(this.sharedGeometry, this.sharedMaterial.clone());
     mesh.position.copy(position);
     mesh.rotation.x = Math.PI / 2;
     mesh.castShadow = false;
@@ -85,14 +90,12 @@ export class CheckpointManager implements FixedUpdatable, Disposable {
   dispose(): void {
     for (const checkpoint of this.checkpoints) {
       this.scene.remove(checkpoint.mesh);
-      checkpoint.mesh.geometry.dispose();
-      const mat = checkpoint.mesh.material;
-      if (Array.isArray(mat)) {
-        mat.forEach((m) => m.dispose());
-      } else {
-        mat.dispose();
-      }
+      (checkpoint.mesh.material as THREE.Material).dispose();
     }
+    this.sharedGeometry?.dispose();
+    this.sharedGeometry = null;
+    this.sharedMaterial?.dispose();
+    this.sharedMaterial = null;
     this.checkpoints = [];
     this.activeCheckpointId = null;
   }

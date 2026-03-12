@@ -50,8 +50,8 @@ export class GameLoop {
     }
   }
 
-  private tick(_timestamp: DOMHighResTimeStamp): void {
-    const now = performance.now() / 1000;
+  private tick(timestamp: DOMHighResTimeStamp): void {
+    const now = timestamp / 1000;
     let dt = now - this.lastTime;
     this.lastTime = now;
 

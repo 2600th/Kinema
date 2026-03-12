@@ -54,6 +54,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
   private readonly fallRespawnY = -25;
   private runtimeInteractables: Array<{ id: string; dispose: () => void }> = [];
   private throwableObjects = new Map<number, ThrowableObject>();
+  private throwableMaterial: THREE.Material | null = null;
   private carriedThrowable: ThrowableObject | null = null;
   private rope: PhysicsRope | null = null;
   private navPatrolSystem: NavPatrolSystem | null = null;
@@ -61,6 +62,8 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
   private navTargetMode = false;
   private _onNavTargetClick: ((e: MouseEvent) => void) | null = null;
   private navTargetMarker: THREE.Mesh | null = null;
+  private navMarkerTimer: ReturnType<typeof setInterval> | null = null;
+  private unsubs: (() => void)[] = [];
 
   constructor(
     private renderer: RendererManager,
@@ -82,142 +85,144 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     this.physicsDebugView = new PhysicsDebugView(this.renderer.scene, this.physicsWorld);
 
     // Listen for interact state to trigger interactions
-    this.eventBus.on('player:stateChanged', ({ current }) => {
-      if (current === 'interact') {
-        this.interactionManager.refreshFocusFromPosition(this.playerController.position);
-        this.interactionManager.triggerInteraction();
-      }
-    });
-    this.eventBus.on('interaction:triggered', ({ id }) => {
-      if (id === 'beacon1') {
-        this.objectiveManager.complete('activate-beacon');
-      }
-    });
-    this.eventBus.on('interaction:grabStart', ({ body, offset }) => {
-      this.playerController.startGrab(body, offset);
-    });
-    this.eventBus.on('interaction:pickUp', ({ object }) => {
-      this.carriedThrowable = object;
-      this.playerController.startCarry(object);
-      this.interactionManager.unregister(object.id);
-    });
-    this.eventBus.on('interaction:throw', () => {
-      this.restoreThrownObject();
-    });
-    this.eventBus.on('interaction:drop', () => {
-      this.restoreThrownObject();
-    });
-    this.eventBus.on('checkpoint:activated', ({ position }) => {
-      this.playerController.setRespawnPoint({
-        position: new THREE.Vector3(position.x, position.y, position.z),
-      });
-      this.objectiveManager.complete('reach-checkpoint');
-    });
-    this.eventBus.on('debug:showColliders', (enabled) => {
-      this.physicsDebugView.setEnabled(enabled);
-    });
-    this.eventBus.on('debug:showLightHelpers', (enabled) => {
-      this.levelManager.setLightDebugEnabled(enabled);
-    });
-    this.eventBus.on('debug:postProcessing', (enabled) => {
-      this.renderer.setPostProcessingEnabled(enabled);
-    });
-    this.eventBus.on('debug:shadows', (enabled) => {
-      this.settings.update({ shadowsEnabled: enabled });
-      this.renderer.setShadowsEnabled(enabled);
-      this.levelManager.setShadowsEnabled(enabled);
-      this.syncDebugPanel();
-    });
-    this.eventBus.on('debug:cameraCollision', (enabled) => {
-      this.camera.setCollisionEnabled(enabled);
-    });
-    this.eventBus.on('debug:exposure', (value) => {
-      this.renderer.setExposure(value);
-    });
-    this.eventBus.on('debug:graphicsProfile', ({ profile }) => {
-      this.renderer.setGraphicsProfile(profile);
-      const flags = this.renderer.getDebugFlags();
-      const settings = this.settings.update({ graphicsProfile: profile, aaMode: flags.aaMode });
-      this.levelManager.setGraphicsProfile(settings.graphicsProfile);
-      this.syncDebugPanel();
-    });
-    this.eventBus.on('debug:aoOnly', (enabled) => {
-      this.renderer.setAoOnlyView(enabled);
-      this.syncDebugPanel();
-    });
-    this.eventBus.on('debug:aaMode', ({ mode }) => {
-      this.settings.update({ aaMode: mode });
-      this.renderer.setAntiAliasingMode(mode);
-      this.syncDebugPanel();
-    });
-    this.eventBus.on('debug:ssaoEnabled', (enabled) => {
-      this.renderer.setSsaoEnabled(enabled);
-    });
-    this.eventBus.on('debug:ssrEnabled', (enabled) => {
-      this.renderer.setSsrEnabled(enabled);
-    });
-    this.eventBus.on('debug:ssrOpacity', (opacity) => {
-      this.renderer.setSsrOpacity(opacity);
-    });
-    this.eventBus.on('debug:ssrResolutionScale', (scale) => {
-      this.renderer.setSsrResolutionScale(scale);
-    });
-    this.eventBus.on('debug:bloomEnabled', (enabled) => {
-      this.renderer.setBloomEnabled(enabled);
-    });
-    this.eventBus.on('debug:bloomStrength', (strength) => {
-      this.renderer.setBloomStrength(strength);
-    });
-    this.eventBus.on('debug:vignetteEnabled', (enabled) => {
-      this.renderer.setVignetteEnabled(enabled);
-    });
-    this.eventBus.on('debug:vignetteDarkness', (darkness) => {
-      this.renderer.setVignetteDarkness(darkness);
-    });
-    this.eventBus.on('debug:lutEnabled', (enabled) => {
-      this.renderer.setLutEnabled(enabled);
-    });
-    this.eventBus.on('debug:lutStrength', (strength) => {
-      this.renderer.setLutStrength(strength);
-    });
-    this.eventBus.on('debug:lutName', (name) => {
-      this.renderer.setLutName(name);
-    });
-    this.eventBus.on('debug:envBackgroundIntensity', (intensity) => {
-      this.renderer.setBackgroundIntensity(intensity);
-    });
-    this.eventBus.on('debug:envBackgroundBlurriness', (blurriness) => {
-      this.renderer.setBackgroundBlurriness(blurriness);
-    });
-    this.eventBus.on('debug:environmentRotation', (rotationDegrees) => {
-      this.settings.update({ envRotationDegrees: rotationDegrees });
-      this.renderer.setEnvironmentRotationDegrees(rotationDegrees);
-      this.syncDebugPanel();
-    });
-    this.eventBus.on('debug:environment', (name) => {
-      void this.renderer.setEnvironment(name);
-    });
-    this.eventBus.on('debug:shadowQuality', ({ tier }) => {
-      const shadowQuality = tier as ShadowQualityTier;
-      this.settings.update({ shadowQuality });
-      this.renderer.setShadowQualityTier(shadowQuality);
-      this.levelManager.setShadowQualityTier(shadowQuality);
-      this.syncDebugPanel();
-    });
-    this.eventBus.on('debug:casEnabled', (enabled) => {
-      this.settings.update({ casEnabled: enabled });
-      this.renderer.setCasEnabled(enabled);
-      this.syncDebugPanel();
-    });
-    this.eventBus.on('debug:casStrength', (strength) => {
-      this.settings.update({ casStrength: strength });
-      this.renderer.setCasStrength(strength);
-      this.syncDebugPanel();
-    });
-    this.eventBus.on('debug:showShadowFrustums', (enabled) => {
-      this.levelManager.setShadowDebugEnabled(enabled);
-      this.syncDebugPanel();
-    });
+    this.unsubs.push(
+      this.eventBus.on('player:stateChanged', ({ current }) => {
+        if (current === 'interact') {
+          this.interactionManager.refreshFocusFromPosition(this.playerController.position);
+          this.interactionManager.triggerInteraction();
+        }
+      }),
+      this.eventBus.on('interaction:triggered', ({ id }) => {
+        if (id === 'beacon1') {
+          this.objectiveManager.complete('activate-beacon');
+        }
+      }),
+      this.eventBus.on('interaction:grabStart', ({ body, offset }) => {
+        this.playerController.startGrab(body, offset);
+      }),
+      this.eventBus.on('interaction:pickUp', ({ object }) => {
+        this.carriedThrowable = object;
+        this.playerController.startCarry(object);
+        this.interactionManager.unregister(object.id);
+      }),
+      this.eventBus.on('interaction:throw', () => {
+        this.restoreThrownObject();
+      }),
+      this.eventBus.on('interaction:drop', () => {
+        this.restoreThrownObject();
+      }),
+      this.eventBus.on('checkpoint:activated', ({ position }) => {
+        this.playerController.setRespawnPoint({
+          position: new THREE.Vector3(position.x, position.y, position.z),
+        });
+        this.objectiveManager.complete('reach-checkpoint');
+      }),
+      this.eventBus.on('debug:showColliders', (enabled) => {
+        this.physicsDebugView.setEnabled(enabled);
+      }),
+      this.eventBus.on('debug:showLightHelpers', (enabled) => {
+        this.levelManager.setLightDebugEnabled(enabled);
+      }),
+      this.eventBus.on('debug:postProcessing', (enabled) => {
+        this.renderer.setPostProcessingEnabled(enabled);
+      }),
+      this.eventBus.on('debug:shadows', (enabled) => {
+        this.settings.update({ shadowsEnabled: enabled });
+        this.renderer.setShadowsEnabled(enabled);
+        this.levelManager.setShadowsEnabled(enabled);
+        this.syncDebugPanel();
+      }),
+      this.eventBus.on('debug:cameraCollision', (enabled) => {
+        this.camera.setCollisionEnabled(enabled);
+      }),
+      this.eventBus.on('debug:exposure', (value) => {
+        this.renderer.setExposure(value);
+      }),
+      this.eventBus.on('debug:graphicsProfile', ({ profile }) => {
+        this.renderer.setGraphicsProfile(profile);
+        const flags = this.renderer.getDebugFlags();
+        const settings = this.settings.update({ graphicsProfile: profile, aaMode: flags.aaMode });
+        this.levelManager.setGraphicsProfile(settings.graphicsProfile);
+        this.syncDebugPanel();
+      }),
+      this.eventBus.on('debug:aoOnly', (enabled) => {
+        this.renderer.setAoOnlyView(enabled);
+        this.syncDebugPanel();
+      }),
+      this.eventBus.on('debug:aaMode', ({ mode }) => {
+        this.settings.update({ aaMode: mode });
+        this.renderer.setAntiAliasingMode(mode);
+        this.syncDebugPanel();
+      }),
+      this.eventBus.on('debug:ssaoEnabled', (enabled) => {
+        this.renderer.setSsaoEnabled(enabled);
+      }),
+      this.eventBus.on('debug:ssrEnabled', (enabled) => {
+        this.renderer.setSsrEnabled(enabled);
+      }),
+      this.eventBus.on('debug:ssrOpacity', (opacity) => {
+        this.renderer.setSsrOpacity(opacity);
+      }),
+      this.eventBus.on('debug:ssrResolutionScale', (scale) => {
+        this.renderer.setSsrResolutionScale(scale);
+      }),
+      this.eventBus.on('debug:bloomEnabled', (enabled) => {
+        this.renderer.setBloomEnabled(enabled);
+      }),
+      this.eventBus.on('debug:bloomStrength', (strength) => {
+        this.renderer.setBloomStrength(strength);
+      }),
+      this.eventBus.on('debug:vignetteEnabled', (enabled) => {
+        this.renderer.setVignetteEnabled(enabled);
+      }),
+      this.eventBus.on('debug:vignetteDarkness', (darkness) => {
+        this.renderer.setVignetteDarkness(darkness);
+      }),
+      this.eventBus.on('debug:lutEnabled', (enabled) => {
+        this.renderer.setLutEnabled(enabled);
+      }),
+      this.eventBus.on('debug:lutStrength', (strength) => {
+        this.renderer.setLutStrength(strength);
+      }),
+      this.eventBus.on('debug:lutName', (name) => {
+        this.renderer.setLutName(name);
+      }),
+      this.eventBus.on('debug:envBackgroundIntensity', (intensity) => {
+        this.renderer.setBackgroundIntensity(intensity);
+      }),
+      this.eventBus.on('debug:envBackgroundBlurriness', (blurriness) => {
+        this.renderer.setBackgroundBlurriness(blurriness);
+      }),
+      this.eventBus.on('debug:environmentRotation', (rotationDegrees) => {
+        this.settings.update({ envRotationDegrees: rotationDegrees });
+        this.renderer.setEnvironmentRotationDegrees(rotationDegrees);
+        this.syncDebugPanel();
+      }),
+      this.eventBus.on('debug:environment', (name) => {
+        void this.renderer.setEnvironment(name);
+      }),
+      this.eventBus.on('debug:shadowQuality', ({ tier }) => {
+        const shadowQuality = tier as ShadowQualityTier;
+        this.settings.update({ shadowQuality });
+        this.renderer.setShadowQualityTier(shadowQuality);
+        this.levelManager.setShadowQualityTier(shadowQuality);
+        this.syncDebugPanel();
+      }),
+      this.eventBus.on('debug:casEnabled', (enabled) => {
+        this.settings.update({ casEnabled: enabled });
+        this.renderer.setCasEnabled(enabled);
+        this.syncDebugPanel();
+      }),
+      this.eventBus.on('debug:casStrength', (strength) => {
+        this.settings.update({ casStrength: strength });
+        this.renderer.setCasStrength(strength);
+        this.syncDebugPanel();
+      }),
+      this.eventBus.on('debug:showShadowFrustums', (enabled) => {
+        this.levelManager.setShadowDebugEnabled(enabled);
+        this.syncDebugPanel();
+      }),
+    );
     this.syncDebugPanel();
 
     // Debug toggle on backtick
@@ -287,13 +292,13 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
         this.prevPlayerPos.copy(_currPos);
         this.speed = 0;
         this.hasSpeedSample = true;
-        return;
+      } else {
+        _prevPos.copy(this.prevPlayerPos);
+        const dx = _currPos.x - _prevPos.x;
+        const dz = _currPos.z - _prevPos.z;
+        this.speed = Math.sqrt(dx * dx + dz * dz) / dt;
+        this.prevPlayerPos.copy(_currPos);
       }
-      _prevPos.copy(this.prevPlayerPos);
-      const dx = _currPos.x - _prevPos.x;
-      const dz = _currPos.z - _prevPos.z;
-      this.speed = Math.sqrt(dx * dx + dz * dz) / dt;
-      this.prevPlayerPos.copy(_currPos);
     }
 
     if (this.throwableObjects.size > 0) {
@@ -545,6 +550,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
 
   private spawnThrowableObjects(): void {
     const mat = new THREE.MeshStandardMaterial({ color: 0x9d7b52, roughness: 0.7 });
+    this.throwableMaterial = mat;
     const zThrow = getShowcaseStationZ('throw');
     const bayTopY = getShowcaseBayTopY();
     const placements = [
@@ -619,13 +625,13 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     const bayTopY = getShowcaseBayTopY();
     const drone = new DroneController(
       'drone-1',
-      new THREE.Vector3(-6, bayTopY + 2.2, zVehicles),
+      new THREE.Vector3(-3.5, bayTopY + 2.2, zVehicles),
       this.physicsWorld,
       this.renderer.scene,
     );
     const car = new CarController(
       'car-1',
-      new THREE.Vector3(6, bayTopY + 0.42, zVehicles),
+      new THREE.Vector3(3.5, bayTopY + 0.42, zVehicles),
       this.physicsWorld,
       this.renderer.scene,
     );
@@ -676,6 +682,10 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     this.runtimeInteractables = [];
     this.throwableObjects.clear();
     this.carriedThrowable = null;
+    if (this.throwableMaterial) {
+      this.throwableMaterial.dispose();
+      this.throwableMaterial = null;
+    }
   }
 
   private handleDebugKeyDown(e: KeyboardEvent): void {
@@ -854,12 +864,14 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     this.renderer.scene.add(this.navTargetMarker);
 
     // Fade out and remove after 3 seconds
+    if (this.navMarkerTimer) clearInterval(this.navMarkerTimer);
     let elapsed = 0;
     const fadeInterval = setInterval(() => {
       elapsed += 50;
       const t = elapsed / 3000;
       if (t >= 1) {
         clearInterval(fadeInterval);
+        this.navMarkerTimer = null;
         if (this.navTargetMarker) {
           this.renderer.scene.remove(this.navTargetMarker);
           this.navTargetMarker.geometry.dispose();
@@ -870,9 +882,16 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       }
       mat.opacity = 0.8 * (1 - t);
     }, 50);
+    this.navMarkerTimer = fadeInterval;
   }
 
   dispose(): void {
+    for (const unsub of this.unsubs) unsub();
+    this.unsubs.length = 0;
+    if (this.navMarkerTimer) {
+      clearInterval(this.navMarkerTimer);
+      this.navMarkerTimer = null;
+    }
     window.removeEventListener('keydown', this._onDebugKeyDown);
     if (this._onNavTargetClick) {
       window.removeEventListener('click', this._onNavTargetClick);

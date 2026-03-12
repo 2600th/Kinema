@@ -64,7 +64,7 @@ export class LevelSelectMenu {
     if (levels.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'menu-level-empty';
-      empty.textContent = 'No saved levels yet. Use the editor (F1) to create one.';
+      empty.textContent = 'No saved levels yet. Choose Create Level from the main menu to make one.';
       this.listContainer.appendChild(empty);
       return;
     }

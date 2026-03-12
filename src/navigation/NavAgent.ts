@@ -5,6 +5,9 @@ export class NavAgent {
   readonly id: string;
   private pathLine: THREE.Line | null = null;
   private pathLineMaterial: THREE.LineBasicMaterial | null = null;
+  private pathPositions: Float32Array | null = null;
+  private pathAttribute: THREE.BufferAttribute | null = null;
+  private pathCapacity = 0;
 
   constructor(scene: THREE.Scene, position: THREE.Vector3) {
     const geometry = new THREE.CapsuleGeometry(0.25, 0.5, 4, 8);
@@ -45,17 +48,21 @@ export class NavAgent {
       scene.add(this.pathLine);
     }
 
-    // Update geometry buffer in-place — only allocates when point count changes.
-    const positions = new Float32Array(points.length * 3);
+    // Update geometry buffer in-place — only reallocate when point count grows.
+    const neededFloats = points.length * 3;
+    if (!this.pathPositions || this.pathCapacity < points.length) {
+      this.pathCapacity = points.length;
+      this.pathPositions = new Float32Array(neededFloats);
+      this.pathAttribute = new THREE.BufferAttribute(this.pathPositions, 3);
+      this.pathLine.geometry.setAttribute('position', this.pathAttribute);
+    }
+    const positions = this.pathPositions;
     for (let i = 0; i < points.length; i++) {
       positions[i * 3] = points[i].x;
       positions[i * 3 + 1] = points[i].y + 0.1;
       positions[i * 3 + 2] = points[i].z;
     }
-    this.pathLine.geometry.setAttribute(
-      'position',
-      new THREE.BufferAttribute(positions, 3),
-    );
+    this.pathAttribute!.needsUpdate = true;
     this.pathLine.geometry.setDrawRange(0, points.length);
     this.pathLine.visible = true;
   }

@@ -5,6 +5,9 @@ import type { IInteractable, InteractionAccess, InteractionSpec } from '../Inter
 import type { PhysicsWorld } from '@physics/PhysicsWorld';
 import type { PlayerController } from '@character/PlayerController';
 
+const _doorRV3 = new RAPIER.Vector3(0, 0, 0);
+const _doorRQuat = new RAPIER.Quaternion(0, 0, 0, 1);
+
 interface DoorOptions {
   interactionMode?: 'press' | 'hold';
   holdDuration?: number;
@@ -127,12 +130,10 @@ export class Door implements IInteractable {
     this.mesh.updateWorldMatrix(true, false);
     this.mesh.getWorldPosition(this.worldPos);
     this.mesh.getWorldQuaternion(this.worldQuat);
-    this.doorBody.setNextKinematicTranslation(
-      new RAPIER.Vector3(this.worldPos.x, this.worldPos.y, this.worldPos.z),
-    );
-    this.doorBody.setNextKinematicRotation(
-      new RAPIER.Quaternion(this.worldQuat.x, this.worldQuat.y, this.worldQuat.z, this.worldQuat.w),
-    );
+    _doorRV3.x = this.worldPos.x; _doorRV3.y = this.worldPos.y; _doorRV3.z = this.worldPos.z;
+    this.doorBody.setNextKinematicTranslation(_doorRV3);
+    _doorRQuat.x = this.worldQuat.x; _doorRQuat.y = this.worldQuat.y; _doorRQuat.z = this.worldQuat.z; _doorRQuat.w = this.worldQuat.w;
+    this.doorBody.setNextKinematicRotation(_doorRQuat);
   }
 
   onFocus(): void {

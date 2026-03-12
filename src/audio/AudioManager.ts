@@ -76,6 +76,7 @@ export class AudioManager implements FixedUpdatable, Disposable {
       void this.ensureToneStarted();
     }
     if (!this.toneStarted) return;
+    if (!this.player.body) return;
 
     const velocity = this.player.body.linvel();
     const planarSpeed = Math.hypot(velocity.x, velocity.z);
@@ -121,14 +122,17 @@ export class AudioManager implements FixedUpdatable, Disposable {
   }
 
   startEngine(): void {
+    if (!this.toneStarted) return;
     this.sfxEngine.startEngine();
   }
 
   updateEngine(speedNorm: number): void {
+    if (!this.toneStarted) return;
     this.sfxEngine.updateEngine(speedNorm);
   }
 
   stopEngine(): void {
+    if (!this.toneStarted) return;
     this.sfxEngine.stopEngine();
   }
 

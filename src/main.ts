@@ -25,24 +25,44 @@ async function bootstrap(): Promise<void> {
   await RAPIER.init();
   console.log('[Kinema] Rapier WASM initialized');
 
-  // Dynamic import to ensure WASM is ready before any physics usage
-  const { RendererManager } = await import('@renderer/RendererManager');
-  const { PhysicsWorld } = await import('@physics/PhysicsWorld');
-  const { GameLoop } = await import('@core/GameLoop');
-  const { EventBus } = await import('@core/EventBus');
-  const { InputManager } = await import('@input/InputManager');
-  const { LevelManager } = await import('@level/LevelManager');
-  const { PlayerController } = await import('@character/PlayerController');
-  const { OrbitFollowCamera } = await import('@camera/OrbitFollowCamera');
-  const { InteractionManager } = await import('@interaction/InteractionManager');
-  const { UIManager } = await import('@ui/UIManager');
-  const { UserSettingsStore } = await import('@core/UserSettings');
-  const { AudioManager } = await import('@audio/AudioManager');
-  const { VehicleManager } = await import('@vehicle/VehicleManager');
-  const { MenuManager } = await import('@ui/menus/MenuManager');
-  const { LevelSaveStore } = await import('@level/LevelSaveStore');
-  const { SHOWCASE_STATION_ORDER } = await import('@level/ShowcaseLayout');
-  const { Game } = await import('./Game');
+  // Dynamic imports — parallelized so bundler/browser can fetch all chunks concurrently.
+  const [
+    { RendererManager },
+    { PhysicsWorld },
+    { GameLoop },
+    { EventBus },
+    { InputManager },
+    { LevelManager },
+    { PlayerController },
+    { OrbitFollowCamera },
+    { InteractionManager },
+    { UIManager },
+    { UserSettingsStore },
+    { AudioManager },
+    { VehicleManager },
+    { MenuManager },
+    { LevelSaveStore },
+    { SHOWCASE_STATION_ORDER },
+    { Game },
+  ] = await Promise.all([
+    import('@renderer/RendererManager'),
+    import('@physics/PhysicsWorld'),
+    import('@core/GameLoop'),
+    import('@core/EventBus'),
+    import('@input/InputManager'),
+    import('@level/LevelManager'),
+    import('@character/PlayerController'),
+    import('@camera/OrbitFollowCamera'),
+    import('@interaction/InteractionManager'),
+    import('@ui/UIManager'),
+    import('@core/UserSettings'),
+    import('@audio/AudioManager'),
+    import('@vehicle/VehicleManager'),
+    import('@ui/menus/MenuManager'),
+    import('@level/LevelSaveStore'),
+    import('@level/ShowcaseLayout'),
+    import('./Game'),
+  ]);
 
   const settings = UserSettingsStore.load();
 
@@ -120,6 +140,7 @@ async function bootstrap(): Promise<void> {
 
   const startGame = async (): Promise<void> => {
     if (levelLoaded) return;
+    if (editorManager?.isActive()) editorManager.toggle();
     await levelManager.load('procedural');
     playerController.spawn(levelManager.getSpawnPoint());
     // Warm the Rapier query pipeline so first-tick raycasts are valid.
@@ -130,6 +151,7 @@ async function bootstrap(): Promise<void> {
 
   const returnToMainMenu = async (): Promise<void> => {
     if (!levelLoaded) return;
+    if (editorManager?.isActive()) editorManager.toggle();
     gameLoop.stop();
     game.teardownLevel();
     levelManager.unload();
@@ -138,6 +160,7 @@ async function bootstrap(): Promise<void> {
   };
 
   const startSavedLevel = async (key: string): Promise<void> => {
+    if (editorManager?.isActive()) editorManager.toggle();
     if (levelLoaded) {
       game.teardownLevel();
       levelManager.unload();
@@ -201,7 +224,11 @@ async function bootstrap(): Promise<void> {
   };
 
   const startStation = async (key: string): Promise<void> => {
-    if (levelLoaded) return;
+    if (levelLoaded) {
+      game.teardownLevel();
+      levelManager.unload();
+      levelLoaded = false;
+    }
     await levelManager.loadStation(key as import('@level/ShowcaseLayout').ShowcaseStationKey);
     playerController.spawn(levelManager.getSpawnPoint());
     physicsWorld.step();
@@ -231,6 +258,14 @@ async function bootstrap(): Promise<void> {
       startBlankLevelForEditor,
     );
     menuManager.showMainMenu();
+
+    // Cleanup on page unload to release GPU / audio / physics resources.
+    window.addEventListener('beforeunload', () => {
+      gameLoop.stop();
+      game.dispose();
+      menuManager.dispose();
+    });
+
     console.log('[Kinema] Game started');
   }
 }

@@ -24,6 +24,8 @@ export class MenuManager {
   private stack: MenuScreen[] = [];
   private resumeOnClose = false;
   private backgroundTimer: number | null = null;
+  private unsubs: (() => void)[] = [];
+  private observers: MutationObserver[] = [];
 
   private mainMenu: MainMenu;
   private pauseMenu: PauseMenu;
@@ -80,17 +82,19 @@ export class MenuManager {
     this.wireButtonAudio(this.settingsMenu.root);
     this.wireButtonAudio(this.levelSelectMenu.root);
 
-    this.eventBus.on('menu:toggle', () => {
-      if (!this.stack.length) {
-        if (this.gameLoop.isRunning()) {
-          this.push(this.pauseMenu);
+    this.unsubs.push(
+      this.eventBus.on('menu:toggle', () => {
+        if (!this.stack.length) {
+          if (this.gameLoop.isRunning()) {
+            this.push(this.pauseMenu);
+          }
+          return;
         }
-        return;
-      }
-      const top = this.stack[this.stack.length - 1];
-      if (top.id === 'main') return;
-      this.pop();
-    });
+        const top = this.stack[this.stack.length - 1];
+        if (top.id === 'main') return;
+        this.pop();
+      }),
+    );
   }
 
   showMainMenu(): void {
@@ -102,6 +106,10 @@ export class MenuManager {
   }
 
   dispose(): void {
+    for (const unsub of this.unsubs) unsub();
+    this.unsubs.length = 0;
+    for (const obs of this.observers) obs.disconnect();
+    this.observers.length = 0;
     this.mainMenu.dispose();
     this.pauseMenu.dispose();
     this.settingsMenu.dispose();
@@ -237,6 +245,7 @@ export class MenuManager {
       }
     });
     observer.observe(container, { childList: true, subtree: true });
+    this.observers.push(observer);
   }
 
   private async requestPointerLock(): Promise<void> {

@@ -90,7 +90,7 @@ export class ObjectiveBeacon implements IInteractable {
 
   dispose(): void {
     this.scene.remove(this.root);
-    for (const child of this.root.children) {
+    this.root.traverse((child) => {
       if (child instanceof THREE.Mesh) {
         child.geometry.dispose();
         if (Array.isArray(child.material)) {
@@ -101,7 +101,7 @@ export class ObjectiveBeacon implements IInteractable {
           child.material.dispose();
         }
       }
-    }
+    });
     this.physicsWorld.removeBody(this.sensorBody);
   }
 }

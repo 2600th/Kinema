@@ -18,6 +18,7 @@ export class SFXEngine {
   // Shared effects
   private reverb: Tone.Reverb;
   private delay: Tone.FeedbackDelay;
+  private effectsBus: Tone.Gain;
 
   // Reusable synths
   private toneSynth: Tone.Synth;
@@ -36,29 +37,29 @@ export class SFXEngine {
     this.reverb = new Tone.Reverb({ decay: 1.5, wet: 0.2 });
     this.delay = new Tone.FeedbackDelay({ delayTime: '8n', feedback: 0.25, wet: 0 });
 
-    const effectsBus = new Tone.Gain(1);
-    effectsBus.chain(this.delay, this.reverb, this.output);
+    this.effectsBus = new Tone.Gain(1);
+    this.effectsBus.chain(this.delay, this.reverb, this.output);
 
     // Tone synth for general one-shot tones
     this.toneSynth = new Tone.Synth({
       oscillator: { type: 'sine' },
       envelope: { attack: 0.005, decay: 0.1, sustain: 0, release: 0.05 },
       volume: -12,
-    }).connect(effectsBus);
+    }).connect(this.effectsBus);
 
     // Noise synth for impacts, whooshes
     this.noiseSynth = new Tone.NoiseSynth({
       noise: { type: 'white' },
       envelope: { attack: 0.002, decay: 0.08, sustain: 0, release: 0.01 },
       volume: -18,
-    }).connect(effectsBus);
+    }).connect(this.effectsBus);
 
     // PolySynth for chords, arpeggios
     this.polySynth = new Tone.PolySynth(Tone.Synth, {
       oscillator: { type: 'sine' },
       envelope: { attack: 0.01, decay: 0.3, sustain: 0.1, release: 0.4 },
       volume: -14,
-    }).connect(effectsBus);
+    }).connect(this.effectsBus);
   }
 
   // ── Gameplay SFX ────────────────────────────────────────────
@@ -69,13 +70,18 @@ export class SFXEngine {
     this.toneSynth.oscillator.type = 'sine';
     this.toneSynth.envelope.attack = 0.005;
     this.toneSynth.envelope.decay = 0.1;
+    this.toneSynth.envelope.sustain = 0;
     this.toneSynth.envelope.release = 0.05;
     this.toneSynth.volume.value = -10;
     this.toneSynth.triggerAttackRelease('C4', 0.1, now);
     this.toneSynth.frequency.setValueAtTime(250, now);
     this.toneSynth.frequency.exponentialRampToValueAtTime(700, now + 0.1);
 
+    this.noiseSynth.noise.type = 'white';
+    this.noiseSynth.envelope.attack = 0.002;
     this.noiseSynth.envelope.decay = 0.04;
+    this.noiseSynth.envelope.sustain = 0;
+    this.noiseSynth.envelope.release = 0.01;
     this.noiseSynth.volume.value = -22;
     this.noiseSynth.triggerAttackRelease('32n', now);
   }
@@ -84,6 +90,10 @@ export class SFXEngine {
     // Higher sweep 400 -> 1200Hz + sparkle overtone
     const now = Tone.now();
     this.toneSynth.oscillator.type = 'sine';
+    this.toneSynth.envelope.attack = 0.005;
+    this.toneSynth.envelope.decay = 0.1;
+    this.toneSynth.envelope.sustain = 0;
+    this.toneSynth.envelope.release = 0.05;
     this.toneSynth.volume.value = -10;
     this.toneSynth.triggerAttackRelease('C5', 0.08, now);
     this.toneSynth.frequency.setValueAtTime(400, now);
@@ -103,12 +113,18 @@ export class SFXEngine {
     // Brown noise burst 50ms + sub sine 60Hz
     const now = Tone.now();
     this.noiseSynth.noise.type = 'brown';
+    this.noiseSynth.envelope.attack = 0.002;
     this.noiseSynth.envelope.decay = 0.05;
+    this.noiseSynth.envelope.sustain = 0;
+    this.noiseSynth.envelope.release = 0.01;
     this.noiseSynth.volume.value = -16;
     this.noiseSynth.triggerAttackRelease('32n', now);
 
     this.toneSynth.oscillator.type = 'sine';
+    this.toneSynth.envelope.attack = 0.005;
     this.toneSynth.envelope.decay = 0.08;
+    this.toneSynth.envelope.sustain = 0;
+    this.toneSynth.envelope.release = 0.05;
     this.toneSynth.volume.value = -14;
     this.toneSynth.triggerAttackRelease(60, 0.08, now);
 
@@ -122,12 +138,18 @@ export class SFXEngine {
     const vol = clamp(-14 + impactSpeed * 0.5, -14, -6);
 
     this.noiseSynth.noise.type = 'brown';
+    this.noiseSynth.envelope.attack = 0.002;
     this.noiseSynth.envelope.decay = 0.12;
+    this.noiseSynth.envelope.sustain = 0;
+    this.noiseSynth.envelope.release = 0.01;
     this.noiseSynth.volume.value = vol;
     this.noiseSynth.triggerAttackRelease('16n', now);
 
     this.toneSynth.oscillator.type = 'sine';
+    this.toneSynth.envelope.attack = 0.005;
     this.toneSynth.envelope.decay = 0.15;
+    this.toneSynth.envelope.sustain = 0;
+    this.toneSynth.envelope.release = 0.05;
     this.toneSynth.volume.value = vol - 2;
     this.toneSynth.triggerAttackRelease(40, 0.15, now);
 
@@ -161,6 +183,10 @@ export class SFXEngine {
     // Rising sine arpeggio C5 -> E5 -> G5
     const now = Tone.now();
     this.delay.wet.value = 0.15;
+    this.polySynth.set({
+      oscillator: { type: 'sine' },
+      envelope: { attack: 0.01, decay: 0.3, sustain: 0.1, release: 0.4 },
+    });
     this.polySynth.volume.value = -12;
     this.polySynth.triggerAttackRelease('C5', 0.08, now);
     this.polySynth.triggerAttackRelease('E5', 0.08, now + 0.06);
@@ -172,6 +198,10 @@ export class SFXEngine {
     // Full arpeggio C5 -> E5 -> G5 -> C6 with delay tail
     const now = Tone.now();
     this.delay.wet.value = 0.3;
+    this.polySynth.set({
+      oscillator: { type: 'sine' },
+      envelope: { attack: 0.01, decay: 0.3, sustain: 0.1, release: 0.4 },
+    });
     this.polySynth.volume.value = -10;
     this.polySynth.triggerAttackRelease('C5', 0.1, now);
     this.polySynth.triggerAttackRelease('E5', 0.1, now + 0.08);
@@ -209,9 +239,10 @@ export class SFXEngine {
   respawn(): void {
     // Descending tones A4 -> D4 -> A3, gentle
     const now = Tone.now();
-    this.toneSynth.oscillator.type = 'sine';
-    this.toneSynth.envelope.decay = 0.15;
-    this.toneSynth.volume.value = -12;
+    this.polySynth.set({
+      oscillator: { type: 'sine' },
+      envelope: { attack: 0.01, decay: 0.3, sustain: 0.1, release: 0.4 },
+    });
     this.polySynth.volume.value = -12;
     this.polySynth.triggerAttackRelease('A4', 0.12, now);
     this.polySynth.triggerAttackRelease('D4', 0.12, now + 0.1);
@@ -222,11 +253,18 @@ export class SFXEngine {
     // Short sine 800Hz + noise click
     const now = Tone.now();
     this.toneSynth.oscillator.type = 'sine';
+    this.toneSynth.envelope.attack = 0.005;
     this.toneSynth.envelope.decay = 0.04;
+    this.toneSynth.envelope.sustain = 0;
+    this.toneSynth.envelope.release = 0.05;
     this.toneSynth.volume.value = -14;
     this.toneSynth.triggerAttackRelease(800, 0.04, now);
 
+    this.noiseSynth.noise.type = 'white';
+    this.noiseSynth.envelope.attack = 0.002;
     this.noiseSynth.envelope.decay = 0.02;
+    this.noiseSynth.envelope.sustain = 0;
+    this.noiseSynth.envelope.release = 0.01;
     this.noiseSynth.volume.value = -22;
     this.noiseSynth.triggerAttackRelease('64n', now);
   }
@@ -235,7 +273,10 @@ export class SFXEngine {
     // Sawtooth sweep down 800 -> 200Hz over 150ms
     const now = Tone.now();
     this.toneSynth.oscillator.type = 'sawtooth';
+    this.toneSynth.envelope.attack = 0.005;
     this.toneSynth.envelope.decay = 0.15;
+    this.toneSynth.envelope.sustain = 0;
+    this.toneSynth.envelope.release = 0.05;
     this.toneSynth.volume.value = -14;
     this.toneSynth.triggerAttackRelease(800, 0.15, now);
     this.toneSynth.frequency.setValueAtTime(800, now);
@@ -336,6 +377,7 @@ export class SFXEngine {
     this.polySynth.dispose();
     this.reverb.dispose();
     this.delay.dispose();
+    this.effectsBus.dispose();
     this.output.dispose();
   }
 }

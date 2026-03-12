@@ -44,6 +44,8 @@ const _worldUp = new THREE.Vector3(0, 1, 0);
 const _grabTarget = new THREE.Vector3();
 const _grabForward = new THREE.Vector3();
 const _carryTarget = new THREE.Vector3();
+const _groundBodyTranslation = new THREE.Vector3();
+const _groundBodyAngvel = new THREE.Vector3();
 
 const _rapierDown = new RAPIER.Vector3(0, -1, 0);
 const _rapierUp = new RAPIER.Vector3(0, 1, 0);
@@ -432,17 +434,16 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
       if (groundBodyType === 0 || groundBodyType === 2) {
         this.isOnMovingObject = true;
+        const gbt = groundBody.translation();
+        _groundBodyTranslation.set(gbt.x, gbt.y, gbt.z);
         _distanceFromCharacterToObject
           .copy(_currentPos)
-          .sub(new THREE.Vector3(
-            groundBody.translation().x,
-            groundBody.translation().y,
-            groundBody.translation().z,
-          ));
+          .sub(_groundBodyTranslation);
         const lv = groundBody.linvel();
         const av = groundBody.angvel();
+        _groundBodyAngvel.set(av.x, av.y, av.z);
         _objectAngvelToLinvel.crossVectors(
-          new THREE.Vector3(av.x, av.y, av.z),
+          _groundBodyAngvel,
           _distanceFromCharacterToObject,
         );
         _movingObjectVelocity.set(
@@ -895,7 +896,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     if (!this.active) return;
     this.mesh.position.lerpVectors(this.prevPosition, this.currPosition, alpha);
     const target = this.isCrouched ? 1 : 0;
-    this.crouchVisual += (target - this.crouchVisual) * 0.25;
+    this.crouchVisual += (target - this.crouchVisual) * (1 - Math.exp(-12 * _dt));
     const scaleY = 1 - this.crouchVisual * 0.28;
     const scaleXZ = 1 + this.crouchVisual * 0.04;
     this.mesh.scale.set(scaleXZ, scaleY, scaleXZ);
@@ -953,8 +954,10 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     const bodyType = this.grabbedBodyType ?? RAPIER.RigidBodyType.Dynamic;
     body.setBodyType(bodyType, true);
     body.setGravityScale(this.grabbedGravityScale ?? 1, true);
-    const forward = this.getCameraForward().setY(0).normalize();
-    body.applyImpulse(_setRV(_rv3A, forward.x * 0.25, 0, forward.z * 0.25), true);
+    if (bodyType === RAPIER.RigidBodyType.Dynamic) {
+      const forward = this.getCameraForward().setY(0).normalize();
+      body.applyImpulse(_setRV(_rv3A, forward.x * 0.25, 0, forward.z * 0.25), true);
+    }
     this.grabbedBody = null;
     this.grabbedBodyType = null;
     this.grabbedGravityScale = null;
@@ -979,6 +982,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     if (!this.carriedObject) return;
     const object = this.carriedObject;
     this.releaseCarryBody();
+    object.body.enableCcd(true);
     const forward = this.getCameraForward().normalize();
     // Treat throwForce as a *target throw speed* (m/s) rather than a raw impulse.
     // WHY: applying a fixed impulse makes small/light objects reach extreme
@@ -1084,12 +1088,12 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   }
 
   getCameraForward(): THREE.Vector3 {
-    _forward.set(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.cameraYaw);
+    _forward.set(0, 0, -1).applyAxisAngle(_worldUp, this.cameraYaw);
     return _forward;
   }
 
   getCameraRight(): THREE.Vector3 {
-    _right.set(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.cameraYaw);
+    _right.set(1, 0, 0).applyAxisAngle(_worldUp, this.cameraYaw);
     return _right;
   }
 

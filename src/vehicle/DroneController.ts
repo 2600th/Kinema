@@ -19,6 +19,7 @@ const _droneExitCandidates = [
 const _yawQuat = new THREE.Quaternion();
 const _tiltQuat = new THREE.Quaternion();
 const _tiltEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+const _yawEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 
 const _drv3A = new RAPIER.Vector3(0, 0, 0);
 const _drv3B = new RAPIER.Vector3(0, 0, 0);
@@ -186,7 +187,8 @@ export class DroneController implements VehicleController {
       const nextYaw = dampAngle(this.yaw, this.controlYaw, this.yawResponsiveness, _dt);
       this.yaw = nextYaw;
     }
-    _quat.setFromEuler(new THREE.Euler(0, this.yaw, 0, 'YXZ'));
+    _yawEuler.set(0, this.yaw, 0);
+    _quat.setFromEuler(_yawEuler);
     this.body.setRotation(toRapierQuat(_quat), true);
 
     const moveX = input.moveX;
@@ -195,7 +197,7 @@ export class DroneController implements VehicleController {
     const moveY = this.verticalSuppressSeconds > 0 ? 0 : rawMoveY;
 
     // Movement uses yaw-only for direction so pitch doesn't cause unintended vertical drift.
-    _yawQuat.setFromEuler(new THREE.Euler(0, this.yaw, 0, 'YXZ'));
+    _yawQuat.setFromEuler(_yawEuler);
     _forward.set(0, 0, -1).applyQuaternion(_yawQuat);
     _right.set(1, 0, 0).applyQuaternion(_yawQuat);
 
@@ -260,7 +262,7 @@ export class DroneController implements VehicleController {
     }
   }
 
-  update(_dt: number, alpha: number): void {
+  update(dt: number, alpha: number): void {
     if (!this.hasPose) return;
     this.mesh.position.lerpVectors(this._prevPos, this._currPos, alpha);
     this.mesh.quaternion.slerpQuaternions(this._prevQuat, this._currQuat, alpha);
@@ -270,7 +272,7 @@ export class DroneController implements VehicleController {
     this.mesh.quaternion.multiply(_tiltQuat);
 
     // Spin rotors
-    const rotorSpeed = 20 * _dt;
+    const rotorSpeed = 20 * dt;
     for (const rotor of this.rotorMeshes) {
       rotor.rotation.y += rotorSpeed;
     }
@@ -291,15 +293,15 @@ export class DroneController implements VehicleController {
     const group = new THREE.Group();
 
     // Main chassis (sleek sci-fi look)
-    const chassisMat = new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.8, roughness: 0.2 });
-    const chassis = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.45, 0.2, 6), chassisMat);
+    const chassisMat = new THREE.MeshStandardMaterial({ color: 0x2a3040, metalness: 0.8, roughness: 0.2 });
+    const chassis = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.55, 0.24, 6), chassisMat);
     chassis.castShadow = true;
     chassis.receiveShadow = true;
     group.add(chassis);
 
     // Glowing core
-    const coreMat = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x00ffff, emissiveIntensity: 2.0 });
-    const core = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 16), coreMat);
+    const coreMat = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x00ffff, emissiveIntensity: 3.0 });
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.25, 16, 16), coreMat);
     core.position.y = 0.1;
     group.add(core);
 
@@ -308,10 +310,10 @@ export class DroneController implements VehicleController {
     const rotorMat = new THREE.MeshStandardMaterial({ color: 0x777777, metalness: 0.5, roughness: 0.3, transparent: true, opacity: 0.7 });
 
     const armOffsets = [
-      new THREE.Vector3(0.6, 0, 0.6),
-      new THREE.Vector3(-0.6, 0, 0.6),
-      new THREE.Vector3(0.6, 0, -0.6),
-      new THREE.Vector3(-0.6, 0, -0.6),
+      new THREE.Vector3(0.75, 0, 0.75),
+      new THREE.Vector3(-0.75, 0, 0.75),
+      new THREE.Vector3(0.75, 0, -0.75),
+      new THREE.Vector3(-0.75, 0, -0.75),
     ];
 
     armOffsets.forEach(pos => {
@@ -323,13 +325,13 @@ export class DroneController implements VehicleController {
       group.add(arm);
 
       // motor housing
-      const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.15, 8), chassisMat);
+      const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.18, 8), chassisMat);
       motor.position.copy(pos);
       motor.castShadow = true;
       group.add(motor);
 
       // rotor blades (thin cylinder, spun in update)
-      const rotor = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.02, 12), rotorMat);
+      const rotor = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.02, 12), rotorMat);
       rotor.position.copy(pos);
       rotor.position.y += 0.1;
       rotor.castShadow = true;

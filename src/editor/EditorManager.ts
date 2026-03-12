@@ -62,6 +62,7 @@ export class EditorManager {
   private hierarchyPanel: HierarchyPanel;
   private inspectorPanel: InspectorPanel;
   private panels: { build(): void; show(): void; hide(): void; getElement(): HTMLDivElement; dispose(): void }[];
+  private unsubs: (() => void)[] = [];
 
   constructor(
     private renderer: RendererManager,
@@ -129,7 +130,9 @@ export class EditorManager {
     );
     this.gizmo.setSnaps(this.grid.positionSnap, this.grid.rotationSnap, this.grid.scaleSnap);
 
-    this.eventBus.on('editor:toggle', () => this.toggle());
+    this.unsubs.push(
+      this.eventBus.on('editor:toggle', () => this.toggle()),
+    );
   }
 
   /* ==================================================================
@@ -149,6 +152,8 @@ export class EditorManager {
   }
 
   dispose(): void {
+    for (const unsub of this.unsubs) unsub();
+    this.unsubs.length = 0;
     for (const panel of this.panels) panel.dispose();
     this.gizmo.dispose(this.renderer.scene);
     this.grid.dispose(this.renderer.scene);
@@ -382,6 +387,8 @@ export class EditorManager {
   private clearSelectionHelper(): void {
     if (!this.selectionHelper) return;
     this.renderer.scene.remove(this.selectionHelper);
+    this.selectionHelper.geometry.dispose();
+    (this.selectionHelper.material as THREE.Material).dispose();
     this.selectionHelper = null;
   }
 
@@ -632,6 +639,17 @@ export class EditorManager {
     this.previewMesh = null;
     if (this.glbPreview) {
       this.renderer.scene.remove(this.glbPreview);
+      this.glbPreview.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry?.dispose();
+          const mat = child.material;
+          if (Array.isArray(mat)) {
+            mat.forEach((m) => m.dispose());
+          } else if (mat) {
+            (mat as THREE.Material).dispose();
+          }
+        }
+      });
     }
     this.glbPreview = null;
     this.pendingGLBAsset = null;
@@ -663,7 +681,15 @@ export class EditorManager {
       this.startGLBPlacement(clone, assetPath);
     } catch (err) {
       console.error('[Editor] Failed to import GLB:', err);
+    } finally {
+      // Blob URL is single-use; evict from cache and revoke to free memory.
+      this.levelManager.getAssetLoader().evict(objectUrl);
+      URL.revokeObjectURL(objectUrl);
     }
+    console.warn(
+      `[Editor] Imported "${file.name}" for this session. ` +
+      `Copy the file to public/assets/models/ for it to persist across reloads.`,
+    );
   }
 
   private startGLBPlacement(scene: THREE.Object3D, assetPath: string): void {
@@ -737,7 +763,8 @@ export class EditorManager {
     // Create static physics body with approximate bounding box
     const box = new THREE.Box3().setFromObject(finalObj);
     const size = box.getSize(new THREE.Vector3());
-    const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(position.x, position.y, position.z);
+    const center = box.getCenter(new THREE.Vector3());
+    const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(center.x, center.y, center.z);
     const body = this.physicsWorld.world.createRigidBody(bodyDesc);
     const colliderDesc = RAPIER.ColliderDesc.cuboid(
       Math.max(size.x / 2, 0.01),
@@ -1283,6 +1310,17 @@ export class EditorManager {
     for (const obj of this.editorObjects) {
       if (obj.mesh.userData.editorSource) {
         this.renderer.scene.remove(obj.mesh);
+        obj.mesh.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.geometry?.dispose();
+            const mat = child.material;
+            if (Array.isArray(mat)) {
+              mat.forEach((m) => m.dispose());
+            } else if (mat) {
+              (mat as THREE.Material).dispose();
+            }
+          }
+        });
         if (obj.body) {
           this.physicsWorld.removeBody(obj.body);
         } else if (obj.collider) {
@@ -1369,7 +1407,6 @@ export class EditorManager {
 
     // Create physics body if applicable
     if (entry.physics) {
-      const pos = obj.position;
       let bodyDesc: RAPIER.RigidBodyDesc;
       if (entry.physics.type === 'static') {
         bodyDesc = RAPIER.RigidBodyDesc.fixed();
@@ -1378,9 +1415,18 @@ export class EditorManager {
       } else {
         bodyDesc = RAPIER.RigidBodyDesc.dynamic();
       }
-      bodyDesc.setTranslation(pos.x, pos.y, pos.z);
+      // Compute collider from actual object bounds
+      obj.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(obj);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+      bodyDesc.setTranslation(center.x, center.y, center.z);
       const body = this.physicsWorld.world.createRigidBody(bodyDesc);
-      const colliderDesc = RAPIER.ColliderDesc.cuboid(0.5, 0.5, 0.5);
+      const colliderDesc = RAPIER.ColliderDesc.cuboid(
+        Math.max(size.x / 2, 0.01),
+        Math.max(size.y / 2, 0.01),
+        Math.max(size.z / 2, 0.01),
+      );
       const collider = this.physicsWorld.world.createCollider(colliderDesc, body);
       editorObj.body = body;
       editorObj.collider = collider;

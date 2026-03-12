@@ -1,5 +1,11 @@
 import * as THREE from 'three';
 
+const _fcForward = new THREE.Vector3();
+const _fcRight = new THREE.Vector3();
+const _fcUp = new THREE.Vector3(0, 1, 0);
+const _fcEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+const _fcEnableEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+
 export class FreeCamera {
   private enabled = false;
   private keys = new Set<string>();
@@ -50,20 +56,21 @@ export class FreeCamera {
       this.yaw -= dx * this.lookSpeed;
       this.pitch -= dy * this.lookSpeed;
       this.pitch = THREE.MathUtils.clamp(this.pitch, -Math.PI / 2 + 0.05, Math.PI / 2 - 0.05);
-      this.camera.quaternion.setFromEuler(new THREE.Euler(this.pitch, this.yaw, 0, 'YXZ'));
+      _fcEuler.set(this.pitch, this.yaw, 0);
+      this.camera.quaternion.setFromEuler(_fcEuler);
     }
 
     if (this.panActive) {
-      const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
-      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
-      this.camera.position.addScaledVector(right, -dx * this.panSpeed);
-      this.camera.position.addScaledVector(up, dy * this.panSpeed);
+      _fcRight.set(1, 0, 0).applyQuaternion(this.camera.quaternion);
+      _fcForward.set(0, 1, 0).applyQuaternion(this.camera.quaternion);
+      this.camera.position.addScaledVector(_fcRight, -dx * this.panSpeed);
+      this.camera.position.addScaledVector(_fcForward, dy * this.panSpeed);
     }
   };
 
   private onWheel = (e: WheelEvent): void => {
-    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
-    this.camera.position.addScaledVector(forward, e.deltaY * 0.01);
+    _fcForward.set(0, 0, -1).applyQuaternion(this.camera.quaternion);
+    this.camera.position.addScaledVector(_fcForward, e.deltaY * 0.01);
   };
 
   private onContextMenu = (e: Event): void => {
@@ -78,7 +85,7 @@ export class FreeCamera {
   enable(): void {
     if (this.enabled) return;
     this.enabled = true;
-    const euler = new THREE.Euler().setFromQuaternion(this.camera.quaternion, 'YXZ');
+    const euler = _fcEnableEuler.setFromQuaternion(this.camera.quaternion, 'YXZ');
     this.pitch = euler.x;
     this.yaw = euler.y;
     window.addEventListener('keydown', this.onKeyDown);
@@ -107,9 +114,11 @@ export class FreeCamera {
 
   update(dt: number): void {
     if (!this.enabled) return;
-    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
-    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
-    const up = new THREE.Vector3(0, 1, 0);
+    _fcForward.set(0, 0, -1).applyQuaternion(this.camera.quaternion);
+    _fcRight.set(1, 0, 0).applyQuaternion(this.camera.quaternion);
+    const forward = _fcForward;
+    const right = _fcRight;
+    const up = _fcUp;
 
     const speedMult = this.keys.has('ShiftLeft') ? this.fastMult : this.keys.has('ControlLeft') ? this.slowMult : 1;
     const speed = this.moveSpeed * speedMult * dt;

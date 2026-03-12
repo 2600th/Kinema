@@ -9,11 +9,14 @@ export class PhysicsWorld implements Disposable {
   public readonly world: RAPIER.World;
   public readonly eventQueue: RAPIER.EventQueue;
   private lastStepMs = 0;
+  private _ray = new RAPIER.Ray(new RAPIER.Vector3(0, 0, 0), new RAPIER.Vector3(0, 0, -1));
 
   private constructor() {
     // Use Rapier default world gravity.
     this.world = new RAPIER.World(new RAPIER.Vector3(0, -9.81, 0));
     this.eventQueue = new RAPIER.EventQueue(true);
+    // Initial step to build BVH so first raycasts don't miss.
+    this.world.step(this.eventQueue);
   }
 
   /** Synchronous factory — call only after RAPIER.init() has resolved. */
@@ -70,9 +73,10 @@ export class PhysicsWorld implements Disposable {
     excludeRigidBody?: RAPIER.RigidBody,
     filterPredicate?: (collider: RAPIER.Collider) => boolean,
   ): RAPIER.RayColliderHit | null {
-    const ray = new RAPIER.Ray(origin, direction);
+    this._ray.origin = origin;
+    this._ray.dir = direction;
     return this.world.castRay(
-      ray,
+      this._ray,
       maxToi,
       true,
       undefined,
@@ -91,9 +95,10 @@ export class PhysicsWorld implements Disposable {
     excludeCollider?: RAPIER.Collider,
     excludeRigidBody?: RAPIER.RigidBody,
   ): RAPIER.RayColliderIntersection | null {
-    const ray = new RAPIER.Ray(origin, direction);
+    this._ray.origin = origin;
+    this._ray.dir = direction;
     return this.world.castRayAndGetNormal(
-      ray,
+      this._ray,
       maxToi,
       true,
       undefined,

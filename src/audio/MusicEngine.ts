@@ -88,6 +88,8 @@ export class MusicEngine {
     }, '2n');
     this.melodyLoop.start('1m'); // start after first measure
 
+    // NOTE: Tone.js uses a single global Transport. If multiple MusicEngine instances
+    // ever exist, they will share transport state. Currently only one instance is created.
     Tone.getTransport().start();
 
     // Fade in
@@ -141,9 +143,16 @@ export class MusicEngine {
   }
 
   dispose(): void {
-    this.stop(0);
+    this.running = false;
+    this.output.gain.cancelScheduledValues(Tone.now());
+    this.output.gain.value = 0;
+    this.chordLoop?.stop();
+    this.melodyLoop?.stop();
+    Tone.getTransport().stop();
     this.chordLoop?.dispose();
     this.melodyLoop?.dispose();
+    this.chordLoop = null;
+    this.melodyLoop = null;
     this.padSynth.dispose();
     this.melodySynth.dispose();
     this.autoFilter.dispose();

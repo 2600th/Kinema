@@ -42,11 +42,17 @@ export class FadeScreen implements Disposable {
 
   private waitForTransition(): Promise<void> {
     return new Promise((resolve) => {
-      const handler = () => {
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
         this.overlay.removeEventListener('transitionend', handler);
+        clearTimeout(timer);
         resolve();
       };
+      const handler = () => done();
       this.overlay.addEventListener('transitionend', handler);
+      const timer = setTimeout(done, 600);
     });
   }
 

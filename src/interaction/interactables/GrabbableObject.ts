@@ -4,6 +4,8 @@ import type { EventBus } from '@core/EventBus';
 import type { PlayerController } from '@character/PlayerController';
 import type { IInteractable, InteractionAccess } from '../Interactable';
 
+const _grabOffset = new THREE.Vector3();
+
 export class GrabbableObject implements IInteractable {
   readonly id: string;
   readonly label = 'Grab';
@@ -38,8 +40,8 @@ export class GrabbableObject implements IInteractable {
 
   interact(player: PlayerController): void {
     const bodyPos = this.body.translation();
-    const offset = new THREE.Vector3(bodyPos.x, bodyPos.y, bodyPos.z).sub(player.position);
-    this.eventBus.emit('interaction:grabStart', { body: this.body, offset });
+    _grabOffset.set(bodyPos.x, bodyPos.y, bodyPos.z).sub(player.position);
+    this.eventBus.emit('interaction:grabStart', { body: this.body, offset: _grabOffset });
   }
 
   dispose(): void {

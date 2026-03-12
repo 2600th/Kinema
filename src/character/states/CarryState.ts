@@ -15,8 +15,15 @@ export class CarryState extends State {
     // Carry cleanup handled by PlayerController throw/drop helpers.
   }
 
-  handleInput(_input: InputState, _isGrounded: boolean): StateId | null {
-    // Carry state transitions are driven by PlayerController.
+  handleInput(input: InputState, _isGrounded: boolean): StateId | null {
+    // Actual carry/throw logic is handled by PlayerController.fixedUpdate;
+    // these transitions ensure the FSM stays in sync as a fallback.
+    if (input.interactPressed) {
+      return 'idle';
+    }
+    if (input.primaryPressed) {
+      return 'idle';
+    }
     return null;
   }
 

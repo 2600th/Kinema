@@ -41,6 +41,7 @@ export class InputManager implements Disposable {
   private gamepadCurve = 1.4;
   private inputSuppressed = false;
   private editorActive = false;
+  private unsubs: (() => void)[] = [];
 
   private _onKeyDown = this.handleKeyDown.bind(this);
   private _onKeyUp = this.handleKeyUp.bind(this);
@@ -64,18 +65,20 @@ export class InputManager implements Disposable {
     canvas.addEventListener('click', this._onClick);
     document.addEventListener('pointerlockchange', this._onPointerLockChange);
 
-    this.eventBus.on('menu:opened', () => {
-      this.inputSuppressed = true;
-    });
-    this.eventBus.on('menu:closed', () => {
-      this.inputSuppressed = false;
-    });
-    this.eventBus.on('editor:opened', () => {
-      this.editorActive = true;
-    });
-    this.eventBus.on('editor:closed', () => {
-      this.editorActive = false;
-    });
+    this.unsubs.push(
+      this.eventBus.on('menu:opened', () => {
+        this.inputSuppressed = true;
+      }),
+      this.eventBus.on('menu:closed', () => {
+        this.inputSuppressed = false;
+      }),
+      this.eventBus.on('editor:opened', () => {
+        this.editorActive = true;
+      }),
+      this.eventBus.on('editor:closed', () => {
+        this.editorActive = false;
+      }),
+    );
   }
 
   /** Snapshot current input state, reset deltas, emit event. */
@@ -294,6 +297,8 @@ export class InputManager implements Disposable {
   }
 
   dispose(): void {
+    for (const unsub of this.unsubs) unsub();
+    this.unsubs.length = 0;
     window.removeEventListener('keydown', this._onKeyDown);
     window.removeEventListener('keyup', this._onKeyUp);
     document.removeEventListener('mousemove', this._onMouseMove);

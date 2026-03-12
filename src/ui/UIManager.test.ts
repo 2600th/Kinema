@@ -32,7 +32,7 @@ import { UIManager } from './UIManager';
 
 describe('UIManager', () => {
   const appendBodyChild = vi.fn();
-  const createElement = vi.fn(() => ({ id: '', style: {} as Record<string, string> }));
+  const createElement = vi.fn(() => ({ id: '', style: {} as Record<string, string>, remove: vi.fn() }));
   const getElementById = vi.fn(() => null);
   let warnSpy: ReturnType<typeof vi.spyOn>;
 

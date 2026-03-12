@@ -72,12 +72,23 @@ export class MeshParser {
         return;
       }
 
+      // Allow non-Mesh nodes with collider/sensor/navmesh tags to pass through.
+      if (resolvedType && resolvedType !== 'visual') {
+        results.push({
+          object: child,
+          mesh: child instanceof THREE.Mesh ? child : null,
+          type: resolvedType,
+          mass,
+        });
+        return;
+      }
+
       if (!(child instanceof THREE.Mesh)) return;
 
       results.push({
         object: child,
         mesh: child,
-        type: resolvedType ?? 'visual',
+        type: 'visual',
         mass,
       });
     });

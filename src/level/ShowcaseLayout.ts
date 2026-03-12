@@ -54,6 +54,17 @@ export const SHOWCASE_STATION_ORDER: ShowcaseStationKey[] = [
   'futureA',
 ];
 
+export const STATION_SPAWN_OVERRIDES: Partial<Record<ShowcaseStationKey, {
+  offset?: [number, number, number];
+  rotation?: [number, number, number];
+}>> = {
+  movement:         { offset: [4, 0, 2] },
+  steps:            { offset: [0, 0, 2] },
+  platformsMoving:  { offset: [0, 1, 6] },
+  platformsPhysics: { offset: [0, 1, 8] },
+  vehicles:         { offset: [0, 0, 0] },
+};
+
 export function getShowcaseStationZ(key: ShowcaseStationKey): number {
   return SHOWCASE_LAYOUT.centerZ + SHOWCASE_LAYOUT.stations[key];
 }

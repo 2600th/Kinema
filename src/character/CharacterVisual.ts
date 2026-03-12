@@ -13,6 +13,19 @@ type ClipKey =
   | 'grab'
   | 'carry';
 
+/** Dispose all texture slots on a PBR material. */
+function disposeAllTextures(material: THREE.Material): void {
+  const mat = material as THREE.MeshStandardMaterial;
+  mat.map?.dispose();
+  mat.normalMap?.dispose();
+  mat.roughnessMap?.dispose();
+  mat.metalnessMap?.dispose();
+  mat.aoMap?.dispose();
+  mat.emissiveMap?.dispose();
+  mat.alphaMap?.dispose();
+  mat.envMap?.dispose();
+}
+
 function normalize(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
@@ -144,8 +157,12 @@ export class CharacterVisual implements Disposable {
           node.geometry.dispose();
           const mat = node.material;
           if (Array.isArray(mat)) {
-            mat.forEach((m) => m.dispose());
+            mat.forEach((m) => {
+              disposeAllTextures(m);
+              m.dispose();
+            });
           } else {
+            disposeAllTextures(mat);
             mat.dispose();
           }
         }
@@ -157,6 +174,7 @@ export class CharacterVisual implements Disposable {
     this.mixer = null;
     this.actions.clear();
     this.current = null;
+    this.loader.dispose();
   }
 
   private playImmediate(key: ClipKey | null): void {

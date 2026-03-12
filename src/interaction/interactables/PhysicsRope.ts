@@ -15,6 +15,8 @@ const _swingTangent = new THREE.Vector3();
 const _swingDesired = new THREE.Vector3();
 const _worldUp = new THREE.Vector3(0, 1, 0);
 const _tempRopeImpulse = new RAPIER.Vector3(0, 0, 0);
+const _rv3RopeA = new RAPIER.Vector3(0, 0, 0);
+const _rv3RopeB = new RAPIER.Vector3(0, 0, 0);
 const COLLISION_GROUP_ROPE = (1 << 16) | 1; // world membership, collide with world only.
 const ROPE_SEGMENT_MASS = 9.5;
 const ROPE_TAIL_MASS = 14.5;
@@ -193,13 +195,10 @@ export class PhysicsRope implements IInteractable {
       _tailPos.set(tail.x, tail.y, tail.z);
       const anchor = this.anchorBody.translation();
       _anchorPos.set(anchor.x, anchor.y, anchor.z);
-      this.sensorBody.setNextKinematicTranslation(
-        new RAPIER.Vector3(
-          (_anchorPos.x + _tailPos.x) * 0.5,
-          (_anchorPos.y + _tailPos.y) * 0.5,
-          (_anchorPos.z + _tailPos.z) * 0.5,
-        ),
-      );
+      _rv3RopeA.x = (_anchorPos.x + _tailPos.x) * 0.5;
+      _rv3RopeA.y = (_anchorPos.y + _tailPos.y) * 0.5;
+      _rv3RopeA.z = (_anchorPos.z + _tailPos.z) * 0.5;
+      this.sensorBody.setNextKinematicTranslation(_rv3RopeA);
     }
 
     // Segment meshes are updated with render interpolation in renderUpdate(alpha).
@@ -304,8 +303,10 @@ export class PhysicsRope implements IInteractable {
     player.body.setAdditionalSolverIterations(
       Math.max(this.playerBaseSolverIters, PLAYER_SOLVER_ITERS_WHILE_ATTACHED),
     );
-    player.body.setLinvel(new RAPIER.Vector3(carryVel.x * 0.28, carryVel.y * 0.12, carryVel.z * 0.28), true);
-    player.body.setAngvel(new RAPIER.Vector3(0, 0, 0), true);
+    _rv3RopeA.x = carryVel.x * 0.28; _rv3RopeA.y = carryVel.y * 0.12; _rv3RopeA.z = carryVel.z * 0.28;
+    player.body.setLinvel(_rv3RopeA, true);
+    _rv3RopeB.x = 0; _rv3RopeB.y = 0; _rv3RopeB.z = 0;
+    player.body.setAngvel(_rv3RopeB, true);
     for (const body of this.segmentBodies) {
       body.setLinearDamping(ROPE_ATTACHED_LINEAR_DAMPING);
       body.setAngularDamping(ROPE_ATTACHED_ANGULAR_DAMPING);
@@ -334,7 +335,8 @@ export class PhysicsRope implements IInteractable {
         forward.set(0, 0, -1);
       }
       const boostY = 3.2 + Math.max(0, this.ropeTopY - player.position.y) * 0.18;
-      player.body.applyImpulse(new RAPIER.Vector3(forward.x * 3.6, boostY, forward.z * 3.6), true);
+      _rv3RopeA.x = forward.x * 3.6; _rv3RopeA.y = boostY; _rv3RopeA.z = forward.z * 3.6;
+      player.body.applyImpulse(_rv3RopeA, true);
     }
     this.attachedSegmentIndex = -1;
     this.climbStepCooldown = 0;
@@ -456,15 +458,15 @@ export class PhysicsRope implements IInteractable {
 
     const t = segment.translation();
     const playerTopAnchor = this.getPlayerTopAnchor(player);
-    player.body.setTranslation(
-      new RAPIER.Vector3(t.x, t.y - (playerTopAnchor + 0.08), t.z),
-      true,
-    );
+    _rv3RopeA.x = t.x; _rv3RopeA.y = t.y - (playerTopAnchor + 0.08); _rv3RopeA.z = t.z;
+    player.body.setTranslation(_rv3RopeA, true);
     if (!preserveVelocity) {
-      player.body.setLinvel(new RAPIER.Vector3(0, 0, 0), true);
+      _rv3RopeB.x = 0; _rv3RopeB.y = 0; _rv3RopeB.z = 0;
+      player.body.setLinvel(_rv3RopeB, true);
     } else {
       const lv = player.body.linvel();
-      player.body.setLinvel(new RAPIER.Vector3(lv.x * 0.85, lv.y * 0.2, lv.z * 0.85), true);
+      _rv3RopeB.x = lv.x * 0.85; _rv3RopeB.y = lv.y * 0.2; _rv3RopeB.z = lv.z * 0.85;
+      player.body.setLinvel(_rv3RopeB, true);
     }
     player.body.wakeUp();
     segment.wakeUp();
@@ -494,8 +496,10 @@ export class PhysicsRope implements IInteractable {
     for (const body of this.segmentBodies) {
       const lv = body.linvel();
       const av = body.angvel();
-      body.setLinvel(new RAPIER.Vector3(lv.x * linKeep, lv.y * linKeep, lv.z * linKeep), true);
-      body.setAngvel(new RAPIER.Vector3(av.x * angKeep, av.y * angKeep, av.z * angKeep), true);
+      _rv3RopeA.x = lv.x * linKeep; _rv3RopeA.y = lv.y * linKeep; _rv3RopeA.z = lv.z * linKeep;
+      body.setLinvel(_rv3RopeA, true);
+      _rv3RopeB.x = av.x * angKeep; _rv3RopeB.y = av.y * angKeep; _rv3RopeB.z = av.z * angKeep;
+      body.setAngvel(_rv3RopeB, true);
     }
   }
 }

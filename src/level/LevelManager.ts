@@ -11,6 +11,7 @@ import { getBrushById } from '@editor/brushes/index';
 import {
   SHOWCASE_LAYOUT,
   SHOWCASE_STATION_ORDER,
+  STATION_SPAWN_OVERRIDES,
   getShowcaseBayTopY,
   getShowcaseStationZ,
   type ShowcaseStationKey,
@@ -24,7 +25,32 @@ import { LevelValidator } from './LevelValidator';
 
 const _lightGoalPos = new THREE.Vector3();
 const _lightGoalTarget = new THREE.Vector3();
+const _platformNextPos = new THREE.Vector3();
+const _platformEuler = new THREE.Euler();
+const _platformQuat = new THREE.Quaternion();
+const _platformRV3 = new RAPIER.Vector3(0, 0, 0);
+const _platformRQuat = new RAPIER.Quaternion(0, 0, 0, 1);
+const _floatOrigin = new RAPIER.Vector3(0, 0, 0);
+const _floatDown = new RAPIER.Vector3(0, -1, 0);
+const _floatImpulse = new RAPIER.Vector3(0, 0, 0);
+const _floatLinvel = new RAPIER.Vector3(0, 0, 0);
 const DEFAULT_SPAWN_Y = 2;
+
+/** Dispose all texture slots on a PBR material. */
+function disposeAllTextures(material: THREE.Material): void {
+  const mat = material as THREE.MeshStandardMaterial;
+  mat.map?.dispose();
+  mat.normalMap?.dispose();
+  mat.roughnessMap?.dispose();
+  mat.metalnessMap?.dispose();
+  mat.aoMap?.dispose();
+  mat.emissiveMap?.dispose();
+  mat.displacementMap?.dispose();
+  mat.alphaMap?.dispose();
+  mat.envMap?.dispose();
+  mat.lightMap?.dispose();
+  mat.bumpMap?.dispose();
+}
 
 function createDefaultSpawnPoint(): SpawnPointData {
   return { position: new THREE.Vector3(0, DEFAULT_SPAWN_Y, 0) };
@@ -325,12 +351,14 @@ export class LevelManager implements Disposable {
 
     // Approximate collider from bounding box — compute from full hierarchy
     const bb = new THREE.Box3();
+    let bbIncludesScale = false;
     if (obj instanceof THREE.Mesh && obj.geometry) {
+      // Single mesh: geometry BB is in local (pre-scale) space.
       obj.geometry.computeBoundingBox();
       bb.copy(obj.geometry.boundingBox!);
     } else {
-      // Compute combined BB from all descendant meshes in obj-local space.
-      // obj is at identity before scene attachment, so child matrixWorld = local offset.
+      // Grouped GLB: matrixWorld already includes obj.scale, so the resulting
+      // bounding box is in world space and must NOT be multiplied by scale again.
       obj.updateMatrixWorld(true);
       obj.traverse((child) => {
         if (child instanceof THREE.Mesh && child.geometry) {
@@ -340,13 +368,14 @@ export class LevelManager implements Disposable {
           bb.union(childBox);
         }
       });
+      bbIncludesScale = true;
     }
     if (bb.isEmpty()) {
       bb.set(new THREE.Vector3(-0.5, -0.5, -0.5), new THREE.Vector3(0.5, 0.5, 0.5));
     }
-    const halfW = ((bb.max.x - bb.min.x) / 2) * sx;
-    const halfH = ((bb.max.y - bb.min.y) / 2) * sy;
-    const halfD = ((bb.max.z - bb.min.z) / 2) * sz;
+    const halfW = ((bb.max.x - bb.min.x) / 2) * (bbIncludesScale ? 1 : sx);
+    const halfH = ((bb.max.y - bb.min.y) / 2) * (bbIncludesScale ? 1 : sy);
+    const halfD = ((bb.max.z - bb.min.z) / 2) * (bbIncludesScale ? 1 : sz);
     const colliderDesc = RAPIER.ColliderDesc.cuboid(
       Math.max(halfW, 0.01),
       Math.max(halfH, 0.01),
@@ -451,18 +480,16 @@ export class LevelManager implements Disposable {
           child.geometry.dispose();
           if (Array.isArray(child.material)) {
             child.material.forEach((m) => {
-              const mat = m as THREE.Material & { map?: THREE.Texture | null };
-              mat.map?.dispose();
+              disposeAllTextures(m);
               m.dispose();
             });
           } else {
-            const mat = child.material as THREE.Material & { map?: THREE.Texture | null };
-            mat.map?.dispose();
+            disposeAllTextures(child.material);
             child.material.dispose();
           }
         } else if (child instanceof THREE.Sprite) {
           const mat = child.material as THREE.SpriteMaterial;
-          mat.map?.dispose();
+          disposeAllTextures(mat);
           mat.dispose();
         }
       });
@@ -505,24 +532,24 @@ export class LevelManager implements Disposable {
     this.simTime += dt;
 
     for (const platform of this.movingPlatforms) {
-      const nextPos = platform.base.clone();
+      _platformNextPos.copy(platform.base);
       let nextRotY = platform.mesh.rotation.y;
       let nextRotX = platform.mesh.rotation.x;
 
       switch (platform.mode) {
         case 'x':
-          nextPos.x = platform.base.x + Math.sin(this.simTime * platform.speed) * platform.amplitude;
+          _platformNextPos.x = platform.base.x + Math.sin(this.simTime * platform.speed) * platform.amplitude;
           break;
         case 'y':
-          nextPos.y = platform.base.y + Math.sin(this.simTime * platform.speed) * platform.amplitude;
+          _platformNextPos.y = platform.base.y + Math.sin(this.simTime * platform.speed) * platform.amplitude;
           break;
         case 'yRotate':
-          nextPos.y = platform.base.y + Math.sin(this.simTime * platform.speed) * platform.amplitude;
+          _platformNextPos.y = platform.base.y + Math.sin(this.simTime * platform.speed) * platform.amplitude;
           nextRotY = this.simTime * platform.speed;
           break;
         case 'xy':
-          nextPos.x = platform.base.x + Math.sin(this.simTime * platform.speed) * platform.amplitude;
-          nextPos.y = platform.base.y + Math.cos(this.simTime * platform.speed) * (platform.amplitude * 0.4);
+          _platformNextPos.x = platform.base.x + Math.sin(this.simTime * platform.speed) * platform.amplitude;
+          _platformNextPos.y = platform.base.y + Math.cos(this.simTime * platform.speed) * (platform.amplitude * 0.4);
           break;
         case 'rotateY':
           nextRotY = this.simTime * platform.speed;
@@ -532,7 +559,7 @@ export class LevelManager implements Disposable {
           break;
       }
 
-      platform.mesh.position.copy(nextPos);
+      platform.mesh.position.copy(_platformNextPos);
       if (platform.mode === 'rotateY' || platform.mode === 'yRotate') {
         platform.mesh.rotation.set(
           platform.rotationOffset.x,
@@ -548,25 +575,27 @@ export class LevelManager implements Disposable {
         );
       }
 
-      platform.body.setNextKinematicTranslation(new RAPIER.Vector3(nextPos.x, nextPos.y, nextPos.z));
+      _platformRV3.x = _platformNextPos.x; _platformRV3.y = _platformNextPos.y; _platformRV3.z = _platformNextPos.z;
+      platform.body.setNextKinematicTranslation(_platformRV3);
       if (platform.mode === 'rotateY' || platform.mode === 'yRotate' || platform.mode === 'rotateX') {
-        const qEuler = new THREE.Euler(
+        _platformEuler.set(
           (platform.mode === 'rotateX' ? nextRotX : 0) + platform.rotationOffset.x,
           (platform.mode === 'rotateY' || platform.mode === 'yRotate' ? nextRotY : 0) + platform.rotationOffset.y,
           platform.rotationOffset.z,
         );
-        const q = new THREE.Quaternion().setFromEuler(qEuler);
-        platform.body.setNextKinematicRotation(new RAPIER.Quaternion(q.x, q.y, q.z, q.w));
+        _platformQuat.setFromEuler(_platformEuler);
+        _platformRQuat.x = _platformQuat.x; _platformRQuat.y = _platformQuat.y; _platformRQuat.z = _platformQuat.z; _platformRQuat.w = _platformQuat.w;
+        platform.body.setNextKinematicRotation(_platformRQuat);
       }
     }
 
     // Floating dynamic platforms.
     for (const platform of this.floatingPlatforms) {
       const p = platform.body.translation();
-      const origin = new RAPIER.Vector3(p.x, p.y, p.z);
+      _floatOrigin.x = p.x; _floatOrigin.y = p.y; _floatOrigin.z = p.z;
       const rayHit = this.physicsWorld.castRay(
-        origin,
-        new RAPIER.Vector3(0, -1, 0),
+        _floatOrigin,
+        _floatDown,
         platform.rayLength,
         undefined,
         platform.body,
@@ -577,7 +606,8 @@ export class LevelManager implements Disposable {
         const floatingForce =
           platform.springK * (platform.floatingDistance - rayHit.timeOfImpact) -
           lv.y * platform.dampingC;
-        platform.body.applyImpulse(new RAPIER.Vector3(0, floatingForce, 0), true);
+        _floatImpulse.x = 0; _floatImpulse.y = floatingForce; _floatImpulse.z = 0;
+        platform.body.applyImpulse(_floatImpulse, true);
       }
 
       if (
@@ -592,10 +622,8 @@ export class LevelManager implements Disposable {
           platform.moveDirectionX = 1;
         }
         const lv = platform.body.linvel();
-        platform.body.setLinvel(
-          new RAPIER.Vector3(platform.moveDirectionX * platform.moveSpeedX, lv.y, 0),
-          true,
-        );
+        _floatLinvel.x = platform.moveDirectionX * platform.moveSpeedX; _floatLinvel.y = lv.y; _floatLinvel.z = 0;
+        platform.body.setLinvel(_floatLinvel, true);
       }
     }
 
@@ -663,13 +691,6 @@ export class LevelManager implements Disposable {
     this.lightTargetPos.lerp(_lightGoalTarget, 0.1);
     this.dirLight.position.copy(this.lightFollowPos);
     this.dirLightTarget.position.copy(this.lightTargetPos);
-    this.dirLight.shadow.camera.left = -22;
-    this.dirLight.shadow.camera.right = 22;
-    this.dirLight.shadow.camera.top = 22;
-    this.dirLight.shadow.camera.bottom = -22;
-    this.dirLight.shadow.camera.near = 1;
-    this.dirLight.shadow.camera.far = 90;
-    this.dirLight.shadow.camera.updateProjectionMatrix();
     this.updateDebugHelpers();
   }
 
@@ -696,24 +717,68 @@ export class LevelManager implements Disposable {
           break;
 
         case 'collider': {
-          if (!entry.mesh) break;
-          this.bakeWorldTransformAndAdd(entry.mesh);
-          const collider = this.colliderFactory.createTrimesh(entry.mesh);
-          this.levelColliders.push(collider);
-          this.levelObjects.push(entry.mesh);
+          if (entry.mesh) {
+            entry.mesh.visible = false;
+            this.bakeWorldTransformAndAdd(entry.mesh);
+            const collider = this.colliderFactory.createTrimesh(entry.mesh);
+            this.levelColliders.push(collider);
+            this.levelObjects.push(entry.mesh);
+          } else {
+            // Non-mesh collider node (e.g. empty/group tagged as collider).
+            // Create a box collider from the node's world-space bounding box.
+            entry.object.updateWorldMatrix(true, true);
+            const box = new THREE.Box3().setFromObject(entry.object);
+            if (!box.isEmpty()) {
+              const center = box.getCenter(new THREE.Vector3());
+              const size = box.getSize(new THREE.Vector3());
+              const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(center.x, center.y, center.z);
+              const body = this.physicsWorld.world.createRigidBody(bodyDesc);
+              const colliderDesc = RAPIER.ColliderDesc.cuboid(
+                Math.max(size.x / 2, 0.01),
+                Math.max(size.y / 2, 0.01),
+                Math.max(size.z / 2, 0.01),
+              );
+              const collider = this.physicsWorld.world.createCollider(colliderDesc, body);
+              this.levelBodies.push(body);
+              this.levelColliders.push(collider);
+            }
+          }
           break;
         }
 
         case 'sensor': {
-          if (!entry.mesh) break;
-          const { collider, body } = this.colliderFactory.createSensor(entry.mesh);
-          this.levelColliders.push(collider);
-          this.levelBodies.push(body);
+          if (entry.mesh) {
+            const { collider, body } = this.colliderFactory.createSensor(entry.mesh);
+            this.levelColliders.push(collider);
+            this.levelBodies.push(body);
+          } else {
+            // Non-mesh sensor node — create a box sensor from bounding box.
+            entry.object.updateWorldMatrix(true, true);
+            const box = new THREE.Box3().setFromObject(entry.object);
+            if (!box.isEmpty()) {
+              const center = box.getCenter(new THREE.Vector3());
+              const size = box.getSize(new THREE.Vector3());
+              const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(center.x, center.y, center.z);
+              const body = this.physicsWorld.world.createRigidBody(bodyDesc);
+              const colliderDesc = RAPIER.ColliderDesc.cuboid(
+                Math.max(size.x / 2, 0.01),
+                Math.max(size.y / 2, 0.01),
+                Math.max(size.z / 2, 0.01),
+              ).setSensor(true);
+              const collider = this.physicsWorld.world.createCollider(colliderDesc, body);
+              this.levelBodies.push(body);
+              this.levelColliders.push(collider);
+            } else {
+              console.warn('[LevelManager] Sensor node has no mesh and empty bounding box, skipped:', entry.object.name);
+            }
+          }
           break;
         }
 
         case 'visual':
           if (!entry.mesh) break;
+          entry.mesh.castShadow = true;
+          entry.mesh.receiveShadow = true;
           this.bakeWorldTransformAndAdd(entry.mesh);
           this.levelObjects.push(entry.mesh);
           break;
@@ -921,9 +986,16 @@ export class LevelManager implements Disposable {
       };
     } else {
       const targetZ = getShowcaseStationZ(this.stationFilter!);
+      const override = STATION_SPAWN_OVERRIDES[this.stationFilter!];
+      const ox = override?.offset?.[0] ?? 0;
+      const oy = override?.offset?.[1] ?? 0;
+      const oz = override?.offset?.[2] ?? 0;
+      const rot = override?.rotation
+        ? new THREE.Euler(override.rotation[0], override.rotation[1], override.rotation[2])
+        : new THREE.Euler(0, Math.PI, 0);
       this.spawnPoint = {
-        position: new THREE.Vector3(0, 2, targetZ + 10),
-        rotation: new THREE.Euler(0, Math.PI, 0),
+        position: new THREE.Vector3(ox, 2 + oy, targetZ + 10 + oz),
+        rotation: rot,
       };
     }
 
@@ -1199,8 +1271,23 @@ export class LevelManager implements Disposable {
     } // end navigation
 
     if (isTarget('futureA')) {
-    // Reserved empty bay for future additions (keep pedestal but no gameplay objects).
+    // Reserved bay with "under construction" visual treatment.
     this.createSectionLabel('Reserved\nFuture demos', new THREE.Vector3(0, 2.5, zFutureA), 8.8, 2.0);
+
+    const yellowMat = new THREE.MeshStandardMaterial({ color: 0xffcc00, roughness: 0.9 });
+    const darkMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.9 });
+    const barrierGeo = new THREE.BoxGeometry(1.2, 1.0, 0.4);
+    const barrierPositions = [0, -4, 4];
+    barrierPositions.forEach((xOff, i) => {
+      const mat = i % 2 === 0 ? yellowMat : darkMat;
+      const barrier = new THREE.Mesh(barrierGeo, mat);
+      barrier.position.set(xOff, bayTopY + 0.5, zFutureA);
+      barrier.castShadow = true;
+      barrier.receiveShadow = true;
+      barrier.name = `FutureA_barrier_${i}`;
+      this.scene.add(barrier);
+      this.levelObjects.push(barrier);
+    });
     } // end futureA
 
     // --- Visual polish (skip in single-station mode) ---
@@ -1896,6 +1983,7 @@ export class LevelManager implements Disposable {
     }
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    mesh.computeBoundingSphere();
     this.scene.add(mesh);
     this.levelObjects.push(mesh);
   }
@@ -1964,6 +2052,7 @@ export class LevelManager implements Disposable {
         mesh.setMatrixAt(i, dummy.matrix);
       }
       mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingSphere();
       this.scene.add(mesh);
       this.levelObjects.push(mesh);
     }
@@ -2081,6 +2170,7 @@ export class LevelManager implements Disposable {
       mesh.setMatrixAt(i * 2 + 1, dummy.matrix);
     }
     mesh.instanceMatrix.needsUpdate = true;
+    mesh.computeBoundingSphere();
     this.scene.add(mesh);
     this.levelObjects.push(mesh);
   }
@@ -2273,6 +2363,7 @@ export class LevelManager implements Disposable {
       this.scene.add(light);
       this.scene.add(light.target);
       this.levelObjects.push(light);
+      this.levelObjects.push(light.target);
     });
   }
 
@@ -2852,8 +2943,9 @@ export class LevelManager implements Disposable {
         return;
       }
 
-      // Shared noise texture.
+      // Shared noise texture (NoColorSpace — raw data, not sRGB).
       this.vfxNoiseTexture = this.createNoiseTexture();
+      this.vfxNoiseTexture.colorSpace = THREE.NoColorSpace;
       const noiseTex = this.vfxNoiseTexture;
 
       // Distributed station positions across the platform.

@@ -11,6 +11,8 @@ export class VehicleSeat implements IInteractable {
   readonly id: string;
   readonly label: string;
   readonly position = new THREE.Vector3();
+  private _cachedHandles: number[] = [];
+  private _cachedColliderCount = -1;
 
   constructor(
     id: string,
@@ -42,13 +44,17 @@ export class VehicleSeat implements IInteractable {
   }
 
   getIgnoredColliderHandles(): number[] {
-    const handles: number[] = [];
     const body = this.vehicle.body;
-    for (let i = 0, n = body.numColliders(); i < n; i++) {
-      const c = body.collider(i);
-      if (c) handles.push(c.handle);
+    const n = body.numColliders();
+    if (n !== this._cachedColliderCount) {
+      this._cachedColliderCount = n;
+      this._cachedHandles.length = 0;
+      for (let i = 0; i < n; i++) {
+        const c = body.collider(i);
+        if (c) this._cachedHandles.push(c.handle);
+      }
     }
-    return handles;
+    return this._cachedHandles;
   }
 
   dispose(): void {

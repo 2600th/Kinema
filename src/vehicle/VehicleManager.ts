@@ -12,6 +12,7 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
   private lastInput: InputState = NULL_INPUT;
   /** Blocks immediate re-entry on the same tick as an exit. */
   private exitCooldown = 0;
+  private unsubs: (() => void)[] = [];
 
   constructor(
     private eventBus: EventBus,
@@ -19,9 +20,11 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
     private camera: OrbitFollowCamera,
     private interactionManager: InteractionManager,
   ) {
-    this.eventBus.on('vehicle:enter', ({ vehicle }) => {
-      this.enterVehicle(vehicle);
-    });
+    this.unsubs.push(
+      this.eventBus.on('vehicle:enter', ({ vehicle }) => {
+        this.enterVehicle(vehicle);
+      }),
+    );
   }
 
   register(vehicle: VehicleController): void {
@@ -95,6 +98,8 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
   }
 
   dispose(): void {
+    for (const unsub of this.unsubs) unsub();
+    this.unsubs.length = 0;
     this.clear();
   }
 

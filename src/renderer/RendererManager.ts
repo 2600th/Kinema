@@ -8,6 +8,9 @@ import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import type { Disposable } from '@core/types';
 import type { GraphicsProfile, ShadowQualityTier } from '@core/UserSettings';
 
+const _drawingSize = new THREE.Vector2();
+const _envRotation = new THREE.Euler();
+
 /** LUT preset definitions: name -> { file, format } */
 const LUT_PRESETS: ReadonlyArray<{ name: string; file: string; format: 'cube' | '3dl' | 'image' }> = [
   { name: 'Bourbon 64',          file: 'Bourbon 64.CUBE',          format: 'cube' },
@@ -166,12 +169,12 @@ export class RendererManager implements Disposable {
    * Upstream issue: toggling shadows at runtime can trigger a null depthTexture
    * crash inside ShadowNode, causing a black screen or device loss.
    */
-  private static readonly EXPECTED_THREE_REVISION = '182';
+  private static readonly SUPPORTED_THREE_REVISIONS = ['182', '183'];
 
   private patchShadowNodeForToggle(wgpuRenderer: WebGPURenderer): void {
-    if (THREE.REVISION !== RendererManager.EXPECTED_THREE_REVISION) {
+    if (!RendererManager.SUPPORTED_THREE_REVISIONS.includes(THREE.REVISION)) {
       console.warn(
-        `[RendererManager] Shadow toggle patch was written for Three.js r${RendererManager.EXPECTED_THREE_REVISION} ` +
+        `[RendererManager] Shadow toggle patch was written for Three.js r${RendererManager.SUPPORTED_THREE_REVISIONS.join('/')} ` +
         `but running r${THREE.REVISION}. Skipping patch — verify shadow toggling still works.`,
       );
       return;
@@ -319,6 +322,10 @@ export class RendererManager implements Disposable {
       pmremGenerator.dispose();
       this.createPmremGenerator = () => new PMREMGenerator(this.renderer as any);
 
+      // Dispose the temporary WebGL fallback renderer before swapping.
+      const oldRenderer = this.renderer as THREE.WebGLRenderer;
+      oldRenderer.dispose();
+
       // Successful pipeline setup - NOW swap the renderer and set flag
       (this as { renderer: THREE.WebGLRenderer | WebGPURenderer }).renderer = wgpuRenderer;
       this.isWebGPUPipeline = true;
@@ -390,6 +397,7 @@ export class RendererManager implements Disposable {
       const placeholderLut = new THREE.Data3DTexture(new Uint8Array(4 * 2 * 2 * 2), 2, 2, 2);
       placeholderLut.format = THREE.RGBAFormat;
       placeholderLut.type = THREE.UnsignedByteType;
+      placeholderLut.colorSpace = THREE.NoColorSpace;
       placeholderLut.needsUpdate = true;
 
       const applyDisplayOutput = (colorInput: TSLNode): TSLNode => {
@@ -818,7 +826,7 @@ export class RendererManager implements Disposable {
   private getProfileMaxPixelRatio(profile: GraphicsProfile): number {
     if (profile === 'performance') return 1.25;
     if (profile === 'balanced') return 1.75;
-    return 2.5;
+    return 2;
   }
 
   private getEffectiveShadowQualityProfile(): GraphicsProfile {
@@ -838,21 +846,20 @@ export class RendererManager implements Disposable {
 
   private syncCasTexelSize(): void {
     if (!this.postFXUniforms) return;
-    const drawingSize = new THREE.Vector2();
-    this.renderer.getDrawingBufferSize(drawingSize);
-    if (drawingSize.x <= 0 || drawingSize.y <= 0) return;
-    this.postFXUniforms.casTexelSize.value.set(1 / drawingSize.x, 1 / drawingSize.y);
+    this.renderer.getDrawingBufferSize(_drawingSize);
+    if (_drawingSize.x <= 0 || _drawingSize.y <= 0) return;
+    this.postFXUniforms.casTexelSize.value.set(1 / _drawingSize.x, 1 / _drawingSize.y);
   }
 
   private applyEnvironmentRotation(): void {
     const radians = THREE.MathUtils.degToRad(this.envRotationDegrees);
-    const rotation = new THREE.Euler(0, radians, 0);
+    _envRotation.set(0, radians, 0);
     const sceneWithRotation = this.scene as THREE.Scene & {
       environmentRotation?: THREE.Euler;
       backgroundRotation?: THREE.Euler;
     };
-    sceneWithRotation.environmentRotation = rotation;
-    sceneWithRotation.backgroundRotation = rotation;
+    sceneWithRotation.environmentRotation = _envRotation;
+    sceneWithRotation.backgroundRotation = _envRotation;
   }
 
   private isSsrActiveForPipeline(): boolean {

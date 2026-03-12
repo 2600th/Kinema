@@ -47,8 +47,8 @@ export const DEFAULT_USER_SETTINGS: Readonly<UserSettings> = Object.freeze({
   rawMouseInput: false,
   gamepadDeadzone: 0.12,
   gamepadCurve: 1.4,
-  // Default aims for a stable deterministic image out of the box.
-  graphicsProfile: 'cinematic',
+  // Default aims for a good balance of quality and performance out of the box.
+  graphicsProfile: 'balanced',
   aaMode: 'smaa',
   resolutionScale: 1,
   shadowsEnabled: true,
