@@ -28,19 +28,19 @@ export class FadeScreen implements Disposable {
     this.overlay.style.transition = `opacity ${durationMs}ms ease`;
     this.overlay.style.opacity = '1';
     this.overlay.style.pointerEvents = 'all';
-    return this.waitForTransition();
+    return this.waitForTransition(durationMs);
   }
 
   /** Fade from black to transparent. Returns when transition completes. */
   fadeOut(durationMs = 500): Promise<void> {
     this.overlay.style.transition = `opacity ${durationMs}ms ease`;
     this.overlay.style.opacity = '0';
-    return this.waitForTransition().then(() => {
+    return this.waitForTransition(durationMs).then(() => {
       this.overlay.style.pointerEvents = 'none';
     });
   }
 
-  private waitForTransition(): Promise<void> {
+  private waitForTransition(durationMs: number): Promise<void> {
     return new Promise((resolve) => {
       let settled = false;
       const done = () => {
@@ -52,7 +52,7 @@ export class FadeScreen implements Disposable {
       };
       const handler = () => done();
       this.overlay.addEventListener('transitionend', handler);
-      const timer = setTimeout(done, 600);
+      const timer = setTimeout(done, durationMs + 100);
     });
   }
 

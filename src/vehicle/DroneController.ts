@@ -3,6 +3,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import type { InputState, SpawnPointData } from '@core/types';
 import type { PhysicsWorld } from '@physics/PhysicsWorld';
 import { toRapierQuat } from '@physics/PhysicsHelpers';
+import { COLLISION_GROUP_VEHICLE } from '@core/constants';
 import type { VehicleController } from './VehicleController';
 
 const _forward = new THREE.Vector3();
@@ -78,6 +79,7 @@ export class DroneController implements VehicleController {
     const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
       .setTranslation(position.x, position.y, position.z);
     this.body = this.physicsWorld.world.createRigidBody(bodyDesc);
+    this.body.userData = { kind: 'vehicle' };
     this.body.enableCcd(true);
     this.body.setLinearDamping(2.8);
     this.body.setAngularDamping(3.2);
@@ -92,7 +94,8 @@ export class DroneController implements VehicleController {
     const colliderDesc = RAPIER.ColliderDesc.cuboid(0.6, 0.2, 0.6)
       .setDensity(1.0)
       .setFriction(1.2)
-      .setRestitution(0.02);
+      .setRestitution(0.02)
+      .setCollisionGroups(COLLISION_GROUP_VEHICLE);
     this.physicsWorld.world.createCollider(colliderDesc, this.body);
 
     this.mesh = this.createDroneMesh();
@@ -143,7 +146,10 @@ export class DroneController implements VehicleController {
     _quat.set(rot.x, rot.y, rot.z, rot.w);
     const basePos = new THREE.Vector3(pos.x, pos.y, pos.z);
 
-    // Probe multiple exit candidates, pick first clear one
+    // Probe exit positions with downward raycast to find ground, then add
+    // capsule clearance so the player doesn't spawn inside the floor.
+    const capsuleClearance = 1.1; // capsule half-height + radius + margin
+
     for (const candidate of _droneExitCandidates) {
       _exitProbe.copy(candidate).applyQuaternion(_quat).add(basePos);
       const dx = _exitProbe.x - basePos.x;
@@ -159,11 +165,24 @@ export class DroneController implements VehicleController {
         (c) => !c.isSensor(),
       );
       if (!blocked || blocked.timeOfImpact >= dist - 0.1) {
+        // Find ground below exit point so the player lands properly
+        const groundHit = this.physicsWorld.castRay(
+          _setDRV(_drv3A, _exitProbe.x, _exitProbe.y + 2, _exitProbe.z),
+          _setDRV(_drv3B, 0, -1, 0),
+          50,
+          undefined,
+          this.body,
+          (c) => !c.isSensor(),
+        );
+        if (groundHit) {
+          _exitProbe.y = (_exitProbe.y + 2) - groundHit.timeOfImpact + capsuleClearance;
+        }
         return { position: _exitProbe.clone() };
       }
     }
     // Fallback
     _exitProbe.copy(_droneExitCandidates[0]).applyQuaternion(_quat).add(basePos);
+    _exitProbe.y = basePos.y + capsuleClearance;
     return { position: _exitProbe.clone() };
   }
 

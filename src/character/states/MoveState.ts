@@ -4,6 +4,7 @@ import { State } from './State';
 
 const _movement = new THREE.Vector3();
 
+
 export class MoveState extends State {
   readonly id: StateId = 'move';
 
@@ -27,12 +28,8 @@ export class MoveState extends State {
     return null;
   }
 
-  update(dt: number): void {
-    // Rotate mesh toward movement direction
-    if (this.player.lastInputSnapshot) {
-      const dir = this.player.computeMovementDirection(this.player.lastInputSnapshot);
-      this.player.rotateToward(dir, dt);
-    }
+  update(_dt: number): void {
+    // Rotation is handled centrally in PlayerController.fixedUpdate.
   }
 
   getDesiredMovement(dt: number, input: InputState): THREE.Vector3 {

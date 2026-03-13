@@ -7,6 +7,7 @@ import {
   COLLISION_GROUP_PLAYER,
   COLLISION_GROUP_PLAYER_SENSOR,
   COLLISION_GROUP_INTERACTABLE,
+  COLLISION_GROUP_VEHICLE,
 } from './constants';
 
 describe('constants', () => {
@@ -18,13 +19,15 @@ describe('constants', () => {
     const membership = (g: number) => g >>> 16;
     const filter = (g: number) => g & 0xffff;
     expect(membership(COLLISION_GROUP_WORLD)).toBe(1);
-    expect(filter(COLLISION_GROUP_WORLD)).toBe(3);
+    expect(filter(COLLISION_GROUP_WORLD)).toBe(0x13); // world+player+vehicle
     expect(membership(COLLISION_GROUP_PLAYER)).toBe(2);
-    expect(filter(COLLISION_GROUP_PLAYER)).toBe(1);
+    expect(filter(COLLISION_GROUP_PLAYER)).toBe(1); // world only
     expect(membership(COLLISION_GROUP_PLAYER_SENSOR)).toBe(4);
     expect(filter(COLLISION_GROUP_PLAYER_SENSOR)).toBe(8);
     expect(membership(COLLISION_GROUP_INTERACTABLE)).toBe(8);
     expect(filter(COLLISION_GROUP_INTERACTABLE)).toBe(4);
+    expect(membership(COLLISION_GROUP_VEHICLE)).toBe(16);
+    expect(filter(COLLISION_GROUP_VEHICLE)).toBe(1); // world only
   });
 
   it('includes movement feel config values for jump buffering and sprint camera feedback', () => {

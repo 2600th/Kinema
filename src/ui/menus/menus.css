@@ -391,3 +391,93 @@
   font-size: 13px;
   font-style: italic;
 }
+
+/* ---- Responsive ---- */
+
+@media (max-width: 768px) {
+  .menu-screen {
+    min-width: 300px;
+    max-width: 440px;
+    padding: 24px 28px;
+  }
+
+  .menu-title {
+    font-size: 26px;
+    margin-bottom: 18px;
+  }
+
+  .menu-button {
+    padding: 12px 16px;
+    font-size: 15px;
+  }
+
+  .menu-tab {
+    padding: 8px 10px;
+    font-size: 13px;
+  }
+
+  .menu-level-list {
+    max-height: 250px;
+  }
+}
+
+@media (max-width: 480px) {
+  .menu-screen {
+    min-width: 0;
+    width: calc(100vw - 32px);
+    max-width: 100%;
+    padding: 20px 18px;
+    border-radius: 14px;
+  }
+
+  .menu-title {
+    font-size: 22px;
+    margin-bottom: 14px;
+  }
+
+  .menu-button {
+    padding: 11px 14px;
+    font-size: 14px;
+    margin-top: 8px;
+    border-radius: 10px;
+  }
+
+  .menu-tabs {
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+  }
+
+  .menu-tab {
+    padding: 7px 8px;
+    font-size: 12px;
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+
+  .menu-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .menu-field > label {
+    font-size: 13px;
+  }
+
+  .menu-level-list {
+    max-height: 200px;
+  }
+
+  .menu-level-card {
+    padding: 10px 12px;
+  }
+
+  .menu-level-actions {
+    margin-left: 8px;
+  }
+
+  .menu-button-small {
+    padding: 5px 10px;
+    font-size: 11px;
+  }
+}

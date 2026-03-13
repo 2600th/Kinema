@@ -44,6 +44,7 @@ const _worldUp = new THREE.Vector3(0, 1, 0);
 const _grabTarget = new THREE.Vector3();
 const _grabForward = new THREE.Vector3();
 const _carryTarget = new THREE.Vector3();
+const _slopeProjected = new THREE.Vector3();
 const _groundBodyTranslation = new THREE.Vector3();
 const _groundBodyAngvel = new THREE.Vector3();
 
@@ -59,6 +60,17 @@ const _rv3B = new RAPIER.Vector3(0, 0, 0);
 function _setRV(v: RAPIER.Vector3, x: number, y: number, z: number): RAPIER.Vector3 {
   v.x = x; v.y = y; v.z = z;
   return v;
+}
+
+/** Raycast filter: skip sensors and vehicle colliders. */
+function _notSensorOrVehicle(c: RAPIER.Collider): boolean {
+  if (c.isSensor()) return false;
+  const parent = c.parent();
+  if (parent) {
+    const ud = parent.userData as { kind?: string } | null;
+    if (ud?.kind === 'vehicle') return false;
+  }
+  return true;
 }
 
 interface CarryableObject {
@@ -357,7 +369,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       this.config.floatingRayLength,
       undefined,
       this.body,
-      (c) => !c.isSensor(),
+      _notSensorOrVehicle,
     );
 
     _slopeForward.set(0, 0, 1).applyQuaternion(this.mesh.quaternion);
@@ -368,7 +380,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       this.config.slopeRayLength,
       undefined,
       this.body,
-      (c) => !c.isSensor(),
+      _notSensorOrVehicle,
     );
 
     this.actualSlopeAngle = 0;
@@ -413,9 +425,14 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       this.jumpActive = false;
     }
 
-    // Variable jump: cut jump short when player releases jump key while rising
+    // Variable jump: cut jump short when player releases jump key while rising.
+    // Cut upward velocity directly for immediate height control, then use
+    // normal falling gravity (not the old 1.5x multiplier which slammed down).
     if (!input.jump && this.verticalVelocity > 0 && this.jumpActive) {
-      this.setGravityScale(this.config.fallingGravityScale * 1.5);
+      const lv = this.body.linvel();
+      this.body.setLinvel(_setRV(_rv3A, lv.x, lv.y * 0.4, lv.z), true);
+      this.verticalVelocity = lv.y * 0.4;
+      this.setGravityScale(this.config.fallingGravityScale);
       this.jumpActive = false;
     }
 
@@ -469,7 +486,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     // WHY: Impulse-based locomotion felt floaty and caused direction drift when releasing strafe.
     this.applyMoveVelocity(desiredInputDir, run, hasMovement, dt, input);
     if (hasMovement) {
-      this.applyStepAssist(desiredInputDir, run);
+      this.applyStepAssist(desiredInputDir, run, dt);
     }
 
     if (!movementLockedNow && this.fsm.current !== 'grab' && this.jumpBufferRemaining > 0) {
@@ -510,8 +527,16 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     if (_currentVel.y < -this.config.fallingMaxVelocity) {
       this.setGravityScale(0);
     } else {
-      const falling = _currentVel.y < 0 && !this.canJump;
-      this.setGravityScale(falling ? this.config.fallingGravityScale : 1);
+      const airborne = !this.canJump;
+      const atApex = airborne && Math.abs(_currentVel.y) < this.config.apexHangThreshold;
+      const falling = _currentVel.y < 0 && airborne;
+      if (atApex) {
+        this.setGravityScale(this.config.apexGravityScale);
+      } else if (falling) {
+        this.setGravityScale(this.config.fallingGravityScale);
+      } else {
+        this.setGravityScale(1);
+      }
     }
 
     if (this.grabbedBody) {
@@ -551,12 +576,52 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     const grounded = this.canJump;
     const inAir = !grounded;
 
+    // Slope projection: when grounded on a non-trivial slope, project movement
+    // onto the slope surface so velocity follows the terrain instead of fighting it.
+    const MIN_SLOPE_THRESHOLD = 0.05; // radians — ignore near-flat surfaces
+    const onSlope = grounded && this.actualSlopeAngle > MIN_SLOPE_THRESHOLD;
+
     // Compute desired direction on XZ plane.
     _movingDirection.copy(desiredInputDir).setY(0);
     const hasDir = hasMovement && _movingDirection.lengthSq() > 0.0001;
     if (hasDir) _movingDirection.normalize();
 
-    // Relative (to moving platform) horizontal velocity.
+    // If on a slope with active input, project the XZ direction onto the slope plane.
+    // This gives the velocity a Y component that follows the surface.
+    let useSlope = false;
+    let slopeDirX = 0;
+    let slopeDirY = 0;
+    let slopeDirZ = 0;
+    let slopeExtraMultiplier = 1;
+
+    if (onSlope && hasDir) {
+      // Project desired direction onto slope: dir - normal * dot(dir, normal)
+      const dot = _movingDirection.x * _actualSlopeNormal.x +
+                  _movingDirection.y * _actualSlopeNormal.y +
+                  _movingDirection.z * _actualSlopeNormal.z;
+      _slopeProjected.set(
+        _movingDirection.x - _actualSlopeNormal.x * dot,
+        _movingDirection.y - _actualSlopeNormal.y * dot,
+        _movingDirection.z - _actualSlopeNormal.z * dot,
+      );
+      const projLen = _slopeProjected.length();
+      if (projLen > 0.0001) {
+        _slopeProjected.divideScalar(projLen);
+        useSlope = true;
+        slopeDirX = _slopeProjected.x;
+        slopeDirY = _slopeProjected.y;
+        slopeDirZ = _slopeProjected.z;
+
+        // Determine uphill vs downhill: projected Y > 0 means moving uphill.
+        if (slopeDirY > 0.001) {
+          slopeExtraMultiplier = 1 + this.config.slopeUpExtraForce;
+        } else if (slopeDirY < -0.001) {
+          slopeExtraMultiplier = 1 + this.config.slopeDownExtraForce;
+        }
+      }
+    }
+
+    // Relative (to moving platform) velocity.
     const relVx0 = lv.x - platformVx;
     const relVz0 = lv.z - platformVz;
 
@@ -571,34 +636,52 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     const t = 1 - Math.exp(-lambda * dt);
     const tSide = 1 - Math.exp(-sideLambda * dt);
 
-    let relVx = relVx0;
-    let relVz = relVz0;
+    let nextVx: number;
+    let nextVy: number;
+    let nextVz: number;
 
-    if (hasDir) {
-      // Decompose current relative velocity into parallel/perpendicular to desired direction.
+    if (hasDir && useSlope) {
+      // 3D decomposition along the slope-projected direction.
+      // Parallel component: dot of relative velocity with slope direction.
+      const relVy0 = lv.y;
+      const vParMag0 = relVx0 * slopeDirX + relVy0 * slopeDirY + relVz0 * slopeDirZ;
+      const vPerpX0 = relVx0 - slopeDirX * vParMag0;
+      const vPerpY0 = relVy0 - slopeDirY * vParMag0;
+      const vPerpZ0 = relVz0 - slopeDirZ * vParMag0;
+
+      // Steer parallel speed toward target (with slope extra force), damp perpendicular.
+      const adjustedTarget = targetSpeed * slopeExtraMultiplier;
+      const vParMag = vParMag0 + (adjustedTarget - vParMag0) * t;
+      const vPerpX = vPerpX0 + (0 - vPerpX0) * tSide;
+      const vPerpY = vPerpY0 + (0 - vPerpY0) * tSide;
+      const vPerpZ = vPerpZ0 + (0 - vPerpZ0) * tSide;
+
+      nextVx = (slopeDirX * vParMag + vPerpX) + platformVx;
+      nextVy = slopeDirY * vParMag + vPerpY;
+      nextVz = (slopeDirZ * vParMag + vPerpZ) + platformVz;
+    } else if (hasDir) {
+      // Flat ground / air: original XZ-only logic.
       const dirX = _movingDirection.x;
       const dirZ = _movingDirection.z;
       const vParMag0 = relVx0 * dirX + relVz0 * dirZ;
       const vPerpX0 = relVx0 - dirX * vParMag0;
       const vPerpZ0 = relVz0 - dirZ * vParMag0;
 
-      // Steer parallel speed toward targetSpeed, and aggressively damp perpendicular drift.
       const vParMag = vParMag0 + (targetSpeed - vParMag0) * t;
       const vPerpX = vPerpX0 + (0 - vPerpX0) * tSide;
       const vPerpZ = vPerpZ0 + (0 - vPerpZ0) * tSide;
 
-      relVx = dirX * vParMag + vPerpX;
-      relVz = dirZ * vParMag + vPerpZ;
+      nextVx = (dirX * vParMag + vPerpX) + platformVx;
+      nextVy = lv.y;
+      nextVz = (dirZ * vParMag + vPerpZ) + platformVz;
     } else {
       // No input: damp relative velocity to zero.
-      relVx = relVx0 + (0 - relVx0) * t;
-      relVz = relVz0 + (0 - relVz0) * t;
+      nextVx = (relVx0 + (0 - relVx0) * t) + platformVx;
+      nextVy = lv.y;
+      nextVz = (relVz0 + (0 - relVz0) * t) + platformVz;
     }
 
-    const nextVx = relVx + platformVx;
-    const nextVz = relVz + platformVz;
-
-    this.body.setLinvel(_setRV(_rv3A, nextVx, lv.y, nextVz), true);
+    this.body.setLinvel(_setRV(_rv3A, nextVx, nextVy, nextVz), true);
   }
 
   private applyJumpImpulse(run: boolean, airJump: boolean): void {
@@ -628,7 +711,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     }
   }
 
-  private applyStepAssist(desiredInputDir: THREE.Vector3, run: boolean): void {
+  private applyStepAssist(desiredInputDir: THREE.Vector3, run: boolean, dt: number): void {
     if (!this.canJump && !this.isGrounded) return;
     if (desiredInputDir.lengthSq() < 0.0001) return;
     if (_currentVel.y > 0.55) return;
@@ -675,8 +758,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     // teleporting the dynamic body (which can cause jitter, missed contacts,
     // or ghost-step behavior on edges).
     // At 60 Hz, a displacement of d metres/frame ≈ d * 60 m/s in velocity.
-    const stepUpVel = (run ? 0.12 : 0.1) * 60; // was a teleport offset
-    const fwdNudgeVel = 0.05 * 60;              // was a teleport nudge
+    const stepUpVel = (run ? 0.12 : 0.1) / dt; // per-frame displacement → velocity
+    const fwdNudgeVel = 0.05 / dt;              // per-frame displacement → velocity
     const upBoost = run ? 3.4 : 3.0;
     const fwdBoost = run ? 1.35 : 1.2;
     if (lv.y < upBoost) {
@@ -900,6 +983,11 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     const scaleY = 1 - this.crouchVisual * 0.28;
     const scaleXZ = 1 + this.crouchVisual * 0.04;
     this.mesh.scale.set(scaleXZ, scaleY, scaleXZ);
+    // Sync animation playback speed to actual horizontal velocity to prevent foot-sliding.
+    const vel = this.body.linvel();
+    const horizontalSpeed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+    this.characterVisual?.setMovementSpeed(horizontalSpeed);
+
     this.characterVisual?.setState(this.fsm.current);
     this.characterVisual?.update(_dt);
   }
@@ -1112,11 +1200,18 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     const targetAngle = Math.atan2(direction.x, direction.z);
     const currentAngle = this.mesh.rotation.y;
     const diff = ((targetAngle - currentAngle + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
-    this.mesh.rotation.y += diff * Math.min(1, this.config.turnSpeed * dt);
+    this.mesh.rotation.y += diff * (1 - Math.exp(-this.config.turnSpeed * dt));
   }
 
   get position(): THREE.Vector3 {
     return this.currPosition;
+  }
+
+  /** Position at ground contact (bottom of capsule + float offset). */
+  private readonly _groundPos = new THREE.Vector3();
+  get groundPosition(): THREE.Vector3 {
+    const feetOffset = this.currentCapsuleHalfHeight + this.config.capsuleRadius + this.config.floatHeight;
+    return this._groundPos.set(this.currPosition.x, this.currPosition.y - feetOffset, this.currPosition.z);
   }
 
   dispose(): void {

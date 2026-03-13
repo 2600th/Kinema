@@ -3,6 +3,7 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import type { EventBus } from '@core/EventBus';
 import type { PlayerController } from '@character/PlayerController';
 import type { IInteractable } from '../Interactable';
+import { setMeshHighlight } from '../highlightMesh';
 
 export class ThrowableObject implements IInteractable {
   readonly id: string;
@@ -70,32 +71,8 @@ export class ThrowableObject implements IInteractable {
     // Ownership handled by game/level managers.
   }
 
-  private readonly originalMaterials = new WeakMap<THREE.Material, { emissive?: number; emissiveIntensity?: number }>();
-
   private setHighlighted(enabled: boolean): void {
-    this.mesh.traverse((node) => {
-      const m = node as THREE.Mesh;
-      if (!m.isMesh) return;
-      const materials = Array.isArray(m.material) ? m.material : [m.material];
-      for (const mat of materials) {
-        const std = mat as THREE.MeshStandardMaterial;
-        if (!('emissive' in std)) continue;
-        if (!this.originalMaterials.has(mat)) {
-          this.originalMaterials.set(mat, {
-            emissive: (std.emissive as THREE.Color | undefined)?.getHex?.(),
-            emissiveIntensity: (std.emissiveIntensity as number | undefined),
-          });
-        }
-        if (enabled) {
-          (std.emissive as THREE.Color).setHex(0xffb24a);
-          std.emissiveIntensity = 0.35;
-        } else {
-          const original = this.originalMaterials.get(mat);
-          (std.emissive as THREE.Color).setHex(original?.emissive ?? 0x000000);
-          std.emissiveIntensity = original?.emissiveIntensity ?? 0;
-        }
-      }
-    });
+    setMeshHighlight(this.mesh, enabled, 0xffb24a, 0.35);
   }
 
   private syncPositionFromBody(): void {

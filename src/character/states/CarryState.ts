@@ -15,7 +15,8 @@ export class CarryState extends State {
     // Carry cleanup handled by PlayerController throw/drop helpers.
   }
 
-  handleInput(input: InputState, _isGrounded: boolean): StateId | null {
+  handleInput(input: InputState, isGrounded: boolean): StateId | null {
+    if (!isGrounded) return 'air';
     // Actual carry/throw logic is handled by PlayerController.fixedUpdate;
     // these transitions ensure the FSM stays in sync as a fallback.
     if (input.interactPressed) {
@@ -27,11 +28,8 @@ export class CarryState extends State {
     return null;
   }
 
-  update(dt: number): void {
-    if (this.player.lastInputSnapshot) {
-      const dir = this.player.computeMovementDirection(this.player.lastInputSnapshot);
-      this.player.rotateToward(dir, dt);
-    }
+  update(_dt: number): void {
+    // Rotation is handled centrally in PlayerController.fixedUpdate.
   }
 
   getDesiredMovement(dt: number, input: InputState): THREE.Vector3 {

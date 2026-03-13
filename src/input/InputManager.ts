@@ -5,6 +5,13 @@ import { NULL_INPUT } from '@core/types';
 const GAMEPAD_MOVE_THRESHOLD = 0.25;
 const GAMEPAD_LOOK_SPEED = 18;
 
+/** Look deltas consumed per render frame for high-refresh-rate responsiveness. */
+export interface LookState {
+  readonly lookDX: number;
+  readonly lookDY: number;
+  readonly wheelDelta: number;
+}
+
 type GamepadSnapshot = {
   forward: boolean;
   backward: boolean;
@@ -13,6 +20,7 @@ type GamepadSnapshot = {
   crouch: boolean;
   jump: boolean;
   interact: boolean;
+  primary: boolean;
   sprint: boolean;
   lookX: number;
   lookY: number;
@@ -36,7 +44,7 @@ export class InputManager implements Disposable {
   private mouseDown = false;
   private mousePrimary = false;
   private locked = false;
-  private rawMouseInput = false;
+  private rawMouseInput = true;
   private gamepadDeadzone = 0.12;
   private gamepadCurve = 1.4;
   private inputSuppressed = false;
@@ -84,10 +92,6 @@ export class InputManager implements Disposable {
   /** Snapshot current input state, reset deltas, emit event. */
   poll(): InputState {
     if (this.inputSuppressed) {
-      // Reset mouse deltas so they don't leak into the first unsuppressed frame.
-      this.mouseDX = 0;
-      this.mouseDY = 0;
-      this.mouseWheel = 0;
       this.eventBus.emit('input:state', NULL_INPUT);
       return NULL_INPUT;
     }
@@ -97,7 +101,7 @@ export class InputManager implements Disposable {
     const crouchPressed = crouch && !this.prevCrouch;
     const jump = (this.locked && this.keys.has('Space')) || gamepad.jump;
     const interact = (this.locked && this.keys.has('KeyF')) || gamepad.interact;
-    const primary = (this.locked && this.mousePrimary) || gamepad.interact;
+    const primary = (this.locked && this.mousePrimary) || gamepad.primary;
     const altitudeUp = this.locked && this.keys.has('KeyE');
     const altitudeDown = this.locked && this.keys.has('KeyQ');
     this.prevCrouch = crouch;
@@ -137,18 +141,40 @@ export class InputManager implements Disposable {
       moveX,
       moveY,
       sprint: (this.locked && (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight'))) || gamepad.sprint,
-      mouseDeltaX: this.mouseDX + gamepad.lookX * GAMEPAD_LOOK_SPEED,
-      mouseDeltaY: this.mouseDY + gamepad.lookY * GAMEPAD_LOOK_SPEED,
-      mouseWheelDelta: this.mouseWheel,
+      // Look deltas are now consumed via pollLook() in the render loop.
+      // Kept at 0 here for backward compatibility with InputState consumers.
+      mouseDeltaX: 0,
+      mouseDeltaY: 0,
+      mouseWheelDelta: 0,
     });
 
-    // Reset mouse deltas after snapshot
+    this.eventBus.emit('input:state', state);
+    return state;
+  }
+
+  /**
+   * Consume accumulated look deltas — call once per render frame for
+   * high-refresh-rate responsiveness. Gamepad look is time-scaled by dt.
+   */
+  pollLook(dt: number): LookState {
+    if (this.inputSuppressed) {
+      this.mouseDX = 0;
+      this.mouseDY = 0;
+      this.mouseWheel = 0;
+      return { lookDX: 0, lookDY: 0, wheelDelta: 0 };
+    }
+
+    const gamepad = this.readGamepadState();
+    const lookDX = this.mouseDX + gamepad.lookX * GAMEPAD_LOOK_SPEED * dt;
+    const lookDY = this.mouseDY + gamepad.lookY * GAMEPAD_LOOK_SPEED * dt;
+    const wheelDelta = this.mouseWheel;
+
+    // Reset accumulated deltas after consumption
     this.mouseDX = 0;
     this.mouseDY = 0;
     this.mouseWheel = 0;
 
-    this.eventBus.emit('input:state', state);
-    return state;
+    return { lookDX, lookDY, wheelDelta };
   }
 
   get isLocked(): boolean {
@@ -245,13 +271,17 @@ export class InputManager implements Disposable {
       this.prevPrimary = false;
       this.mousePrimary = false;
       this.mouseDown = false;
+      // Reset accumulated deltas to prevent camera snap on next lock
+      this.mouseDX = 0;
+      this.mouseDY = 0;
+      this.mouseWheel = 0;
     }
   }
 
   private readGamepadState(): GamepadSnapshot {
     const nullSnap: GamepadSnapshot = {
       forward: false, backward: false, left: false, right: false,
-      crouch: false, jump: false, interact: false, sprint: false,
+      crouch: false, jump: false, interact: false, primary: false, sprint: false,
       lookX: 0, lookY: 0, moveX: 0, moveY: 0,
     };
     const api = navigator.getGamepads?.bind(navigator);
@@ -279,6 +309,7 @@ export class InputManager implements Disposable {
       crouch: pressed(1), // B / Circle
       jump: pressed(0), // A / Cross
       interact: pressed(2), // X / Square
+      primary: pressed(7), // RT / R2
       sprint: pressed(10) || pressed(4), // Left stick press or LB
       lookX,
       lookY,

@@ -85,8 +85,12 @@ describe('InputManager', () => {
     expect(state.jumpPressed).toBe(true);
     expect(state.interactPressed).toBe(true);
     expect(state.sprint).toBe(true);
-    expect(state.mouseDeltaX).not.toBe(0);
-    expect(state.mouseDeltaY).not.toBe(0);
+    // Look deltas are now consumed via pollLook(), not poll()
+    expect(state.mouseDeltaX).toBe(0);
+    expect(state.mouseDeltaY).toBe(0);
+    const look = manager.pollLook(1 / 60);
+    expect(look.lookDX).not.toBe(0);
+    expect(look.lookDY).not.toBe(0);
     manager.dispose();
   });
 });

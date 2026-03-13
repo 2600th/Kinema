@@ -27,7 +27,8 @@
       "@audio/*": ["./src/audio/*"],
       "@vehicle/*": ["./src/vehicle/*"],
       "@editor/*": ["./src/editor/*"],
-      "@navigation/*": ["./src/navigation/*"]
+      "@navigation/*": ["./src/navigation/*"],
+      "@juice/*": ["./src/juice/*"]
     },
     "baseUrl": "."
   },

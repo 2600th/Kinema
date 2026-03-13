@@ -29,6 +29,10 @@ import { CarController } from '@vehicle/CarController';
 import type { EditorManager } from '@editor/EditorManager';
 import type { NavPatrolSystem } from '@navigation/NavPatrolSystem';
 import type { NavDebugOverlay } from '@navigation/NavDebugOverlay';
+import { FeedbackPlayer } from '@juice/FeedbackPlayer';
+import { Hitstop } from '@juice/Hitstop';
+import { FOVPunch } from '@juice/FOVPunch';
+import { GameParticles } from '@juice/GameParticles';
 
 // Temp vector for speed calculation
 const _prevPos = new THREE.Vector3();
@@ -65,6 +69,13 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
   private navMarkerTimer: ReturnType<typeof setInterval> | null = null;
   private unsubs: (() => void)[] = [];
 
+  // Juice systems
+  readonly feedbackPlayer = new FeedbackPlayer();
+  readonly hitstop = new Hitstop();
+  readonly fovPunch = new FOVPunch();
+  private gameParticles: GameParticles | null = null;
+  private particleFootstepTimer = 0;
+
   constructor(
     private renderer: RendererManager,
     private physicsWorld: PhysicsWorld,
@@ -83,6 +94,10 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     this.objectiveManager = new ObjectiveManager(this.eventBus);
     this.audioManager = audioManager;
     this.physicsDebugView = new PhysicsDebugView(this.renderer.scene, this.physicsWorld);
+    this.gameParticles = new GameParticles(this.renderer.scene);
+
+    // Wire juice systems
+    this.camera.setFOVPunch(this.fovPunch);
 
     // Listen for interact state to trigger interactions
     this.unsubs.push(
@@ -91,6 +106,20 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
           this.interactionManager.refreshFocusFromPosition(this.playerController.position);
           this.interactionManager.triggerInteraction();
         }
+        if (current === 'jump' || current === 'airJump') {
+          this.gameParticles?.jumpPuff(this.playerController.groundPosition);
+        }
+      }),
+      this.eventBus.on('player:landed', ({ impactSpeed }) => {
+        // Screen shake: scale trauma with fall speed, cap at 0.5
+        this.camera.addTrauma(Math.min(0.5, impactSpeed * 0.05));
+        // High-impact landings get hitstop + FOV punch
+        if (impactSpeed > 5) {
+          this.hitstop.trigger(0.05);
+          this.fovPunch.punch(3);
+        }
+        // Landing dust particles
+        this.gameParticles?.landingImpact(this.playerController.groundPosition, impactSpeed);
       }),
       this.eventBus.on('interaction:triggered', ({ id }) => {
         if (id === 'beacon1') {
@@ -240,11 +269,6 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       this.vehicleManager.requestExit();
     }
 
-    // Apply mouse deltas to camera (consumed here, not in render loop)
-    const lookMode = this.vehicleManager.getCameraLookMode();
-    this.camera.handleMouseInput(input.mouseDeltaX, lookMode === 'yawOnly' ? 0 : input.mouseDeltaY);
-    this.camera.handleZoomInput(input.mouseWheelDelta);
-
     // Update dynamic level elements (moving platforms, etc.)
     this.levelManager.fixedUpdate(dt);
 
@@ -266,6 +290,24 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       }
     }
     this.audioManager.fixedUpdate(dt);
+
+    // Footstep dust particles — mirrors AudioManager footstep timing
+    if (!this.vehicleManager.isActive() && this.playerController.body) {
+      const vel = this.playerController.body.linvel();
+      const planarSpeed = Math.hypot(vel.x, vel.z);
+      const movingOnGround = this.playerController.isGrounded && planarSpeed > 1.15;
+      if (!movingOnGround) {
+        this.particleFootstepTimer = 0;
+      } else {
+        this.particleFootstepTimer -= dt;
+        if (this.particleFootstepTimer <= 0) {
+          this.gameParticles?.footstepDust(this.playerController.groundPosition, planarSpeed);
+          const speedN = Math.min((planarSpeed - 1.15) / 6.5, 1);
+          this.particleFootstepTimer = 0.42 - speedN * 0.2;
+        }
+      }
+    }
+
     this.navPatrolSystem?.update(dt);
 
   }
@@ -321,6 +363,8 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       this.physicsDebugView.update();
       return;
     }
+    // Advance feedback effects
+    this.feedbackPlayer.update(dt);
     // Update visual interpolation
     if (!this.vehicleManager.isActive()) {
       this.playerController.update(dt, alpha);
@@ -335,6 +379,13 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       throwable.renderUpdate(alpha);
     }
     this.physicsDebugView.update();
+    this.gameParticles?.update(dt, this.renderer.camera);
+
+    // Poll look deltas at render frequency for smooth high-refresh-rate input
+    const look = this.inputManager.pollLook(dt);
+    const lookMode = this.vehicleManager.getCameraLookMode();
+    this.camera.handleMouseInput(look.lookDX, lookMode === 'yawOnly' ? 0 : look.lookDY);
+    this.camera.handleZoomInput(look.wheelDelta);
 
     // Camera follows player (runs every render frame for smoothness)
     this.camera.update(dt, alpha);
@@ -909,6 +960,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     this.checkpointManager.dispose();
     this.objectiveManager.dispose();
     this.audioManager.dispose();
+    this.gameParticles?.dispose();
     this.physicsDebugView.dispose();
     this.vehicleManager.dispose();
     this.editorManager?.dispose();

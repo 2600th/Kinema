@@ -20,7 +20,7 @@ interface DoorOptions {
  */
 export class Door implements IInteractable {
   readonly id: string;
-  readonly label = 'Open Door';
+  get label(): string { return this.isOpen ? 'Close Door' : 'Open Door'; }
   readonly position: THREE.Vector3;
   readonly collider: RAPIER.Collider;
 
@@ -155,7 +155,6 @@ export class Door implements IInteractable {
     } else {
       this.targetRotation = this.closedRotation;
     }
-    console.log(`[Door] ${this.id} is now ${this.isOpen ? 'open' : 'closed'}`);
   }
 
   dispose(): void {
@@ -164,6 +163,7 @@ export class Door implements IInteractable {
     this.originalMaterial.dispose();
     this.highlightMaterial.dispose();
     this.physicsWorld.removeCollider(this.doorCollider);
+    this.physicsWorld.removeCollider(this.collider);
     this.physicsWorld.removeBody(this.sensorBody);
     this.physicsWorld.removeBody(this.doorBody);
   }

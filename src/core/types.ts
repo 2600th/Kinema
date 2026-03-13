@@ -114,6 +114,8 @@ export interface PlayerConfig {
   slopeDownExtraForce: number;
   fallingGravityScale: number;
   fallingMaxVelocity: number;
+  apexHangThreshold: number;
+  apexGravityScale: number;
   mass: number;
   autoBalance: boolean;
   autoBalanceSpringK: number;

@@ -10,6 +10,9 @@ import type { PlayerController } from '@character/PlayerController';
 import { ColliderFactory } from '@physics/ColliderFactory';
 import type { IInteractable } from './Interactable';
 
+/** Key displayed in interaction prompts. Change here to rebind the interact key label. */
+const INTERACT_KEY_LABEL = 'F';
+
 const _losOrigin = { x: 0, y: 0, z: 0 } as RAPIER.Vector3;
 const _losDir = { x: 0, y: 0, z: 0 } as RAPIER.Vector3;
 
@@ -250,7 +253,7 @@ export class InteractionManager implements FixedUpdatable, Disposable {
       return access.reason ?? 'Locked';
     }
     const spec = target.getInteractionSpec?.();
-    const verb = spec?.mode === 'hold' ? 'Hold F to' : 'Press F to';
+    const verb = spec?.mode === 'hold' ? `Hold ${INTERACT_KEY_LABEL} to` : `Press ${INTERACT_KEY_LABEL} to`;
     return `${verb} ${target.label}`;
   }
 

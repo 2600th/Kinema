@@ -6,6 +6,9 @@ export const PHYSICS_TIMESTEP = 1 / 60;
 /** Max frame delta to prevent spiral of death (250ms) */
 export const MAX_FRAME_TIME = 0.25;
 
+/** Max physics sub-steps per frame to prevent spiral of death */
+export const MAX_PHYSICS_STEPS = 4;
+
 /** Gravity acceleration (m/s^2) */
 export const GRAVITY = 9.81;
 
@@ -57,7 +60,7 @@ export const DEFAULT_PLAYER_CONFIG: PlayerConfig = {
   floatingDampingC: 0.12,
   floatingRayLength: 2.3,
   floatingRayHitForgiveness: 0.1,
-  coyoteTime: 0.08,
+  coyoteTime: 0.12,
   jumpBufferTime: 0.12,
   maxAirJumps: 1,
   airJumpForceMultiplier: 0.92,
@@ -70,6 +73,8 @@ export const DEFAULT_PLAYER_CONFIG: PlayerConfig = {
   slopeDownExtraForce: 0.2,
   fallingGravityScale: 2.5,
   fallingMaxVelocity: 20,
+  apexHangThreshold: 1.5,
+  apexGravityScale: 0.4,
   mass: 70,
   autoBalance: false,
   autoBalanceSpringK: 1.2,
@@ -109,8 +114,9 @@ export const INTERACTION_SENSOR_HALF_HEIGHT = 1.0;
  * Rapier: (membership << 16) | filter. Interaction iff (a.membership & b.filter) && (b.membership & a.filter).
  * Bits: 0=world, 1=player, 2=playerSensor, 3=interactable.
  */
-export const COLLISION_GROUP_WORLD = (1 << 16) | 3; // membership world, filter: world+player
+export const COLLISION_GROUP_WORLD = (1 << 16) | 0x13; // membership world, filter: world+player+vehicle
 export const COLLISION_GROUP_WORLD_ONLY = (1 << 16) | 1; // membership world, filter: world only
-export const COLLISION_GROUP_PLAYER = (2 << 16) | 1; // membership player, filter: world
+export const COLLISION_GROUP_PLAYER = (2 << 16) | 1; // membership player, filter: world only
 export const COLLISION_GROUP_PLAYER_SENSOR = (4 << 16) | 8; // membership playerSensor, filter: interactable
 export const COLLISION_GROUP_INTERACTABLE = (8 << 16) | 4; // membership interactable, filter: playerSensor
+export const COLLISION_GROUP_VEHICLE = (16 << 16) | 1; // membership vehicle(bit4), filter: world only

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 import { AssetLoader } from '@level/AssetLoader';
 import type { Disposable } from '@core/types';
 import type { StateId } from '@core/types';
@@ -58,6 +59,9 @@ function pickBestClipKey(state: StateId): ClipKey {
  * - auto-detects a GLB model in `src/assets/models/` at build time
  * - keeps capsule fallback if no model (or no animations) are present
  */
+/** Speed (m/s) at which the walk/run animation was authored to look natural at timeScale 1.0. */
+const WALK_ANIM_SPEED = 1.5;
+
 export class CharacterVisual implements Disposable {
   private readonly loader = new AssetLoader();
   private modelRoot: THREE.Object3D | null = null;
@@ -86,7 +90,7 @@ export class CharacterVisual implements Disposable {
 
     try {
       const gltf = await this.loader.load(url);
-      const root = gltf.scene.clone(true);
+      const root = skeletonClone(gltf.scene);
       root.name = 'CharacterModel';
       root.traverse((node) => {
         if (node instanceof THREE.Mesh) {
@@ -105,6 +109,10 @@ export class CharacterVisual implements Disposable {
       if (clips.length === 0) {
         return;
       }
+
+      // Strip baked root motion (X/Z) to prevent mesh drift from physics capsule.
+      const rootBoneName = this.findRootBoneName(root);
+      this.stripRootMotion(clips, rootBoneName);
 
       this.mixer = new THREE.AnimationMixer(root);
       this.actions = this.buildActionMap(clips, this.mixer);
@@ -177,12 +185,58 @@ export class CharacterVisual implements Disposable {
     this.loader.dispose();
   }
 
+  /**
+   * Adjust the 'move' action timeScale so foot speed matches actual locomotion velocity.
+   * Call once per render frame with the character's horizontal speed (m/s).
+   */
+  setMovementSpeed(speed: number): void {
+    const moveAction = this.actions.get('move');
+    if (!moveAction) return;
+    const timeScale = Math.min(2.5, Math.max(0.0, speed / WALK_ANIM_SPEED));
+    moveAction.timeScale = timeScale;
+  }
+
+  /**
+   * Strip root-motion translation on X/Z from all clips, keeping Y for crouches/jumps.
+   * Prevents the mesh from drifting away from the physics capsule when Mixamo
+   * (or similar) animations have baked root motion.
+   */
+  private stripRootMotion(clips: THREE.AnimationClip[], rootBoneName: string): void {
+    for (const clip of clips) {
+      for (const track of clip.tracks) {
+        // Match position tracks on root bone: "rootBoneName.position"
+        if (track.name.endsWith('.position') && track.name.includes(rootBoneName)) {
+          const values = track.values;
+          // Zero X (index 0) and Z (index 2), keep Y (index 1)
+          for (let i = 0; i < values.length; i += 3) {
+            values[i] = 0;     // X
+            values[i + 2] = 0; // Z
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Find the root bone name by looking for the first Bone in the hierarchy,
+   * or fall back to common Mixamo names.
+   */
+  private findRootBoneName(root: THREE.Object3D): string {
+    let boneName = '';
+    root.traverse((node) => {
+      if (!boneName && (node as THREE.Bone).isBone) {
+        boneName = node.name;
+      }
+    });
+    return boneName || 'Hips';
+  }
+
   private playImmediate(key: ClipKey | null): void {
     if (!key) return;
     const action = this.actions.get(key);
     if (!action) return;
     this.current = key;
-    action.reset().play();
+    action.reset().setEffectiveWeight(1).play();
   }
 
   private buildActionMap(clips: THREE.AnimationClip[], mixer: THREE.AnimationMixer): Map<ClipKey, THREE.AnimationAction> {
@@ -211,13 +265,26 @@ export class CharacterVisual implements Disposable {
       ['carry', [/\bcarry\b/, /\bhold\b/]],
     ];
 
+    const oneShotKeys: ReadonlySet<ClipKey> = new Set(['jump', 'air', 'interact', 'grab']);
+
     for (const [key, patterns] of mapping) {
       const clip = pickByPatterns(patterns);
       if (!clip) continue;
       const action = mixer.clipAction(clip);
       action.enabled = true;
-      action.clampWhenFinished = true;
-      action.loop = THREE.LoopRepeat;
+
+      if (oneShotKeys.has(key)) {
+        action.loop = THREE.LoopOnce;
+        action.clampWhenFinished = true;
+      } else {
+        action.loop = THREE.LoopRepeat;
+        action.clampWhenFinished = false;
+      }
+
+      // Pre-play at weight 0 so crossfades work without pops.
+      action.weight = 0;
+      action.play();
+
       map.set(key, action);
     }
 
@@ -226,6 +293,8 @@ export class CharacterVisual implements Disposable {
       const action = mixer.clipAction(clips[0]);
       action.enabled = true;
       action.loop = THREE.LoopRepeat;
+      action.weight = 0;
+      action.play();
       map.set('idle', action);
     }
 

@@ -4,6 +4,7 @@ import type { EventBus } from '@core/EventBus';
 import type { PlayerController } from '@character/PlayerController';
 import type { IInteractable } from '../Interactable';
 import type { VehicleController } from '@vehicle/VehicleController';
+import { setMeshHighlight } from '../highlightMesh';
 
 const _rotatedOffset = new THREE.Vector3();
 
@@ -61,33 +62,8 @@ export class VehicleSeat implements IInteractable {
     // Seat collider managed by level/vehicle managers.
   }
 
-  private readonly originalMaterials = new WeakMap<THREE.Material, { emissive?: number; emissiveIntensity?: number }>();
-
   private setHighlighted(enabled: boolean): void {
-    const root = this.vehicle.mesh;
-    root.traverse((node) => {
-      const m = node as THREE.Mesh;
-      if (!m.isMesh) return;
-      const materials = Array.isArray(m.material) ? m.material : [m.material];
-      for (const mat of materials) {
-        const std = mat as THREE.MeshStandardMaterial;
-        if (!('emissive' in std)) continue;
-        if (!this.originalMaterials.has(mat)) {
-          this.originalMaterials.set(mat, {
-            emissive: (std.emissive as THREE.Color | undefined)?.getHex?.(),
-            emissiveIntensity: (std.emissiveIntensity as number | undefined),
-          });
-        }
-        if (enabled) {
-          (std.emissive as THREE.Color).setHex(0x66ffcc);
-          std.emissiveIntensity = 0.28;
-        } else {
-          const original = this.originalMaterials.get(mat);
-          (std.emissive as THREE.Color).setHex(original?.emissive ?? 0x000000);
-          std.emissiveIntensity = original?.emissiveIntensity ?? 0;
-        }
-      }
-    });
+    setMeshHighlight(this.vehicle.mesh, enabled, 0x66ffcc, 0.28);
   }
 
   private syncPosition(): void {

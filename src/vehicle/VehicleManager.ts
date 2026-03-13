@@ -66,6 +66,7 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
       this.active.fixedUpdate(dt);
       const lv = this.active.body.linvel();
       const sn = Math.min(Math.hypot(lv.x, lv.z) / 18, 1);
+      this.camera.setVehicleSpeedRatio(sn);
       this.eventBus.emit('vehicle:speedUpdate', { speedNorm: sn });
       return;
     }
@@ -107,6 +108,8 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
     // If the player is seated, restore ownership before disposing vehicles.
     if (this.active) {
       this.eventBus.emit('vehicle:engineStop', undefined);
+      this.camera.setChaseMode(false);
+      this.camera.setVehicleSpeedRatio(0);
       this.camera.resetTarget();
       this.camera.resetCameraConfig();
       this.player.setEnabled(true);
@@ -132,6 +135,7 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
       heightOffset: vehicle.cameraConfig.heightOffset,
       inputProvider: () => this.lastInput,
     });
+    this.camera.setChaseMode(true);
     this.camera.snapToTarget();
     vehicle.enter(this.lastInput);
     this.eventBus.emit('vehicle:engineStart', undefined);
@@ -146,6 +150,8 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
     this.player.setActive(true);
     this.player.suppressInteract(2);
     this.player.spawn(this.ensureSpawnPoint(spawn));
+    this.camera.setChaseMode(false);
+    this.camera.setVehicleSpeedRatio(0);
     this.camera.resetTarget();
     this.camera.resetCameraConfig();
     this.camera.snapToTarget();

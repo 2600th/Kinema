@@ -7,3 +7,5 @@ Thumbs.db
 CLAUDE.md
 /.claude
 /tasks
+/.agents
+skills-lock.json

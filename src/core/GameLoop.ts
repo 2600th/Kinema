@@ -1,7 +1,8 @@
-import { PHYSICS_TIMESTEP, MAX_FRAME_TIME } from './constants';
+import { PHYSICS_TIMESTEP, MAX_FRAME_TIME, MAX_PHYSICS_STEPS } from './constants';
 import type { FixedUpdatable, PostPhysicsUpdatable, Updatable } from './types';
 import type { RendererManager } from '@renderer/RendererManager';
 import type { PhysicsWorld } from '@physics/PhysicsWorld';
+import type { Hitstop } from '@juice/Hitstop';
 
 /**
  * Accumulator-pattern game loop.
@@ -15,6 +16,7 @@ export class GameLoop {
   private updatables: Updatable[] = [];
   private running = false;
   private simulationEnabled = true;
+  private hitstop: Hitstop | null = null;
 
   constructor(
     game: FixedUpdatable & Updatable,
@@ -50,6 +52,10 @@ export class GameLoop {
     }
   }
 
+  setHitstop(hitstop: Hitstop): void {
+    this.hitstop = hitstop;
+  }
+
   private tick(timestamp: DOMHighResTimeStamp): void {
     const now = timestamp / 1000;
     let dt = now - this.lastTime;
@@ -62,9 +68,17 @@ export class GameLoop {
 
     this.accumulator += dt;
 
+    // Advance hitstop timer; skip physics when frozen
+    const frozen = this.hitstop?.update(dt) ?? false;
+
     // Fixed physics steps
-    if (this.simulationEnabled) {
+    if (this.simulationEnabled && !frozen) {
+      let steps = 0;
       while (this.accumulator >= PHYSICS_TIMESTEP) {
+        if (++steps > MAX_PHYSICS_STEPS) {
+          this.accumulator = 0;
+          break;
+        }
         for (const obj of this.fixedUpdatables) {
           obj.fixedUpdate(PHYSICS_TIMESTEP);
         }

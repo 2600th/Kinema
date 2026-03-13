@@ -81,7 +81,7 @@ export class DebugPanel implements Disposable {
       'right:12px',
       'top:12px',
       'display:none',
-      'width:350px',
+      'width:min(350px, calc(100vw - 24px))',
       'padding:12px 12px 10px',
       'background:rgba(16, 18, 22, 0.76)',
       'backdrop-filter:blur(8px)',

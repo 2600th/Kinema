@@ -115,6 +115,7 @@ async function bootstrap(): Promise<void> {
   );
 
   const gameLoop = new GameLoop(game, renderer, physicsWorld);
+  gameLoop.setHitstop(game.hitstop);
   let editorManager: import('@editor/EditorManager').EditorManager | null = null;
   const unsubEditorBootstrap = eventBus.on('editor:toggle', () => {
     // First toggle: lazy-load the editor module, then let EditorManager own future toggles.

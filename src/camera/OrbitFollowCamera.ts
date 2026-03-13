@@ -6,6 +6,8 @@ import type { CameraConfig } from '@core/types';
 import { COLLISION_GROUP_PLAYER, DEFAULT_CAMERA_CONFIG } from '@core/constants';
 import type { PhysicsWorld } from '@physics/PhysicsWorld';
 import type { PlayerController } from '@character/PlayerController';
+import { ScreenShake } from '@juice/ScreenShake';
+import type { FOVPunch } from '@juice/FOVPunch';
 
 // Pre-allocated temp objects
 const _pivotPos = new THREE.Vector3();
@@ -46,7 +48,16 @@ export class OrbitFollowCamera implements Updatable, Disposable {
   private landingDip = 0;
   private lookAheadOffset = new THREE.Vector3();
   private lateralDriftCurrent = 0;
+  private screenShake = new ScreenShake();
+  private fovPunch: FOVPunch | null = null;
   private unsubs: (() => void)[] = [];
+
+  // Chase mode: auto-rotates yaw to face behind a vehicle's forward direction
+  private chaseModeEnabled = false;
+
+  // Speed-feel: dynamic FOV and distance offsets driven by vehicle speed
+  private speedFovOffset = 0;
+  private speedDistanceOffset = 0;
 
   // Pre-allocated Rapier temps for castShape (avoid per-frame heap allocs).
   private _rv3Origin = new RAPIER.Vector3(0, 0, 0);
@@ -101,6 +112,16 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     this.collisionEnabled = enabled;
   }
 
+  /** Add trauma to the screen shake system (0-1 range, clamped). */
+  addTrauma(amount: number): void {
+    this.screenShake.addTrauma(amount);
+  }
+
+  /** Attach an FOV punch spring to be applied each frame. */
+  setFOVPunch(fovPunch: FOVPunch): void {
+    this.fovPunch = fovPunch;
+  }
+
   setTarget(
     object: THREE.Object3D,
     options?: { body?: RAPIER.RigidBody; heightOffset?: number; inputProvider?: () => InputState | null },
@@ -139,6 +160,28 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     this.targetBody = null;
     this.targetHeightOverride = null;
     this.inputProvider = null;
+    // Reset vehicle camera effects
+    this.chaseModeEnabled = false;
+    this.speedFovOffset = 0;
+    this.speedDistanceOffset = 0;
+  }
+
+  /**
+   * Enable/disable chase-camera mode.
+   * When active, the camera yaw auto-rotates behind the target's forward
+   * direction while still allowing mouse offsets that drift back.
+   */
+  setChaseMode(enabled: boolean): void {
+    this.chaseModeEnabled = enabled;
+  }
+
+  /**
+   * Feed the current vehicle speed ratio (0-1) so the camera can apply
+   * speed-feel effects: FOV widening and distance pullback.
+   */
+  setVehicleSpeedRatio(ratio: number): void {
+    this.speedFovOffset = ratio * 15;       // up to +15° FOV at top speed
+    this.speedDistanceOffset = ratio * 3;   // up to +3 m pullback at top speed
   }
 
   applyCameraConfig(overrides: Partial<CameraConfig>): void {
@@ -172,6 +215,24 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     const rotationDamp = 1 - Math.exp(-this.config.rotationDamping * dt);
     this.yaw += (this.targetYaw - this.yaw) * rotationDamp;
     this.pitch += (this.targetPitch - this.pitch) * rotationDamp;
+
+    // Chase mode: compute behind-vehicle yaw from the target's rotation and
+    // smoothly drift targetYaw toward it. Mouse input still offsets yaw, but
+    // it auto-returns, giving a "chase camera" feel.
+    if (this.chaseModeEnabled && this.target) {
+      // Extract the target's Y-axis rotation. We want the camera BEHIND the
+      // vehicle, so we use the negated forward direction (behind = -forward).
+      const q = this.target.quaternion;
+      _velDir.set(0, 0, -1).applyQuaternion(q);
+      // Negate forward to get behind direction; atan2 of behind vector gives
+      // the yaw that places the camera orbit point behind the vehicle.
+      const behindYaw = Math.atan2(-_velDir.x, -_velDir.z);
+      // Smoothly drift targetYaw toward behindYaw along the shortest arc
+      const twoPi = Math.PI * 2;
+      let delta = ((((behindYaw - this.targetYaw) % twoPi) + Math.PI * 3) % twoPi) - Math.PI;
+      const chaseT = 1 - Math.exp(-3 * dt);
+      this.targetYaw += delta * chaseT;
+    }
 
     // Pivot at player head height
     const targetPos = this.target ? this.target.position : this.player.position;
@@ -223,7 +284,7 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     const ropeAttached = this.target ? false : this.player.isRopeAttached;
     let desiredDistance = ropeAttached
       ? Math.max(this.targetDistance, this.ropeCameraMinDistance)
-      : this.targetDistance;
+      : this.targetDistance + this.speedDistanceOffset;
     this._rv3Origin.x = this.pivotPosition.x;
     this._rv3Origin.y = this.pivotPosition.y;
     this._rv3Origin.z = this.pivotPosition.z;
@@ -250,17 +311,11 @@ export class OrbitFollowCamera implements Updatable, Disposable {
       desiredDistance = Math.max(this.config.zoomMinDistance, Math.min(desiredDistance, hitDistance));
     }
 
-    // Prevent abrupt camera pops when stepping very close to walls/doors.
-    const distanceDelta = desiredDistance - this.currentDistance;
-    const maxContractStep = Math.max(0.08, dt * 3.6);
-    const maxExpandStep = ropeAttached
-      ? Math.max(0.16, dt * 11.5)
-      : Math.max(0.1, dt * 6.5);
-    if (distanceDelta < 0) {
-      this.currentDistance += Math.max(distanceDelta, -maxContractStep);
-    } else {
-      this.currentDistance += Math.min(distanceDelta, maxExpandStep);
-    }
+    // Smooth camera distance with frame-rate independent exponential smoothing.
+    const contractionSpeed = 12;  // fast pull-in on collision
+    const expansionSpeed = ropeAttached ? 11.5 : 4; // slower return (faster when rope attached)
+    const speed = (this.currentDistance > desiredDistance) ? contractionSpeed : expansionSpeed;
+    this.currentDistance += (desiredDistance - this.currentDistance) * (1 - Math.exp(-speed * dt));
     this.currentDistance = Math.max(this.config.zoomMinDistance, this.currentDistance);
 
     // Build desired world-space camera position from pivot + distance
@@ -276,7 +331,8 @@ export class OrbitFollowCamera implements Updatable, Disposable {
       (input.forward || input.backward || input.left || input.right);
     const speedFov = speedNorm * this.config.speedFovBoost;
     const sprintFov = sprinting ? this.config.sprintFovBoost : 0;
-    const targetFov = this.baseFov + Math.max(speedFov, sprintFov);
+    const punchFov = this.fovPunch?.update(dt) ?? 0;
+    const targetFov = this.baseFov + Math.max(speedFov, sprintFov) + this.speedFovOffset + punchFov;
     const fovDamp = 1 - Math.exp(-this.config.fovDamping * dt);
     let nextFov = this.camera.fov + (targetFov - this.camera.fov) * fovDamp;
     // Avoid endless subpixel projection jitter from asymptotic damping convergence.
@@ -289,6 +345,17 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     }
 
     this.camera.lookAt(this.pivotPosition);
+
+    // Apply screen shake offsets after final camera positioning
+    const shake = this.screenShake.update(dt);
+    if (shake.offsetX !== 0 || shake.offsetY !== 0 || shake.offsetZ !== 0) {
+      this.camera.position.x += shake.offsetX;
+      this.camera.position.y += shake.offsetY;
+      this.camera.position.z += shake.offsetZ;
+      this.camera.rotateX(shake.rotX);
+      this.camera.rotateY(shake.rotY);
+      this.camera.rotateZ(shake.rotZ);
+    }
   }
 
   private getCollisionShape(): RAPIER.Ball {

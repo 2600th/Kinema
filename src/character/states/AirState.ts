@@ -27,12 +27,8 @@ export class AirState extends State {
     return 'idle';
   }
 
-  update(dt: number): void {
-    // Rotate toward movement direction in air (slower)
-    if (this.player.lastInputSnapshot) {
-      const dir = this.player.computeMovementDirection(this.player.lastInputSnapshot);
-      this.player.rotateToward(dir, dt);
-    }
+  update(_dt: number): void {
+    // Rotation is handled centrally in PlayerController.fixedUpdate.
   }
 
   getDesiredMovement(dt: number, input: InputState): THREE.Vector3 {

@@ -36,6 +36,7 @@ export default defineConfig({
       '@vehicle': resolve(__dirname, 'src/vehicle'),
       '@editor': resolve(__dirname, 'src/editor'),
       '@navigation': resolve(__dirname, 'src/navigation'),
+      '@juice': resolve(__dirname, 'src/juice'),
     },
   },
   build: {

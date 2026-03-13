@@ -179,6 +179,21 @@ export class AudioManager implements FixedUpdatable, Disposable {
       }),
     );
     this.unsubscribers.push(
+      this.eventBus.on('interaction:grabStart', () => {
+        this.sfxEngine.grab();
+      }),
+    );
+    this.unsubscribers.push(
+      this.eventBus.on('interaction:pickUp', () => {
+        this.sfxEngine.interact();
+      }),
+    );
+    this.unsubscribers.push(
+      this.eventBus.on('interaction:throw', () => {
+        this.sfxEngine.throw();
+      }),
+    );
+    this.unsubscribers.push(
       this.eventBus.on('checkpoint:activated', () => {
         this.sfxEngine.checkpoint();
       }),
