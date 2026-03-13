@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { EventBus } from '@core/EventBus';
-import type { FixedUpdatable, Updatable, Disposable, PostPhysicsUpdatable } from '@core/types';
+import { STATE, type FixedUpdatable, type Updatable, type Disposable, type PostPhysicsUpdatable } from '@core/types';
 import { UserSettingsStore, type ShadowQualityTier } from '@core/UserSettings';
 import { COLLISION_GROUP_INTERACTABLE, COLLISION_GROUP_WORLD } from '@core/constants';
 import type { RendererManager } from '@renderer/RendererManager';
@@ -66,7 +66,9 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
   private navTargetMode = false;
   private _onNavTargetClick: ((e: MouseEvent) => void) | null = null;
   private navTargetMarker: THREE.Mesh | null = null;
-  private navMarkerTimer: ReturnType<typeof setInterval> | null = null;
+  private navMarkerFade = 0;
+  private readonly navRaycaster = new THREE.Raycaster();
+  private readonly navPointer = new THREE.Vector2();
   private unsubs: (() => void)[] = [];
 
   // Juice systems
@@ -102,11 +104,11 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     // Listen for interact state to trigger interactions
     this.unsubs.push(
       this.eventBus.on('player:stateChanged', ({ current }) => {
-        if (current === 'interact') {
+        if (current === STATE.interact) {
           this.interactionManager.refreshFocusFromPosition(this.playerController.position);
           this.interactionManager.triggerInteraction();
         }
-        if (current === 'jump' || current === 'airJump') {
+        if (current === STATE.jump || current === STATE.airJump) {
           this.gameParticles?.jumpPuff(this.playerController.groundPosition);
         }
       }),
@@ -380,6 +382,18 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     }
     this.physicsDebugView.update();
     this.gameParticles?.update(dt, this.renderer.camera);
+
+    // Nav target marker fade
+    if (this.navMarkerFade > 0 && this.navTargetMarker) {
+      this.navMarkerFade = Math.max(0, this.navMarkerFade - dt / 3);
+      (this.navTargetMarker.material as THREE.MeshBasicMaterial).opacity = 0.8 * this.navMarkerFade;
+      if (this.navMarkerFade <= 0) {
+        this.renderer.scene.remove(this.navTargetMarker);
+        this.navTargetMarker.geometry.dispose();
+        (this.navTargetMarker.material as THREE.Material).dispose();
+        this.navTargetMarker = null;
+      }
+    }
 
     // Poll look deltas at render frequency for smooth high-refresh-rate input
     const look = this.inputManager.pollLook(dt);
@@ -867,9 +881,9 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     const rect = this.renderer.canvas.getBoundingClientRect();
     const ndcX = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
     const ndcY = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), this.renderer.camera);
-    const hits = raycaster.intersectObjects([navPlatform], false);
+    this.navPointer.set(ndcX, ndcY);
+    this.navRaycaster.setFromCamera(this.navPointer, this.renderer.camera);
+    const hits = this.navRaycaster.intersectObjects([navPlatform], false);
 
     if (hits.length === 0) return;
 
@@ -914,35 +928,13 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     this.navTargetMarker.name = 'NavTargetMarker';
     this.renderer.scene.add(this.navTargetMarker);
 
-    // Fade out and remove after 3 seconds
-    if (this.navMarkerTimer) clearInterval(this.navMarkerTimer);
-    let elapsed = 0;
-    const fadeInterval = setInterval(() => {
-      elapsed += 50;
-      const t = elapsed / 3000;
-      if (t >= 1) {
-        clearInterval(fadeInterval);
-        this.navMarkerTimer = null;
-        if (this.navTargetMarker) {
-          this.renderer.scene.remove(this.navTargetMarker);
-          this.navTargetMarker.geometry.dispose();
-          (this.navTargetMarker.material as THREE.Material).dispose();
-          this.navTargetMarker = null;
-        }
-        return;
-      }
-      mat.opacity = 0.8 * (1 - t);
-    }, 50);
-    this.navMarkerTimer = fadeInterval;
+    // Fade is driven from the render-loop update()
+    this.navMarkerFade = 1;
   }
 
   dispose(): void {
     for (const unsub of this.unsubs) unsub();
     this.unsubs.length = 0;
-    if (this.navMarkerTimer) {
-      clearInterval(this.navMarkerTimer);
-      this.navMarkerTimer = null;
-    }
     window.removeEventListener('keydown', this._onDebugKeyDown);
     if (this._onNavTargetClick) {
       window.removeEventListener('click', this._onNavTargetClick);
