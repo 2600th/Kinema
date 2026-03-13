@@ -76,6 +76,11 @@ export class GameLoop {
       this.accumulator += dt;
     }
 
+    // Poll input once per frame before fixed steps
+    for (const obj of this.updatables) {
+      (obj as { beginFrame?: (dt: number) => void }).beginFrame?.(dt);
+    }
+
     // Fixed physics steps
     if (this.simulationEnabled && !frozen) {
       // Cap accumulator to prevent excessive catch-up
