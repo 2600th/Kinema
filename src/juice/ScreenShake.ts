@@ -35,10 +35,16 @@ const SEED_RZ = 11.3;
 
 export class ScreenShake {
   private trauma = 0;
-  private maxOffset = 0.15;   // max positional offset in meters
-  private maxAngle = 0.02;    // max rotational offset in radians
-  private decayRate = 2.0;    // trauma decay per second
-  private frequency = 12;     // noise frequency (shake speed)
+  // Per-axis translation amplitudes (meters) — Y heavier for impact feel, Z minimal
+  private maxOffsetX = 0.035;
+  private maxOffsetY = 0.05;
+  private maxOffsetZ = 0.015;
+  // Per-axis rotation amplitudes (radians) — Y heavier for yaw snap feel
+  private maxRotX = 0.012;
+  private maxRotY = 0.018;
+  private maxRotZ = 0.01;
+  private decayRate = 3.2;    // trauma decay per second (faster = snappier)
+  private frequency = 18;     // noise frequency (shake speed)
   private time = 0;           // accumulated time for noise sampling
 
   /** Add trauma (clamped to 0-1). */
@@ -72,12 +78,12 @@ export class ScreenShake {
     const f = this.frequency;
 
     return {
-      offsetX: this.maxOffset * shake * noise(SEED_X, t, f),
-      offsetY: this.maxOffset * shake * noise(SEED_Y, t, f),
-      offsetZ: this.maxOffset * shake * noise(SEED_Z, t, f),
-      rotX: this.maxAngle * shake * noise(SEED_RX, t, f),
-      rotY: this.maxAngle * shake * noise(SEED_RY, t, f),
-      rotZ: this.maxAngle * shake * noise(SEED_RZ, t, f),
+      offsetX: this.maxOffsetX * shake * noise(SEED_X, t, f),
+      offsetY: this.maxOffsetY * shake * noise(SEED_Y, t, f),
+      offsetZ: this.maxOffsetZ * shake * noise(SEED_Z, t, f),
+      rotX: this.maxRotX * shake * noise(SEED_RX, t, f),
+      rotY: this.maxRotY * shake * noise(SEED_RY, t, f),
+      rotZ: this.maxRotZ * shake * noise(SEED_RZ, t, f),
     };
   }
 
