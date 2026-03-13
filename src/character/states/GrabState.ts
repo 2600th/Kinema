@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import type { InputState, StateId } from '@core/types';
+import { STATE, type InputState, type StateId } from '@core/types';
 import { State } from './State';
 
 const _movement = new THREE.Vector3();
 
 export class GrabState extends State {
-  readonly id: StateId = 'grab';
+  readonly id: StateId = STATE.grab;
   private groundedGrace = 0;
   private static readonly GROUNDED_GRACE_TIME = 0.12;
 
@@ -19,11 +19,11 @@ export class GrabState extends State {
   }
 
   handleInput(input: InputState, isGrounded: boolean): StateId | null {
-    if (input.interactPressed || input.jumpPressed) return 'idle';
+    if (input.interactPressed || input.jumpPressed) return STATE.idle;
     if (isGrounded) {
       this.groundedGrace = GrabState.GROUNDED_GRACE_TIME;
     } else {
-      if (this.groundedGrace <= 0) return 'air';
+      if (this.groundedGrace <= 0) return STATE.air;
     }
     return null;
   }

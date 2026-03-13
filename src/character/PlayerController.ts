@@ -1,13 +1,14 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import type { EventBus } from '@core/EventBus';
-import type {
-  InputState,
-  FixedUpdatable,
-  PostPhysicsUpdatable,
-  Updatable,
-  Disposable,
-  SpawnPointData,
+import {
+  STATE,
+  type InputState,
+  type FixedUpdatable,
+  type PostPhysicsUpdatable,
+  type Updatable,
+  type Disposable,
+  type SpawnPointData,
 } from '@core/types';
 import { COLLISION_GROUP_WORLD_ONLY, DEFAULT_PLAYER_CONFIG } from '@core/constants';
 import type { PhysicsWorld } from '@physics/PhysicsWorld';
@@ -269,16 +270,16 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     if (this.grabbedBody && (input.jumpPressed || input.interactPressed)) {
       consumeInteractPressed = input.interactPressed;
       consumeJumpPressed = input.jumpPressed;
-      this.fsm.requestState('idle');
+      this.fsm.requestState(STATE.idle);
     }
 
     if (this.carriedObject) {
       if (input.primaryPressed || input.interactPressed) {
         this.throwCarried();
-        this.fsm.requestState(this.hasMovementInput(input) ? 'move' : 'idle');
+        this.fsm.requestState(this.hasMovementInput(input) ? STATE.move : STATE.idle);
       } else if (input.crouchPressed) {
         this.dropCarried();
-        this.fsm.requestState(this.hasMovementInput(input) ? 'move' : 'idle');
+        this.fsm.requestState(this.hasMovementInput(input) ? STATE.move : STATE.idle);
       }
     }
 
@@ -311,8 +312,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       if (wasGrounded) {
         this.eventBus.emit('player:grounded', false);
       }
-      if (this.fsm.current !== 'air') {
-        this.fsm.requestState('air');
+      if (this.fsm.current !== STATE.air) {
+        this.fsm.requestState(STATE.air);
       }
       return;
     }
@@ -320,7 +321,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.updateCrouchState(input.crouch, _currentPos, dt);
     this.floatingDistance = this.getTargetFloatingDistance();
 
-    const movementLocked = this.fsm.current === 'interact';
+    const movementLocked = this.fsm.current === STATE.interact;
     const inLadderZone = this.isInsideLadder(_currentPos);
     const wantsLadder = !movementLocked && (input.forward || input.backward || input.jumpPressed || this.onLadder);
     this.onLadder = inLadderZone && wantsLadder;
@@ -346,8 +347,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.fsm.handleInput(inputForFsm, this.isGrounded);
     this.fsm.update(dt);
     if (this.ropeAttached) {
-      if (this.fsm.current !== 'air') {
-        this.fsm.requestState('air');
+      if (this.fsm.current !== STATE.air) {
+        this.fsm.requestState(STATE.air);
       }
       return;
     }
@@ -479,9 +480,9 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       }
     }
 
-    const movementLockedNow = this.fsm.current === 'interact';
+    const movementLockedNow = this.fsm.current === STATE.interact;
     const hasMovement = !movementLockedNow && (input.moveX !== 0 || input.moveY !== 0);
-    const run = this.fsm.current !== 'grab' && input.sprint && !this.isCrouched;
+    const run = this.fsm.current !== STATE.grab && input.sprint && !this.isCrouched;
     // Movement: use velocity steering (character-controller feel) instead of impulse accumulation.
     // WHY: Impulse-based locomotion felt floaty and caused direction drift when releasing strafe.
     this.applyMoveVelocity(desiredInputDir, run, hasMovement, dt, input);
@@ -489,15 +490,15 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       this.applyStepAssist(desiredInputDir, run, dt);
     }
 
-    if (!movementLockedNow && this.fsm.current !== 'grab' && this.jumpBufferRemaining > 0) {
+    if (!movementLockedNow && this.fsm.current !== STATE.grab && this.jumpBufferRemaining > 0) {
       if (this.canJump) {
-        this.fsm.requestState('jump');
+        this.fsm.requestState(STATE.jump);
         this.applyJumpImpulse(run, false);
         this.jumpBufferRemaining = 0;
         this.groundedGrace = 0;
         this.canJump = false;
       } else if (this.remainingAirJumps > 0) {
-        this.fsm.requestState('jump');
+        this.fsm.requestState(STATE.jump);
         this.applyJumpImpulse(false, true);
         this.jumpBufferRemaining = 0;
         this.remainingAirJumps -= 1;
@@ -563,7 +564,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   ): void {
     // Target speed based on stance/state, scaled by analog stick magnitude.
     const crouchMult = this.isCrouched ? this.config.crouchSpeedMultiplier : 1;
-    const grabMult = this.fsm.current === 'grab' ? this.config.crouchSpeedMultiplier : 1;
+    const grabMult = this.fsm.current === STATE.grab ? this.config.crouchSpeedMultiplier : 1;
     const stickMag = input ? Math.min(1, Math.hypot(input.moveX, input.moveY)) : 1;
     const targetSpeed =
       this.config.moveSpeed * crouchMult * grabMult * (run ? this.config.sprintMultiplier : 1) * stickMag;
@@ -1029,7 +1030,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.grabOffsetY = sourceOffset.y;
     body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
     body.setGravityScale(0, true);
-    this.fsm.requestState('grab');
+    this.fsm.requestState(STATE.grab);
   }
 
   endGrab(): void {
@@ -1063,7 +1064,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     object.body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
     object.body.setGravityScale(0, true);
     object.collider.setCollisionGroups(COLLISION_GROUP_WORLD_ONLY);
-    this.fsm.requestState('carry');
+    this.fsm.requestState(STATE.carry);
   }
 
   throwCarried(): void {
@@ -1166,8 +1167,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.setGravityScale(1);
     this.jumpBufferRemaining = 0;
     this.remainingAirJumps = this.config.maxAirJumps;
-    if (this.fsm.current !== 'air') {
-      this.fsm.requestState('air');
+    if (this.fsm.current !== STATE.air) {
+      this.fsm.requestState(STATE.air);
     }
   }
 

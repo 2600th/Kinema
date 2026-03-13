@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import type { InputState, StateId } from '@core/types';
+import { STATE, type InputState, type StateId } from '@core/types';
 import { State } from './State';
 
 const _movement = new THREE.Vector3();
 
 export class AirState extends State {
-  readonly id: StateId = 'air';
+  readonly id: StateId = STATE.air;
 
   enter(): void {
     // Could trigger falling animation
@@ -21,10 +21,10 @@ export class AirState extends State {
     }
 
     // Landed
-    if (input.crouch) return 'crouch';
+    if (input.crouch) return STATE.crouch;
     const hasMovement = input.forward || input.backward || input.left || input.right;
-    if (hasMovement) return 'move';
-    return 'idle';
+    if (hasMovement) return STATE.move;
+    return STATE.idle;
   }
 
   update(_dt: number): void {

@@ -53,9 +53,22 @@ export const NULL_INPUT: InputState = Object.freeze({
 
 /**
  * All FSM state identifiers.
- * String-based to allow adding states without editing core type unions.
+ * Const-object union: adding a new state = 1 entry here + 1 file + 1 line in CharacterFSM.
+ * Typos in state transitions are caught at compile time.
  */
-export type StateId = string;
+export const STATE = {
+  idle: 'idle',
+  move: 'move',
+  jump: 'jump',
+  air: 'air',
+  airJump: 'airJump',
+  interact: 'interact',
+  crouch: 'crouch',
+  carry: 'carry',
+  grab: 'grab',
+} as const;
+
+export type StateId = typeof STATE[keyof typeof STATE];
 
 /** Objects that tick at fixed 60Hz */
 export interface FixedUpdatable {

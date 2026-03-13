@@ -1,5 +1,5 @@
 import type { EventBus } from '@core/EventBus';
-import type { Disposable, StateId } from '@core/types';
+import type { Disposable } from '@core/types';
 import { LUT_NAMES, ENV_NAMES } from '@renderer/RendererManager';
 
 type AntiAliasingMode = 'smaa' | 'fxaa' | 'none';
@@ -626,7 +626,7 @@ export class DebugPanel implements Disposable {
 
   tick(
     speed: number,
-    state: StateId,
+    state: string,
     grounded: boolean,
     perf: {
       frameMs: number;

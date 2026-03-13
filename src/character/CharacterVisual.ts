@@ -1,18 +1,17 @@
 import * as THREE from 'three';
 import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 import { AssetLoader } from '@level/AssetLoader';
-import type { Disposable } from '@core/types';
-import type { StateId } from '@core/types';
+import { STATE, type Disposable, type StateId } from '@core/types';
 
 type ClipKey =
-  | 'idle'
-  | 'move'
-  | 'jump'
-  | 'air'
-  | 'crouch'
-  | 'interact'
-  | 'grab'
-  | 'carry';
+  | typeof STATE.idle
+  | typeof STATE.move
+  | typeof STATE.jump
+  | typeof STATE.air
+  | typeof STATE.crouch
+  | typeof STATE.interact
+  | typeof STATE.grab
+  | typeof STATE.carry;
 
 /** Dispose all texture slots on a PBR material. */
 function disposeAllTextures(material: THREE.Material): void {
@@ -34,23 +33,23 @@ function normalize(name: string): string {
 function pickBestClipKey(state: StateId): ClipKey {
   // Keep this conservative: map known FSM states; fallback to idle.
   switch (state) {
-    case 'move':
-      return 'move';
-    case 'jump':
-      return 'jump';
-    case 'air':
-      return 'air';
-    case 'crouch':
-      return 'crouch';
-    case 'interact':
-      return 'interact';
-    case 'grab':
-      return 'grab';
-    case 'carry':
-      return 'carry';
-    case 'idle':
+    case STATE.move:
+      return STATE.move;
+    case STATE.jump:
+      return STATE.jump;
+    case STATE.air:
+      return STATE.air;
+    case STATE.crouch:
+      return STATE.crouch;
+    case STATE.interact:
+      return STATE.interact;
+    case STATE.grab:
+      return STATE.grab;
+    case STATE.carry:
+      return STATE.carry;
+    case STATE.idle:
     default:
-      return 'idle';
+      return STATE.idle;
   }
 }
 
@@ -118,7 +117,7 @@ export class CharacterVisual implements Disposable {
       this.actions = this.buildActionMap(clips, this.mixer);
 
       // Start idle if present, else first available.
-      this.playImmediate(this.actions.get('idle') ? 'idle' : (Array.from(this.actions.keys())[0] ?? null));
+      this.playImmediate(this.actions.get(STATE.idle) ? STATE.idle : (Array.from(this.actions.keys())[0] ?? null));
     } catch (err) {
       console.warn('[CharacterVisual] Failed to load character model:', err);
     }
@@ -130,7 +129,7 @@ export class CharacterVisual implements Disposable {
     if (!this.mixer || this.actions.size === 0) return;
 
     // Prefer exact mapping; otherwise keep current.
-    const nextAction = this.actions.get(next) ?? this.actions.get('idle') ?? null;
+    const nextAction = this.actions.get(next) ?? this.actions.get(STATE.idle) ?? null;
     if (!nextAction) return;
 
     const prevKey = this.current;
@@ -190,7 +189,7 @@ export class CharacterVisual implements Disposable {
    * Call once per render frame with the character's horizontal speed (m/s).
    */
   setMovementSpeed(speed: number): void {
-    const moveAction = this.actions.get('move');
+    const moveAction = this.actions.get(STATE.move);
     if (!moveAction) return;
     const timeScale = Math.min(2.5, Math.max(0.0, speed / WALK_ANIM_SPEED));
     moveAction.timeScale = timeScale;
@@ -255,17 +254,17 @@ export class CharacterVisual implements Disposable {
     };
 
     const mapping: Array<[ClipKey, RegExp[]]> = [
-      ['idle', [/\bidle\b/, /\bstand\b/]],
-      ['move', [/\bwalk\b/, /\brun\b/, /\bmove\b/, /\blocomotion\b/]],
-      ['jump', [/\bjump\b/, /\btake off\b/, /\btakeoff\b/]],
-      ['air', [/\bfall\b/, /\bin air\b/, /\bair\b/]],
-      ['crouch', [/\bcrouch\b/, /\bduck\b/]],
-      ['interact', [/\binteract\b/, /\buse\b/, /\baction\b/]],
-      ['grab', [/\bgrab\b/, /\bpull\b/]],
-      ['carry', [/\bcarry\b/, /\bhold\b/]],
+      [STATE.idle, [/\bidle\b/, /\bstand\b/]],
+      [STATE.move, [/\bwalk\b/, /\brun\b/, /\bmove\b/, /\blocomotion\b/]],
+      [STATE.jump, [/\bjump\b/, /\btake off\b/, /\btakeoff\b/]],
+      [STATE.air, [/\bfall\b/, /\bin air\b/, /\bair\b/]],
+      [STATE.crouch, [/\bcrouch\b/, /\bduck\b/]],
+      [STATE.interact, [/\binteract\b/, /\buse\b/, /\baction\b/]],
+      [STATE.grab, [/\bgrab\b/, /\bpull\b/]],
+      [STATE.carry, [/\bcarry\b/, /\bhold\b/]],
     ];
 
-    const oneShotKeys: ReadonlySet<ClipKey> = new Set(['jump', 'air', 'interact', 'grab']);
+    const oneShotKeys: ReadonlySet<ClipKey> = new Set([STATE.jump, STATE.air, STATE.interact, STATE.grab]);
 
     for (const [key, patterns] of mapping) {
       const clip = pickByPatterns(patterns);
@@ -295,7 +294,7 @@ export class CharacterVisual implements Disposable {
       action.loop = THREE.LoopRepeat;
       action.weight = 0;
       action.play();
-      map.set('idle', action);
+      map.set(STATE.idle, action);
     }
 
     return map;

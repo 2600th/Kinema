@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { EventBus } from '@core/EventBus';
-import type { InputState, StateId } from '@core/types';
+import { STATE, type InputState, type StateId } from '@core/types';
 import type { PlayerController } from './PlayerController';
 import { State } from './states/State';
 import { IdleState } from './states/IdleState';
@@ -35,7 +35,7 @@ export class CharacterFSM {
     this.registerState(new CarryState(player));
 
     // Start in idle
-    this.currentState = this.states.get('idle')!;
+    this.currentState = this.states.get(STATE.idle)!;
     this.currentState.enter();
   }
 

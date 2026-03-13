@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EventBus } from '@core/EventBus';
-import type { InputState } from '@core/types';
-import { NULL_INPUT } from '@core/types';
+import { STATE, NULL_INPUT, type InputState } from '@core/types';
 
 /**
  * Integration-style test: EventBus + FSM interact flow.
@@ -23,12 +22,12 @@ describe('interaction flow', () => {
     });
 
     eventBus.on('player:stateChanged', ({ current }) => {
-      if (current === 'interact') {
+      if (current === STATE.interact) {
         triggerInteraction();
       }
     });
 
-    eventBus.emit('player:stateChanged', { previous: 'idle', current: 'interact' });
+    eventBus.emit('player:stateChanged', { previous: STATE.idle, current: STATE.interact });
 
     expect(triggerInteraction).toHaveBeenCalledTimes(1);
     expect(triggered).toBe('interact');
@@ -38,12 +37,12 @@ describe('interaction flow', () => {
     const triggerInteraction = vi.fn();
 
     eventBus.on('player:stateChanged', ({ current }) => {
-      if (current === 'interact') {
+      if (current === STATE.interact) {
         triggerInteraction();
       }
     });
 
-    eventBus.emit('player:stateChanged', { previous: 'idle', current: 'move' });
+    eventBus.emit('player:stateChanged', { previous: STATE.idle, current: STATE.move });
 
     expect(triggerInteraction).not.toHaveBeenCalled();
   });

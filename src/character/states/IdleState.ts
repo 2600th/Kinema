@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import type { InputState, StateId } from '@core/types';
+import { STATE, type InputState, type StateId } from '@core/types';
 import { State } from './State';
 
 const _result = new THREE.Vector3();
 
 export class IdleState extends State {
-  readonly id: StateId = 'idle';
+  readonly id: StateId = STATE.idle;
 
   enter(): void {
     // Could trigger idle animation here
@@ -16,11 +16,11 @@ export class IdleState extends State {
   }
 
   handleInput(input: InputState, isGrounded: boolean): StateId | null {
-    if (!isGrounded) return 'air';
-    if (input.crouch) return 'crouch';
-    if (input.interactPressed) return 'interact';
-    if (input.jumpPressed) return 'jump';
-    if (input.forward || input.backward || input.left || input.right) return 'move';
+    if (!isGrounded) return STATE.air;
+    if (input.crouch) return STATE.crouch;
+    if (input.interactPressed) return STATE.interact;
+    if (input.jumpPressed) return STATE.jump;
+    if (input.forward || input.backward || input.left || input.right) return STATE.move;
     return null;
   }
 

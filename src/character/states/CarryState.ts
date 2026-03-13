@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import type { InputState, StateId } from '@core/types';
+import { STATE, type InputState, type StateId } from '@core/types';
 import { State } from './State';
 
 const _movement = new THREE.Vector3();
 
 export class CarryState extends State {
-  readonly id: StateId = 'carry';
+  readonly id: StateId = STATE.carry;
 
   enter(): void {
     // Carry initialization handled by PlayerController.startCarry.
@@ -16,14 +16,14 @@ export class CarryState extends State {
   }
 
   handleInput(input: InputState, isGrounded: boolean): StateId | null {
-    if (!isGrounded) return 'air';
+    if (!isGrounded) return STATE.air;
     // Actual carry/throw logic is handled by PlayerController.fixedUpdate;
     // these transitions ensure the FSM stays in sync as a fallback.
     if (input.interactPressed) {
-      return 'idle';
+      return STATE.idle;
     }
     if (input.primaryPressed) {
-      return 'idle';
+      return STATE.idle;
     }
     return null;
   }

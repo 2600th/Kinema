@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { InputState, StateId } from '@core/types';
+import { STATE, type InputState, type StateId } from '@core/types';
 import { State } from './State';
 
 const _result = new THREE.Vector3();
@@ -7,7 +7,7 @@ const _result = new THREE.Vector3();
 const INTERACT_DURATION = 0.3; // seconds
 
 export class InteractState extends State {
-  readonly id: StateId = 'interact';
+  readonly id: StateId = STATE.interact;
   private timer = 0;
 
   enter(): void {
@@ -21,7 +21,7 @@ export class InteractState extends State {
 
   handleInput(_input: InputState, _isGrounded: boolean): StateId | null {
     if (this.timer >= INTERACT_DURATION) {
-      return 'idle';
+      return STATE.idle;
     }
     return null;
   }

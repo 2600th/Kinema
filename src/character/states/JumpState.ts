@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import type { InputState, StateId } from '@core/types';
+import { STATE, type InputState, type StateId } from '@core/types';
 import { State } from './State';
 
 const _movement = new THREE.Vector3();
 
 export class JumpState extends State {
-  readonly id: StateId = 'jump';
+  readonly id: StateId = STATE.jump;
 
   enter(): void {
     // Jump impulse is applied by PlayerController before entering this state.
@@ -17,7 +17,7 @@ export class JumpState extends State {
 
   handleInput(_input: InputState, _isGrounded: boolean): StateId | null {
     // Immediately transition to air state
-    return 'air';
+    return STATE.air;
   }
 
   update(_dt: number): void {

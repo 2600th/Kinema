@@ -1,12 +1,12 @@
 import * as THREE from 'three';
-import type { InputState, StateId } from '@core/types';
+import { STATE, type InputState, type StateId } from '@core/types';
 import { State } from './State';
 
 const _movement = new THREE.Vector3();
 
 
 export class MoveState extends State {
-  readonly id: StateId = 'move';
+  readonly id: StateId = STATE.move;
 
   enter(): void {
     // Could trigger run animation
@@ -17,13 +17,13 @@ export class MoveState extends State {
   }
 
   handleInput(input: InputState, isGrounded: boolean): StateId | null {
-    if (!isGrounded) return 'air';
-    if (input.crouch) return 'crouch';
-    if (input.interactPressed) return 'interact';
-    if (input.jumpPressed) return 'jump';
+    if (!isGrounded) return STATE.air;
+    if (input.crouch) return STATE.crouch;
+    if (input.interactPressed) return STATE.interact;
+    if (input.jumpPressed) return STATE.jump;
 
     const hasMovement = input.forward || input.backward || input.left || input.right;
-    if (!hasMovement) return 'idle';
+    if (!hasMovement) return STATE.idle;
 
     return null;
   }

@@ -1,7 +1,7 @@
 import * as Tone from 'tone';
 import type { PlayerController } from '@character/PlayerController';
 import type { EventBus } from '@core/EventBus';
-import type { Disposable, FixedUpdatable } from '@core/types';
+import { STATE, type Disposable, type FixedUpdatable } from '@core/types';
 import type { InputManager } from '@input/InputManager';
 import type { UserSettingsStore } from '@core/UserSettings';
 import { SFXEngine } from './SFXEngine';
@@ -172,10 +172,10 @@ export class AudioManager implements FixedUpdatable, Disposable {
   private bindEvents(): void {
     this.unsubscribers.push(
       this.eventBus.on('player:stateChanged', ({ current }) => {
-        if (current === 'jump') {
+        if (current === STATE.jump) {
           this.sfxEngine.jump();
         }
-        if (current === 'airJump') {
+        if (current === STATE.airJump) {
           this.sfxEngine.airJump();
         }
       }),

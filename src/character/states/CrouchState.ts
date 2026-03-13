@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import type { InputState, StateId } from '@core/types';
+import { STATE, type InputState, type StateId } from '@core/types';
 import { State } from './State';
 
 const _movement = new THREE.Vector3();
 
 export class CrouchState extends State {
-  readonly id: StateId = 'crouch';
+  readonly id: StateId = STATE.crouch;
 
   enter(): void {
     // Crouch body adjustments are handled in PlayerController.
@@ -16,12 +16,12 @@ export class CrouchState extends State {
   }
 
   handleInput(input: InputState, isGrounded: boolean): StateId | null {
-    if (!isGrounded) return 'air';
-    if (input.interactPressed) return 'interact';
-    if (input.jumpPressed) return 'jump';
+    if (!isGrounded) return STATE.air;
+    if (input.interactPressed) return STATE.interact;
+    if (input.jumpPressed) return STATE.jump;
     if (input.crouch) return null;
     const hasMovement = input.forward || input.backward || input.left || input.right;
-    return hasMovement ? 'move' : 'idle';
+    return hasMovement ? STATE.move : STATE.idle;
   }
 
   update(_dt: number): void {
