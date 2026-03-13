@@ -8,7 +8,9 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "lint": "biome check src/",
+    "lint:fix": "biome check --fix src/"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",
@@ -17,6 +19,7 @@
     "tone": "^15.1.22"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.7",
     "@playwright/test": "^1.58.2",
     "@types/node": "^22.0.0",
     "@types/three": "~0.183.0",
