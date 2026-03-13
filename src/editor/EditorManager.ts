@@ -266,23 +266,27 @@ export class EditorManager {
   private onKeyDown = (e: KeyboardEvent): void => {
     if (!this.active) return;
 
-    // Ignore keyboard shortcuts when typing in an input
-    const tag = (e.target as HTMLElement)?.tagName;
+    // Ignore keyboard shortcuts when typing in an input or contenteditable
+    const target = e.target as HTMLElement;
+    const tag = target?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (target?.isContentEditable) return;
 
-    if (e.code === 'KeyW' && !e.ctrlKey && this.selected) this.setTransformMode('translate');
-    if (e.code === 'KeyE' && !e.ctrlKey && this.selected) this.setTransformMode('rotate');
-    if (e.code === 'KeyR' && !e.ctrlKey && this.selected) this.setTransformMode('scale');
+    const cmd = navigator.platform.toUpperCase().includes('MAC') ? e.metaKey : e.ctrlKey;
+
+    if (e.code === 'KeyW' && !cmd && this.selected) this.setTransformMode('translate');
+    if (e.code === 'KeyE' && !cmd && this.selected) this.setTransformMode('rotate');
+    if (e.code === 'KeyR' && !cmd && this.selected) this.setTransformMode('scale');
     if (e.code === 'Escape') this.cancelPlacement();
-    if (e.code === 'KeyG' && !e.ctrlKey) {
+    if (e.code === 'KeyG' && !cmd) {
       this.grid.toggleGrid();
       this.toolbarPanel.setGridActive(this.grid.isVisible());
     }
-    if (e.code === 'KeyZ' && e.ctrlKey) {
+    if (e.code === 'KeyZ' && cmd) {
       this.history.undo();
       e.preventDefault();
     }
-    if (e.code === 'KeyY' && e.ctrlKey) {
+    if ((e.code === 'KeyY' && cmd) || (e.code === 'KeyZ' && cmd && e.shiftKey)) {
       this.history.redo();
       e.preventDefault();
     }
@@ -293,7 +297,7 @@ export class EditorManager {
 
     // Brush shortcuts 1-8
     const digitMatch = e.code.match(/^Digit([1-8])$/);
-    if (digitMatch && !e.ctrlKey && !e.altKey) {
+    if (digitMatch && !cmd && !e.altKey) {
       const idx = parseInt(digitMatch[1], 10) - 1;
       if (idx < BRUSH_REGISTRY.length) {
         const brush = BRUSH_REGISTRY[idx];
