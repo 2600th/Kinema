@@ -62,7 +62,7 @@ type DenoiseNodeLike = {
 export type AntiAliasingMode = 'smaa' | 'fxaa' | 'none';
 
 const CAMERA_CLIP_NEAR = 0.5;
-const CAMERA_CLIP_FAR = 600;
+const CAMERA_CLIP_FAR = 1000;
 
 /**
  * Wraps the renderer, scene, camera, and TSL post-processing chain.
