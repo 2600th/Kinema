@@ -54,6 +54,9 @@ export class HierarchyPanel extends EditorPanel {
   /* Drag state */
   private draggedId: string | null = null;
 
+  /* Search debounce */
+  private searchTimeout: ReturnType<typeof setTimeout> | undefined;
+
   /* Bound handlers (for cleanup) */
   private readonly handleDocClick: (e: MouseEvent) => void;
   private readonly handleDocKeydown: (e: KeyboardEvent) => void;
@@ -145,7 +148,8 @@ export class HierarchyPanel extends EditorPanel {
     this.searchInput.style.marginBottom = '4px';
     this.searchInput.addEventListener('input', () => {
       this.filterText = this.searchInput.value;
-      this.renderTree();
+      clearTimeout(this.searchTimeout);
+      this.searchTimeout = setTimeout(() => this.renderTree(), 150);
     });
     body.appendChild(this.searchInput);
 

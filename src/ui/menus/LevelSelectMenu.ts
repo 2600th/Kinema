@@ -109,7 +109,12 @@ export class LevelSelectMenu {
     deleteBtn.className = 'menu-button-small menu-button-danger';
     deleteBtn.textContent = 'Delete';
     deleteBtn.addEventListener('click', () => {
-      if (confirm(`Delete "${meta.name}"?`)) {
+      if (deleteBtn.textContent === 'Delete') {
+        deleteBtn.textContent = 'Confirm?';
+        const timer = setTimeout(() => { deleteBtn.textContent = 'Delete'; }, 3000);
+        deleteBtn.dataset.timer = timer.toString();
+      } else {
+        clearTimeout(parseInt(deleteBtn.dataset.timer || '0'));
         LevelSaveStore.delete(meta.key);
         this.refreshList();
       }

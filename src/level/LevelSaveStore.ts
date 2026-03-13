@@ -10,13 +10,6 @@ export interface LevelSaveMeta {
 const INDEX_KEY = 'kinema_level_index';
 const LEVEL_PREFIX = 'kinema_level_';
 
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '');
-}
-
 /**
  * Persists editor levels in localStorage with an index/data pattern.
  */
@@ -33,23 +26,25 @@ export class LevelSaveStore {
     }
   }
 
-  /** Save (or overwrite) a level. Generates key from name if new. */
+  /** Save (or overwrite) a level. Reuses existing key for known levels; generates UUID key for new ones. */
   static save(data: LevelDataV2): void {
     const index = LevelSaveStore.list();
-    let key = LEVEL_PREFIX + slugify(data.name || 'untitled');
 
-    // If the slug already exists under a different display name, disambiguate
-    // so two levels with similar names don't silently overwrite each other.
-    const collision = index.find((m) => m.key === key);
-    if (collision && collision.name !== data.name) {
-      let suffix = 2;
-      while (index.some((m) => m.key === `${key}-${suffix}`)) {
-        suffix++;
+    // For existing levels, reuse the stored key so we don't create duplicates.
+    const existingEntry = index.find((m) => m.name === data.name);
+    const key = existingEntry
+      ? existingEntry.key
+      : LEVEL_PREFIX + crypto.randomUUID();
+
+    try {
+      localStorage.setItem(key, JSON.stringify(data));
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'QuotaExceededError') {
+        console.error('[LevelSaveStore] Storage quota exceeded — level not saved.', err);
+        return;
       }
-      key = `${key}-${suffix}`;
+      throw err;
     }
-
-    localStorage.setItem(key, JSON.stringify(data));
 
     const existing = index.findIndex((m) => m.key === key);
     const meta: LevelSaveMeta = {

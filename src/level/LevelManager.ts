@@ -51,6 +51,21 @@ function disposeAllTextures(material: THREE.Material): void {
   mat.envMap?.dispose();
   mat.lightMap?.dispose();
   mat.bumpMap?.dispose();
+
+  // MeshPhysicalMaterial additional texture slots
+  const phys = material as THREE.MeshPhysicalMaterial;
+  phys.clearcoatMap?.dispose();
+  phys.clearcoatNormalMap?.dispose();
+  phys.clearcoatRoughnessMap?.dispose();
+  phys.transmissionMap?.dispose();
+  phys.thicknessMap?.dispose();
+  phys.sheenColorMap?.dispose();
+  phys.sheenRoughnessMap?.dispose();
+  phys.specularIntensityMap?.dispose();
+  phys.specularColorMap?.dispose();
+  phys.iridescenceMap?.dispose();
+  phys.iridescenceThicknessMap?.dispose();
+  phys.anisotropyMap?.dispose();
 }
 
 function createDefaultSpawnPoint(): SpawnPointData {
