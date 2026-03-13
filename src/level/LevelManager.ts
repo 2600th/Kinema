@@ -19,6 +19,7 @@ import {
 import { NavMeshManager } from '@navigation/NavMeshManager';
 import { NavPatrolSystem } from '@navigation/NavPatrolSystem';
 import { NavDebugOverlay } from '@navigation/NavDebugOverlay';
+import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 import { AssetLoader } from './AssetLoader';
 import { MeshParser } from './MeshParser';
 import { LevelValidator } from './LevelValidator';
@@ -431,7 +432,7 @@ export class LevelManager implements Disposable {
       // Clone the entire scene so multi-mesh GLBs keep all children.
       // Deep-clone geometry and material per-mesh so disposal during unload
       // doesn't invalidate the cached GLTF for future reloads.
-      const clone = gltf.scene.clone(true);
+      const clone = skeletonClone(gltf.scene);
       clone.traverse((child) => {
         if (child instanceof THREE.Mesh) {
           child.geometry = child.geometry.clone();

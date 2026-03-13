@@ -307,6 +307,7 @@ export class SFXEngine {
   // ── Menu / UI SFX ──────────────────────────────────────────
 
   menuOpen(): void {
+    if (Tone.getContext().state !== 'running') return;
     // Noise sweep up 200 -> 2kHz over 200ms
     const now = Tone.now();
     const filter = new Tone.Filter({ frequency: 200, type: 'bandpass', Q: 2 }).connect(this.output);
@@ -322,6 +323,7 @@ export class SFXEngine {
   }
 
   menuClose(): void {
+    if (Tone.getContext().state !== 'running') return;
     // Noise sweep down 2k -> 200Hz over 200ms
     const now = Tone.now();
     const filter = new Tone.Filter({ frequency: 2000, type: 'bandpass', Q: 2 }).connect(this.output);
@@ -337,6 +339,7 @@ export class SFXEngine {
   }
 
   uiClick(): void {
+    if (Tone.getContext().state !== 'running') return;
     // Sine pop 1kHz 20ms
     const now = Tone.now();
     const s = new Tone.Synth({
@@ -349,6 +352,7 @@ export class SFXEngine {
   }
 
   uiHover(): void {
+    if (Tone.getContext().state !== 'running') return;
     // High sine tick 3kHz 10ms, quiet
     const now = Tone.now();
     const s = new Tone.Synth({

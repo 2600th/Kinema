@@ -15,12 +15,10 @@
  */
 import { test, expect } from '@playwright/test';
 
-const BASE_URL = 'http://localhost:5173?station=vehicles';
-
 /** Wait for the game to bootstrap and the station to be ready. */
 async function waitForGameReady(page: import('@playwright/test').Page) {
-  await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
-  await page.waitForSelector('canvas', { timeout: 20_000 });
+  await page.goto('/?station=vehicles', { waitUntil: 'domcontentloaded' });
+  await page.locator('canvas').waitFor({ state: 'visible', timeout: 20_000 });
   // Wait for physics + level to load and game loop to be running
   await page.waitForFunction(
     () => {
@@ -95,16 +93,18 @@ test.describe('Vehicle Controllers', () => {
     // First click the canvas to request pointer lock
     const canvas = page.locator('canvas');
     await canvas.click();
+    // Brief pause for pointer lock to engage
     await page.waitForTimeout(500);
 
     // Walk toward the drone (it's to the left of spawn)
-    // Press A (leftward) to move toward drone area
+    // Press A (leftward) to move toward drone area — game physics movement
     await page.keyboard.down('KeyA');
     await page.waitForTimeout(1500);
     await page.keyboard.up('KeyA');
+    // Let the character decelerate after releasing the key
     await page.waitForTimeout(500);
 
-    // Press E to interact (enter drone if in range)
+    // Press E to interact (enter drone if in range) — wait for vehicle transition
     await page.keyboard.press('KeyE');
     await page.waitForTimeout(1000);
 
@@ -142,7 +142,7 @@ test.describe('Vehicle Controllers', () => {
       fullPage: true,
     });
 
-    // Exit by pressing E
+    // Exit by pressing E — wait for vehicle exit transition
     await page.keyboard.press('KeyE');
     await page.waitForTimeout(1000);
   });
@@ -152,15 +152,17 @@ test.describe('Vehicle Controllers', () => {
 
     const canvas = page.locator('canvas');
     await canvas.click();
+    // Brief pause for pointer lock to engage
     await page.waitForTimeout(500);
 
-    // Walk toward the car (it's to the right of spawn)
+    // Walk toward the car (it's to the right of spawn) — game physics movement
     await page.keyboard.down('KeyD');
     await page.waitForTimeout(1500);
     await page.keyboard.up('KeyD');
+    // Let the character decelerate
     await page.waitForTimeout(500);
 
-    // Press E to interact (enter car if in range)
+    // Press E to interact (enter car if in range) — wait for vehicle transition
     await page.keyboard.press('KeyE');
     await page.waitForTimeout(1500);
 
@@ -169,10 +171,11 @@ test.describe('Vehicle Controllers', () => {
       fullPage: true,
     });
 
-    // Test reverse: press S to go backward
+    // Test reverse: press S to go backward — game physics driving
     await page.keyboard.down('KeyS');
     await page.waitForTimeout(2000);
     await page.keyboard.up('KeyS');
+    // Let the car decelerate
     await page.waitForTimeout(500);
 
     await page.screenshot({
@@ -180,7 +183,7 @@ test.describe('Vehicle Controllers', () => {
       fullPage: true,
     });
 
-    // Exit the car
+    // Exit the car — wait for vehicle exit transition
     await page.keyboard.press('KeyE');
     await page.waitForTimeout(1500);
 
@@ -195,25 +198,28 @@ test.describe('Vehicle Controllers', () => {
 
     const canvas = page.locator('canvas');
     await canvas.click();
+    // Brief pause for pointer lock to engage
     await page.waitForTimeout(500);
 
-    // Move toward car
+    // Move toward car — game physics movement
     await page.keyboard.down('KeyD');
     await page.waitForTimeout(1500);
     await page.keyboard.up('KeyD');
+    // Let the character decelerate
     await page.waitForTimeout(500);
 
-    // Enter car
+    // Enter car — wait for vehicle transition
     await page.keyboard.press('KeyE');
     await page.waitForTimeout(1500);
 
-    // Drive forward a bit
+    // Drive forward a bit — game physics driving
     await page.keyboard.down('KeyW');
     await page.waitForTimeout(1000);
     await page.keyboard.up('KeyW');
+    // Let the car decelerate
     await page.waitForTimeout(500);
 
-    // Exit car
+    // Exit car — wait for vehicle exit transition
     await page.keyboard.press('KeyE');
     await page.waitForTimeout(1500);
 
@@ -224,7 +230,7 @@ test.describe('Vehicle Controllers', () => {
       fullPage: true,
     });
 
-    // Walk forward to prove we're not stuck
+    // Walk forward to prove we're not stuck — game physics movement
     await page.keyboard.down('KeyW');
     await page.waitForTimeout(1500);
     await page.keyboard.up('KeyW');
@@ -252,28 +258,31 @@ test.describe('Vehicle Controllers', () => {
 
     const canvas = page.locator('canvas');
     await canvas.click();
+    // Brief pause for pointer lock to engage
     await page.waitForTimeout(500);
 
     // Rapid vehicle enter/exit cycles to stress test
     for (let i = 0; i < 2; i++) {
-      // Move toward vehicles
+      // Move toward vehicles — game physics movement
       await page.keyboard.down('KeyD');
       await page.waitForTimeout(1000);
       await page.keyboard.up('KeyD');
+      // Let the character decelerate
       await page.waitForTimeout(300);
 
-      // Try interact
+      // Try interact — wait for vehicle transition
       await page.keyboard.press('KeyE');
       await page.waitForTimeout(1000);
 
-      // Try exit
+      // Try exit — wait for vehicle exit transition
       await page.keyboard.press('KeyE');
       await page.waitForTimeout(1000);
 
-      // Move back
+      // Move back — game physics movement
       await page.keyboard.down('KeyA');
       await page.waitForTimeout(1000);
       await page.keyboard.up('KeyA');
+      // Let the character decelerate
       await page.waitForTimeout(300);
     }
 

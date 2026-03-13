@@ -15,11 +15,9 @@
  */
 import { test, expect } from '@playwright/test';
 
-const BASE_URL = 'http://localhost:5173?station=vehicles';
-
 async function waitForGameReady(page: import('@playwright/test').Page) {
-  await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
-  await page.waitForSelector('canvas', { timeout: 20_000 });
+  await page.goto('/?station=vehicles', { waitUntil: 'domcontentloaded' });
+  await page.locator('canvas').waitFor({ state: 'visible', timeout: 20_000 });
   await page.waitForFunction(
     () => {
       const c = document.querySelector('canvas');
@@ -27,6 +25,7 @@ async function waitForGameReady(page: import('@playwright/test').Page) {
     },
     { timeout: 20_000 },
   );
+  // Give the game loop a few seconds to settle (physics warm-up, assets)
   await page.waitForTimeout(4_000);
 }
 
@@ -45,12 +44,14 @@ test.describe('VFX Particle System', () => {
 
     const canvas = page.locator('canvas');
     await canvas.click();
+    // Brief pause for pointer lock to engage
     await page.waitForTimeout(500);
 
-    // Walk forward to trigger footstep dust
+    // Walk forward to trigger footstep dust — game physics movement
     await page.keyboard.down('KeyW');
     await page.waitForTimeout(2000);
     await page.keyboard.up('KeyW');
+    // Let the character decelerate and particles settle
     await page.waitForTimeout(500);
 
     // Canvas should still be rendering
@@ -76,6 +77,7 @@ test.describe('VFX Particle System', () => {
 
     const canvas = page.locator('canvas');
     await canvas.click();
+    // Brief pause for pointer lock to engage
     await page.waitForTimeout(500);
 
     // Jump multiple times to trigger jump puff + landing impact + pool recycling
@@ -106,14 +108,16 @@ test.describe('VFX Particle System', () => {
 
     const canvas = page.locator('canvas');
     await canvas.click();
+    // Brief pause for pointer lock to engage
     await page.waitForTimeout(500);
 
-    // Sprint forward (Shift+W) to generate continuous footstep dust
+    // Sprint forward (Shift+W) to generate continuous footstep dust — game physics movement
     await page.keyboard.down('ShiftLeft');
     await page.keyboard.down('KeyW');
     await page.waitForTimeout(3000);
     await page.keyboard.up('KeyW');
     await page.keyboard.up('ShiftLeft');
+    // Let particles settle after stopping
     await page.waitForTimeout(500);
 
     // Verify canvas is still healthy after sustained particle emission

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
+import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 
 /**
@@ -9,6 +10,13 @@ import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
  * Configures DRACO + KTX2 decoders so compressed assets work out of the box.
  */
 export class AssetLoader {
+  private static sharedRenderer: THREE.WebGLRenderer | undefined;
+
+  /** Store a renderer reference so all future AssetLoader instances auto-detect KTX2 support. */
+  static initRendererSupport(renderer: THREE.WebGLRenderer): void {
+    AssetLoader.sharedRenderer = renderer;
+  }
+
   private loader: GLTFLoader;
   private dracoLoader: DRACOLoader;
   private ktx2Loader: KTX2Loader;
@@ -23,8 +31,9 @@ export class AssetLoader {
 
     this.ktx2Loader = new KTX2Loader();
     this.ktx2Loader.setTranscoderPath('https://www.gstatic.com/basis-universal/versioned/2021-04-15-ba1c3e4/');
-    if (renderer) {
-      this.ktx2Loader.detectSupport(renderer);
+    const effectiveRenderer = renderer ?? AssetLoader.sharedRenderer;
+    if (effectiveRenderer) {
+      this.ktx2Loader.detectSupport(effectiveRenderer);
     }
     this.loader.setKTX2Loader(this.ktx2Loader);
   }
@@ -32,7 +41,7 @@ export class AssetLoader {
   /** Load a GLTF/GLB file. Returns cached result (with cloned scene) if available. */
   async load(url: string): Promise<GLTF> {
     const cached = this.cache.get(url);
-    if (cached) return { ...cached, scene: cached.scene.clone(true) };
+    if (cached) return { ...cached, scene: skeletonClone(cached.scene) as THREE.Group };
 
     const gltf = await this.loader.loadAsync(url);
     this.cache.set(url, gltf);

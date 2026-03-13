@@ -49,6 +49,7 @@ export class AudioManager implements FixedUpdatable, Disposable {
     this.setSfxVolume(this.settings.value.sfxVolume);
 
     this.bindEvents();
+    this.listenForUserGesture();
   }
 
   private async ensureToneStarted(): Promise<void> {
@@ -147,6 +148,25 @@ export class AudioManager implements FixedUpdatable, Disposable {
     this.musicGain.dispose();
     this.sfxGain.dispose();
     this.masterGain.dispose();
+  }
+
+  private listenForUserGesture(): void {
+    const gestureEvents = ['click', 'keydown', 'touchstart', 'pointerdown'] as const;
+    const handler = (): void => {
+      for (const evt of gestureEvents) {
+        document.removeEventListener(evt, handler, true);
+      }
+      void this.ensureToneStarted();
+    };
+    for (const evt of gestureEvents) {
+      document.addEventListener(evt, handler, { capture: true, once: false });
+    }
+    // Clean up listeners on dispose
+    this.unsubscribers.push(() => {
+      for (const evt of gestureEvents) {
+        document.removeEventListener(evt, handler, true);
+      }
+    });
   }
 
   private bindEvents(): void {

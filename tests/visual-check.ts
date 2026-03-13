@@ -15,7 +15,6 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirnameSelf = path.dirname(__filename);
 const SCREENSHOT_DIR = path.resolve(__dirnameSelf, "screenshots");
-const BASE_URL = "http://localhost:5173";
 
 test("main menu renders correctly with no bootstrap errors", async ({ page }) => {
   const consoleErrors: string[] = [];
@@ -23,10 +22,11 @@ test("main menu renders correctly with no bootstrap errors", async ({ page }) =>
     if (msg.type() === "error") consoleErrors.push(msg.text());
   });
 
-  const response = await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
+  const response = await page.goto('/', { waitUntil: "domcontentloaded" });
   expect(response?.status()).toBe(200);
 
-  await page.waitForSelector("canvas", { timeout: 15_000 });
+  await page.locator('canvas').waitFor({ state: 'visible', timeout: 15_000 });
+  // Wait for the game to finish bootstrapping (assets, shaders, initial render)
   await page.waitForTimeout(3_000);
 
   // Screenshot of main menu
@@ -53,12 +53,14 @@ test("main menu renders correctly with no bootstrap errors", async ({ page }) =>
 });
 
 test("settings menu tabs are accessible", async ({ page }) => {
-  await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
-  await page.waitForSelector("canvas", { timeout: 15_000 });
+  await page.goto('/', { waitUntil: "domcontentloaded" });
+  await page.locator('canvas').waitFor({ state: 'visible', timeout: 15_000 });
+  // Wait for the game to finish bootstrapping (assets, shaders, initial render)
   await page.waitForTimeout(2_000);
 
   await page.locator("text=Settings").click();
-  await page.waitForTimeout(500);
+  // Wait for settings panel to render
+  await page.getByRole("button", { name: "Controls" }).waitFor({ state: 'visible' });
 
   // Verify settings tabs exist (no screenshot due to WebGPU canvas limitation)
   // Use role locators to avoid strict-mode violations from duplicate text

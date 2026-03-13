@@ -1,4 +1,5 @@
 import RAPIER from '@dimforge/rapier3d-compat';
+import * as THREE from 'three';
 
 function showBootstrapError(err: unknown): void {
   const message = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
@@ -44,6 +45,7 @@ async function bootstrap(): Promise<void> {
     { LevelSaveStore },
     { SHOWCASE_STATION_ORDER },
     { Game },
+    { AssetLoader },
   ] = await Promise.all([
     import('@renderer/RendererManager'),
     import('@physics/PhysicsWorld'),
@@ -62,12 +64,15 @@ async function bootstrap(): Promise<void> {
     import('@level/LevelSaveStore'),
     import('@level/ShowcaseLayout'),
     import('./Game'),
+    import('@level/AssetLoader'),
   ]);
 
   const settings = UserSettingsStore.load();
 
   const renderer = new RendererManager();
   await renderer.init();
+  // Wire KTX2 support early so all AssetLoader instances detect compressed texture formats.
+  AssetLoader.initRendererSupport(renderer.renderer as THREE.WebGLRenderer);
   renderer.setGraphicsProfile(settings.value.graphicsProfile);
   renderer.setAntiAliasingMode(settings.value.aaMode);
   renderer.setResolutionScale(settings.value.resolutionScale);

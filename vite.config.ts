@@ -3,22 +3,29 @@ import wasm from 'vite-plugin-wasm';
 import topLevelAwait from 'vite-plugin-top-level-await';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// Resolve the Rapier ESM entry dynamically from its package.json "module" field
+// so the alias survives across Rapier versions (e.g. 0.17 uses rapier.es.js,
+// future versions may rename to .mjs or change the entry point).
+const require_ = createRequire(import.meta.url);
+const rapierPkgPath = require_.resolve('@dimforge/rapier3d-compat/package.json');
+const rapierPkg = require_(rapierPkgPath);
+const rapierESM = resolve(dirname(rapierPkgPath), rapierPkg.module ?? rapierPkg.main);
 
 export default defineConfig({
   plugins: [wasm(), topLevelAwait()],
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
+    // Playwright tests live in tests/ and run via npx playwright test
+    include: ['src/**/*.test.ts'],
     exclude: ['**/node_modules/**', '**/dist/**'],
     alias: {
-      // Rapier 0.17+ package has "type":"module" but its CJS entry still
-      // uses CommonJS exports. Force the ESM entry so vitest can load it.
-      '@dimforge/rapier3d-compat': resolve(
-        __dirname,
-        'node_modules/@dimforge/rapier3d-compat/rapier.es.js',
-      ),
+      // Rapier's CJS entry uses CommonJS exports which vitest can't load
+      // directly. Point to the ESM entry resolved from the package metadata.
+      '@dimforge/rapier3d-compat': rapierESM,
     },
   },
   resolve: {

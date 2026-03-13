@@ -18,6 +18,8 @@ export class NavMeshManager {
   private reachableFilter: QueryFilter | null = null;
 
   generate(meshes: THREE.Mesh[], seedPoint?: THREE.Vector3): void {
+    const t0 = performance.now();
+
     const [positions, indices] = getPositionsAndIndices(meshes);
 
     const result: SoloNavMeshResult = generateSoloNavMesh(
@@ -49,6 +51,26 @@ export class NavMeshManager {
     if (this.navMesh && seedPoint) {
       this.buildReachableFilter(seedPoint);
     }
+
+    const ms = performance.now() - t0;
+    console.log(`[NavMeshManager] Navmesh generated in ${ms.toFixed(1)}ms`);
+    if (ms > 50) {
+      console.warn(`[NavMeshManager] Navmesh generation took ${ms.toFixed(1)}ms — consider using generateAsync() for larger levels`);
+    }
+  }
+
+  /**
+   * Yields to the main thread before/after generation to avoid blocking UI.
+   * For true off-thread generation, migrate to a Web Worker.
+   */
+  async generateAsync(meshes: THREE.Mesh[], seedPoint?: THREE.Vector3): Promise<void> {
+    // Yield to the main thread before heavy work
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    this.generate(meshes, seedPoint);
+
+    // Yield to the main thread after heavy work
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
   }
 
   /**

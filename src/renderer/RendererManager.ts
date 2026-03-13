@@ -169,7 +169,7 @@ export class RendererManager implements Disposable {
    * Upstream issue: toggling shadows at runtime can trigger a null depthTexture
    * crash inside ShadowNode, causing a black screen or device loss.
    */
-  private static readonly SUPPORTED_THREE_REVISIONS = ['182', '183'];
+  private static readonly SUPPORTED_THREE_REVISIONS = ['182'];
 
   private patchShadowNodeForToggle(wgpuRenderer: WebGPURenderer): void {
     if (!RendererManager.SUPPORTED_THREE_REVISIONS.includes(THREE.REVISION)) {
@@ -180,6 +180,7 @@ export class RendererManager implements Disposable {
       return;
     }
     try {
+      // r182: WebGPURenderer._nodes internal
       const nodes = (wgpuRenderer as unknown as { _nodes?: { constructor: { prototype: { updateBefore: (ro: unknown) => void } }; getNodeFrameForRender: (ro: unknown) => { updateBeforeNode: (n: unknown) => void } } })._nodes;
       if (!nodes?.constructor?.prototype?.updateBefore) return;
       nodes.constructor.prototype.updateBefore = function (renderObject: unknown) {
@@ -293,7 +294,7 @@ export class RendererManager implements Disposable {
           // Scene pass uses 2 HalfFloat MRT color attachments.
           maxColorAttachmentBytesPerSample: 32,
         },
-      } as any) as WebGPURenderer;
+      } as any) as WebGPURenderer; // r182: requiredLimits not in public types
       (wgpuRenderer as any).info.autoReset = true; // FIX: Ensure info is reset every frame to avoid stat accumulation
       wgpuRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       wgpuRenderer.setSize(window.innerWidth, window.innerHeight);
@@ -302,9 +303,10 @@ export class RendererManager implements Disposable {
       wgpuRenderer.toneMapping = THREE.ACESFilmicToneMapping;
       wgpuRenderer.toneMappingExposure = this.toneExposure;
       wgpuRenderer.shadowMap.enabled = this.shadowsEnabled;
-      wgpuRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      wgpuRenderer.shadowMap.type = THREE.PCFShadowMap;
 
       // DO NOT update this.renderer yet. Wait for successful init and graph build.
+      // r182: WebGPURenderer.init() not in public types
       await (wgpuRenderer as unknown as { init(): Promise<void> }).init();
 
       this.patchShadowNodeForToggle(wgpuRenderer);
@@ -331,6 +333,7 @@ export class RendererManager implements Disposable {
       this.isWebGPUPipeline = true;
 
       // Override device-lost handler to show a user-visible overlay
+      // r182: WebGPURenderer._onDeviceLost internal
       const defaultHandler = (wgpuRenderer as any)._onDeviceLost.bind(wgpuRenderer);
       (wgpuRenderer as any).onDeviceLost = (info: { api: string; message: string; reason: string | null }) => {
         defaultHandler(info);
@@ -650,6 +653,7 @@ export class RendererManager implements Disposable {
       );
       // We call renderOutput() manually in applyDisplayOutput() — disable the automatic
       // color transform to prevent double tone mapping + color space conversion.
+      // r182: PostProcessing.outputColorTransform not in public types
       (postProcessing as any).outputColorTransform = false;
       this.postProcessing = postProcessing;
 
