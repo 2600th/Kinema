@@ -58,7 +58,7 @@ function getSoftCircleTexture(): THREE.CanvasTexture {
  *  - Per-particle random size variation
  *  - Smooth size-over-lifetime curve (grow → linger → shrink)
  *  - Additive blending option for sparks/glow
- *  - Ring-buffer allocation, SOA layout for cache efficiency
+ *  - Compact live range with swap-remove: CPU/GPU work scales with live count
  */
 export class ParticlePool {
   private mesh: THREE.InstancedMesh;
@@ -77,7 +77,8 @@ export class ParticlePool {
   private maxParticles: number;
   private baseSize: number;
   private sizeVariation: number;
-  private nextIndex = 0;
+  /** Number of currently live particles. Live slots are [0, activeCount). */
+  private activeCount = 0;
   private gravity: number;
   private drag: number;
 
@@ -114,17 +115,32 @@ export class ParticlePool {
     this.ages = new Float32Array(n);
     this.scales = new Float32Array(n);
 
-    // Initialize all instances as dead (scale 0)
-    _mat4.makeScale(0, 0, 0);
-    for (let i = 0; i < n; i++) {
-      this.mesh.setMatrixAt(i, _mat4);
-    }
-    this.mesh.instanceMatrix.needsUpdate = true;
     scene.add(this.mesh);
   }
 
   /**
+   * Swap all SOA data between two indices.
+   * Used by swap-remove compaction to keep [0, activeCount) dense.
+   */
+  private swapParticle(a: number, b: number): void {
+    let tmp: number;
+
+    tmp = this.posX[a]; this.posX[a] = this.posX[b]; this.posX[b] = tmp;
+    tmp = this.posY[a]; this.posY[a] = this.posY[b]; this.posY[b] = tmp;
+    tmp = this.posZ[a]; this.posZ[a] = this.posZ[b]; this.posZ[b] = tmp;
+
+    tmp = this.velX[a]; this.velX[a] = this.velX[b]; this.velX[b] = tmp;
+    tmp = this.velY[a]; this.velY[a] = this.velY[b]; this.velY[b] = tmp;
+    tmp = this.velZ[a]; this.velZ[a] = this.velZ[b]; this.velZ[b] = tmp;
+
+    tmp = this.lifetimes[a]; this.lifetimes[a] = this.lifetimes[b]; this.lifetimes[b] = tmp;
+    tmp = this.ages[a]; this.ages[a] = this.ages[b]; this.ages[b] = tmp;
+    tmp = this.scales[a]; this.scales[a] = this.scales[b]; this.scales[b] = tmp;
+  }
+
+  /**
    * Emit a burst of particles at a position with velocity spread.
+   * New particles are appended at the end of the live range [0, activeCount).
    */
   emit(
     position: THREE.Vector3,
@@ -151,8 +167,9 @@ export class ParticlePool {
     const vMaxZ = velocityMax?.z ?? 0;
 
     for (let i = 0; i < count; i++) {
-      const idx = this.nextIndex;
-      this.nextIndex = (this.nextIndex + 1) % this.maxParticles;
+      if (this.activeCount >= this.maxParticles) break;
+
+      const idx = this.activeCount++;
 
       this.posX[idx] = position.x + (Math.random() - 0.5) * spread;
       this.posY[idx] = position.y + Math.random() * spread * 0.3; // bias upward
@@ -170,11 +187,11 @@ export class ParticlePool {
   }
 
   /**
-   * Advance all particles and update billboard instance matrices.
+   * Advance all live particles and update billboard instance matrices.
+   * Dead particles are removed via swap-remove so iteration stays O(live).
    * Requires camera for billboard orientation.
    */
   update(dt: number, camera?: THREE.Camera): void {
-    const n = this.maxParticles;
     const dragFactor = Math.max(0, 1 - this.drag * dt);
     const gravDt = this.gravity * dt;
 
@@ -183,17 +200,16 @@ export class ParticlePool {
       _camQuat.copy(camera.quaternion);
     }
 
-    for (let i = 0; i < n; i++) {
-      const lifetime = this.lifetimes[i];
-      if (lifetime <= 0) continue;
-
+    let i = 0;
+    while (i < this.activeCount) {
       const age = this.ages[i] + dt;
       this.ages[i] = age;
 
-      if (age >= lifetime) {
-        this.lifetimes[i] = 0;
-        _mat4.makeScale(0, 0, 0);
-        this.mesh.setMatrixAt(i, _mat4);
+      if (age >= this.lifetimes[i]) {
+        // Swap with last live particle and shrink live range
+        this.swapParticle(i, this.activeCount - 1);
+        this.activeCount--;
+        // Re-check index i (now holds the swapped particle)
         continue;
       }
 
@@ -209,7 +225,7 @@ export class ParticlePool {
       this.posZ[i] += this.velZ[i] * dt;
 
       // Size-over-lifetime: quick grow (0-15%), linger (15-55%), shrink (55-100%)
-      const t = age / lifetime;
+      const t = age / this.lifetimes[i];
       let sizeT: number;
       if (t < 0.15) {
         sizeT = t / 0.15; // grow
@@ -226,10 +242,14 @@ export class ParticlePool {
       _scale.set(s, s, s);
       _mat4.compose(_pos, camera ? _camQuat : _camQuat.identity(), _scale);
       this.mesh.setMatrixAt(i, _mat4);
+
+      i++;
     }
 
-    this.mesh.count = n;
-    this.mesh.instanceMatrix.needsUpdate = true;
+    this.mesh.count = this.activeCount;
+    if (this.activeCount > 0) {
+      this.mesh.instanceMatrix.needsUpdate = true;
+    }
   }
 
   dispose(): void {

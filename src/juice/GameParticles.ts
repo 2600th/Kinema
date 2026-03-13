@@ -100,6 +100,24 @@ export class GameParticles {
   }
 
   /**
+   * Radial spark burst for air jumps (double-jump / multi-jump).
+   * Uses the additive spark pool for a distinct glowing visual.
+   */
+  airJumpBurst(position: THREE.Vector3): void {
+    _emitPos.copy(position);
+
+    _sparkVelMin.set(-1.2, -0.1, -1.2);
+    _sparkVelMax.set(1.2, 1.4, 1.2);
+
+    this.sparkPool.emit(_emitPos, 10, {
+      velocityMin: _sparkVelMin,
+      velocityMax: _sparkVelMax,
+      lifetime: 0.22,
+      spread: 0.08,
+    });
+  }
+
+  /**
    * Small outward puff at the player's feet when jumping.
    */
   jumpPuff(position: THREE.Vector3): void {
