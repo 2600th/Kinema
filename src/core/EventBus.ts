@@ -29,7 +29,11 @@ export class EventBus {
     if (!set) return;
     const fns = [...set];
     for (const fn of fns) {
-      fn(payload);
+      try {
+        fn(payload);
+      } catch (err) {
+        console.error(`[EventBus] Listener threw on "${event as string}":`, err);
+      }
     }
   }
 

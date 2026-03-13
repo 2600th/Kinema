@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { EventBus } from './EventBus';
 import type { InputState } from './types';
 import { NULL_INPUT } from './types';
@@ -31,5 +31,29 @@ describe('EventBus', () => {
     bus.clear();
     bus.emit('input:state', NULL_INPUT);
     expect(count).toBe(0);
+  });
+
+  it('continues calling remaining listeners when one throws', () => {
+    const bus = new EventBus();
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    let secondCalled = false;
+    bus.on('input:state', () => {
+      throw new Error('boom');
+    });
+    bus.on('input:state', () => {
+      secondCalled = true;
+    });
+
+    bus.emit('input:state', NULL_INPUT);
+
+    expect(secondCalled).toBe(true);
+    expect(errSpy).toHaveBeenCalledOnce();
+    expect(errSpy).toHaveBeenCalledWith(
+      '[EventBus] Listener threw on "input:state":',
+      expect.any(Error),
+    );
+
+    errSpy.mockRestore();
   });
 });
