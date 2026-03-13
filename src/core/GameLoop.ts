@@ -73,10 +73,12 @@ export class GameLoop {
 
     // Fixed physics steps
     if (this.simulationEnabled && !frozen) {
+      // Cap accumulator to prevent excessive catch-up
+      this.accumulator = Math.min(this.accumulator, PHYSICS_TIMESTEP * MAX_PHYSICS_STEPS);
+
       let steps = 0;
       while (this.accumulator >= PHYSICS_TIMESTEP) {
         if (++steps > MAX_PHYSICS_STEPS) {
-          this.accumulator = 0;
           break;
         }
         for (const obj of this.fixedUpdatables) {
@@ -88,12 +90,12 @@ export class GameLoop {
         }
         this.accumulator -= PHYSICS_TIMESTEP;
       }
-    } else {
-      this.accumulator = 0;
     }
+    // When frozen: accumulator is preserved, alpha stays at its last good value
+    // When !simulationEnabled: accumulator was already zeroed in setSimulationEnabled()
 
-    // Interpolation alpha
-    const alpha = this.accumulator / PHYSICS_TIMESTEP;
+    // Interpolation alpha — clamped to [0, 1]
+    const alpha = Math.min(1, this.accumulator / PHYSICS_TIMESTEP);
 
     // Variable render step
     for (const obj of this.updatables) {
