@@ -126,10 +126,18 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
         if (airJump) {
           this.camera.addTrauma(0.08);
           this.fovPunch.punch(1.5);
-          void this.ensureGameParticles().then((p) => p.airJumpBurst(position));
+          if (this.gameParticles) {
+            this.gameParticles.airJumpBurst(position);
+          } else {
+            void this.ensureGameParticles().then((p) => p.airJumpBurst(position));
+          }
         } else {
           this.fovPunch.punch(0.75);
-          void this.ensureGameParticles().then((p) => p.jumpPuff(groundPosition));
+          if (this.gameParticles) {
+            this.gameParticles.jumpPuff(groundPosition);
+          } else {
+            void this.ensureGameParticles().then((p) => p.jumpPuff(groundPosition));
+          }
         }
       }),
       this.eventBus.on('player:landed', ({ impactSpeed }) => {
@@ -141,7 +149,11 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
           this.fovPunch.punch(3);
         }
         // Landing dust particles
-        void this.ensureGameParticles().then((p) => p.landingImpact(this.playerController.groundPosition, impactSpeed));
+        if (this.gameParticles) {
+          this.gameParticles.landingImpact(this.playerController.groundPosition, impactSpeed);
+        } else {
+          void this.ensureGameParticles().then((p) => p.landingImpact(this.playerController.groundPosition, impactSpeed));
+        }
       }),
       this.eventBus.on('interaction:triggered', ({ id }) => {
         if (id === 'beacon1') {
@@ -169,7 +181,11 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
         this.objectiveManager.complete('reach-checkpoint');
       }),
       this.eventBus.on('debug:showColliders', (enabled) => {
-        void this.ensurePhysicsDebugView().then((v) => v.setEnabled(enabled));
+        if (this.physicsDebugView) {
+          this.physicsDebugView.setEnabled(enabled);
+        } else {
+          void this.ensurePhysicsDebugView().then((v) => v.setEnabled(enabled));
+        }
       }),
       this.eventBus.on('debug:showLightHelpers', (enabled) => {
         this.levelManager.setLightDebugEnabled(enabled);
@@ -290,7 +306,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
   /** Fixed 60Hz tick. */
   fixedUpdate(dt: number): void {
     // Use cached input from beginFrame (polled once per frame, not per substep)
-    const input = this.frameInput!;
+    const input = this.frameInput ?? this.inputManager.poll();
     this.playerController.setInput(input);
     this.vehicleManager.setInput(input);
     if (this.vehicleManager.isActive() && input.interactPressed) {
@@ -329,7 +345,11 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       } else {
         this.particleFootstepTimer -= dt;
         if (this.particleFootstepTimer <= 0) {
-          void this.ensureGameParticles().then((p) => p.footstepDust(this.playerController.groundPosition, planarSpeed));
+          if (this.gameParticles) {
+            this.gameParticles.footstepDust(this.playerController.groundPosition, planarSpeed);
+          } else {
+            void this.ensureGameParticles().then((p) => p.footstepDust(this.playerController.groundPosition, planarSpeed));
+          }
           const speedN = Math.min((planarSpeed - 1.15) / 6.5, 1);
           this.particleFootstepTimer = 0.42 - speedN * 0.2;
         }
@@ -424,7 +444,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     }
 
     // Use cached look deltas from beginFrame
-    const look = this.frameLook!;
+    const look = this.frameLook ?? this.inputManager.pollLook(dt);
     const lookMode = this.vehicleManager.getCameraLookMode();
     this.camera.handleMouseInput(look.lookDX, lookMode === 'yawOnly' ? 0 : look.lookDY);
     this.camera.handleZoomInput(look.wheelDelta);
