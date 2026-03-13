@@ -243,7 +243,7 @@ export class RendererManager implements Disposable {
     this.renderer.toneMappingExposure = this.toneExposure;
     (this.renderer as THREE.WebGLRenderer).info.autoReset = true;
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.setClearColor(0xd8dce8, 1);
 
     void this.batchLoadLuts();

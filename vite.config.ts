@@ -46,22 +46,28 @@ export default defineConfig({
   },
   build: {
     target: 'esnext',
-    // Vite 8: rollupOptions is auto-converted to rolldownOptions via compat layer.
-    // manualChunks function form is deprecated but still works. Migrate to
-    // advancedChunks when Rolldown stabilizes the API.
-    rollupOptions: {
+    // Vite 8 uses Rolldown under the hood; rolldownOptions replaces the
+    // deprecated rollupOptions compat layer.  codeSplitting.groups replaces
+    // the deprecated manualChunks function form.
+    // TSL display nodes (three/addons/tsl/display/*) are dynamically imported
+    // by the post-processing pipeline — Rolldown keeps them as separate async
+    // chunks automatically, so the negative lookahead in the vendor-three
+    // regex excludes them from the vendor bundle.
+    rolldownOptions: {
       output: {
-        manualChunks(id) {
-          // Group three.js core and three/webgpu into a single vendor chunk.
-          // TSL display nodes (three/addons/tsl/display/*) remain as separate
-          // async chunks since they are dynamically imported by the post-processing pipeline.
-          if (id.includes('node_modules/three/')) {
-            if (id.includes('/addons/tsl/display/')) return undefined;
-            return 'vendor-three';
-          }
-          if (id.includes('node_modules/@dimforge/rapier3d-compat')) {
-            return 'vendor-rapier';
-          }
+        codeSplitting: {
+          groups: [
+            {
+              name: 'vendor-three',
+              test: /node_modules[\\/]three[\\/](?!addons[\\/]tsl[\\/]display[\\/])/,
+              priority: 10,
+            },
+            {
+              name: 'vendor-rapier',
+              test: /node_modules[\\/]@dimforge[\\/]rapier3d-compat/,
+              priority: 10,
+            },
+          ],
         },
       },
     },
