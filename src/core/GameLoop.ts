@@ -66,10 +66,20 @@ export class GameLoop {
       dt = MAX_FRAME_TIME;
     }
 
-    this.accumulator += dt;
-
-    // Advance hitstop timer; skip physics when frozen
+    // Advance hitstop timer BEFORE accumulating dt.
+    // When frozen, discard sim time so it doesn't replay as catch-up steps.
     const frozen = this.hitstop?.update(dt) ?? false;
+
+    if (frozen) {
+      this.accumulator = 0;
+    } else {
+      this.accumulator += dt;
+    }
+
+    // Poll input once per frame before fixed steps
+    for (const obj of this.updatables) {
+      (obj as { beginFrame?: (dt: number) => void }).beginFrame?.(dt);
+    }
 
     // Fixed physics steps
     if (this.simulationEnabled && !frozen) {
@@ -91,7 +101,7 @@ export class GameLoop {
         this.accumulator -= PHYSICS_TIMESTEP;
       }
     }
-    // When frozen: accumulator is preserved, alpha stays at its last good value
+    // When frozen: accumulator was zeroed above — no catch-up steps after freeze ends
     // When !simulationEnabled: accumulator was already zeroed in setSimulationEnabled()
 
     // Interpolation alpha — clamped to [0, 1]

@@ -46,6 +46,7 @@ export class OrbitFollowCamera implements Updatable, Disposable {
   private collisionShape: RAPIER.Ball | null = null;
   private collisionShapeRadius = 0;
   private landingDip = 0;
+  private landingDipVelocity = 0;
   private lookAheadOffset = new THREE.Vector3();
   private lateralDriftCurrent = 0;
   private screenShake = new ScreenShake();
@@ -64,6 +65,10 @@ export class OrbitFollowCamera implements Updatable, Disposable {
   private _rv3Dir = new RAPIER.Vector3(0, 0, 0);
   private _rQuatIdentity = new RAPIER.Quaternion(0, 0, 0, 1);
 
+  // Collision caching: castShape runs at 30 Hz, result reused between ticks.
+  private collisionQueryTimer = 0;
+  private cachedCollisionToi = Number.POSITIVE_INFINITY;
+
   get position(): THREE.Vector3 {
     return this.camera.position;
   }
@@ -77,7 +82,7 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     this.baseFov = this.camera.fov;
     this.unsubs.push(
       this.eventBus.on('player:landed', ({ impactSpeed }) => {
-        this.landingDip = -Math.min(impactSpeed * 0.04, 0.4);
+        this.landingDipVelocity -= Math.min(impactSpeed * 0.18, 1.25);
       }),
     );
   }
@@ -145,6 +150,7 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     this.lookAheadOffset.set(0, 0, 0);
     this.lateralDriftCurrent = 0;
     this.landingDip = 0;
+    this.landingDipVelocity = 0;
 
     // Place camera at the exact snap position immediately
     this.yaw = this.targetYaw;
@@ -239,8 +245,11 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     const crouchCameraOffset = this.target ? 0 : this.player.getCameraHeightOffset();
     const heightOffset = this.targetHeightOverride ?? this.config.heightOffset;
     _pivotPos.set(targetPos.x, targetPos.y + heightOffset - crouchCameraOffset, targetPos.z);
-    // Landing dip: decays back to zero
-    this.landingDip = THREE.MathUtils.damp(this.landingDip, 0, 12, dt);
+    // Landing dip: critically-damped spring drives pivot back to neutral.
+    const landingK = 150;
+    const landingC = 22;
+    this.landingDipVelocity += (-landingK * this.landingDip - landingC * this.landingDipVelocity) * dt;
+    this.landingDip += this.landingDipVelocity * dt;
     _pivotPos.y += this.landingDip;
 
     // Velocity-aware camera: look-ahead + lateral drift
@@ -285,15 +294,24 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     let desiredDistance = ropeAttached
       ? Math.max(this.targetDistance, this.ropeCameraMinDistance)
       : this.targetDistance + this.speedDistanceOffset;
-    this._rv3Origin.x = this.pivotPosition.x;
-    this._rv3Origin.y = this.pivotPosition.y;
-    this._rv3Origin.z = this.pivotPosition.z;
-    this._rv3Dir.x = _idealDir.x;
-    this._rv3Dir.y = _idealDir.y;
-    this._rv3Dir.z = _idealDir.z;
-    const rayHit =
-      this.collisionEnabled && !ropeAttached
-        ? this.physicsWorld.castShape(
+
+    // Collision caching at 30 Hz: run castShape only when the timer expires,
+    // then reuse cachedCollisionToi every render frame in between.
+    // When collision is disabled or rope is attached, always clear the cache.
+    if (!this.collisionEnabled || ropeAttached) {
+      this.cachedCollisionToi = Number.POSITIVE_INFINITY;
+      this.collisionQueryTimer = 0;
+    } else {
+      this.collisionQueryTimer -= dt;
+      if (this.collisionQueryTimer <= 0) {
+        this.collisionQueryTimer = 1 / 30;
+        this._rv3Origin.x = this.pivotPosition.x;
+        this._rv3Origin.y = this.pivotPosition.y;
+        this._rv3Origin.z = this.pivotPosition.z;
+        this._rv3Dir.x = _idealDir.x;
+        this._rv3Dir.y = _idealDir.y;
+        this._rv3Dir.z = _idealDir.z;
+        const rayHit = this.physicsWorld.castShape(
           this._rv3Origin,
           this._rQuatIdentity,
           this._rv3Dir,
@@ -304,10 +322,12 @@ export class OrbitFollowCamera implements Updatable, Disposable {
           this.targetBody ?? this.player.body,
           COLLISION_GROUP_PLAYER,
           (c) => !c.isSensor(),
-        )
-        : null;
-    if (rayHit && rayHit.time_of_impact < desiredDistance) {
-      const hitDistance = rayHit.time_of_impact - this.config.spherecastRadius * 0.92;
+        );
+        this.cachedCollisionToi = rayHit ? rayHit.time_of_impact : Number.POSITIVE_INFINITY;
+      }
+    }
+    if (this.cachedCollisionToi < desiredDistance) {
+      const hitDistance = this.cachedCollisionToi - this.config.spherecastRadius * 0.92;
       desiredDistance = Math.max(this.config.zoomMinDistance, Math.min(desiredDistance, hitDistance));
     }
 
@@ -329,10 +349,11 @@ export class OrbitFollowCamera implements Updatable, Disposable {
       !!input &&
       input.sprint &&
       (input.forward || input.backward || input.left || input.right);
-    const speedFov = speedNorm * this.config.speedFovBoost;
+    const speedFov = speedNorm * speedNorm * this.config.speedFovBoost;
     const sprintFov = sprinting ? this.config.sprintFovBoost : 0;
+    const locomotionFov = Math.min(12, speedFov + sprintFov);
     const punchFov = this.fovPunch?.update(dt) ?? 0;
-    const targetFov = this.baseFov + Math.max(speedFov, sprintFov) + this.speedFovOffset + punchFov;
+    const targetFov = this.baseFov + locomotionFov + this.speedFovOffset + punchFov;
     const fovDamp = 1 - Math.exp(-this.config.fovDamping * dt);
     let nextFov = this.camera.fov + (targetFov - this.camera.fov) * fovDamp;
     // Avoid endless subpixel projection jitter from asymptotic damping convergence.

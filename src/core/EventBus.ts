@@ -27,8 +27,7 @@ export class EventBus {
   emit<K extends keyof EventMap>(event: K, payload: EventMap[K]): void {
     const set = this.listeners.get(event as string);
     if (!set) return;
-    const fns = [...set];
-    for (const fn of fns) {
+    for (const fn of [...set]) {
       try {
         fn(payload);
       } catch (err) {

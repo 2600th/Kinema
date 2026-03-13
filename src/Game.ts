@@ -1,11 +1,11 @@
 import * as THREE from 'three';
 import type { EventBus } from '@core/EventBus';
-import { STATE, type FixedUpdatable, type Updatable, type Disposable, type PostPhysicsUpdatable } from '@core/types';
+import { STATE, type FixedUpdatable, type InputState, type Updatable, type Disposable, type PostPhysicsUpdatable } from '@core/types';
 import { UserSettingsStore, type ShadowQualityTier } from '@core/UserSettings';
 import { COLLISION_GROUP_INTERACTABLE, COLLISION_GROUP_WORLD } from '@core/constants';
 import type { RendererManager } from '@renderer/RendererManager';
 import type { PhysicsWorld } from '@physics/PhysicsWorld';
-import type { InputManager } from '@input/InputManager';
+import type { InputManager, LookState } from '@input/InputManager';
 import type { LevelManager } from '@level/LevelManager';
 import { getShowcaseBayTopY, getShowcaseStationZ, type ShowcaseStationKey } from '@level/ShowcaseLayout';
 import type { PlayerController } from '@character/PlayerController';
@@ -21,7 +21,7 @@ import { ThrowableObject } from '@interaction/interactables/ThrowableObject';
 import { VehicleSeat } from '@interaction/interactables/VehicleSeat';
 import { CheckpointManager } from '@level/CheckpointManager';
 import { ObjectiveManager } from '@core/ObjectiveManager';
-import { PhysicsDebugView } from '@physics/PhysicsDebugView';
+import type { PhysicsDebugView } from '@physics/PhysicsDebugView';
 import type { AudioManager } from '@audio/AudioManager';
 import type { VehicleManager } from '@vehicle/VehicleManager';
 import { DroneController } from '@vehicle/DroneController';
@@ -32,7 +32,7 @@ import type { NavDebugOverlay } from '@navigation/NavDebugOverlay';
 import { FeedbackPlayer } from '@juice/FeedbackPlayer';
 import { Hitstop } from '@juice/Hitstop';
 import { FOVPunch } from '@juice/FOVPunch';
-import { GameParticles } from '@juice/GameParticles';
+import type { GameParticles } from '@juice/GameParticles';
 
 // Temp vector for speed calculation
 const _prevPos = new THREE.Vector3();
@@ -54,7 +54,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
   private objectiveManager: ObjectiveManager;
   private audioManager: AudioManager;
   private editorManager: EditorManager | null = null;
-  private physicsDebugView: PhysicsDebugView;
+  private physicsDebugView: PhysicsDebugView | null = null;
   private readonly fallRespawnY = -25;
   private runtimeInteractables: Array<{ id: string; dispose: () => void }> = [];
   private throwableObjects = new Map<number, ThrowableObject>();
@@ -70,6 +70,21 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
   private readonly navRaycaster = new THREE.Raycaster();
   private readonly navPointer = new THREE.Vector2();
   private unsubs: (() => void)[] = [];
+
+  // Input polling cache (populated once per frame in beginFrame)
+  private frameInput: InputState | null = null;
+  private frameLook: LookState | null = null;
+
+  // Debug stats throttle (4 Hz)
+  private debugSampleTimer = 0;
+  private cachedDebugStats = { physicsMs: 0, drawCalls: 0, triangles: 0, lines: 0, points: 0 };
+
+  // Shared throwable geometries (reused across all throwable objects)
+  private readonly throwableGeometries = {
+    sphere: new THREE.SphereGeometry(1, 8, 6),
+    box: new THREE.BoxGeometry(2, 2, 2),
+    cylinder: new THREE.CylinderGeometry(0.6, 0.6, 1.2, 12),
+  };
 
   // Juice systems
   readonly feedbackPlayer = new FeedbackPlayer();
@@ -95,8 +110,6 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     this.checkpointManager = new CheckpointManager(this.renderer.scene, this.playerController, this.eventBus);
     this.objectiveManager = new ObjectiveManager(this.eventBus);
     this.audioManager = audioManager;
-    this.physicsDebugView = new PhysicsDebugView(this.renderer.scene, this.physicsWorld);
-    this.gameParticles = new GameParticles(this.renderer.scene);
 
     // Wire juice systems
     this.camera.setFOVPunch(this.fovPunch);
@@ -108,8 +121,23 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
           this.interactionManager.refreshFocusFromPosition(this.playerController.position);
           this.interactionManager.triggerInteraction();
         }
-        if (current === STATE.jump || current === STATE.airJump) {
-          this.gameParticles?.jumpPuff(this.playerController.groundPosition);
+      }),
+      this.eventBus.on('player:jumped', ({ airJump, groundPosition, position }) => {
+        if (airJump) {
+          this.camera.addTrauma(0.08);
+          this.fovPunch.punch(1.5);
+          if (this.gameParticles) {
+            this.gameParticles.airJumpBurst(position);
+          } else {
+            void this.ensureGameParticles().then((p) => p.airJumpBurst(position));
+          }
+        } else {
+          this.fovPunch.punch(0.75);
+          if (this.gameParticles) {
+            this.gameParticles.jumpPuff(groundPosition);
+          } else {
+            void this.ensureGameParticles().then((p) => p.jumpPuff(groundPosition));
+          }
         }
       }),
       this.eventBus.on('player:landed', ({ impactSpeed }) => {
@@ -121,7 +149,11 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
           this.fovPunch.punch(3);
         }
         // Landing dust particles
-        this.gameParticles?.landingImpact(this.playerController.groundPosition, impactSpeed);
+        if (this.gameParticles) {
+          this.gameParticles.landingImpact(this.playerController.groundPosition, impactSpeed);
+        } else {
+          void this.ensureGameParticles().then((p) => p.landingImpact(this.playerController.groundPosition, impactSpeed));
+        }
       }),
       this.eventBus.on('interaction:triggered', ({ id }) => {
         if (id === 'beacon1') {
@@ -149,7 +181,11 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
         this.objectiveManager.complete('reach-checkpoint');
       }),
       this.eventBus.on('debug:showColliders', (enabled) => {
-        this.physicsDebugView.setEnabled(enabled);
+        if (this.physicsDebugView) {
+          this.physicsDebugView.setEnabled(enabled);
+        } else {
+          void this.ensurePhysicsDebugView().then((v) => v.setEnabled(enabled));
+        }
       }),
       this.eventBus.on('debug:showLightHelpers', (enabled) => {
         this.levelManager.setLightDebugEnabled(enabled);
@@ -261,10 +297,16 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
 
   }
 
+  /** Called once per frame before the fixed-step loop to cache input. */
+  beginFrame(dt: number): void {
+    this.frameInput = this.inputManager.poll();
+    this.frameLook = this.inputManager.pollLook(dt);
+  }
+
   /** Fixed 60Hz tick. */
   fixedUpdate(dt: number): void {
-    // Poll input — captures accumulated mouse deltas
-    const input = this.inputManager.poll();
+    // Use cached input from beginFrame (polled once per frame, not per substep)
+    const input = this.frameInput ?? this.inputManager.poll();
     this.playerController.setInput(input);
     this.vehicleManager.setInput(input);
     if (this.vehicleManager.isActive() && input.interactPressed) {
@@ -303,7 +345,11 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       } else {
         this.particleFootstepTimer -= dt;
         if (this.particleFootstepTimer <= 0) {
-          this.gameParticles?.footstepDust(this.playerController.groundPosition, planarSpeed);
+          if (this.gameParticles) {
+            this.gameParticles.footstepDust(this.playerController.groundPosition, planarSpeed);
+          } else {
+            void this.ensureGameParticles().then((p) => p.footstepDust(this.playerController.groundPosition, planarSpeed));
+          }
           const speedN = Math.min((planarSpeed - 1.15) / 6.5, 1);
           this.particleFootstepTimer = 0.42 - speedN * 0.2;
         }
@@ -362,7 +408,9 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
   update(dt: number, alpha: number): void {
     if (this.editorManager?.isActive()) {
       this.editorManager.update(dt);
-      this.physicsDebugView.update();
+      this.physicsDebugView?.update();
+      this.frameInput = null;
+      this.frameLook = null;
       return;
     }
     // Advance feedback effects
@@ -380,7 +428,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     for (const throwable of this.throwableObjects.values()) {
       throwable.renderUpdate(alpha);
     }
-    this.physicsDebugView.update();
+    this.physicsDebugView?.update();
     this.gameParticles?.update(dt, this.renderer.camera);
 
     // Nav target marker fade
@@ -395,17 +443,28 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       }
     }
 
-    // Poll look deltas at render frequency for smooth high-refresh-rate input
-    const look = this.inputManager.pollLook(dt);
+    // Use cached look deltas from beginFrame
+    const look = this.frameLook ?? this.inputManager.pollLook(dt);
     const lookMode = this.vehicleManager.getCameraLookMode();
     this.camera.handleMouseInput(look.lookDX, lookMode === 'yawOnly' ? 0 : look.lookDY);
     this.camera.handleZoomInput(look.wheelDelta);
 
     // Camera follows player (runs every render frame for smoothness)
     this.camera.update(dt, alpha);
-    const renderStats = this.renderer.getRenderStats();
 
-    // Debug panel
+    // Debug stats throttled to 4 Hz
+    this.debugSampleTimer -= dt;
+    if (this.debugSampleTimer <= 0) {
+      const renderStats = this.renderer.getRenderStats();
+      this.cachedDebugStats.physicsMs = this.physicsWorld.getLastStepMs();
+      this.cachedDebugStats.drawCalls = renderStats.drawCalls;
+      this.cachedDebugStats.triangles = renderStats.triangles;
+      this.cachedDebugStats.lines = renderStats.lines;
+      this.cachedDebugStats.points = renderStats.points;
+      this.debugSampleTimer = 0.25;
+    }
+
+    // Debug panel (frameMs still updates every frame)
     const stateId = this.vehicleManager.isActive() ? 'vehicle' : this.playerController.fsm.current;
     const grounded = this.vehicleManager.isActive() ? false : this.playerController.isGrounded;
     this.uiManager.debugPanel.tick(
@@ -414,13 +473,33 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       grounded,
       {
         frameMs: dt * 1000,
-        physicsMs: this.physicsWorld.getLastStepMs(),
-        drawCalls: renderStats.drawCalls,
-        triangles: renderStats.triangles,
-        lines: renderStats.lines,
-        points: renderStats.points,
+        physicsMs: this.cachedDebugStats.physicsMs,
+        drawCalls: this.cachedDebugStats.drawCalls,
+        triangles: this.cachedDebugStats.triangles,
+        lines: this.cachedDebugStats.lines,
+        points: this.cachedDebugStats.points,
       },
     );
+
+    // Clear per-frame input cache
+    this.frameInput = null;
+    this.frameLook = null;
+  }
+
+  private async ensurePhysicsDebugView(): Promise<PhysicsDebugView> {
+    if (!this.physicsDebugView) {
+      const { PhysicsDebugView } = await import('@physics/PhysicsDebugView');
+      this.physicsDebugView = new PhysicsDebugView(this.renderer.scene, this.physicsWorld);
+    }
+    return this.physicsDebugView;
+  }
+
+  private async ensureGameParticles(): Promise<GameParticles> {
+    if (!this.gameParticles) {
+      const { GameParticles } = await import('@juice/GameParticles');
+      this.gameParticles = new GameParticles(this.renderer.scene);
+    }
+    return this.gameParticles;
   }
 
   /** Push current renderer state to the debug panel. */
@@ -676,13 +755,16 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     size: number,
     material: THREE.Material,
   ): THREE.Mesh {
+    const mesh = new THREE.Mesh(this.throwableGeometries[shape], material);
+    // Shared geometry has unit dimensions; scale the mesh to match the requested size.
     if (shape === 'sphere') {
-      return new THREE.Mesh(new THREE.SphereGeometry(size, 16, 16), material);
+      mesh.scale.setScalar(size);
+    } else if (shape === 'cylinder') {
+      mesh.scale.setScalar(size);
+    } else {
+      mesh.scale.setScalar(size);
     }
-    if (shape === 'cylinder') {
-      return new THREE.Mesh(new THREE.CylinderGeometry(size * 0.6, size * 0.6, size * 1.2, 16), material);
-    }
-    return new THREE.Mesh(new THREE.BoxGeometry(size * 2, size * 2, size * 2), material);
+    return mesh;
   }
 
   private spawnVehicles(): void {
@@ -953,7 +1035,10 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     this.objectiveManager.dispose();
     this.audioManager.dispose();
     this.gameParticles?.dispose();
-    this.physicsDebugView.dispose();
+    this.physicsDebugView?.dispose();
+    this.throwableGeometries.sphere.dispose();
+    this.throwableGeometries.box.dispose();
+    this.throwableGeometries.cylinder.dispose();
     this.vehicleManager.dispose();
     this.editorManager?.dispose();
     this.uiManager.dispose();
