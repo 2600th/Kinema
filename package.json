@@ -13,13 +13,13 @@
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",
     "navcat": "0.2.0",
-    "three": "~0.182.0",
+    "three": "~0.183.0",
     "tone": "^15.1.22"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
     "@types/node": "^22.0.0",
-    "@types/three": "~0.182.0",
+    "@types/three": "~0.183.0",
     "typescript": "^5.9.3",
     "vite": "^6.1.0",
     "vite-plugin-top-level-await": "^1.5.0",

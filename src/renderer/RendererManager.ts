@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { WebGPURenderer, PostProcessing, PMREMGenerator } from 'three/webgpu';
+import { WebGPURenderer, RenderPipeline, PMREMGenerator } from 'three/webgpu';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { LUT3dlLoader } from 'three/addons/loaders/LUT3dlLoader.js';
 import { LUTCubeLoader } from 'three/addons/loaders/LUTCubeLoader.js';
@@ -72,7 +72,7 @@ export class RendererManager implements Disposable {
   public readonly renderer: THREE.WebGLRenderer | WebGPURenderer;
   public readonly scene: THREE.Scene;
   public readonly camera: THREE.PerspectiveCamera;
-  private postProcessing: PostProcessing | null = null;
+  private postProcessing: RenderPipeline | null = null;
   private buildPipelineFn: ((profile: GraphicsProfile) => TSLNode) | null = null;
   private mainOutputNode: TSLNode | null = null;
   private pipelineRebuildNeeded = false;
@@ -169,7 +169,7 @@ export class RendererManager implements Disposable {
    * Upstream issue: toggling shadows at runtime can trigger a null depthTexture
    * crash inside ShadowNode, causing a black screen or device loss.
    */
-  private static readonly SUPPORTED_THREE_REVISIONS = ['182'];
+  private static readonly SUPPORTED_THREE_REVISIONS = ['182', '183'];
 
   private patchShadowNodeForToggle(wgpuRenderer: WebGPURenderer): void {
     if (!RendererManager.SUPPORTED_THREE_REVISIONS.includes(THREE.REVISION)) {
@@ -180,7 +180,7 @@ export class RendererManager implements Disposable {
       return;
     }
     try {
-      // r182: WebGPURenderer._nodes internal
+      // r182-r183: WebGPURenderer._nodes (NodeManager) internal
       const nodes = (wgpuRenderer as unknown as { _nodes?: { constructor: { prototype: { updateBefore: (ro: unknown) => void } }; getNodeFrameForRender: (ro: unknown) => { updateBeforeNode: (n: unknown) => void } } })._nodes;
       if (!nodes?.constructor?.prototype?.updateBefore) return;
       nodes.constructor.prototype.updateBefore = function (renderObject: unknown) {
@@ -294,7 +294,7 @@ export class RendererManager implements Disposable {
           // Scene pass uses 2 HalfFloat MRT color attachments.
           maxColorAttachmentBytesPerSample: 32,
         },
-      } as any) as WebGPURenderer; // r182: requiredLimits not in public types
+      } as any) as WebGPURenderer; // r182-r183: requiredLimits not in public types
       (wgpuRenderer as any).info.autoReset = true; // FIX: Ensure info is reset every frame to avoid stat accumulation
       wgpuRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       wgpuRenderer.setSize(window.innerWidth, window.innerHeight);
@@ -306,7 +306,7 @@ export class RendererManager implements Disposable {
       wgpuRenderer.shadowMap.type = THREE.PCFShadowMap;
 
       // DO NOT update this.renderer yet. Wait for successful init and graph build.
-      // r182: WebGPURenderer.init() not in public types
+      // r182-r183: WebGPURenderer.init() not in public types
       await (wgpuRenderer as unknown as { init(): Promise<void> }).init();
 
       this.patchShadowNodeForToggle(wgpuRenderer);
@@ -333,7 +333,7 @@ export class RendererManager implements Disposable {
       this.isWebGPUPipeline = true;
 
       // Override device-lost handler to show a user-visible overlay
-      // r182: WebGPURenderer._onDeviceLost internal
+      // r182-r183: WebGPURenderer._onDeviceLost internal
       const defaultHandler = (wgpuRenderer as any)._onDeviceLost.bind(wgpuRenderer);
       (wgpuRenderer as any).onDeviceLost = (info: { api: string; message: string; reason: string | null }) => {
         defaultHandler(info);
@@ -647,13 +647,13 @@ export class RendererManager implements Disposable {
       const initialGraph = buildPipeline(this.graphicsProfile);
       this.mainOutputNode = initialGraph;
 
-      const postProcessing = new PostProcessing(
+      const postProcessing = new RenderPipeline(
         wgpuRenderer,
         (this.aoOnlyView && this.aoOnlyOutputNode ? this.aoOnlyOutputNode : this.mainOutputNode) as never,
       );
       // We call renderOutput() manually in applyDisplayOutput() — disable the automatic
       // color transform to prevent double tone mapping + color space conversion.
-      // r182: PostProcessing.outputColorTransform not in public types
+      // r182-r183: RenderPipeline.outputColorTransform not in public types
       (postProcessing as any).outputColorTransform = false;
       this.postProcessing = postProcessing;
 
@@ -717,7 +717,8 @@ export class RendererManager implements Disposable {
   }
 
   get maxAnisotropy(): number {
-    return this.renderer.getMaxAnisotropy?.() ?? (this.renderer as THREE.WebGLRenderer).capabilities.getMaxAnisotropy();
+    // Both WebGPURenderer (via Renderer base) and WebGLRenderer.capabilities expose this
+    return (this.renderer as unknown as { getMaxAnisotropy(): number }).getMaxAnisotropy?.() ?? 1;
   }
 
   /** Render one frame. */
