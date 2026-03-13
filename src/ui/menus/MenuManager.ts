@@ -233,10 +233,17 @@ export class MenuManager {
   }
 
   private wireButtonAudio(container: HTMLElement): void {
+    let lastHovered: Element | null = null;
     container.addEventListener('mouseover', (e) => {
-      if ((e.target as Element).closest('button, [role="button"]')) {
+      const btn = (e.target as Element).closest('button, [role="button"]');
+      if (btn && btn !== lastHovered) {
+        lastHovered = btn;
         this.eventBus.emit('ui:hover', undefined);
       }
+    });
+    container.addEventListener('mouseout', (e) => {
+      const btn = (e.target as Element).closest('button, [role="button"]');
+      if (btn === lastHovered) lastHovered = null;
     });
     container.addEventListener('click', (e) => {
       if ((e.target as Element).closest('button, [role="button"]')) {

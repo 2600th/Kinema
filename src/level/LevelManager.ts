@@ -64,7 +64,7 @@ function disposeAllTextures(material: THREE.Material): void {
   phys.specularIntensityMap?.dispose();
   phys.specularColorMap?.dispose();
   phys.iridescenceMap?.dispose();
-  phys.iridescenceThicknessRangeMap?.dispose();
+  phys.iridescenceThicknessMap?.dispose();
   phys.anisotropyMap?.dispose();
 }
 

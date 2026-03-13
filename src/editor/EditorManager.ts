@@ -1289,7 +1289,15 @@ export class EditorManager {
   private async saveLevel(): Promise<void> {
     const name = window.prompt('Level name:', 'custom');
     if (!name) return;
-    const data = LevelSerializer.serialize(name, this.editorObjects);
+    // Preserve the original created timestamp when overwriting an existing level
+    const existingLevels = LevelSaveStore.list();
+    const existingMeta = existingLevels.find(m => m.name === name);
+    let existingCreated: string | undefined;
+    if (existingMeta) {
+      const existingData = LevelSaveStore.load(existingMeta.key);
+      existingCreated = existingData?.created;
+    }
+    const data = LevelSerializer.serialize(name, this.editorObjects, existingCreated);
     LevelSerializer.download(data);
     LevelSaveStore.save(data);
     this.eventBus.emit('editor:saved', { name: data.name });
