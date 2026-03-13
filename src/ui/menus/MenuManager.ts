@@ -24,8 +24,8 @@ export class MenuManager {
   private stack: MenuScreen[] = [];
   private resumeOnClose = false;
   private backgroundTimer: number | null = null;
+  private lastBgRender = 0;
   private unsubs: (() => void)[] = [];
-  private observers: MutationObserver[] = [];
 
   private mainMenu: MainMenu;
   private pauseMenu: PauseMenu;
@@ -108,8 +108,6 @@ export class MenuManager {
   dispose(): void {
     for (const unsub of this.unsubs) unsub();
     this.unsubs.length = 0;
-    for (const obs of this.observers) obs.disconnect();
-    this.observers.length = 0;
     this.mainMenu.dispose();
     this.pauseMenu.dispose();
     this.settingsMenu.dispose();
@@ -160,6 +158,7 @@ export class MenuManager {
   }
 
   private async handlePlay(): Promise<void> {
+    void this.requestPointerLock();
     await this.onPlay();
     while (this.stack.length) {
       this.pop();
@@ -168,10 +167,10 @@ export class MenuManager {
     if (!this.gameLoop.isRunning()) {
       this.gameLoop.start();
     }
-    void this.requestPointerLock();
   }
 
   private async handlePlaySavedLevel(key: string): Promise<void> {
+    void this.requestPointerLock();
     await this.onPlayLevel(key);
     while (this.stack.length) {
       this.pop();
@@ -180,7 +179,6 @@ export class MenuManager {
     if (!this.gameLoop.isRunning()) {
       this.gameLoop.start();
     }
-    void this.requestPointerLock();
   }
 
   private async handleCreateLevel(): Promise<void> {
@@ -214,38 +212,37 @@ export class MenuManager {
     }
   }
 
+  private bgLoop = (now: number): void => {
+    if (this.backgroundTimer === null) return;
+    this.backgroundTimer = requestAnimationFrame(this.bgLoop);
+    if (now - this.lastBgRender > 1000 / 15) {
+      this.renderer.render();
+      this.lastBgRender = now;
+    }
+  };
+
   private startBackgroundLoop(): void {
     if (this.backgroundTimer !== null) return;
-    this.backgroundTimer = window.setInterval(() => {
-      this.renderer.render();
-    }, 1000 / 15);
+    this.backgroundTimer = requestAnimationFrame(this.bgLoop);
   }
 
   private stopBackgroundLoop(): void {
     if (this.backgroundTimer === null) return;
-    window.clearInterval(this.backgroundTimer);
+    cancelAnimationFrame(this.backgroundTimer);
     this.backgroundTimer = null;
   }
 
   private wireButtonAudio(container: HTMLElement): void {
-    const wire = (el: Element): void => {
-      el.addEventListener('mouseenter', () => this.eventBus.emit('ui:hover', undefined));
-      el.addEventListener('click', () => this.eventBus.emit('ui:click', undefined));
-    };
-    // Wire existing buttons
-    container.querySelectorAll('button, [role="button"]').forEach(wire);
-    // Observe for dynamically added buttons
-    const observer = new MutationObserver((mutations) => {
-      for (const m of mutations) {
-        for (const node of m.addedNodes) {
-          if (!(node instanceof HTMLElement)) continue;
-          if (node.matches('button, [role="button"]')) wire(node);
-          node.querySelectorAll('button, [role="button"]').forEach(wire);
-        }
+    container.addEventListener('mouseover', (e) => {
+      if ((e.target as Element).closest('button, [role="button"]')) {
+        this.eventBus.emit('ui:hover', undefined);
       }
     });
-    observer.observe(container, { childList: true, subtree: true });
-    this.observers.push(observer);
+    container.addEventListener('click', (e) => {
+      if ((e.target as Element).closest('button, [role="button"]')) {
+        this.eventBus.emit('ui:click', undefined);
+      }
+    });
   }
 
   private async requestPointerLock(): Promise<void> {
