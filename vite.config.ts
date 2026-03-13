@@ -3,17 +3,16 @@ import wasm from 'vite-plugin-wasm';
 import topLevelAwait from 'vite-plugin-top-level-await';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Resolve the Rapier ESM entry dynamically from its package.json "module" field
 // so the alias survives across Rapier versions (e.g. 0.17 uses rapier.es.js,
-// future versions may rename to .mjs or change the entry point).
-const require_ = createRequire(import.meta.url);
-const rapierPkgPath = require_.resolve('@dimforge/rapier3d-compat/package.json');
-const rapierPkg = require_(rapierPkgPath);
-const rapierESM = resolve(dirname(rapierPkgPath), rapierPkg.module ?? rapierPkg.main);
+// 0.19+ uses rapier.mjs). Uses readFileSync because 0.19 restricts subpath exports.
+const rapierPkgDir = resolve(__dirname, 'node_modules/@dimforge/rapier3d-compat');
+const rapierPkg = JSON.parse(readFileSync(resolve(rapierPkgDir, 'package.json'), 'utf-8'));
+const rapierESM = resolve(rapierPkgDir, rapierPkg.module ?? rapierPkg.main);
 
 export default defineConfig({
   plugins: [wasm(), topLevelAwait()],
