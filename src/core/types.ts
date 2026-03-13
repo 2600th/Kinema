@@ -171,6 +171,7 @@ export interface EventMap {
   'player:stateChanged': { previous: StateId; current: StateId };
   'player:grounded': boolean;
   'player:landed': { impactSpeed: number };
+  'player:jumped': { airJump: boolean; run: boolean; jumpVel: number; position: THREE.Vector3; groundPosition: THREE.Vector3 };
   'player:respawned': { reason: string };
   'interaction:focusChanged': { id: string | null; label: string | null };
   'interaction:triggered': { id: string };

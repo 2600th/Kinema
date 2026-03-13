@@ -133,6 +133,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   private carriedBodyType: number | null = null;
   private carriedGravityScale: number | null = null;
   private carriedCollisionGroups: number | null = null;
+  private cachedHorizontalSpeed = 0;
   private interactSuppressFrames = 0;
 
   get lastInputSnapshot(): InputState | null {
@@ -298,6 +299,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     _currentVel.set(vel.x, vel.y, vel.z);
     this.prevVerticalVelocity = this.verticalVelocity;
     this.verticalVelocity = _currentVel.y;
+    this.cachedHorizontalSpeed = Math.hypot(_currentVel.x, _currentVel.z);
 
     if (this.ropeAttached) {
       this.jumpBufferRemaining = 0;
@@ -373,55 +375,63 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       _notSensorOrVehicle,
     );
 
-    _slopeForward.set(0, 0, 1).applyQuaternion(this.mesh.quaternion);
-    _slopeRayOrigin.copy(_rayOrigin).addScaledVector(_slopeForward, this.config.slopeRayOriginOffset);
-    const slopeRayHit = this.physicsWorld.castRay(
-      _setRV(_rv3A, _slopeRayOrigin.x, _slopeRayOrigin.y, _slopeRayOrigin.z),
-      _rapierDown,
-      this.config.slopeRayLength,
-      undefined,
-      this.body,
-      _notSensorOrVehicle,
-    );
+    const closeToGround =
+      floatingRayHit !== null &&
+      floatingRayHit.timeOfImpact < this.floatingDistance + this.config.floatingRayHitForgiveness;
 
+    // Skip slope raycasts when airborne — saves 1-2 Rapier queries per tick.
     this.actualSlopeAngle = 0;
     _actualSlopeNormal.set(0, 1, 0);
-    if (slopeRayHit) {
-      const n = this.physicsWorld.castRayAndGetNormal(
+    let slopeAllowed = true;
+    if (closeToGround) {
+      _slopeForward.set(0, 0, 1).applyQuaternion(this.mesh.quaternion);
+      _slopeRayOrigin.copy(_rayOrigin).addScaledVector(_slopeForward, this.config.slopeRayOriginOffset);
+      const slopeRayHit = this.physicsWorld.castRay(
         _setRV(_rv3A, _slopeRayOrigin.x, _slopeRayOrigin.y, _slopeRayOrigin.z),
         _rapierDown,
         this.config.slopeRayLength,
         undefined,
         this.body,
+        _notSensorOrVehicle,
       );
-      if (n) {
-        _actualSlopeNormal.set(n.normal.x, n.normal.y, n.normal.z).normalize();
-        this.actualSlopeAngle = _actualSlopeNormal.angleTo(_worldUp);
-      }
-    }
 
-    const closeToGround =
-      floatingRayHit !== null &&
-      floatingRayHit.timeOfImpact < this.floatingDistance + this.config.floatingRayHitForgiveness;
-    const slopeAllowed = !slopeRayHit || this.actualSlopeAngle < this.config.slopeMaxAngle;
-    if (closeToGround && slopeAllowed) {
+      if (slopeRayHit) {
+        const n = this.physicsWorld.castRayAndGetNormal(
+          _setRV(_rv3A, _slopeRayOrigin.x, _slopeRayOrigin.y, _slopeRayOrigin.z),
+          _rapierDown,
+          this.config.slopeRayLength,
+          undefined,
+          this.body,
+        );
+        if (n) {
+          _actualSlopeNormal.set(n.normal.x, n.normal.y, n.normal.z).normalize();
+          this.actualSlopeAngle = _actualSlopeNormal.angleTo(_worldUp);
+        }
+      }
+
+      slopeAllowed = !slopeRayHit || this.actualSlopeAngle < this.config.slopeMaxAngle;
+    }
+    const movementGrounded = closeToGround && slopeAllowed;
+    if (movementGrounded) {
       this.groundedGrace = this.config.coyoteTime;
     } else {
       this.groundedGrace = Math.max(0, this.groundedGrace - dt);
     }
-    this.canJump = (closeToGround && slopeAllowed) || this.groundedGrace > 0;
+    // isGrounded reflects actual ground contact; canJump keeps coyote forgiveness.
+    this.canJump = movementGrounded || this.groundedGrace > 0;
 
     const wasGrounded = this.isGrounded;
-    this.isGrounded = this.canJump;
+    this.isGrounded = movementGrounded;
     if (this.isGrounded) {
       this.remainingAirJumps = this.config.maxAirJumps;
     }
     if (this.isGrounded !== wasGrounded) {
       this.eventBus.emit('player:grounded', this.isGrounded);
     }
-    // Landing event: emit impact speed for camera dip / audio
+    // Landing event: emit impact speed (relative to ground body) for camera dip / audio
     if (this.isGrounded && !wasGrounded) {
-      const impactSpeed = Math.abs(this.prevVerticalVelocity);
+      const groundVy = floatingRayHit?.collider.parent()?.linvel().y ?? 0;
+      const impactSpeed = Math.max(0, Math.abs(this.prevVerticalVelocity - groundVy));
       this.eventBus.emit('player:landed', { impactSpeed });
       this.jumpActive = false;
     }
@@ -431,9 +441,10 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     // normal falling gravity (not the old 1.5x multiplier which slammed down).
     if (!input.jump && this.verticalVelocity > 0 && this.jumpActive) {
       const lv = this.body.linvel();
-      this.body.setLinvel(_setRV(_rv3A, lv.x, lv.y * 0.4, lv.z), true);
-      this.verticalVelocity = lv.y * 0.4;
-      this.setGravityScale(this.config.fallingGravityScale);
+      const cutVelocity = Math.min(lv.y, this.config.jumpForce * 0.58);
+      this.body.setLinvel(_setRV(_rv3A, lv.x, cutVelocity, lv.z), true);
+      this.verticalVelocity = cutVelocity;
+      this.setGravityScale(this.config.fallingGravityScale + 0.25);
       this.jumpActive = false;
     }
 
@@ -498,7 +509,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
         this.groundedGrace = 0;
         this.canJump = false;
       } else if (this.remainingAirJumps > 0) {
-        this.fsm.requestState(STATE.jump);
+        this.fsm.requestState(STATE.airJump);
         this.applyJumpImpulse(false, true);
         this.jumpBufferRemaining = 0;
         this.remainingAirJumps -= 1;
@@ -526,7 +537,9 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     // Ground drag is handled by applyMoveVelocity() so we don't double-damp.
 
     if (_currentVel.y < -this.config.fallingMaxVelocity) {
-      this.setGravityScale(0);
+      const lv = this.body.linvel();
+      this.body.setLinvel(_setRV(_rv3A, lv.x, -this.config.fallingMaxVelocity, lv.z), true);
+      this.setGravityScale(this.config.fallingGravityScale);
     } else {
       const airborne = !this.canJump;
       const atApex = airborne && Math.abs(_currentVel.y) < this.config.apexHangThreshold;
@@ -627,9 +640,9 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     const relVz0 = lv.z - platformVz;
 
     // Snappy stop on ground, limited control in air.
-    const accelLambdaGround = 22;
-    const stopLambdaGround = 40;
-    const sideKillLambdaGround = 55; // kill sideways drift fast when input direction changes
+    const accelLambdaGround = 30;
+    const stopLambdaGround = 58;
+    const sideKillLambdaGround = 82; // kill sideways drift fast when input direction changes
     const baseLambda = hasDir ? accelLambdaGround : stopLambdaGround;
     const lambda = inAir ? baseLambda * this.config.airControlFactor : baseLambda;
     const sideLambda = inAir ? sideKillLambdaGround * this.config.airControlFactor : sideKillLambdaGround;
@@ -701,6 +714,14 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       _setRV(_rv3A, _jumpDirection.x, _jumpDirection.y, _jumpDirection.z),
       true,
     );
+
+    this.eventBus.emit('player:jumped', {
+      airJump,
+      run,
+      jumpVel,
+      position: this.currPosition.clone(),
+      groundPosition: this.groundPosition.clone(),
+    });
 
     if (this.currentGroundBody && this.shouldApplyGroundReaction(this.currentGroundBody)) {
       const down = -jumpVel * this.config.jumpForceToGroundMultiplier * 0.5;
@@ -984,10 +1005,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     const scaleY = 1 - this.crouchVisual * 0.28;
     const scaleXZ = 1 + this.crouchVisual * 0.04;
     this.mesh.scale.set(scaleXZ, scaleY, scaleXZ);
-    // Sync animation playback speed to actual horizontal velocity to prevent foot-sliding.
-    const vel = this.body.linvel();
-    const horizontalSpeed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
-    this.characterVisual?.setMovementSpeed(horizontalSpeed);
+    // Sync animation playback speed to cached horizontal velocity to prevent foot-sliding.
+    this.characterVisual?.setMovementSpeed(this.cachedHorizontalSpeed);
 
     this.characterVisual?.setState(this.fsm.current);
     this.characterVisual?.update(_dt);
