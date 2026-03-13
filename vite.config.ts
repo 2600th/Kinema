@@ -1,6 +1,5 @@
 import { defineConfig } from 'vitest/config';
 import wasm from 'vite-plugin-wasm';
-import topLevelAwait from 'vite-plugin-top-level-await';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
@@ -15,7 +14,7 @@ const rapierPkg = JSON.parse(readFileSync(resolve(rapierPkgDir, 'package.json'),
 const rapierESM = resolve(rapierPkgDir, rapierPkg.module ?? rapierPkg.main);
 
 export default defineConfig({
-  plugins: [wasm(), topLevelAwait()],
+  plugins: [wasm()],
   test: {
     environment: 'node',
     // Playwright tests live in tests/ and run via npx playwright test
@@ -47,6 +46,9 @@ export default defineConfig({
   },
   build: {
     target: 'esnext',
+    // Vite 8: rollupOptions is auto-converted to rolldownOptions via compat layer.
+    // manualChunks function form is deprecated but still works. Migrate to
+    // advancedChunks when Rolldown stabilizes the API.
     rollupOptions: {
       output: {
         manualChunks(id) {
