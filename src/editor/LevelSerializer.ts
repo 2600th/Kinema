@@ -46,7 +46,7 @@ export interface LevelDataV2 {
   name: string;
   created: string;
   modified: string;
-  spawnPoint: { position: [number, number, number] };
+  spawnPoint: { position: [number, number, number]; rotation?: [number, number, number] };
   objects: SerializedObjectV2[];
 }
 
@@ -90,24 +90,26 @@ export class LevelSerializer {
   /*  Serialize editor state → v2 JSON                                  */
   /* ------------------------------------------------------------------ */
 
-  static serialize(name: string, objects: EditorObject[]): LevelDataV2 {
+  static serialize(name: string, objects: EditorObject[], existingCreated?: string): LevelDataV2 {
     const now = new Date().toISOString();
 
     // Derive spawn point from the first SpawnBrush object, fallback to default
     let spawnPosition: [number, number, number] = [0, 2, 0];
+    let spawnRotation: [number, number, number] | undefined;
     const spawnObj = objects.find(
       (obj) => obj.source.type === 'brush' && obj.source.brush === 'spawn',
     );
     if (spawnObj) {
       spawnPosition = [...spawnObj.transform.position];
+      spawnRotation = [...spawnObj.transform.rotation];
     }
 
     return {
       version: 2,
       name,
-      created: now,
+      created: existingCreated ?? now,
       modified: now,
-      spawnPoint: { position: spawnPosition },
+      spawnPoint: { position: spawnPosition, ...(spawnRotation && { rotation: spawnRotation }) },
       objects: objects.map((obj) => ({
         id: obj.id,
         name: obj.name,
