@@ -42,6 +42,7 @@ export default defineConfig({
       '@editor': resolve(__dirname, 'src/editor'),
       '@navigation': resolve(__dirname, 'src/navigation'),
       '@juice': resolve(__dirname, 'src/juice'),
+      '@systems': resolve(__dirname, 'src/systems'),
     },
   },
   build: {

@@ -1,0 +1,548 @@
+import * as THREE from 'three';
+import RAPIER from '@dimforge/rapier3d-compat';
+import { STATE, type InputState } from '@core/types';
+import { shouldApplyGroundReaction } from '../CharacterMotor';
+import type { CharacterMode, PlayerContext } from './CharacterMode';
+
+// Pre-allocated vectors for movement, step assist, and crouch logic.
+const _movingDirection = new THREE.Vector3();
+const _actualSlopeNormal = new THREE.Vector3(0, 1, 0);
+const _standingForcePoint = new THREE.Vector3();
+const _distanceFromCharacterToObject = new THREE.Vector3();
+const _objectAngvelToLinvel = new THREE.Vector3();
+const _velocityDiff = new THREE.Vector3();
+const _groundBodyTranslation = new THREE.Vector3();
+const _groundBodyAngvel = new THREE.Vector3();
+const _slopeProjected = new THREE.Vector3();
+const _jumpVelocityVec = new THREE.Vector3();
+const _jumpDirection = new THREE.Vector3();
+const _stepForward = new THREE.Vector3();
+const _stepProbeLowOrigin = new THREE.Vector3();
+const _stepProbeHighOrigin = new THREE.Vector3();
+const _stepGroundProbeOrigin = new THREE.Vector3();
+const _standProbeOrigin = new THREE.Vector3();
+const _standProbeDir = new THREE.Vector3();
+const _standProbeRight = new THREE.Vector3();
+const _worldUp = new THREE.Vector3(0, 1, 0);
+
+const _rapierDown = new RAPIER.Vector3(0, -1, 0);
+const _rapierUp = new RAPIER.Vector3(0, 1, 0);
+
+const _rv3A = new RAPIER.Vector3(0, 0, 0);
+const _rv3B = new RAPIER.Vector3(0, 0, 0);
+
+function _setRV(v: RAPIER.Vector3, x: number, y: number, z: number): RAPIER.Vector3 {
+  v.x = x; v.y = y; v.z = z;
+  return v;
+}
+
+/**
+ * Grounded locomotion mode — movement steering, step assist, crouch,
+ * ground jump, and moving-platform tracking.
+ */
+export class GroundedMode implements CharacterMode {
+  readonly id = 'grounded';
+
+  fixedUpdate(ctx: PlayerContext, input: InputState, dt: number): string | null {
+    // -- Crouch --
+    this.updateCrouchState(ctx, input.crouch, ctx.currentPos, dt);
+    ctx.floatingDistance = ctx.config.capsuleRadius + ctx.config.floatHeight;
+
+    // -- Ground detection (delegated to CharacterMotor) --
+    const groundInfo = ctx.motor.queryGround(
+      ctx.body, ctx.currentCapsuleHalfHeight, ctx.mesh.quaternion,
+      ctx.config, ctx.physicsWorld, ctx.floatingDistance, dt,
+    );
+    ctx.groundInfo = groundInfo;
+    ctx.actualSlopeAngle = groundInfo.slopeAngle;
+    _actualSlopeNormal.copy(groundInfo.slopeNormal);
+    _standingForcePoint.copy(groundInfo.standingForcePoint);
+    ctx.canJump = groundInfo.canJump;
+
+    const wasGrounded = ctx.isGrounded;
+    ctx.isGrounded = groundInfo.isGrounded;
+    if (ctx.isGrounded) {
+      ctx.remainingAirJumps = ctx.config.maxAirJumps;
+    }
+    if (ctx.isGrounded !== wasGrounded) {
+      ctx.eventBus.emit('player:grounded', ctx.isGrounded);
+    }
+    // Landing event
+    if (ctx.isGrounded && !wasGrounded) {
+      const groundVy = groundInfo.floatingRayHit?.collider.parent()?.linvel().y ?? 0;
+      const impactSpeed = Math.max(0, Math.abs(ctx.prevVerticalVelocity - groundVy));
+      ctx.eventBus.emit('player:landed', { impactSpeed });
+      ctx.jumpActive = false;
+    }
+
+    // Variable jump cut
+    if (!input.jump && ctx.verticalVelocity > 0 && ctx.jumpActive
+        && !ctx.motor.isJumpSuppressed) {
+      ctx.motor.applyJumpCut(ctx.body, ctx.config);
+      ctx.verticalVelocity = ctx.body.linvel().y;
+      ctx.jumpActive = false;
+    }
+
+    // -- Moving platform tracking --
+    ctx.currentGroundBody = null;
+    ctx.isOnMovingObject = false;
+    ctx.movingObjectVelocity.set(0, 0, 0);
+    if (groundInfo.groundBody) {
+      const groundBody = groundInfo.groundBody;
+      const groundBodyType = groundBody.bodyType();
+      ctx.currentGroundBody = groundBody;
+
+      if (groundBodyType === 0 || groundBodyType === 2) {
+        ctx.isOnMovingObject = true;
+        const gbt = groundBody.translation();
+        _groundBodyTranslation.set(gbt.x, gbt.y, gbt.z);
+        _distanceFromCharacterToObject
+          .copy(ctx.currentPos)
+          .sub(_groundBodyTranslation);
+        const lv = groundBody.linvel();
+        const av = groundBody.angvel();
+        _groundBodyAngvel.set(av.x, av.y, av.z);
+        _objectAngvelToLinvel.crossVectors(
+          _groundBodyAngvel,
+          _distanceFromCharacterToObject,
+        );
+        ctx.movingObjectVelocity.set(
+          lv.x + _objectAngvelToLinvel.x,
+          lv.y,
+          lv.z + _objectAngvelToLinvel.z,
+        );
+
+        const groundMass = Math.max(groundBody.mass(), 0.001);
+        const massRatio = ctx.body.mass() / groundMass;
+        ctx.movingObjectVelocity.multiplyScalar(Math.min(1, 1 / massRatio));
+        _velocityDiff.subVectors(ctx.movingObjectVelocity, ctx.currentVel);
+        if (_velocityDiff.length() > 30) {
+          ctx.movingObjectVelocity.multiplyScalar(1 / _velocityDiff.length());
+        }
+      }
+    }
+
+    // -- Movement --
+    const movementLocked = ctx.fsm.current === STATE.interact;
+    const hasMovement = !movementLocked && (input.moveX !== 0 || input.moveY !== 0);
+    const desiredInputDir = ctx.computeMovementDirection(input);
+    const run = ctx.fsm.current !== STATE.grab && input.sprint && !ctx.isCrouched;
+
+    this.applyMoveVelocity(ctx, desiredInputDir, run, hasMovement, dt, input);
+    if (hasMovement) {
+      this.applyStepAssist(ctx, desiredInputDir, run, dt);
+    }
+
+    // -- Ground jump --
+    if (!movementLocked && ctx.fsm.current !== STATE.grab && ctx.jumpBufferRemaining > 0) {
+      if (ctx.canJump) {
+        ctx.fsm.requestState(STATE.jump);
+        this.applyJumpImpulse(ctx, run, false);
+        ctx.jumpBufferRemaining = 0;
+        ctx.motor.clearGroundedGrace();
+        ctx.canJump = false;
+      } else if (ctx.remainingAirJumps > 0) {
+        ctx.fsm.requestState(STATE.airJump);
+        this.applyJumpImpulse(ctx, false, true);
+        ctx.jumpBufferRemaining = 0;
+        ctx.remainingAirJumps -= 1;
+        ctx.motor.clearGroundedGrace();
+        ctx.canJump = false;
+      }
+    }
+
+    // -- Floating spring --
+    ctx.motor.applyFloatingSpring(ctx.body, groundInfo, ctx.config, ctx.floatingDistance);
+
+    // -- Gravity scaling --
+    ctx.motor.applyGravity(ctx.body, ctx.currentVel.y, ctx.canJump, ctx.config);
+
+    return null;
+  }
+
+  // ---------------------------------------------------------------------------
+  //  Movement steering
+  // ---------------------------------------------------------------------------
+
+  private applyMoveVelocity(
+    ctx: PlayerContext,
+    desiredInputDir: THREE.Vector3,
+    run: boolean,
+    hasMovement: boolean,
+    dt: number,
+    input: InputState,
+  ): void {
+    const crouchMult = ctx.isCrouched ? ctx.config.crouchSpeedMultiplier : 1;
+    const grabMult = ctx.fsm.current === STATE.grab ? ctx.config.crouchSpeedMultiplier : 1;
+    const stickMag = Math.min(1, Math.hypot(input.moveX, input.moveY));
+    const targetSpeed =
+      ctx.config.moveSpeed * crouchMult * grabMult * (run ? ctx.config.sprintMultiplier : 1) * stickMag;
+
+    const platformVx = ctx.isOnMovingObject ? ctx.movingObjectVelocity.x : 0;
+    const platformVz = ctx.isOnMovingObject ? ctx.movingObjectVelocity.z : 0;
+
+    const lv = ctx.body.linvel();
+    const grounded = ctx.canJump;
+    const inAir = !grounded;
+
+    const MIN_SLOPE_THRESHOLD = 0.05;
+    const onSlope = grounded && ctx.actualSlopeAngle > MIN_SLOPE_THRESHOLD;
+
+    _movingDirection.copy(desiredInputDir).setY(0);
+    const hasDir = hasMovement && _movingDirection.lengthSq() > 0.0001;
+    if (hasDir) _movingDirection.normalize();
+
+    let useSlope = false;
+    let slopeDirX = 0;
+    let slopeDirY = 0;
+    let slopeDirZ = 0;
+    let slopeExtraMultiplier = 1;
+
+    if (onSlope && hasDir) {
+      const dot = _movingDirection.x * _actualSlopeNormal.x +
+                  _movingDirection.y * _actualSlopeNormal.y +
+                  _movingDirection.z * _actualSlopeNormal.z;
+      _slopeProjected.set(
+        _movingDirection.x - _actualSlopeNormal.x * dot,
+        _movingDirection.y - _actualSlopeNormal.y * dot,
+        _movingDirection.z - _actualSlopeNormal.z * dot,
+      );
+      const projLen = _slopeProjected.length();
+      if (projLen > 0.0001) {
+        _slopeProjected.divideScalar(projLen);
+        useSlope = true;
+        slopeDirX = _slopeProjected.x;
+        slopeDirY = _slopeProjected.y;
+        slopeDirZ = _slopeProjected.z;
+
+        if (slopeDirY > 0.001) {
+          slopeExtraMultiplier = 1 + ctx.config.slopeUpExtraForce;
+        } else if (slopeDirY < -0.001) {
+          slopeExtraMultiplier = 1 + ctx.config.slopeDownExtraForce;
+        }
+      }
+    }
+
+    const relVx0 = lv.x - platformVx;
+    const relVz0 = lv.z - platformVz;
+
+    const accelLambdaGround = 30;
+    const stopLambdaGround = 58;
+    const sideKillLambdaGround = 82;
+    const baseLambda = hasDir ? accelLambdaGround : stopLambdaGround;
+    const lambda = inAir ? baseLambda * ctx.config.airControlFactor : baseLambda;
+    const sideLambda = inAir ? sideKillLambdaGround * ctx.config.airControlFactor : sideKillLambdaGround;
+
+    const t = 1 - Math.exp(-lambda * dt);
+    const tSide = 1 - Math.exp(-sideLambda * dt);
+
+    let nextVx: number;
+    let nextVy: number;
+    let nextVz: number;
+
+    if (hasDir && useSlope) {
+      const relVy0 = lv.y;
+      const vParMag0 = relVx0 * slopeDirX + relVy0 * slopeDirY + relVz0 * slopeDirZ;
+      const vPerpX0 = relVx0 - slopeDirX * vParMag0;
+      const vPerpY0 = relVy0 - slopeDirY * vParMag0;
+      const vPerpZ0 = relVz0 - slopeDirZ * vParMag0;
+
+      const adjustedTarget = targetSpeed * slopeExtraMultiplier;
+      const vParMag = vParMag0 + (adjustedTarget - vParMag0) * t;
+      const vPerpX = vPerpX0 + (0 - vPerpX0) * tSide;
+      const vPerpY = vPerpY0 + (0 - vPerpY0) * tSide;
+      const vPerpZ = vPerpZ0 + (0 - vPerpZ0) * tSide;
+
+      nextVx = (slopeDirX * vParMag + vPerpX) + platformVx;
+      nextVy = slopeDirY * vParMag + vPerpY;
+      nextVz = (slopeDirZ * vParMag + vPerpZ) + platformVz;
+    } else if (hasDir) {
+      const dirX = _movingDirection.x;
+      const dirZ = _movingDirection.z;
+      const vParMag0 = relVx0 * dirX + relVz0 * dirZ;
+      const vPerpX0 = relVx0 - dirX * vParMag0;
+      const vPerpZ0 = relVz0 - dirZ * vParMag0;
+
+      const vParMag = vParMag0 + (targetSpeed - vParMag0) * t;
+      const vPerpX = vPerpX0 + (0 - vPerpX0) * tSide;
+      const vPerpZ = vPerpZ0 + (0 - vPerpZ0) * tSide;
+
+      nextVx = (dirX * vParMag + vPerpX) + platformVx;
+      nextVy = lv.y;
+      nextVz = (dirZ * vParMag + vPerpZ) + platformVz;
+    } else {
+      nextVx = (relVx0 + (0 - relVx0) * t) + platformVx;
+      nextVy = lv.y;
+      nextVz = (relVz0 + (0 - relVz0) * t) + platformVz;
+    }
+
+    ctx.body.setLinvel(_setRV(_rv3A, nextVx, nextVy, nextVz), true);
+  }
+
+  // ---------------------------------------------------------------------------
+  //  Jump
+  // ---------------------------------------------------------------------------
+
+  private applyJumpImpulse(ctx: PlayerContext, run: boolean, airJump: boolean): void {
+    ctx.jumpActive = true;
+    ctx.motor.onJumpFired();
+    const jumpVel =
+      (run ? ctx.config.sprintJumpMultiplier : 1) *
+      ctx.config.jumpForce *
+      (airJump ? ctx.config.airJumpForceMultiplier : 1);
+
+    if (airJump) {
+      ctx.body.setLinvel(
+        _setRV(_rv3A, ctx.currentVel.x, jumpVel, ctx.currentVel.z),
+        true,
+      );
+    } else {
+      _jumpVelocityVec.set(ctx.currentVel.x, jumpVel, ctx.currentVel.z);
+      _jumpDirection
+        .set(0, jumpVel * ctx.config.slopeJumpMultiplier, 0)
+        .projectOnVector(_actualSlopeNormal)
+        .add(_jumpVelocityVec);
+
+      ctx.body.setLinvel(
+        _setRV(_rv3A, _jumpDirection.x, _jumpDirection.y, _jumpDirection.z),
+        true,
+      );
+    }
+
+    ctx.eventBus.emit('player:jumped', {
+      airJump,
+      run,
+      jumpVel,
+      position: ctx.currPosition.clone(),
+      groundPosition: ctx.groundPosition.clone(),
+    });
+
+    if (ctx.currentGroundBody && shouldApplyGroundReaction(ctx.currentGroundBody)) {
+      const down = -jumpVel * ctx.config.jumpForceToGroundMultiplier * 0.5;
+      ctx.currentGroundBody.applyImpulseAtPoint(
+        _setRV(_rv3A, 0, down, 0),
+        _setRV(_rv3B, _standingForcePoint.x, _standingForcePoint.y, _standingForcePoint.z),
+        true,
+      );
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  //  Step assist
+  // ---------------------------------------------------------------------------
+
+  private applyStepAssist(
+    ctx: PlayerContext,
+    desiredInputDir: THREE.Vector3,
+    run: boolean,
+    dt: number,
+  ): void {
+    if (!ctx.canJump && !ctx.isGrounded) return;
+    if (desiredInputDir.lengthSq() < 0.0001) return;
+    if (ctx.currentVel.y > 0.55) return;
+
+    _stepForward.copy(desiredInputDir).setY(0);
+    if (_stepForward.lengthSq() < 0.0001) return;
+    _stepForward.normalize();
+
+    const probeDist = ctx.config.capsuleRadius + (run ? 0.95 : 0.85);
+    _stepProbeLowOrigin.set(
+      ctx.currentPos.x,
+      ctx.currentPos.y - ctx.currentCapsuleHalfHeight + 0.08,
+      ctx.currentPos.z,
+    );
+    _stepProbeHighOrigin.set(
+      ctx.currentPos.x,
+      ctx.currentPos.y - ctx.currentCapsuleHalfHeight + 0.68,
+      ctx.currentPos.z,
+    );
+
+    const lowHit = ctx.physicsWorld.castRay(
+      _setRV(_rv3A, _stepProbeLowOrigin.x, _stepProbeLowOrigin.y, _stepProbeLowOrigin.z),
+      _setRV(_rv3B, _stepForward.x, _stepForward.y, _stepForward.z),
+      probeDist,
+      undefined,
+      ctx.body,
+      (c) => !c.isSensor(),
+    );
+    if (!lowHit || lowHit.timeOfImpact > probeDist) return;
+
+    const highHit = ctx.physicsWorld.castRay(
+      _setRV(_rv3A, _stepProbeHighOrigin.x, _stepProbeHighOrigin.y, _stepProbeHighOrigin.z),
+      _setRV(_rv3B, _stepForward.x, _stepForward.y, _stepForward.z),
+      probeDist,
+      undefined,
+      ctx.body,
+      (c) => !c.isSensor(),
+    );
+    if (highHit) return;
+
+    const lv = ctx.body.linvel();
+    const stepUpVel = (run ? 0.12 : 0.1) / dt;
+    const fwdNudgeVel = 0.05 / dt;
+    const upBoost = run ? 3.4 : 3.0;
+    const fwdBoost = run ? 1.35 : 1.2;
+    if (lv.y < upBoost) {
+      ctx.body.setLinvel(
+        _setRV(_rv3A,
+          lv.x + _stepForward.x * (fwdBoost + fwdNudgeVel),
+          Math.max(lv.y, upBoost + stepUpVel),
+          lv.z + _stepForward.z * (fwdBoost + fwdNudgeVel),
+        ),
+        true,
+      );
+    }
+
+    _stepGroundProbeOrigin.set(
+      ctx.currentPos.x + _stepForward.x * (run ? 0.58 : 0.5),
+      ctx.currentPos.y - ctx.currentCapsuleHalfHeight + 0.75,
+      ctx.currentPos.z + _stepForward.z * (run ? 0.58 : 0.5),
+    );
+    const downHit = ctx.physicsWorld.castRay(
+      _setRV(_rv3A, _stepGroundProbeOrigin.x, _stepGroundProbeOrigin.y, _stepGroundProbeOrigin.z),
+      _rapierDown,
+      1.4,
+      undefined,
+      ctx.body,
+      (c) => !c.isSensor(),
+    );
+    if (downHit) {
+      const groundAheadY = _stepGroundProbeOrigin.y - downHit.timeOfImpact;
+      const feetY = ctx.currentPos.y - ctx.currentCapsuleHalfHeight;
+      const stepHeight = groundAheadY - feetY;
+      const maxStepHeight = run ? 0.34 : 0.28;
+      if (stepHeight > 0.02 && stepHeight <= maxStepHeight) {
+        const curLv = ctx.body.linvel();
+        const clampedHeight = Math.min(stepHeight + 0.02, maxStepHeight);
+        const stepVel = clampedHeight * 60;
+        const fwdStepVel = 0.06 * 60;
+        ctx.body.setLinvel(
+          _setRV(_rv3A,
+            curLv.x + _stepForward.x * fwdStepVel,
+            Math.max(curLv.y, stepVel),
+            curLv.z + _stepForward.z * fwdStepVel,
+          ),
+          true,
+        );
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  //  Crouch
+  // ---------------------------------------------------------------------------
+
+  private updateCrouchState(ctx: PlayerContext, wantsCrouch: boolean, position: THREE.Vector3, dt: number): void {
+    if (wantsCrouch) {
+      ctx.crouchReleaseGraceRemaining = ctx.crouchReleaseGraceSeconds;
+      this.setCrouchedState(ctx, true);
+      return;
+    }
+    if (!ctx.isCrouched) {
+      ctx.crouchReleaseGraceRemaining = 0;
+      return;
+    }
+    const blocked = !this.canStandUp(ctx, position);
+    if (blocked) {
+      ctx.crouchReleaseGraceRemaining = ctx.crouchReleaseGraceSeconds;
+      this.setCrouchedState(ctx, true);
+      return;
+    }
+    if (ctx.crouchReleaseGraceRemaining > 0) {
+      ctx.crouchReleaseGraceRemaining = Math.max(0, ctx.crouchReleaseGraceRemaining - dt);
+      this.setCrouchedState(ctx, true);
+      return;
+    }
+    this.setCrouchedState(ctx, false);
+  }
+
+  private setCrouchedState(ctx: PlayerContext, crouched: boolean): void {
+    if (ctx.isCrouched === crouched) return;
+    ctx.isCrouched = crouched;
+    if (!crouched) {
+      ctx.crouchReleaseGraceRemaining = 0;
+    }
+    const targetHalf = crouched ? ctx.crouchedCapsuleHalfHeight : ctx.standingCapsuleHalfHeight;
+    if (Math.abs(targetHalf - ctx.currentCapsuleHalfHeight) <= 0.0001) return;
+
+    const pos = ctx.body.translation();
+    const deltaHalf = ctx.currentCapsuleHalfHeight - targetHalf;
+    ctx.currentCapsuleHalfHeight = targetHalf;
+    ctx.collider.setHalfHeight(targetHalf);
+    ctx.body.setTranslation(_setRV(_rv3A, pos.x, pos.y - deltaHalf, pos.z), true);
+    ctx.body.wakeUp();
+    ctx.currPosition.set(pos.x, pos.y - deltaHalf, pos.z);
+    ctx.prevPosition.set(pos.x, pos.y - deltaHalf, pos.z);
+    ctx.floatingDistance = ctx.config.capsuleRadius + ctx.config.floatHeight;
+  }
+
+  private canStandUp(ctx: PlayerContext, position: THREE.Vector3): boolean {
+    const standDelta = ctx.standingCapsuleHalfHeight - ctx.currentCapsuleHalfHeight;
+    if (standDelta <= 0.001) return true;
+    const probeLength = standDelta * 2 + 0.04;
+    if (this.isStandProbeBlocked(ctx, position.x, position.y, position.z, probeLength)) {
+      return false;
+    }
+
+    const input = ctx.lastInput;
+    if (!input) return true;
+
+    _standProbeDir.copy(ctx.computeMovementDirection(input)).setY(0);
+    if (_standProbeDir.lengthSq() < 0.0001) {
+      return true;
+    }
+    _standProbeDir.normalize();
+    _standProbeRight.crossVectors(_standProbeDir, _worldUp).normalize();
+    const forward = ctx.config.capsuleRadius * 0.95;
+    const shoulder = ctx.config.capsuleRadius * 0.55;
+
+    if (
+      this.isStandProbeBlocked(ctx,
+        position.x + _standProbeDir.x * forward,
+        position.y,
+        position.z + _standProbeDir.z * forward,
+        probeLength,
+      )
+    ) {
+      return false;
+    }
+    if (
+      this.isStandProbeBlocked(ctx,
+        position.x + _standProbeDir.x * forward + _standProbeRight.x * shoulder,
+        position.y,
+        position.z + _standProbeDir.z * forward + _standProbeRight.z * shoulder,
+        probeLength,
+      )
+    ) {
+      return false;
+    }
+    if (
+      this.isStandProbeBlocked(ctx,
+        position.x + _standProbeDir.x * forward - _standProbeRight.x * shoulder,
+        position.y,
+        position.z + _standProbeDir.z * forward - _standProbeRight.z * shoulder,
+        probeLength,
+      )
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  private isStandProbeBlocked(ctx: PlayerContext, x: number, y: number, z: number, probeLength: number): boolean {
+    _standProbeOrigin.set(
+      x,
+      y + ctx.currentCapsuleHalfHeight + ctx.config.capsuleRadius,
+      z,
+    );
+    const hit = ctx.physicsWorld.castRay(
+      _setRV(_rv3A, _standProbeOrigin.x, _standProbeOrigin.y, _standProbeOrigin.z),
+      _rapierUp,
+      probeLength,
+      undefined,
+      ctx.body,
+      (c) => !c.isSensor(),
+    );
+    return hit != null;
+  }
+}
