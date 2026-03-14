@@ -21,11 +21,11 @@ export const SNAP_TO_GROUND_DIST = 0.1;
 /** Character controller skin width */
 export const CC_OFFSET = 0.01;
 
-/** Max slope the character can climb (radians) */
-export const MAX_SLOPE_CLIMB_ANGLE = 1.0;
+/** Max slope the character can climb (radians) — 45deg, standard in Rapier/Unreal */
+export const MAX_SLOPE_CLIMB_ANGLE = 0.785;
 
 /** Min slope angle that forces sliding (radians) */
-export const MIN_SLOPE_SLIDE_ANGLE = 1.1;
+export const MIN_SLOPE_SLIDE_ANGLE = 0.87;
 
 /** Autostep config */
 export const AUTOSTEP = {
@@ -57,7 +57,7 @@ export const DEFAULT_PLAYER_CONFIG: PlayerConfig = {
   dragDamping: 0.15,
   airDragMultiplier: 0.2,
   floatingSpringK: 1.6,
-  floatingDampingC: 0.12,
+  floatingDampingC: 0.35,
   floatingRayLength: 2.3,
   floatingRayHitForgiveness: 0.1,
   coyoteTime: 0.14,
@@ -66,7 +66,7 @@ export const DEFAULT_PLAYER_CONFIG: PlayerConfig = {
   airJumpForceMultiplier: 0.92,
   crouchHeightOffset: 0.28,
   crouchSpeedMultiplier: 0.55,
-  slopeMaxAngle: 1,
+  slopeMaxAngle: 0.785,
   slopeRayLength: 3.3,
   slopeRayOriginOffset: 0.27,
   slopeUpExtraForce: 0.1,

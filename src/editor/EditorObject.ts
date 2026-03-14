@@ -32,4 +32,6 @@ export interface EditorObject {
   };
   brushParams?: Record<string, number>;
   physicsType?: 'static' | 'dynamic' | 'kinematic';
+  /** Spawn point tag — only meaningful for spawn brushes (e.g. 'player', 'ai', 'item'). */
+  spawnTag?: string;
 }

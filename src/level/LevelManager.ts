@@ -229,8 +229,17 @@ export class LevelManager implements Disposable {
     }
     this.spawnPoint = createDefaultSpawnPoint();
 
-    // Apply spawn point from JSON
-    if (data.spawnPoint?.position) {
+    // Apply spawn point from JSON — prefer tagged spawnPoints array, fall back to legacy
+    const playerSpawn = data.spawnPoints?.find((s) => s.tag === 'player') ?? data.spawnPoints?.[0];
+    if (playerSpawn) {
+      const [x, y, z] = playerSpawn.position;
+      this.spawnPoint = {
+        position: new THREE.Vector3(x, y, z),
+        ...(playerSpawn.rotation && {
+          rotation: new THREE.Euler(playerSpawn.rotation[0], playerSpawn.rotation[1], playerSpawn.rotation[2]),
+        }),
+      };
+    } else if (data.spawnPoint?.position) {
       const [x, y, z] = data.spawnPoint.position;
       this.spawnPoint = { position: new THREE.Vector3(x, y, z) };
     }
@@ -294,6 +303,14 @@ export class LevelManager implements Disposable {
     obj.name = entry.name;
     this.scene.add(obj);
     this.levelObjects.push(obj);
+
+    // Editor-only gizmos (spawn, trigger) — hide in play mode, skip physics
+    const isEditorGizmo = entry.source.type === 'brush' &&
+      (entry.source.brush === 'spawn' || entry.source.brush === 'trigger');
+    if (isEditorGizmo) {
+      obj.visible = false;
+      return;
+    }
 
     // Create physics body
     const physType = entry.physics?.type ?? 'static';
@@ -374,11 +391,12 @@ export class LevelManager implements Disposable {
   private createBrushMesh(brushId: string): THREE.Mesh | null {
     const brush = getBrushById(brushId);
     if (!brush) return null;
+    const bp = brush.defaultParams;
     const defaultParams = {
-      anchor: new THREE.Vector3(0, 0, 0),
-      current: new THREE.Vector3(1, 0, 1),
-      normal: new THREE.Vector3(0, 1, 0),
-      height: 1,
+      anchor: bp?.anchor?.clone() ?? new THREE.Vector3(0, 0, 0),
+      current: bp?.current?.clone() ?? new THREE.Vector3(1, 0, 1),
+      normal: bp?.normal?.clone() ?? new THREE.Vector3(0, 1, 0),
+      height: bp?.height ?? 1,
     };
     const geometry = brush.buildPreviewGeometry(defaultParams);
     const material = brush.getDefaultMaterial();

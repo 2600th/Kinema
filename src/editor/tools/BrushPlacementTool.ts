@@ -1,9 +1,20 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import type { EditorTool, EditorToolContext } from './EditorTool';
-import type { BrushDefinition } from '../brushes/Brush';
+import type { BrushDefinition, BrushParams } from '../brushes/Brush';
 import type { EditorObject } from '../EditorObject';
 import { getBrushById } from '../brushes/index';
+
+/** Merge brush-specific defaults with generic fallbacks. */
+function buildDefaultParams(brush: BrushDefinition): BrushParams {
+  const bp = brush.defaultParams;
+  return {
+    anchor: bp?.anchor?.clone() ?? new THREE.Vector3(0, 0, 0),
+    current: bp?.current?.clone() ?? new THREE.Vector3(1, 0, 1),
+    normal: bp?.normal?.clone() ?? new THREE.Vector3(0, 1, 0),
+    height: bp?.height ?? 1,
+  };
+}
 
 type PlacementPhase = 'idle' | 'position';
 
@@ -53,13 +64,8 @@ export class BrushPlacementTool implements EditorTool {
     this.placementPhase = 'position';
     this.onBrushChanged(brushId);
 
-    // Create preview mesh with default params
-    const defaultParams = {
-      anchor: new THREE.Vector3(0, 0, 0),
-      current: new THREE.Vector3(1, 0, 1),
-      normal: new THREE.Vector3(0, 1, 0),
-      height: 1,
-    };
+    // Create preview mesh with brush-specific or generic defaults
+    const defaultParams = buildDefaultParams(brush);
     const geometry = brush.buildPreviewGeometry(defaultParams);
     const material = brush.getDefaultMaterial().clone();
     material.transparent = true;
@@ -126,13 +132,8 @@ export class BrushPlacementTool implements EditorTool {
     const brush = this.activeBrush;
     const position = this.previewMesh.position.clone();
 
-    // Create final mesh
-    const defaultParams = {
-      anchor: new THREE.Vector3(0, 0, 0),
-      current: new THREE.Vector3(1, 0, 1),
-      normal: new THREE.Vector3(0, 1, 0),
-      height: 1,
-    };
+    // Create final mesh with brush-specific or generic defaults
+    const defaultParams = buildDefaultParams(brush);
     const geometry = brush.buildPreviewGeometry(defaultParams);
     const material = brush.getDefaultMaterial();
     const mesh = new THREE.Mesh(geometry, material);
@@ -168,6 +169,7 @@ export class BrushPlacementTool implements EditorTool {
       material: matProps,
       brushParams: { width: 1, height: 1, depth: 1 },
       physicsType: 'static',
+      spawnTag: brush.id === 'spawn' ? 'player' : undefined,
     };
 
     mesh.userData.editorSource = editorObj.source;

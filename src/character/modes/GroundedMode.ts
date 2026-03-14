@@ -23,6 +23,7 @@ const _stepGroundProbeOrigin = new THREE.Vector3();
 const _standProbeOrigin = new THREE.Vector3();
 const _standProbeDir = new THREE.Vector3();
 const _standProbeRight = new THREE.Vector3();
+const _slopeSlideDir = new THREE.Vector3();
 const _worldUp = new THREE.Vector3(0, 1, 0);
 
 const _rapierDown = new RAPIER.Vector3(0, -1, 0);
@@ -40,8 +41,14 @@ function _setRV(v: RAPIER.Vector3, x: number, y: number, z: number): RAPIER.Vect
  * Grounded locomotion mode — movement steering, step assist, crouch,
  * ground jump, and moving-platform tracking.
  */
+/** Frames to suppress step assist after a successful step to prevent compounding. */
+const STEP_ASSIST_COOLDOWN_FRAMES = 6;
+/** Slope slide impulse strength (pushes player off steep surfaces). */
+const SLOPE_SLIDE_STRENGTH = 0.6;
+
 export class GroundedMode implements CharacterMode {
   readonly id = 'grounded';
+  private stepAssistCooldown = 0;
 
   fixedUpdate(ctx: PlayerContext, input: InputState, dt: number): string | null {
     // -- Crouch --
@@ -81,6 +88,30 @@ export class GroundedMode implements CharacterMode {
       ctx.motor.applyJumpCut(ctx.body, ctx.config);
       ctx.verticalVelocity = ctx.body.linvel().y;
       ctx.jumpActive = false;
+    }
+
+    // -- Slope slide: push player off surfaces steeper than slopeMaxAngle --
+    if (groundInfo.closeToGround && !groundInfo.standingSlopeAllowed) {
+      // Project gravity direction onto slope surface to get downhill direction.
+      // gravity = (0, -1, 0), project onto plane with normal = standingSlopeNormal
+      // slideDir = gravity - (gravity · normal) * normal, then normalize
+      const nx = _actualSlopeNormal.x;
+      const ny = _actualSlopeNormal.y;
+      const nz = _actualSlopeNormal.z;
+      const gravDotN = -ny; // dot((0,-1,0), normal) = -ny
+      _slopeSlideDir.set(-nx * gravDotN, -1 - ny * gravDotN, -nz * gravDotN);
+      const slideLen = _slopeSlideDir.length();
+      if (slideLen > 0.001) {
+        _slopeSlideDir.divideScalar(slideLen);
+        ctx.body.applyImpulse(
+          _setRV(_rv3A,
+            _slopeSlideDir.x * SLOPE_SLIDE_STRENGTH,
+            _slopeSlideDir.y * SLOPE_SLIDE_STRENGTH,
+            _slopeSlideDir.z * SLOPE_SLIDE_STRENGTH,
+          ),
+          true,
+        );
+      }
     }
 
     // -- Moving platform tracking --
@@ -335,9 +366,15 @@ export class GroundedMode implements CharacterMode {
     ctx: PlayerContext,
     desiredInputDir: THREE.Vector3,
     run: boolean,
-    dt: number,
+    _dt: number,
   ): void {
-    if (!ctx.canJump && !ctx.isGrounded) return;
+    // Cooldown: skip if recently stepped to prevent compounding
+    if (this.stepAssistCooldown > 0) {
+      this.stepAssistCooldown--;
+      return;
+    }
+    // Only fire when truly grounded (not coyote-only)
+    if (!ctx.isGrounded) return;
     if (desiredInputDir.lengthSq() < 0.0001) return;
     if (ctx.currentVel.y > 0.55) return;
 
@@ -377,22 +414,12 @@ export class GroundedMode implements CharacterMode {
     );
     if (highHit) return;
 
+    // Compute final velocity in a single pass (no compounding)
     const lv = ctx.body.linvel();
-    const stepUpVel = (run ? 0.12 : 0.1) / dt;
-    const fwdNudgeVel = 0.05 / dt;
-    const upBoost = run ? 3.4 : 3.0;
-    const fwdBoost = run ? 1.35 : 1.2;
-    if (lv.y < upBoost) {
-      ctx.body.setLinvel(
-        _setRV(_rv3A,
-          lv.x + _stepForward.x * (fwdBoost + fwdNudgeVel),
-          Math.max(lv.y, upBoost + stepUpVel),
-          lv.z + _stepForward.z * (fwdBoost + fwdNudgeVel),
-        ),
-        true,
-      );
-    }
+    let finalVy = lv.y;
+    let finalFwdBoost = 0;
 
+    // Check precise step height via downward probe ahead
     _stepGroundProbeOrigin.set(
       ctx.currentPos.x + _stepForward.x * (run ? 0.58 : 0.5),
       ctx.currentPos.y - ctx.currentCapsuleHalfHeight + 0.75,
@@ -406,25 +433,46 @@ export class GroundedMode implements CharacterMode {
       ctx.body,
       (c) => !c.isSensor(),
     );
+    const maxStepHeight = run ? 0.34 : 0.28;
     if (downHit) {
       const groundAheadY = _stepGroundProbeOrigin.y - downHit.timeOfImpact;
       const feetY = ctx.currentPos.y - ctx.currentCapsuleHalfHeight;
       const stepHeight = groundAheadY - feetY;
-      const maxStepHeight = run ? 0.34 : 0.28;
       if (stepHeight > 0.02 && stepHeight <= maxStepHeight) {
-        const curLv = ctx.body.linvel();
+        // Precise step: use measured height
         const clampedHeight = Math.min(stepHeight + 0.02, maxStepHeight);
-        const stepVel = clampedHeight * 60;
-        const fwdStepVel = 0.06 * 60;
-        ctx.body.setLinvel(
-          _setRV(_rv3A,
-            curLv.x + _stepForward.x * fwdStepVel,
-            Math.max(curLv.y, stepVel),
-            curLv.z + _stepForward.z * fwdStepVel,
-          ),
-          true,
-        );
+        finalVy = Math.max(lv.y, clampedHeight * 60);
+        finalFwdBoost = 0.06 * 60;
+      } else {
+        // Obstacle detected but step height out of range — use general boost
+        const upBoost = run ? 3.4 : 3.0;
+        const fwdBoost = run ? 1.35 : 1.2;
+        if (lv.y < upBoost) {
+          finalVy = Math.max(lv.y, upBoost);
+          finalFwdBoost = fwdBoost;
+        }
       }
+    } else {
+      // No ground ahead — use general obstacle boost
+      const upBoost = run ? 3.4 : 3.0;
+      const fwdBoost = run ? 1.35 : 1.2;
+      if (lv.y < upBoost) {
+        finalVy = Math.max(lv.y, upBoost);
+        finalFwdBoost = fwdBoost;
+      }
+    }
+
+    // Single setLinvel call — no compounding
+    if (finalVy !== lv.y || finalFwdBoost > 0) {
+      ctx.body.setLinvel(
+        _setRV(_rv3A,
+          lv.x + _stepForward.x * finalFwdBoost,
+          finalVy,
+          lv.z + _stepForward.z * finalFwdBoost,
+        ),
+        true,
+      );
+      this.stepAssistCooldown = STEP_ASSIST_COOLDOWN_FRAMES;
     }
   }
 

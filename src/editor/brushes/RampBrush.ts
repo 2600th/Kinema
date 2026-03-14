@@ -7,6 +7,7 @@ export const RampBrush: BrushDefinition = {
   shortcut: '5',
   // Wedge/ramp icon — triangle shape
   icon: 'M2 20L22 20L2 4z',
+  defaultParams: { current: new THREE.Vector3(2, 0, 4), height: 2 },
 
   buildPreviewGeometry(params: BrushParams): THREE.BufferGeometry {
     const { width, depth } = computeRectFootprint(params.anchor, params.current);

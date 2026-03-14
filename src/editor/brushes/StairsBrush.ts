@@ -10,6 +10,7 @@ export const StairsBrush: BrushDefinition = {
   shortcut: '4',
   // Staircase icon — ascending steps
   icon: 'M2 20h4v-4h4v-4h4v-4h4v-4h2v20H2z',
+  defaultParams: { current: new THREE.Vector3(2, 0, 3), height: 3 },
 
   buildPreviewGeometry(params: BrushParams): THREE.BufferGeometry {
     const { width, depth } = computeRectFootprint(params.anchor, params.current);

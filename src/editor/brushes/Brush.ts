@@ -17,6 +17,13 @@ export interface BrushDefinition {
   shortcut: string;
   icon: string; // SVG path data (d attribute value)
 
+  /**
+   * Player-appropriate default placement params.
+   * Merged with generic defaults in BrushPlacementTool.
+   * Player capsule: 1.4m tall, 0.6m wide — brushes should be scaled relative to this.
+   */
+  defaultParams?: Partial<BrushParams>;
+
   /** Build preview geometry from current placement params */
   buildPreviewGeometry(params: BrushParams): THREE.BufferGeometry;
 

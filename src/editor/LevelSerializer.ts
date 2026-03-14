@@ -41,12 +41,21 @@ export interface SerializedObjectV1 {
  *  V2 types (current)
  * ====================================================================== */
 
+export interface SpawnPointEntry {
+  tag: string;
+  position: [number, number, number];
+  rotation?: [number, number, number];
+}
+
 export interface LevelDataV2 {
   version: 2;
   name: string;
   created: string;
   modified: string;
+  /** Legacy single spawn — kept for backwards compat. */
   spawnPoint: { position: [number, number, number]; rotation?: [number, number, number] };
+  /** Tagged spawn points array (preferred over spawnPoint when present). */
+  spawnPoints?: SpawnPointEntry[];
   objects: SerializedObjectV2[];
 }
 
@@ -93,16 +102,28 @@ export class LevelSerializer {
   static serialize(name: string, objects: EditorObject[], existingCreated?: string): LevelDataV2 {
     const now = new Date().toISOString();
 
-    // Derive spawn point from the first SpawnBrush object, fallback to default
-    let spawnPosition: [number, number, number] = [0, 2, 0];
-    let spawnRotation: [number, number, number] | undefined;
-    const spawnObj = objects.find(
+    // Collect all spawn brushes with their tags
+    const spawnObjects = objects.filter(
       (obj) => obj.source.type === 'brush' && obj.source.brush === 'spawn',
     );
-    if (spawnObj) {
-      spawnPosition = [...spawnObj.transform.position];
-      spawnRotation = [...spawnObj.transform.rotation];
+    const spawnPoints: SpawnPointEntry[] = spawnObjects.map((obj) => ({
+      tag: obj.spawnTag ?? 'player',
+      position: [...obj.transform.position],
+      ...(obj.transform.rotation.some((v) => v !== 0) && { rotation: [...obj.transform.rotation] }),
+    }));
+
+    // Warn on duplicate player spawns
+    const playerSpawns = spawnPoints.filter((s) => s.tag === 'player');
+    if (playerSpawns.length > 1) {
+      console.warn(
+        `[LevelSerializer] ${playerSpawns.length} player spawn points found — only the first will be used as the player spawn.`,
+      );
     }
+
+    // Legacy single spawn point: use first player-tagged spawn, or first spawn, or default
+    const primarySpawn = playerSpawns[0] ?? spawnPoints[0];
+    const spawnPosition: [number, number, number] = primarySpawn?.position ?? [0, 2, 0];
+    const spawnRotation = primarySpawn?.rotation;
 
     return {
       version: 2,
@@ -110,6 +131,7 @@ export class LevelSerializer {
       created: existingCreated ?? now,
       modified: now,
       spawnPoint: { position: spawnPosition, ...(spawnRotation && { rotation: spawnRotation }) },
+      spawnPoints: spawnPoints.length > 0 ? spawnPoints : undefined,
       objects: objects.map((obj) => ({
         id: obj.id,
         name: obj.name,

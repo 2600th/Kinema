@@ -9,6 +9,7 @@ export const FloorBrush: BrushDefinition = {
   shortcut: '2',
   // Flat rectangle icon
   icon: 'M2 16l10 4 10-4-10-4zM2 16v-2l10-4 10 4v2',
+  defaultParams: { current: new THREE.Vector3(4, 0, 4) },
 
   buildPreviewGeometry(params: BrushParams): THREE.BufferGeometry {
     const { width, depth } = computeRectFootprint(params.anchor, params.current);
