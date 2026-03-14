@@ -1,154 +1,204 @@
 # Kinema
 
-Kinema is a third-person gameplay sandbox built with TypeScript, Three.js, Rapier, Tone.js, and Vite. The current repo combines a procedural showcase corridor, a local level editor, a car and drone, navigation demos, and a rendering/debug stack that is meant to be poked at while you build gameplay systems.
+Kinema is a modular third-person gameplay framework built with **TypeScript**, **Three.js r183 (WebGPU)**, **Rapier physics**, **Tone.js**, and **Vite 8**. It ships a procedural showcase corridor, a built-in level editor with play-test mode, full mobile touch controls, and a post-processing stack aligned with Three.js r183's TSL pipeline.
 
-## Current feature set
+## Feature Overview
 
-- Procedural showcase corridor with stations for steps, slopes, movement, double jump, grabbing, throwing, doors, vehicles, moving/physics platforms, materials, VFX, and navigation.
-- Rigid-body player controller with coyote time, jump buffering, one air jump, crouch, ladders, rope traversal, moving-platform carry, checkpoint respawn, and fall respawn.
-- Orbit follow camera with zoom, damping, collision spherecasts, landing dip, speed/FOV response, vehicle handoff, and screen shake hooks.
-- Interaction system with distance + line-of-sight focus, prompt generation, shared highlighting, and optional hold-to-interact behavior.
-- Runtime interactables including doors, an objective beacon, rope, grabbable physics bodies, throwable objects, and vehicle seats.
-- Two vehicles: an arcade-style car and a hover drone.
-- In-game editor with brushes, hierarchy, inspector, transform gizmo, snapping, undo/redo, save/load, and GLB import.
-- Navigation showcase using `navcat` for navmesh generation, pathfinding, and patrol agents.
-- DOM HUD and menus, persistent settings, procedural music, synth-based SFX, particles, hitstop, FOV punch, and debug tooling.
-- WebGPU-first renderer with WebGL fallback, graphics profiles, runtime post-processing toggles, and a large debug panel.
+### Gameplay
+- **Character controller** — dynamic rigidbody with floating spring, modular locomotion modes (grounded, air, ladder, rope), coyote time, jump buffering, double jump, crouch, sprint, and moving-platform carry.
+- **Interaction system** — distance + line-of-sight focus, prompt generation, hold-to-interact, grab/carry/throw with physics.
+- **Vehicles** — arcade car (throttle, steer, handbrake) and hover drone (6DOF flight).
+- **Checkpoint & objective system** — proximity-based checkpoints with fall respawn.
+- **Procedural showcase** — 700-unit corridor with 14 stations: steps, slopes, movement (ladder/crouch/rope), double jump, grab, throw, door/beacon, vehicles, moving platforms, physics platforms, materials (10 PBR samples), GPU VFX (tornado, fire, lasers, lightning, scanner), and navigation (navmesh + patrol agents).
 
-## Getting started
+### Rendering
+- **WebGPU-first** renderer with WebGL2 fallback (Three.js r183).
+- **TSL post-processing pipeline**: GTAO, SSR, Bloom, SMAA/FXAA, CAS sharpening, Vignette, 3D LUT color grading (11 presets).
+- **Three graphics profiles**: performance, balanced, cinematic — with per-effect runtime toggles.
+- **Environment maps**: 7 HDR presets + procedural RoomEnvironment, with rotation and intensity controls.
+- **PCF shadow mapping** with quality tiers (auto/performance/balanced/cinematic).
+
+### Editor
+- **Brush-based placement** — 8 preset types (block, floor, pillar, stairs, ramp, door frame, spawn, trigger).
+- **GLB import** via file picker or drag-and-drop.
+- **Transform gizmo** with translate/rotate/scale modes and grid snapping.
+- **Hierarchy panel** — tree view with drag-drop reparenting, rename, visibility/lock toggles, grouping, search filter.
+- **Inspector panel** — transform, material (color/roughness/metalness/emissive/opacity), physics type editing.
+- **Play-test mode** — Start/Stop like Unity/Unreal with snapshot save/restore (Ctrl+P).
+- **Undo/redo** — command-based history (50 items).
+- **Save/load** — localStorage persistence + JSON download, V1→V2 migration.
+
+### UI/UX
+- **Menu system** — stack-based navigation with glassmorphic dark theme (Main, Pause, Settings, Level Select, Help).
+- **Settings** — Controls (sensitivity, FOV, gamepad tuning), Graphics (profiles, AA, shadows, post-FX), Audio (master/music/SFX).
+- **Help screen** — keybinding reference accessible from main and pause menus.
+- **Debug panel** — real-time metrics, runtime view toggles, environment controls, quality settings, post-FX tweaks.
+- **Responsive design** — scrollable settings, 44px touch targets on mobile, viewport-relative scaling.
+- **HUD** — objectives, interaction prompts, crosshair, status notifications.
+
+### Mobile Support
+- **Full touch gameplay** — dual virtual joysticks (movement + camera look) with on-screen buttons for jump, interact, crouch, sprint.
+- **Auto-detection** — touch controls appear on touch devices, hidden on desktop.
+- **Responsive layout** — viewport-relative positioning for landscape and portrait modes.
+- **Settings toggle** — manual enable/disable via Controls settings tab.
+
+### Audio
+- **Procedural music** — generative ambient soundtrack via Tone.js (no audio files).
+- **Synth-based SFX** — footsteps, jump, land, interact, throw, vehicle engine sounds.
+- **Spatial awareness** — volume scaling based on movement and interaction.
+
+### Juice & Game Feel
+- **Screen shake** — trauma-based with per-axis amplitudes and sin-product noise.
+- **Hitstop** — freeze-frame system with accumulator discard (no catch-up replay).
+- **FOV punch** — critically-damped spring for speed/impact feedback.
+- **Camera landing dip** — spring-based compression + rebound.
+- **Particles** — GPU-instanced pool with footstep dust, landing impacts, jump puffs, air jump spark bursts.
+- **Variable jump height** — velocity cut ceiling for responsive short-hops.
+
+## Getting Started
 
 ### Requirements
 
-- Node.js 20+ recommended
-- npm 10+ recommended
-- A modern desktop browser
+- Node.js 20+
+- npm 10+
+- A modern desktop browser (Chrome/Edge with WebGPU recommended)
 
-The repo does not enforce Node/npm versions in metadata, but the current Vite + TypeScript setup is happiest on recent Node.
-
-### Install
+### Install & Run
 
 ```bash
 npm ci
-```
-
-### Run locally
-
-```bash
 npm run dev
 ```
 
-Open the local Vite URL, usually `http://localhost:5173`.
+Open `http://localhost:5173`. Click the canvas to engage pointer lock and audio.
 
-### First-time play flow
+### Quick Start
 
-1. Use `Play` to load the procedural showcase level.
-2. Use `Level Select` to play the procedural demo or a saved custom level.
-3. Use `Create Level` to open a blank floor-only level and jump straight into the editor.
-4. Click the canvas once after starting or resuming play so pointer lock and audio can fully engage.
+1. **Play** — loads the procedural showcase corridor.
+2. **Level Select** — play the demo or any saved custom level.
+3. **Create Level** — blank floor + editor. Use Ctrl+P to play-test.
+4. **Settings** — configure controls, graphics, and audio.
+5. **Help** — view all keybindings and controls.
+
+### Deep-link to a Station
+
+```
+http://localhost:5173?station=vehicles
+http://localhost:5173?station=movement
+http://localhost:5173?station=materials
+```
+
+All 14 stations: `steps`, `slopes`, `movement`, `doubleJump`, `grab`, `throw`, `door`, `vehicles`, `platformsMoving`, `platformsPhysics`, `materials`, `vfx`, `navigation`, `futureA`.
 
 ## Scripts
 
 | Command | Description |
 |---|---|
-| `npm run dev` | Start the Vite dev server. |
-| `npm run build` | Type-check app source with `tsc` and build with Vite. |
-| `npm run preview` | Preview the production build locally. |
-| `npm run test` | Run Vitest once. |
-| `npm run test:watch` | Run Vitest in watch mode. |
+| `npm run dev` | Start the Vite dev server |
+| `npm run build` | Type-check and build for production |
+| `npm run preview` | Preview the production build |
+| `npm run test` | Run Vitest unit tests |
+| `npm run test:watch` | Run Vitest in watch mode |
 
 ## Testing
 
-Vitest coverage currently lives in `src/**/*.test.ts`:
+### Unit Tests (Vitest)
 
 ```bash
 npm run test
 ```
 
-There are also Playwright browser smoke tests for visuals and vehicle flows, but they are manual today: Playwright does not auto-start the dev server and there is no npm wrapper script yet.
+Tests live in `src/**/*.test.ts` covering physics, level loading, checkpoints, input, and UI.
+
+### Browser Tests (Playwright)
 
 ```bash
-# terminal 1
-npm run dev
-
-# terminal 2
 npx playwright install chromium
 npx playwright test
 ```
 
-The Playwright specs expect the app to be available at `http://localhost:5173`.
+Playwright tests (`tests/`) cover:
+- **visual-check.ts** — main menu rendering, no bootstrap errors.
+- **jump-mechanics.ts** — ground jump, double jump, air jump preservation, FSM transitions.
+- **station-screenshots.ts** — loads all 14 stations, verifies player spawns grounded, captures screenshots.
+- **vehicle-controllers.ts** — car and drone vehicle flows.
+- **vfx-particles.ts** — VFX bay rendering.
+
+The Playwright config auto-starts the dev server. Tests use SwiftShader for headless GPU rendering.
+
+### Debug API
+
+When running via `?station=`, a `window.__KINEMA__` debug API is available:
+- `__KINEMA__.player` — position, velocity, isGrounded, state
+- `__KINEMA__.simulateJump()` — inject jump input (bypasses pointer lock)
+- `__KINEMA__.waitFor(predicate, timeout)` — poll physics state
 
 ## Controls
 
-### On foot
+### On Foot
 
 | Input | Action |
 |---|---|
-| `W A S D` or arrow keys | Move |
+| `W A S D` / arrows | Move |
 | Mouse | Look |
-| Mouse wheel | Zoom |
-| `Space` | Jump / air jump |
+| Scroll | Zoom |
+| `Space` | Jump / double jump |
 | `Shift` | Sprint |
-| `C` or `Left Ctrl` | Crouch |
-| `F` | Interact, attach to rope, enter/exit vehicles, release grabbed object |
-| Left mouse or `F` while carrying | Throw carried object |
-| `C` while carrying | Drop carried object |
+| `C` / `Left Ctrl` | Crouch |
+| `F` | Interact / grab / release |
+| LMB while carrying | Throw |
+| `C` while carrying | Drop |
 | `Escape` | Pause menu |
-| `` ` `` | Toggle debug panel |
+| `` ` `` | Debug panel |
 | `F1` | Toggle editor |
 
 ### Rope
 
 | Input | Action |
 |---|---|
-| `F` | Attach when in range |
-| `W A S D` | Build swing momentum |
-| `Shift + W` | Climb up |
-| `Shift + S` | Climb down |
+| `F` | Attach (in range) |
+| `W A S D` | Swing momentum |
+| `Shift + W/S` | Climb up/down |
 | `Space` | Jump off |
-| `C` | Drop from rope |
+| `C` | Drop |
 
 ### Car
 
 | Input | Action |
 |---|---|
-| `F` | Enter / exit |
-| `W` / `S` | Throttle / brake-reverse |
-| `A` / `D` | Steer |
-| `Shift` | Faster top speed |
+| `F` | Enter/exit |
+| `W/S` | Throttle / brake-reverse |
+| `A/D` | Steer |
+| `Shift` | Speed boost |
 | `Space` | Handbrake |
 
 ### Drone
 
 | Input | Action |
 |---|---|
-| `F` | Enter / exit |
+| `F` | Enter/exit |
 | `W A S D` | Horizontal movement |
-| Mouse | Yaw/look steering |
-| `E` / `Q` | Primary vertical movement |
+| Mouse | Yaw/look |
+| `E/Q` | Ascend/descend |
 | `Shift` | Speed boost |
-
-The drone also accepts jump/crouch-derived vertical input, but `E` and `Q` are the cleanest keyboard bindings to remember.
 
 ### Editor
 
-Editor mode keeps the cursor free and does not use pointer lock.
-
 | Input | Action |
 |---|---|
-| Left mouse | Select / place |
-| Right mouse drag | Look |
-| Middle mouse drag | Pan |
-| Mouse wheel | Dolly |
-| `W A S D` | Move editor camera |
-| `Q` / `E` | Up / down |
-| `Shift` / `Left Ctrl` | Fast / slow camera |
-| `W` / `E` / `R` | Translate / rotate / scale gizmo |
+| LMB | Select / place |
+| RMB drag | Look |
+| MMB drag | Pan |
+| Scroll | Dolly |
+| `W A S D` | Move camera |
+| `Q/E` | Up/down |
+| `Shift` / `Ctrl` | Fast/slow camera |
+| `W/E/R` | Translate/rotate/scale gizmo |
 | `G` | Toggle grid |
 | `1`-`8` | Select brush |
-| `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
-| `Delete` / `Backspace` | Delete selected object |
-
-The current brush set is: block, floor, pillar, stairs, ramp, door frame, spawn, and trigger.
+| `Ctrl+Z` / `Ctrl+Y` / `Cmd+Shift+Z` | Undo/redo |
+| `Delete` / `Backspace` | Delete selection |
+| `Ctrl+P` / `Cmd+P` | Play-test toggle |
 
 ### Gamepad
 
@@ -156,116 +206,119 @@ The current brush set is: block, floor, pillar, stairs, ramp, door frame, spawn,
 |---|---|
 | Left stick | Move |
 | Right stick | Look |
-| `A` / Cross | Jump |
-| `B` / Circle | Crouch |
-| `X` / Square | Interact |
-| `RT` / `R2` | Primary action |
-| `LB` or left-stick press | Sprint / boost |
+| A / Cross | Jump |
+| B / Circle | Crouch |
+| X / Square | Interact |
+| RT / R2 | Primary |
+| LB or L3 | Sprint |
 
-### Useful debug shortcuts
+### Mobile Touch
+
+| Control | Action |
+|---|---|
+| Left joystick | Movement |
+| Right joystick | Camera look |
+| Jump button (blue) | Jump / double jump |
+| Interact button | Interact / grab |
+| Crouch button | Crouch toggle |
+| Sprint button | Sprint hold |
+
+### Debug Shortcuts
 
 | Input | Action |
 |---|---|
 | `F6` | Cycle graphics profile |
 | `F7` | Toggle invert Y |
-| `F8` / `F9` | Adjust mouse sensitivity |
+| `F8/F9` | Mouse sensitivity -/+ |
 | `F10` | Toggle raw mouse input |
-| `F11` / `F12` | Adjust gamepad deadzone |
-| `[` / `]` | Adjust gamepad curve |
+| `F11/F12` | Gamepad deadzone -/+ |
+| `[` / `]` | Gamepad curve -/+ |
+| `N` | Toggle nav debug overlay |
+| `T` | Nav target click mode |
 
-## Menus and flow
+## Architecture
 
-- `Play` loads the full procedural showcase corridor.
-- `Level Select` always includes `Procedural Demo` and lists saved custom levels from local storage.
-- `Create Level` loads a blank level, spawns the player, and opens the editor immediately.
-- `Settings` exposes `Controls`, `Graphics`, and `Audio` tabs with persistent values.
-- `Escape` opens the pause menu during play.
+### Design Principles
 
-Settings and saved levels are persisted in `localStorage`.
+- **Modular locomotion** — new movement types (swim, wall-run, dash) are added by creating a `CharacterMode` and registering it.
+- **Pluggable game systems** — new runtime features implement `RuntimeSystem` and register with Game.
+- **Tool-based editor** — new editor tools implement `EditorTool` (selection, brush, GLB placement already extracted).
+- **EventBus decoupling** — typed pub/sub for UI, audio, debug, and gameplay cross-cutting concerns.
+- **Fixed timestep** — 60Hz physics with unlocked render and interpolation alpha.
 
-## Showcase stations
+### Source Layout
 
-The procedural corridor currently includes these stations:
-
-- `steps`
-- `slopes`
-- `movement`
-- `doubleJump`
-- `grab`
-- `throw`
-- `door`
-- `vehicles`
-- `platformsMoving`
-- `platformsPhysics`
-- `materials`
-- `vfx`
-- `navigation`
-
-For focused debugging, you can deep-link straight into a station:
-
-```text
-http://localhost:5173?station=vehicles
-http://localhost:5173?station=movement
-http://localhost:5173?station=navigation
 ```
-
-## Architecture snapshot
-
-### Bootstrap
-
-`src/main.ts` initializes Rapier, loads persisted settings, creates the renderer/physics/input/game systems, then starts either:
-
-- the normal menu flow,
-- a saved custom level,
-- a blank editor level, or
-- a direct `?station=` boot path.
-
-### Main runtime pieces
-
-- `src/Game.ts`: top-level orchestration, showcase setup, objectives, checkpoints, debug hotkeys, runtime interactables, navigation hooks, juice.
-- `src/core/GameLoop.ts`: fixed 60 Hz simulation plus per-frame render/update.
-- `src/character/PlayerController.ts`: locomotion, rope/ladder handling, carrying/grabbing, respawn.
-- `src/character/CharacterFSM.ts`: currently registers `idle`, `move`, `jump`, `air`, `interact`, `crouch`, `grab`, and `carry`.
-- `src/level/LevelManager.ts`: procedural showcase building, JSON level loading, GLTF level loading, and nav showcase setup.
-- `src/editor/EditorManager.ts`: editor lifecycle, save/load/import, panels, selection, grouping, gizmos.
-- `src/renderer/RendererManager.ts`: renderer init, graphics profiles, post FX, WebGPU/WebGL fallback.
-
-### Source layout
-
-```text
 src/
-  audio/       camera/      character/   core/
-  editor/      input/       interaction/ juice/
-  level/       navigation/  physics/     renderer/
-  ui/          vehicle/
+  audio/           — Tone.js procedural music + synth SFX
+  camera/          — OrbitFollowCamera with spring arm collision
+  character/       — PlayerController (orchestrator)
+    modes/         — GroundedMode, AirMode, LadderMode, RopeMode
+    states/        — FSM states (Idle, Move, Jump, AirJump, Air, Crouch, Grab, Carry, Interact)
+  core/            — GameLoop, EventBus, types, constants, RuntimeSystem, UserSettings
+  editor/          — EditorManager, EditorDocument, LevelSerializer
+    brushes/       — Block, Floor, Pillar, Stairs, Ramp, DoorFrame, Spawn, Trigger
+    panels/        — Toolbar, Hierarchy, Inspector, Brush
+    tools/         — EditorTool interface, SelectionTool, BrushPlacementTool, GLBPlacementTool
+  input/           — InputManager, VirtualJoystick, TouchButton, TouchControlsManager
+  interaction/     — InteractionManager + interactables (Door, Beacon, Rope, Grabbable, Throwable, VehicleSeat)
+  juice/           — ScreenShake, Hitstop, FOVPunch, FeedbackPlayer, GameParticles, ParticlePool
+  level/           — LevelManager, ProceduralBuilder, LightingSystem, AssetLoader, MeshParser, ShowcaseLayout
+  navigation/      — NavMeshManager, NavPatrolSystem, NavAgent, NavDebugOverlay
+  physics/         — PhysicsWorld, ColliderFactory, PhysicsHelpers, PhysicsDebugView
+  renderer/        — RendererManager (WebGPU/WebGL, TSL post-processing, graphics profiles)
+  systems/         — InteractableSystem, ParticleSystem, DebugRuntimeSystem, CheckpointObjectiveSystem
+  ui/
+    components/    — HUD, FadeScreen, DebugPanel
+    menus/         — MenuManager, MainMenu, PauseMenu, SettingsMenu, LevelSelectMenu, HelpMenu
+  vehicle/         — VehicleManager, CarController, DroneController
+tests/             — Playwright GPU tests (visual, jump mechanics, station screenshots, vehicles, VFX)
 ```
 
-Path aliases are configured for the main feature areas, including `@core`, `@physics`, `@character`, `@camera`, `@level`, `@input`, `@interaction`, `@ui`, `@renderer`, `@audio`, `@vehicle`, `@editor`, `@navigation`, and `@juice`.
+Path aliases: `@core`, `@physics`, `@character`, `@camera`, `@level`, `@input`, `@interaction`, `@ui`, `@renderer`, `@audio`, `@vehicle`, `@editor`, `@navigation`, `@juice`, `@systems`.
 
-### Communication model
+### Key Modules
 
-There is a typed `EventBus` used widely across UI, audio, debug, and gameplay systems, but the app is not purely event-driven. Core orchestrators and managers also hold direct references to each other where that keeps runtime flow simpler.
+| Module | Lines | Responsibility |
+|--------|-------|---------------|
+| PlayerController | ~580 | Thin orchestrator — input routing, mode switching, visual sync |
+| CharacterMotor | ~300 | Ground detection, floating spring, gravity scaling |
+| GroundedMode | ~550 | Walk, sprint, crouch, step assist, ground jump, platforms |
+| Game.ts | ~600 | Composition root — registers and ticks RuntimeSystems |
+| LevelManager | ~800 | Level loading/unloading orchestrator |
+| ProceduralBuilder | ~2700 | Showcase corridor geometry generation |
+| RendererManager | ~1400 | WebGPU renderer, TSL post-FX, graphics profiles |
+| EditorManager | ~1160 | Editor shell — routes input to EditorTools |
 
-## Rendering and audio notes
+### Rendering Pipeline (r183-aligned)
 
-- Kinema attempts to initialize a WebGPU-based Three.js renderer first and falls back to `WebGLRenderer` when needed.
-- Graphics profiles are `performance`, `balanced`, and `cinematic`.
-- Runtime graphics controls cover anti-aliasing, resolution scale, shadows, environment rotation, ambient occlusion, SSR, bloom, CAS sharpening, vignette, and LUT toggles.
-- Music is procedural Tone.js audio, not a playlist of checked-in music files.
-- Audio starts after a user gesture; if the game is silent, click the canvas again.
+```
+Scene Pass (opaque depth + normal MRT)
+  → GTAO (ground-truth ambient occlusion) + Denoise
+  → Scene Pass (full scene with metalness/roughness MRT)
+  → SSR (screen-space reflections, additive blend)
+  → Bloom (threshold + soft knee)
+  → SMAA (morphological AA — in linear space, before sRGB)
+  → renderOutput() (sRGB conversion)
+  → FXAA (fast AA — in sRGB space, after conversion)
+  → CAS sharpening (conditional — only when enabled)
+  → Vignette
+  → LUT 3D color grading
+```
 
-## Current limitations and caveats
+## Current Limitations
 
-- Custom/editor levels are currently sandbox-oriented. They do not automatically recreate the showcase's runtime objectives, rope, doors, throwable setup, vehicles, or navigation agents.
-- Imported GLB files added through the editor are session-local unless you also place the asset in `public/assets/models/` and reference it from there.
-- If a character GLB exists in `src/assets/models/`, the player visual will try to auto-load it. If not, the fallback capsule stays visible.
-- Some interaction types support hold-to-interact, but the showcase mostly uses press interactions today.
-- WebGPU improves visuals, but the project is meant to remain playable on the fallback renderer too.
+- Custom/editor levels don't recreate showcase runtime objects (rope, vehicles, etc.).
+- Imported GLBs are session-local unless placed in `public/assets/models/`.
+- WebGPU improves visuals but the project remains playable on WebGL2 fallback.
+- Mobile editor support is limited to gameplay; brush placement requires desktop.
+- The player visual is a capsule placeholder (rigged character model is a planned upgrade).
 
-## Contributing pointers
+## Contributing
 
-- Gameplay constants live in `src/core/constants.ts`.
-- New player states are registered in `src/character/CharacterFSM.ts`.
-- New interactables implement the shared interface in `src/interaction/`.
-- Editor serialization lives in `src/editor/LevelSerializer.ts`.
-- Before landing gameplay changes, run `npm run test` and `npm run build`.
+- Gameplay constants: `src/core/constants.ts`
+- New movement type: create a `CharacterMode` in `src/character/modes/`, register in PlayerController
+- New game system: implement `RuntimeSystem` in `src/systems/`, register in Game constructor
+- New editor tool: implement `EditorTool` in `src/editor/tools/`, register in EditorManager
+- New interactable: implement the interface in `src/interaction/interactables/`
+- Before landing changes: `npm run test && npm run build`
