@@ -342,7 +342,9 @@ export class EditorManager {
     // Restore snapshot
     if (this.playTestSnapshot) {
       const data = JSON.parse(this.playTestSnapshot) as LevelData;
-      void this.applyLoadedLevel(data);
+      void this.applyLoadedLevel(data).catch((err: unknown) => {
+        console.error('[Editor] Failed to restore play-test snapshot:', err);
+      });
       this.playTestSnapshot = null;
     }
 

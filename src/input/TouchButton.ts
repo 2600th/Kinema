@@ -4,7 +4,6 @@ export interface TouchButtonOptions {
   icon: string;          // unicode or text label
   size?: number;         // diameter in px (default 56)
   className?: string;    // extra CSS class
-  hold?: boolean;        // true = active while held (default false, one-shot)
 }
 
 export interface TouchButtonState {

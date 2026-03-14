@@ -262,11 +262,9 @@ export class SettingsMenu {
     // --- Developer ---
     this.graphicsSection.appendChild(this.createSectionHeader('Developer'));
 
-    this.graphicsSection.appendChild(
-      this.createToggle('Show Debug Panel', false, () => {
-        eventBus.emit('debug:toggle', undefined);
-      }),
-    );
+    this.graphicsSection.appendChild(this.createDebugPanelButton(() => {
+      eventBus.emit('debug:toggle', undefined);
+    }));
   }
 
   private buildAudioSection(): void {
@@ -367,6 +365,17 @@ export class SettingsMenu {
     fieldLabel.appendChild(input);
     fieldLabel.appendChild(document.createTextNode(label));
     wrapper.appendChild(fieldLabel);
+    return wrapper;
+  }
+
+  private createDebugPanelButton(onClick: () => void): HTMLDivElement {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'menu-field';
+    const btn = document.createElement('button');
+    btn.className = 'menu-button';
+    btn.textContent = 'Toggle Debug Panel';
+    btn.addEventListener('click', onClick);
+    wrapper.appendChild(btn);
     return wrapper;
   }
 
