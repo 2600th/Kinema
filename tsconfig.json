@@ -29,7 +29,8 @@
       "@vehicle/*": ["./src/vehicle/*"],
       "@editor/*": ["./src/editor/*"],
       "@navigation/*": ["./src/navigation/*"],
-      "@juice/*": ["./src/juice/*"]
+      "@juice/*": ["./src/juice/*"],
+      "@systems/*": ["./src/systems/*"]
     },
     "baseUrl": "."
   },
