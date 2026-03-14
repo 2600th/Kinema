@@ -293,7 +293,9 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
     // Refill jump buffer AFTER grab/carry consumption so that a jumpPressed
     // used to drop an object doesn't also fill the jump buffer (phantom jump).
-    if (inputForFsm.jumpPressed && this.jumpSuppressGroundFrames <= 0) {
+    // No suppression guard here — the buffer should always fill on a press.
+    // Suppression only affects grounded detection, not input acceptance.
+    if (inputForFsm.jumpPressed) {
       this.jumpBufferRemaining = this.config.jumpBufferTime;
     } else {
       this.jumpBufferRemaining = Math.max(0, this.jumpBufferRemaining - dt);
@@ -470,15 +472,15 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     }
 
     // Variable jump: cut jump short when player releases jump key while rising.
-    // Only apply when velocity exceeds the cut ceiling — prevents snapping
-    // velocity DOWN on a normal keystroke that naturally ends below the ceiling.
-    // Also deferred past the suppression window so buffered jumps aren't killed.
+    // Cap velocity to the cut ceiling using Math.min so it never snaps UP.
+    // The suppression window prevents cutting a just-fired buffered jump.
     const jumpCutCeiling = this.config.jumpForce * 0.58;
-    if (!input.jump && this.verticalVelocity > jumpCutCeiling && this.jumpActive
+    if (!input.jump && this.verticalVelocity > 0 && this.jumpActive
         && this.jumpSuppressGroundFrames <= 0) {
       const lv = this.body.linvel();
-      this.body.setLinvel(_setRV(_rv3A, lv.x, jumpCutCeiling, lv.z), true);
-      this.verticalVelocity = jumpCutCeiling;
+      const newVy = Math.min(lv.y, jumpCutCeiling);
+      this.body.setLinvel(_setRV(_rv3A, lv.x, newVy, lv.z), true);
+      this.verticalVelocity = newVy;
       this.setGravityScale(this.config.fallingGravityScale + 0.25);
       this.jumpActive = false;
     }
@@ -543,7 +545,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
         this.jumpBufferRemaining = 0;
         this.groundedGrace = 0;
         this.canJump = false;
-      } else if (this.remainingAirJumps > 0 && this.jumpSuppressGroundFrames <= 0) {
+      } else if (this.remainingAirJumps > 0) {
         this.fsm.requestState(STATE.airJump);
         this.applyJumpImpulse(false, true);
         this.jumpBufferRemaining = 0;

@@ -511,8 +511,10 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       },
     );
 
-    // Clear per-frame input cache
-    this.frameInput = null;
+    // frameInput is consumed by fixedUpdate (set to null there).
+    // Do NOT clear it here — on high-refresh displays, update() runs
+    // multiple times between physics ticks, and clearing here would
+    // destroy edge triggers before fixedUpdate ever sees them.
     this.frameLook = null;
   }
 
