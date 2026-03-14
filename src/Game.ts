@@ -74,6 +74,9 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
   // Input polling cache (populated once per frame in beginFrame)
   private frameInput: InputState | null = null;
   private frameLook: LookState | null = null;
+  /** When set, beginFrame uses this override for N frames (for testing). */
+  testInputOverride: InputState | null = null;
+  testInputFrames = 0;
 
   // Debug stats throttle (4 Hz)
   private debugSampleTimer = 0;
@@ -299,7 +302,15 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
 
   /** Called once per frame before the fixed-step loop to cache input. */
   beginFrame(dt: number): void {
-    this.frameInput = this.inputManager.poll();
+    if (this.testInputOverride && this.testInputFrames > 0) {
+      this.frameInput = this.testInputOverride;
+      this.testInputFrames--;
+      if (this.testInputFrames <= 0) {
+        this.testInputOverride = null;
+      }
+    } else {
+      this.frameInput = this.inputManager.poll();
+    }
     this.frameLook = this.inputManager.pollLook(dt);
   }
 

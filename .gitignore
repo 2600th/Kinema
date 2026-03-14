@@ -9,3 +9,6 @@ CLAUDE.md
 /tasks
 /.agents
 skills-lock.json
+.env
+/.playwright-mcp
+/screenshots

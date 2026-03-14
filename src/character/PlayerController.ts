@@ -264,7 +264,11 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     let consumeJumpPressed = false;
 
     this.prevPosition.copy(this.currPosition);
-    if (input.jumpPressed) {
+    // Only refill jump buffer on a fresh press — NOT during the post-jump
+    // suppression window. Without this guard, multi-substep catch-up frames
+    // re-fill the buffer from the same cached jumpPressed, causing a ground
+    // jump to immediately chain into an air jump in the same frame.
+    if (input.jumpPressed && this.jumpSuppressGroundFrames <= 0) {
       this.jumpBufferRemaining = this.config.jumpBufferTime;
     } else {
       this.jumpBufferRemaining = Math.max(0, this.jumpBufferRemaining - dt);
@@ -519,7 +523,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
         this.jumpBufferRemaining = 0;
         this.groundedGrace = 0;
         this.canJump = false;
-      } else if (this.remainingAirJumps > 0) {
+      } else if (this.remainingAirJumps > 0 && this.jumpSuppressGroundFrames <= 0) {
         this.fsm.requestState(STATE.airJump);
         this.applyJumpImpulse(false, true);
         this.jumpBufferRemaining = 0;

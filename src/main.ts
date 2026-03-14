@@ -242,6 +242,57 @@ async function bootstrap(): Promise<void> {
     levelLoaded = true;
   };
 
+  // Expose debug API for automated testing (Playwright, etc.)
+  (window as unknown as Record<string, unknown>).__KINEMA__ = {
+    get player() {
+      const pos = playerController.position;
+      const vel = playerController.body.linvel();
+      return {
+        position: { x: pos.x, y: pos.y, z: pos.z },
+        velocity: { x: vel.x, y: vel.y, z: vel.z },
+        isGrounded: playerController.isGrounded,
+        state: playerController.fsm.current,
+        verticalVelocity: playerController.verticalVelocity,
+      };
+    },
+    simulateJump() {
+      // Set testInputOverride on Game so beginFrame() uses it for several
+      // frames instead of polling InputManager (which requires pointer lock).
+      // At ~4 FPS (SwiftShader), we need several frames to ensure the input
+      // is seen by at least one fixedUpdate physics tick.
+      const jumpInput = {
+        forward: false, backward: false, left: false, right: false,
+        crouch: false, crouchPressed: false, jump: true, jumpPressed: true,
+        interact: false, interactPressed: false, primary: false, primaryPressed: false,
+        altitudeUp: false, altitudeDown: false, moveX: 0, moveY: 0,
+        sprint: false, mouseDeltaX: 0, mouseDeltaY: 0, mouseWheelDelta: 0,
+      };
+      game.testInputOverride = jumpInput;
+      game.testInputFrames = 10; // Active for 10 render frames
+    },
+    /** Wait for a condition on player state, polling at physics rate. */
+    waitFor(predicate: string, timeoutMs = 5000): Promise<boolean> {
+      const fn = new Function('p', `return ${predicate}`) as (p: any) => boolean;
+      return new Promise((resolve) => {
+        const deadline = Date.now() + timeoutMs;
+        const check = () => {
+          const pos = playerController.position;
+          const vel = playerController.body.linvel();
+          const p = {
+            x: pos.x, y: pos.y, z: pos.z,
+            vx: vel.x, vy: vel.y, vz: vel.z,
+            isGrounded: playerController.isGrounded,
+            state: playerController.fsm.current,
+          };
+          if (fn(p)) { resolve(true); return; }
+          if (Date.now() > deadline) { resolve(false); return; }
+          requestAnimationFrame(check);
+        };
+        check();
+      });
+    },
+  };
+
   // Check for ?station= query param to load a single station directly.
   const params = new URLSearchParams(window.location.search);
   const stationParam = params.get('station');
