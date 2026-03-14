@@ -18,12 +18,11 @@ import { ToolbarPanel } from './panels/ToolbarPanel';
 import { BrushPanel } from './panels/BrushPanel';
 import { HierarchyPanel } from './panels/HierarchyPanel';
 import { InspectorPanel } from './panels/InspectorPanel';
-import { type BrushDefinition } from './brushes/Brush';
 import { getBrushById, BRUSH_REGISTRY } from './brushes/index';
+import type { EditorTool, EditorToolContext } from './tools/EditorTool';
+import { SelectionTool } from './tools/SelectionTool';
+import { BrushPlacementTool } from './tools/BrushPlacementTool';
 
-type PlacementPhase = 'idle' | 'position';
-
-let brushNameCounter = 0;
 let glbNameCounter = 0;
 
 export class EditorManager {
@@ -39,15 +38,11 @@ export class EditorManager {
     scale: THREE.Vector3;
   } | null = null;
 
-  /* ---- Brush placement state ---- */
-  private placementPhase: PlacementPhase = 'idle';
-  private activeBrush: BrushDefinition | null = null;
-  private previewMesh: THREE.Mesh | null = null;
-  private placementPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-
   /* ---- GLB placement state ---- */
   private glbPreview: THREE.Object3D | null = null;
   private pendingGLBAsset: string | null = null;
+  private glbPlacementPhase: 'idle' | 'position' = 'idle';
+  private placementPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
   /* ---- Play-test state ---- */
   private playTestActive = false;
@@ -55,14 +50,20 @@ export class EditorManager {
   private playTestCameraState: { position: THREE.Vector3; quaternion: THREE.Quaternion } | null = null;
   private playTestStopButton: HTMLButtonElement | null = null;
 
-  /* ---- Subsystems (kept) ---- */
+  /* ---- Subsystems ---- */
   private gizmo: TransformGizmo;
   private grid: SnapGrid;
   private gridWasVisible = true;
   private freeCamera: FreeCamera;
   private history = new CommandHistory();
 
-  /* ---- Panels (new) ---- */
+  /* ---- Tools ---- */
+  private tools = new Map<string, EditorTool>();
+  private activeTool: EditorTool;
+  private selectionTool: SelectionTool;
+  private brushPlacementTool: BrushPlacementTool;
+
+  /* ---- Panels ---- */
   private toolbarPanel: ToolbarPanel;
   private brushPanel: BrushPanel;
   private hierarchyPanel: HierarchyPanel;
@@ -137,6 +138,16 @@ export class EditorManager {
     );
     this.gizmo.setSnaps(this.grid.positionSnap, this.grid.rotationSnap, this.grid.scaleSnap);
 
+    /* ---- Tools ---- */
+    this.selectionTool = new SelectionTool();
+    this.brushPlacementTool = new BrushPlacementTool({
+      onFinished: () => this.switchTool('selection'),
+      onBrushChanged: (brushId) => this.brushPanel.setActiveBrush(brushId),
+    });
+    this.tools.set(this.selectionTool.id, this.selectionTool);
+    this.tools.set(this.brushPlacementTool.id, this.brushPlacementTool);
+    this.activeTool = this.selectionTool;
+
     this.unsubs.push(
       this.eventBus.on('editor:toggle', () => this.toggle()),
     );
@@ -166,7 +177,8 @@ export class EditorManager {
     if (!this.active) return;
     this.freeCamera.update(dt);
     this.updateGridHeight();
-    this.updatePlacementPreview();
+    this.updateGLBPlacementPreview();
+    this.activeTool.update?.(this.buildToolContext(), dt);
     this.selectionHelper?.update();
   }
 
@@ -202,6 +214,46 @@ export class EditorManager {
   }
 
   /* ==================================================================
+   *  Tool management
+   * ================================================================== */
+
+  private buildToolContext(): EditorToolContext {
+    return {
+      scene: this.renderer.scene,
+      physicsWorld: this.physicsWorld,
+      camera: this.renderer.camera,
+      canvas: this.renderer.canvas,
+      gizmo: this.gizmo,
+      snapGrid: this.grid,
+      history: this.history,
+      eventBus: this.eventBus,
+      raycaster: this.raycaster,
+      mouse: this.mouse,
+      editorObjects: this.editorObjects,
+      selected: this.selected,
+      setSelection: (obj) => this.setSelection(obj),
+      addEditorObject: (obj, parent) => this.addEditorObject(obj, parent),
+      removeEditorObject: (id) => {
+        const obj = this.editorObjects.find((o) => o.id === id);
+        if (obj) this.removeEditorObject(obj);
+      },
+      syncHierarchy: () => this.syncHierarchy(),
+      syncInspector: () => {
+        if (this.selected) this.inspectorPanel.setSelection(this.selected);
+      },
+    };
+  }
+
+  private switchTool(toolId: string): void {
+    const tool = this.tools.get(toolId);
+    if (!tool || tool === this.activeTool) return;
+    const ctx = this.buildToolContext();
+    this.activeTool.deactivate?.(ctx);
+    this.activeTool = tool;
+    this.activeTool.activate?.(ctx);
+  }
+
+  /* ==================================================================
    *  Enter / Exit
    * ================================================================== */
 
@@ -233,7 +285,9 @@ export class EditorManager {
     this.eventBus.emit('editor:closed', undefined);
     this.freeCamera.disable();
     for (const panel of this.panels) panel.hide();
-    this.cancelPlacement();
+    this.cancelGLBPlacement();
+    this.activeTool.deactivate?.(this.buildToolContext());
+    this.switchTool('selection');
     this.setSelection(null);
     this.renderer.canvas.removeEventListener('dragover', this.onDragOver);
     this.renderer.canvas.removeEventListener('drop', this.onDrop);
@@ -260,7 +314,7 @@ export class EditorManager {
 
     this.playTestActive = true;
 
-    // Exit editor mode — enables game simulation, player, etc.
+    // Exit editor mode -- enables game simulation, player, etc.
     this.exit();
 
     // Determine spawn position from level data
@@ -387,16 +441,15 @@ export class EditorManager {
 
     if (e.button === 2 || e.button === 1) return; // right/middle for camera
 
-    if (e.button === 0) {
-      // Don't run selection raycast while transform gizmo is being dragged
-      if (this.gizmo.controls.dragging) return;
-
-      if (this.placementPhase === 'position' && (this.previewMesh || this.glbPreview)) {
-        this.confirmPlacement();
-        return;
-      }
-      this.selectAtPointer(e.clientX, e.clientY);
+    // GLB placement takes priority
+    if (e.button === 0 && this.glbPlacementPhase === 'position' && this.glbPreview) {
+      this.confirmGLBPlacement();
+      return;
     }
+
+    // Delegate to active tool
+    const ctx = this.buildToolContext();
+    if (this.activeTool.onPointerDown?.(ctx, e)) return;
   };
 
   private onMouseMove = (e: MouseEvent): void => {
@@ -423,10 +476,14 @@ export class EditorManager {
       return;
     }
 
+    // Delegate to active tool first
+    const ctx = this.buildToolContext();
+    if (this.activeTool.onKeyDown?.(ctx, e)) return;
+
     if (e.code === 'KeyW' && !cmd && this.selected) this.setTransformMode('translate');
     if (e.code === 'KeyE' && !cmd && this.selected) this.setTransformMode('rotate');
     if (e.code === 'KeyR' && !cmd && this.selected) this.setTransformMode('scale');
-    if (e.code === 'Escape') this.cancelPlacement();
+    if (e.code === 'Escape') this.cancelGLBPlacement();
     if (e.code === 'KeyG' && !cmd) {
       this.grid.toggleGrid();
       this.toolbarPanel.setGridActive(this.grid.isVisible());
@@ -451,7 +508,7 @@ export class EditorManager {
       if (idx < BRUSH_REGISTRY.length) {
         const brush = BRUSH_REGISTRY[idx];
         // Toggle: if same brush already active, deselect
-        if (this.activeBrush?.id === brush.id) {
+        if (this.brushPlacementTool.getActiveBrushId() === brush.id) {
           this.onBrushSelected(null);
         } else {
           this.onBrushSelected(brush.id);
@@ -469,28 +526,25 @@ export class EditorManager {
   }
 
   /* ==================================================================
-   *  Selection
+   *  Brush selection (delegates to BrushPlacementTool)
    * ================================================================== */
 
-  private selectAtPointer(clientX: number, clientY: number): void {
-    const rect = this.renderer.canvas.getBoundingClientRect();
-    this.mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
-    this.mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
-    this.raycaster.setFromCamera(this.mouse, this.renderer.camera);
-    const meshes = this.editorObjects
-      .filter((obj) => !obj.locked)
-      .map((obj) => obj.mesh);
-    const hits = this.raycaster.intersectObjects(meshes, true);
-    if (!hits.length) {
-      this.setSelection(null);
+  private onBrushSelected(brushId: string | null): void {
+    if (!brushId) {
+      // Deselect brush, return to selection tool
+      this.brushPanel.setActiveBrush(null);
+      this.switchTool('selection');
       return;
     }
-    const mesh = hits[0].object;
-    const target = this.editorObjects.find(
-      (obj) => obj.mesh === mesh || obj.mesh.getObjectById(mesh.id) !== undefined,
-    );
-    this.setSelection(target ?? null);
+
+    // Switch to brush placement tool and start the brush
+    this.switchTool('brush-placement');
+    this.brushPlacementTool.startBrush(this.buildToolContext(), brushId);
   }
+
+  /* ==================================================================
+   *  Selection
+   * ================================================================== */
 
   private selectById(id: string | null): void {
     if (!id) {
@@ -639,178 +693,6 @@ export class EditorManager {
   }
 
   /* ==================================================================
-   *  Brush placement
-   * ================================================================== */
-
-  private onBrushSelected(brushId: string | null): void {
-    this.cancelPlacement();
-    if (!brushId) {
-      this.activeBrush = null;
-      this.placementPhase = 'idle';
-      this.brushPanel.setActiveBrush(null);
-      return;
-    }
-    const brush = getBrushById(brushId);
-    if (!brush) return;
-
-    this.activeBrush = brush;
-    this.placementPhase = 'position';
-    this.brushPanel.setActiveBrush(brushId);
-
-    // Create preview mesh with default params
-    const defaultParams = {
-      anchor: new THREE.Vector3(0, 0, 0),
-      current: new THREE.Vector3(1, 0, 1),
-      normal: new THREE.Vector3(0, 1, 0),
-      height: 1,
-    };
-    const geometry = brush.buildPreviewGeometry(defaultParams);
-    const material = brush.getDefaultMaterial().clone();
-    material.transparent = true;
-    material.opacity = 0.4;
-    material.depthWrite = false;
-    this.previewMesh = new THREE.Mesh(geometry, material);
-    this.previewMesh.castShadow = false;
-    this.previewMesh.receiveShadow = false;
-    this.renderer.scene.add(this.previewMesh);
-  }
-
-  private updatePlacementPreview(): void {
-    if (this.placementPhase !== 'position') return;
-    const target = this.previewMesh ?? this.glbPreview;
-    if (!target) return;
-    this.raycaster.setFromCamera(this.mouse, this.renderer.camera);
-    const point = new THREE.Vector3();
-    this.raycaster.ray.intersectPlane(this.placementPlane, point);
-    if (this.grid.enabled) {
-      point.x = Math.round(point.x / this.grid.positionSnap) * this.grid.positionSnap;
-      point.y = Math.round(point.y / this.grid.positionSnap) * this.grid.positionSnap;
-      point.z = Math.round(point.z / this.grid.positionSnap) * this.grid.positionSnap;
-    }
-    target.position.copy(point);
-  }
-
-  private confirmPlacement(): void {
-    // GLB placement branch
-    if (this.glbPreview && this.pendingGLBAsset) {
-      this.confirmGLBPlacement();
-      return;
-    }
-    if (!this.activeBrush || !this.previewMesh) return;
-    const brush = this.activeBrush;
-    const position = this.previewMesh.position.clone();
-
-    // Create final mesh
-    const defaultParams = {
-      anchor: new THREE.Vector3(0, 0, 0),
-      current: new THREE.Vector3(1, 0, 1),
-      normal: new THREE.Vector3(0, 1, 0),
-      height: 1,
-    };
-    const geometry = brush.buildPreviewGeometry(defaultParams);
-    const material = brush.getDefaultMaterial();
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    mesh.position.copy(position);
-
-    // Extract material properties for editor object
-    const matProps: NonNullable<EditorObject['material']> = {
-      color: '#' + material.color.getHexString(),
-      roughness: material.roughness,
-      metalness: material.metalness,
-      emissive: '#' + material.emissive.getHexString(),
-      emissiveIntensity: material.emissiveIntensity,
-      opacity: material.opacity,
-    };
-
-    // Build editor object
-    const editorObj: EditorObject = {
-      id: mesh.uuid,
-      name: `${brush.label}_${++brushNameCounter}`,
-      mesh,
-      source: { type: 'brush', brush: brush.id },
-      transform: {
-        position: [position.x, position.y, position.z],
-        rotation: [0, 0, 0],
-        scale: [1, 1, 1],
-      },
-      parentId: null,
-      children: [],
-      visible: true,
-      locked: false,
-      material: matProps,
-      brushParams: { width: 1, height: 1, depth: 1 },
-      physicsType: 'static',
-    };
-
-    mesh.userData.editorSource = editorObj.source;
-
-    // Create static physics body/collider for physical brushes (not spawn or trigger)
-    if (brush.id !== 'spawn' && brush.id !== 'trigger') {
-      const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(position.x, position.y, position.z);
-      const body = this.physicsWorld.world.createRigidBody(bodyDesc);
-      // Approximate collider from the geometry bounding box
-      geometry.computeBoundingBox();
-      const bb = geometry.boundingBox!;
-      const halfW = (bb.max.x - bb.min.x) / 2;
-      const halfH = (bb.max.y - bb.min.y) / 2;
-      const halfD = (bb.max.z - bb.min.z) / 2;
-      const colliderDesc = RAPIER.ColliderDesc.cuboid(halfW, halfH, halfD);
-      const collider = this.physicsWorld.world.createCollider(colliderDesc, body);
-      editorObj.body = body;
-      editorObj.collider = collider;
-    }
-
-    // Push to undo stack
-    this.history.push({
-      execute: () => {
-        this.addEditorObject(editorObj, this.renderer.scene);
-        this.syncHierarchy();
-        this.eventBus.emit('editor:objectAdded', { id: editorObj.id });
-      },
-      undo: () => {
-        this.removeEditorObject(editorObj);
-        this.syncHierarchy();
-        this.eventBus.emit('editor:objectRemoved', { id: editorObj.id });
-      },
-    });
-
-    // Select the new object, return to idle
-    this.setSelection(editorObj);
-    this.cancelPlacement();
-  }
-
-  private cancelPlacement(): void {
-    if (this.previewMesh) {
-      this.renderer.scene.remove(this.previewMesh);
-      if (this.previewMesh.geometry) this.previewMesh.geometry.dispose();
-      if (this.previewMesh.material) {
-        (this.previewMesh.material as THREE.Material).dispose();
-      }
-    }
-    this.previewMesh = null;
-    if (this.glbPreview) {
-      this.renderer.scene.remove(this.glbPreview);
-      this.glbPreview.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          child.geometry?.dispose();
-          const mat = child.material;
-          if (Array.isArray(mat)) {
-            mat.forEach((m) => m.dispose());
-          } else if (mat) {
-            (mat as THREE.Material).dispose();
-          }
-        }
-      });
-    }
-    this.glbPreview = null;
-    this.pendingGLBAsset = null;
-    this.placementPhase = 'idle';
-    // Don't clear activeBrush here so brush bar keeps highlight if user wants another
-  }
-
-  /* ==================================================================
    *  GLB import + placement
    * ================================================================== */
 
@@ -846,7 +728,7 @@ export class EditorManager {
   }
 
   private startGLBPlacement(scene: THREE.Object3D, assetPath: string): void {
-    this.cancelPlacement();
+    this.cancelGLBPlacement();
     this.pendingGLBAsset = assetPath;
     this.glbPreview = scene;
     // Make preview transparent
@@ -860,7 +742,20 @@ export class EditorManager {
       }
     });
     this.renderer.scene.add(this.glbPreview);
-    this.placementPhase = 'position';
+    this.glbPlacementPhase = 'position';
+  }
+
+  private updateGLBPlacementPreview(): void {
+    if (this.glbPlacementPhase !== 'position' || !this.glbPreview) return;
+    this.raycaster.setFromCamera(this.mouse, this.renderer.camera);
+    const point = new THREE.Vector3();
+    this.raycaster.ray.intersectPlane(this.placementPlane, point);
+    if (this.grid.enabled) {
+      point.x = Math.round(point.x / this.grid.positionSnap) * this.grid.positionSnap;
+      point.y = Math.round(point.y / this.grid.positionSnap) * this.grid.positionSnap;
+      point.z = Math.round(point.z / this.grid.positionSnap) * this.grid.positionSnap;
+    }
+    this.glbPreview.position.copy(point);
   }
 
   private confirmGLBPlacement(): void {
@@ -944,7 +839,27 @@ export class EditorManager {
     this.setSelection(editorObj);
     this.glbPreview = null;
     this.pendingGLBAsset = null;
-    this.placementPhase = 'idle';
+    this.glbPlacementPhase = 'idle';
+  }
+
+  private cancelGLBPlacement(): void {
+    if (this.glbPreview) {
+      this.renderer.scene.remove(this.glbPreview);
+      this.glbPreview.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry?.dispose();
+          const mat = child.material;
+          if (Array.isArray(mat)) {
+            mat.forEach((m) => m.dispose());
+          } else if (mat) {
+            (mat as THREE.Material).dispose();
+          }
+        }
+      });
+    }
+    this.glbPreview = null;
+    this.pendingGLBAsset = null;
+    this.glbPlacementPhase = 'idle';
   }
 
   private onDragOver = (e: DragEvent): void => {
@@ -1023,7 +938,7 @@ export class EditorManager {
     obj.name = name;
     obj.mesh.name = name;
     this.syncHierarchy();
-    // No undo for rename — too trivial
+    // No undo for rename -- too trivial
     void oldName; // suppress unused
   }
 
@@ -1197,7 +1112,7 @@ export class EditorManager {
 
     const body = this.physicsWorld.world.createRigidBody(bodyDesc);
 
-    // Recreate collider — approximate from bounding box
+    // Recreate collider -- approximate from bounding box
     const meshObj = obj.mesh as THREE.Mesh;
     let colliderDesc: RAPIER.ColliderDesc;
     if (meshObj.isMesh && meshObj.geometry) {
