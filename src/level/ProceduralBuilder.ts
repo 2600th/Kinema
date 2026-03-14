@@ -126,8 +126,8 @@ export class ProceduralBuilder {
     const floorMat = new THREE.MeshStandardMaterial({
       color: 0x1a1d24,
       map: gridTexture,
-      roughness: 0.75,
-      metalness: 0.05,
+      roughness: 0.7,
+      metalness: 0.1,
     });
     const stepMat = new THREE.MeshStandardMaterial({ color: 0x3a4a68, roughness: 0.85, metalness: 0.05, emissive: 0xc0d8ff, emissiveIntensity: 0.4 });
     const slopeMat = new THREE.MeshStandardMaterial({ color: 0x5568a0, roughness: 0.8, metalness: 0.05 });
@@ -177,12 +177,20 @@ export class ProceduralBuilder {
     const bayPedestalY = SHOWCASE_LAYOUT.bay.pedestalY;
     const bayPedestalHeight = SHOWCASE_LAYOUT.bay.pedestalHeight;
     const bayTopY = getShowcaseBayTopY();
-    const hallFloorMat = new THREE.MeshStandardMaterial({ color: 0x282c38, roughness: 0.88, metalness: 0.02 });
-    // Show a readable ground grid in normal play mode too.
-    hallFloorMat.map = gridTexture;
+    const floorRoughnessNoise = this.createFloorRoughnessTexture();
+    // Correct texture repeat for corridor aspect ratio (60w x 700l ≈ 1:12).
+    // Both grid and roughness maps need proportional repeat so tiles are square in world space.
+    const corridorAspect = hallLength / hallWidth;
+    const hallGridTex = gridTexture.clone();
+    hallGridTex.repeat.set(10, 10 * corridorAspect);
+    hallGridTex.needsUpdate = true;
+    floorRoughnessNoise.repeat.set(3, 3 * corridorAspect);
+    const hallFloorMat = new THREE.MeshStandardMaterial({ color: 0x282c38, roughness: 0.65, metalness: 0.12 });
+    hallFloorMat.map = hallGridTex;
+    hallFloorMat.roughnessMap = floorRoughnessNoise;
     hallFloorMat.needsUpdate = true;
-    // Keep corridor walls non-metallic to avoid SSR "sparkle" on rough surfaces.
-    const hallWallMat = new THREE.MeshStandardMaterial({ color: 0xd8dce5, roughness: 0.9, metalness: 0.0 });
+    // Lower roughness + slight metalness lets ceiling lights cast specular highlights on walls.
+    const hallWallMat = new THREE.MeshStandardMaterial({ color: 0xd8dce5, roughness: 0.6, metalness: 0.15 });
     const bayMat = new THREE.MeshStandardMaterial({ color: 0x404858, roughness: 0.75, metalness: 0.05 });
 
     const wallThickness = 0.6;
@@ -199,9 +207,11 @@ export class ProceduralBuilder {
     hallFloor.updateWorldMatrix(true, false);
     this.colliders.push(this.colliderFactory.createTrimesh(hallFloor));
 
-    // Taller corridor so drone camera pivot doesn't end up inside the ceiling.
-    const leftWall = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, wallHeight, hallLength), hallWallMat);
-    leftWall.position.set(-hallWidth / 2 - wallThickness / 2, wallHeight / 2 - 1.0, showcaseCenterZ);
+    // Extend walls 0.5 units below floor to seal the floor/wall seam (prevents light leaks).
+    const wallOverlap = 0.5;
+    const extendedWallHeight = wallHeight + wallOverlap;
+    const leftWall = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, extendedWallHeight, hallLength), hallWallMat);
+    leftWall.position.set(-hallWidth / 2 - wallThickness / 2, extendedWallHeight / 2 - 1.0 - wallOverlap, showcaseCenterZ);
     leftWall.name = 'ShowcaseWallL_col';
     leftWall.receiveShadow = true;
     this.scene.add(leftWall);
@@ -209,8 +219,8 @@ export class ProceduralBuilder {
     leftWall.updateWorldMatrix(true, false);
     this.colliders.push(this.colliderFactory.createTrimesh(leftWall));
 
-    const rightWall = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, wallHeight, hallLength), hallWallMat);
-    rightWall.position.set(hallWidth / 2 + wallThickness / 2, wallHeight / 2 - 1.0, showcaseCenterZ);
+    const rightWall = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, extendedWallHeight, hallLength), hallWallMat);
+    rightWall.position.set(hallWidth / 2 + wallThickness / 2, extendedWallHeight / 2 - 1.0 - wallOverlap, showcaseCenterZ);
     rightWall.name = 'ShowcaseWallR_col';
     rightWall.receiveShadow = true;
     this.scene.add(rightWall);
@@ -246,6 +256,59 @@ export class ProceduralBuilder {
     this.meshes.push(ceiling);
     ceiling.updateWorldMatrix(true, false);
     this.colliders.push(this.colliderFactory.createTrimesh(ceiling));
+
+    // --- Instanced structural ribs for parallax and visual rhythm ---
+    const ribSpacing = 15;
+    const ribCount = Math.floor(hallLength / ribSpacing);
+    const ribWidth = 0.65;
+    const ribHeight = wallHeight;
+    const ribDepth = 0.65;
+    const ribMat = new THREE.MeshStandardMaterial({ color: 0x3a4050, roughness: 0.4, metalness: 0.6 });
+    const ribGeom = new THREE.BoxGeometry(ribWidth, ribHeight, ribDepth);
+
+    // Left ribs
+    const leftRibs = new THREE.InstancedMesh(ribGeom, ribMat, ribCount);
+    leftRibs.name = 'CorridorRibs_L';
+    leftRibs.castShadow = true;
+    leftRibs.receiveShadow = true;
+    const ribMatrix = new THREE.Matrix4();
+    for (let i = 0; i < ribCount; i++) {
+      const z = showcaseCenterZ + hallLength / 2 - (i + 0.5) * ribSpacing;
+      ribMatrix.makeTranslation(-hallWidth / 2 + ribWidth / 2, ribHeight / 2 - 1.0, z);
+      leftRibs.setMatrixAt(i, ribMatrix);
+    }
+    leftRibs.instanceMatrix.needsUpdate = true;
+    this.scene.add(leftRibs);
+    this.meshes.push(leftRibs);
+
+    // Right ribs
+    const rightRibs = new THREE.InstancedMesh(ribGeom, ribMat, ribCount);
+    rightRibs.name = 'CorridorRibs_R';
+    rightRibs.castShadow = true;
+    rightRibs.receiveShadow = true;
+    for (let i = 0; i < ribCount; i++) {
+      const z = showcaseCenterZ + hallLength / 2 - (i + 0.5) * ribSpacing;
+      ribMatrix.makeTranslation(hallWidth / 2 - ribWidth / 2, ribHeight / 2 - 1.0, z);
+      rightRibs.setMatrixAt(i, ribMatrix);
+    }
+    rightRibs.instanceMatrix.needsUpdate = true;
+    this.scene.add(rightRibs);
+    this.meshes.push(rightRibs);
+
+    // Ceiling cross-beams connecting the ribs (visual depth)
+    const beamGeom = new THREE.BoxGeometry(hallWidth, 0.5, ribDepth);
+    const beamRibs = new THREE.InstancedMesh(beamGeom, ribMat, ribCount);
+    beamRibs.name = 'CorridorBeams';
+    beamRibs.castShadow = true;
+    beamRibs.receiveShadow = true;
+    for (let i = 0; i < ribCount; i++) {
+      const z = showcaseCenterZ + hallLength / 2 - (i + 0.5) * ribSpacing;
+      ribMatrix.makeTranslation(0, wallHeight - 1.0 - 0.15, z);
+      beamRibs.setMatrixAt(i, ribMatrix);
+    }
+    beamRibs.instanceMatrix.needsUpdate = true;
+    this.scene.add(beamRibs);
+    this.meshes.push(beamRibs);
     } // end buildAll corridor structure
 
     // Bay pedestals: all in normal mode, single target in station mode.
@@ -281,7 +344,7 @@ export class ProceduralBuilder {
         roughness: 0.35,
         metalness: 0.05,
         emissive: panelEmissive,
-        emissiveIntensity: 1.0,
+        emissiveIntensity: 0.6,
       });
       const panel = new THREE.Mesh(new THREE.BoxGeometry(bayWidth - 6, 0.08, 2.6), panelMat);
       panel.position.set(0, ceilingY, z);
@@ -291,7 +354,7 @@ export class ProceduralBuilder {
       this.scene.add(panel);
       this.meshes.push(panel);
 
-      const light = new THREE.PointLight(lightColor, 120, 28, 2);
+      const light = new THREE.PointLight(lightColor, 60, 28, 2);
       light.position.set(0, ceilingY - 0.25, z);
       light.castShadow = false;
       light.name = `ShowcaseBayLight${i}`;
@@ -723,6 +786,42 @@ export class ProceduralBuilder {
     texture.magFilter = THREE.LinearFilter;
     texture.generateMipmaps = true;
     texture.anisotropy = this.maxAnisotropy;
+    texture.needsUpdate = true;
+    return texture;
+  }
+
+  /** Procedural noise texture for floor roughness — breaks up flat specularity. */
+  private createFloorRoughnessTexture(): THREE.CanvasTexture {
+    const size = 512;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d')!;
+    const img = ctx.createImageData(size, size);
+    const d = img.data;
+    // Low-frequency isotropic noise for subtle roughness variation.
+    // Avoids high-frequency aliasing at grazing camera angles.
+    for (let i = 0; i < size * size; i++) {
+      const x = i % size;
+      const y = (i / size) | 0;
+      // Low-frequency broad strokes (no aliasing at distance)
+      const n1 = Math.sin(x * 0.03 + y * 0.025) * Math.cos(y * 0.03 - x * 0.02) * 0.15;
+      const n2 = Math.sin(x * 0.07 + 1.7) * Math.cos(y * 0.07 + 2.3) * 0.08;
+      const noise = 0.7 + n1 + n2; // ~0.55 – 0.85 range, gentle variation
+      const v = Math.max(0, Math.min(255, (noise * 255) | 0));
+      const idx = i * 4;
+      d[idx] = v;
+      d[idx + 1] = v;
+      d[idx + 2] = v;
+      d[idx + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(6, 6);
+    texture.colorSpace = THREE.NoColorSpace;
+    texture.generateMipmaps = true;
     texture.needsUpdate = true;
     return texture;
   }

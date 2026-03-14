@@ -34,31 +34,35 @@ export class LightingSystem implements Disposable {
   addLighting(): THREE.Object3D[] {
     this.ownedObjects = [];
 
-    // Slightly lower ambient for more depth/contrast in the showcase corridor.
-    const ambientLight = new THREE.AmbientLight(0xfff8f0, 0.70);
+    // Low ambient with enough fill to read shadow detail indoors.
+    const ambientLight = new THREE.AmbientLight(0xfff8f0, 0.12);
     ambientLight.name = '__kinema_ambient';
     this.scene.add(ambientLight);
     this.ownedObjects.push(ambientLight);
 
-    const hemiLight = new THREE.HemisphereLight(0xffeedd, 0xb0b8cc, 0.50);
+    const hemiLight = new THREE.HemisphereLight(0xffeedd, 0x282c38, 0.35);
     hemiLight.name = '__kinema_hemilight';
     this.scene.add(hemiLight);
     this.ownedObjects.push(hemiLight);
 
-    // Warm key light for friendlier materials.
-    const dirLight = new THREE.DirectionalLight(0xfff4e0, 2.2);
-    dirLight.position.set(20, 30, 10);
+    // Exponential fog for depth perception in the long corridor.
+    this.scene.fog = new THREE.FogExp2(0x8a95a5, 0.0035);
+
+    // Softer fill-key light — positioned high overhead for indoor corridor feel.
+    // Shadows are subtle; most visual grounding comes from GTAO contact shadows.
+    const dirLight = new THREE.DirectionalLight(0xfff4e0, 1.8);
+    dirLight.position.set(5, 35, 3);
     dirLight.castShadow = this.shadowsEnabled;
     const shadowSize = this.getShadowMapSize();
     dirLight.shadow.mapSize.set(shadowSize, shadowSize);
-    dirLight.shadow.normalBias = 0.02;
-    dirLight.shadow.bias = -0.00012;
+    dirLight.shadow.normalBias = 0.03;
+    dirLight.shadow.bias = -0.0005;
     dirLight.shadow.camera.near = 1;
     dirLight.shadow.camera.far = 90;
-    dirLight.shadow.camera.left = -22;
-    dirLight.shadow.camera.right = 22;
-    dirLight.shadow.camera.top = 22;
-    dirLight.shadow.camera.bottom = -22;
+    dirLight.shadow.camera.left = -35;
+    dirLight.shadow.camera.right = 35;
+    dirLight.shadow.camera.top = 35;
+    dirLight.shadow.camera.bottom = -35;
     dirLight.shadow.radius = 2;
     dirLight.shadow.blurSamples = 8;
     dirLight.name = '__kinema_dirlight';
@@ -87,7 +91,7 @@ export class LightingSystem implements Disposable {
   /** Keep directional light near player for stable, sharp shadows. */
   updateLighting(playerPos: THREE.Vector3): void {
     if (!this.dirLight || !this.dirLightTarget) return;
-    _lightGoalPos.set(playerPos.x + 20, playerPos.y + 30, playerPos.z + 10);
+    _lightGoalPos.set(playerPos.x + 5, playerPos.y + 35, playerPos.z + 3);
     _lightGoalTarget.set(playerPos.x, playerPos.y + 1, playerPos.z);
     this.lightFollowPos.lerp(_lightGoalPos, 0.08);
     this.lightTargetPos.lerp(_lightGoalTarget, 0.1);

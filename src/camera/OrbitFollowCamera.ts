@@ -161,6 +161,14 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     this.camera.lookAt(this.pivotPosition);
   }
 
+  /** Set yaw and pitch directly (for headless screenshot capture). */
+  snapToAngle(yaw: number, pitch: number): void {
+    this.targetYaw = yaw;
+    this.targetPitch = pitch;
+    this.yaw = yaw;
+    this.pitch = pitch;
+  }
+
   resetTarget(): void {
     this.target = null;
     this.targetBody = null;

@@ -271,6 +271,25 @@ async function bootstrap(): Promise<void> {
       game.testInputOverride = jumpInput;
       game.testInputFrames = 10; // Active for 10 render frames
     },
+    /** Set camera look angles for headless screenshot capture. */
+    setCameraLook(pitch: number, yaw: number) {
+      camera.snapToAngle(yaw, pitch);
+    },
+    /** Simulate movement input for several frames (headless testing). */
+    simulateMove(moveX: number, moveY: number, frames = 30) {
+      const moveInput = {
+        forward: moveY > 0, backward: moveY < 0, left: moveX < 0, right: moveX > 0,
+        crouch: false, crouchPressed: false, jump: false, jumpPressed: false,
+        interact: false, interactPressed: false, primary: false, primaryPressed: false,
+        altitudeUp: false, altitudeDown: false, moveX, moveY,
+        sprint: false, mouseDeltaX: 0, mouseDeltaY: 0, mouseWheelDelta: 0,
+      };
+      game.testInputOverride = moveInput;
+      game.testInputFrames = frames;
+    },
+    get config() {
+      return playerController.config;
+    },
     /** Wait for a condition on player state, polling at physics rate. */
     waitFor(predicate: string, timeoutMs = 5000): Promise<boolean> {
       const fn = new Function('p', `return ${predicate}`) as (p: any) => boolean;
