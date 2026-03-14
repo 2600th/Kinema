@@ -11,6 +11,7 @@ export interface ToolbarCallbacks {
   onToggleSnap: () => void;
   onToggleGrid: () => void;
   onSetMode: (mode: TransformMode) => void;
+  onPlayTest: () => void;
 }
 
 export class ToolbarPanel extends EditorPanel {
@@ -63,6 +64,14 @@ export class ToolbarPanel extends EditorPanel {
       this.modeButtons.set(mode, btn);
       el.appendChild(btn);
     }
+
+    el.appendChild(this.createDivider());
+
+    // --- Group 4: Play test ---
+    const playBtn = this.createBtn('\u25B6', this.callbacks.onPlayTest);
+    playBtn.style.color = '#4caf50';
+    playBtn.title = 'Play Test (Ctrl+P)';
+    el.appendChild(playBtn);
 
     // Default: translate active
     this.setActiveMode('translate');

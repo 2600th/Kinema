@@ -9,6 +9,7 @@ import { MainMenu } from './MainMenu';
 import { PauseMenu } from './PauseMenu';
 import { SettingsMenu } from './SettingsMenu';
 import { LevelSelectMenu } from './LevelSelectMenu';
+import { HelpMenu } from './HelpMenu';
 import './menus.css';
 
 interface MenuScreen {
@@ -31,6 +32,7 @@ export class MenuManager {
   private pauseMenu: PauseMenu;
   private settingsMenu: SettingsMenu;
   private levelSelectMenu: LevelSelectMenu;
+  private helpMenu: HelpMenu;
 
   constructor(
     private eventBus: EventBus,
@@ -49,16 +51,21 @@ export class MenuManager {
     this.overlay.className = 'menu-overlay';
     document.body.appendChild(this.overlay);
 
+    this.helpMenu = new HelpMenu({
+      onBack: () => this.pop(),
+    });
     this.mainMenu = new MainMenu({
       onPlay: () => void this.handlePlay(),
       onLevelSelect: () => this.push(this.levelSelectMenu),
       onCreateLevel: () => void this.handleCreateLevel(),
       onSettings: () => this.push(this.settingsMenu),
+      onHelp: () => this.push(this.helpMenu),
       onQuit: () => this.handleQuit(),
     });
     this.pauseMenu = new PauseMenu({
       onResume: () => this.pop(),
       onSettings: () => this.push(this.settingsMenu),
+      onHelp: () => this.push(this.helpMenu),
       onMainMenu: () => void this.handleReturnToMainMenu(),
     });
     this.settingsMenu = new SettingsMenu({
@@ -81,6 +88,7 @@ export class MenuManager {
     this.wireButtonAudio(this.pauseMenu.root);
     this.wireButtonAudio(this.settingsMenu.root);
     this.wireButtonAudio(this.levelSelectMenu.root);
+    this.wireButtonAudio(this.helpMenu.root);
 
     this.unsubs.push(
       this.eventBus.on('menu:toggle', () => {
@@ -112,6 +120,7 @@ export class MenuManager {
     this.pauseMenu.dispose();
     this.settingsMenu.dispose();
     this.levelSelectMenu.dispose();
+    this.helpMenu.dispose();
     this.overlay.remove();
     this.stopBackgroundLoop();
   }

@@ -29,6 +29,8 @@
 .menu-screen {
   min-width: 360px;
   max-width: 520px;
+  max-height: 90vh;
+  overflow: hidden;
   padding: 32px 36px;
   border-radius: 20px;
   background: linear-gradient(145deg, rgba(25, 30, 40, 0.85), rgba(15, 18, 25, 0.95));
@@ -148,6 +150,43 @@
 
 .menu-section.active {
   display: block;
+  position: relative;
+  max-height: 55vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Thin scrollbar matching the dark theme */
+.menu-section::-webkit-scrollbar {
+  width: 4px;
+}
+
+.menu-section::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 2px;
+}
+
+.menu-section::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+}
+
+.menu-section::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Scroll fade gradient at the bottom of the settings content */
+.menu-section.active::after {
+  content: '';
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: block;
+  height: 40px;
+  margin-top: -40px;
+  background: linear-gradient(to bottom, transparent, rgba(15, 18, 25, 0.9));
+  pointer-events: none;
 }
 
 .menu-field {
@@ -402,6 +441,77 @@
   font-style: italic;
 }
 
+/* ---- Help Menu ---- */
+
+.help-menu {
+  min-width: 400px;
+  max-width: 560px;
+}
+
+.help-content {
+  max-height: 55vh;
+  overflow-y: auto;
+  padding-right: 6px;
+  margin-bottom: 8px;
+}
+
+.help-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.help-content::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 3px;
+}
+
+.help-content::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+.help-section {
+  margin-bottom: 4px;
+}
+
+.help-bindings-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 16px;
+  align-items: center;
+}
+
+.help-key-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  justify-content: flex-end;
+  color: rgba(224, 224, 224, 0.5);
+  font-size: 12px;
+}
+
+.help-key {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-bottom-width: 2px;
+  color: var(--menu-accent);
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.help-desc-cell {
+  font-size: 13px;
+  color: rgba(224, 224, 224, 0.85);
+  line-height: 1.5;
+}
+
 /* ---- Responsive ---- */
 
 @media (max-width: 768px) {
@@ -472,6 +582,30 @@
 
   .menu-field > label {
     font-size: 13px;
+  }
+
+  /* 44px minimum touch targets on mobile */
+  .menu-field input[type="checkbox"] {
+    width: 24px;
+    height: 24px;
+    min-height: 44px;
+    min-width: 44px;
+    padding: 10px;
+    box-sizing: border-box;
+  }
+
+  .menu-field input[type="range"] {
+    min-height: 44px;
+    padding: 13px 0;
+  }
+
+  .menu-select {
+    min-height: 44px;
+    padding: 12px 14px;
+  }
+
+  .menu-button {
+    padding: 12px 14px;
   }
 
   .menu-level-list {

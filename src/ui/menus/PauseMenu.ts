@@ -1,6 +1,7 @@
 interface PauseMenuOptions {
   onResume: () => void;
   onSettings: () => void;
+  onHelp: () => void;
   onMainMenu: () => void;
 }
 
@@ -19,10 +20,12 @@ export class PauseMenu {
 
     const resumeBtn = this.createButton('Resume', this.options.onResume);
     const settingsBtn = this.createButton('Settings', this.options.onSettings);
+    const helpBtn = this.createButton('Help', this.options.onHelp);
     const mainMenuBtn = this.createButton('Main Menu', this.options.onMainMenu);
 
     this.root.appendChild(resumeBtn);
     this.root.appendChild(settingsBtn);
+    this.root.appendChild(helpBtn);
     this.root.appendChild(mainMenuBtn);
   }
 

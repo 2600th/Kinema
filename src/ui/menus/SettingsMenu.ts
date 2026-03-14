@@ -146,6 +146,15 @@ export class SettingsMenu {
         },
       ),
     );
+
+    // Touch controls toggle — only visible on touch-capable devices
+    if ('ontouchstart' in window) {
+      this.controlsSection.appendChild(
+        this.createToggle('Touch controls', inputManager.isTouchActive, (value) => {
+          inputManager.setTouchControlsEnabled(value);
+        }),
+      );
+    }
   }
 
   private buildGraphicsSection(): void {
@@ -249,6 +258,13 @@ export class SettingsMenu {
         eventBus.emit('debug:lutEnabled', value);
       }),
     );
+
+    // --- Developer ---
+    this.graphicsSection.appendChild(this.createSectionHeader('Developer'));
+
+    this.graphicsSection.appendChild(this.createDebugPanelButton(() => {
+      eventBus.emit('debug:toggle', undefined);
+    }));
   }
 
   private buildAudioSection(): void {
@@ -349,6 +365,17 @@ export class SettingsMenu {
     fieldLabel.appendChild(input);
     fieldLabel.appendChild(document.createTextNode(label));
     wrapper.appendChild(fieldLabel);
+    return wrapper;
+  }
+
+  private createDebugPanelButton(onClick: () => void): HTMLDivElement {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'menu-field';
+    const btn = document.createElement('button');
+    btn.className = 'menu-button';
+    btn.textContent = 'Toggle Debug Panel';
+    btn.addEventListener('click', onClick);
+    wrapper.appendChild(btn);
     return wrapper;
   }
 

@@ -49,6 +49,12 @@ export class EditorManager {
   private glbPreview: THREE.Object3D | null = null;
   private pendingGLBAsset: string | null = null;
 
+  /* ---- Play-test state ---- */
+  private playTestActive = false;
+  private playTestSnapshot: string | null = null;
+  private playTestCameraState: { position: THREE.Vector3; quaternion: THREE.Quaternion } | null = null;
+  private playTestStopButton: HTMLButtonElement | null = null;
+
   /* ---- Subsystems (kept) ---- */
   private gizmo: TransformGizmo;
   private grid: SnapGrid;
@@ -91,6 +97,7 @@ export class EditorManager {
         this.toolbarPanel.setGridActive(this.grid.isVisible());
       },
       onSetMode: (mode) => this.setTransformMode(mode),
+      onPlayTest: () => this.startPlayTest(),
     });
 
     this.brushPanel = new BrushPanel((brushId) => this.onBrushSelected(brushId));
@@ -133,6 +140,18 @@ export class EditorManager {
     this.unsubs.push(
       this.eventBus.on('editor:toggle', () => this.toggle()),
     );
+
+    // Global Ctrl+P handler to stop play-test (persists while play-testing)
+    const onGlobalKeyDown = (e: KeyboardEvent): void => {
+      if (!this.playTestActive) return;
+      const cmdKey = navigator.platform.toUpperCase().includes('MAC') ? e.metaKey : e.ctrlKey;
+      if (e.code === 'KeyP' && cmdKey) {
+        e.preventDefault();
+        this.stopPlayTest();
+      }
+    };
+    window.addEventListener('keydown', onGlobalKeyDown);
+    this.unsubs.push(() => window.removeEventListener('keydown', onGlobalKeyDown));
   }
 
   /* ==================================================================
@@ -161,6 +180,7 @@ export class EditorManager {
   }
 
   toggle(): void {
+    if (this.playTestActive) return; // Don't toggle while play-testing
     if (this.active) {
       this.exit();
     } else {
@@ -222,6 +242,129 @@ export class EditorManager {
   }
 
   /* ==================================================================
+   *  Play-test mode
+   * ================================================================== */
+
+  private startPlayTest(): void {
+    if (this.playTestActive) return;
+
+    // Serialize current level state
+    const data = LevelSerializer.serialize('__playtest__', this.editorObjects);
+    this.playTestSnapshot = JSON.stringify(data);
+
+    // Save camera state (enter() will call freeCamera.enable() which re-derives yaw/pitch)
+    this.playTestCameraState = {
+      position: this.renderer.camera.position.clone(),
+      quaternion: this.renderer.camera.quaternion.clone(),
+    };
+
+    this.playTestActive = true;
+
+    // Exit editor mode — enables game simulation, player, etc.
+    this.exit();
+
+    // Determine spawn position from level data
+    const spawnPos = new THREE.Vector3(
+      data.spawnPoint.position[0],
+      data.spawnPoint.position[1],
+      data.spawnPoint.position[2],
+    );
+    const spawnRot = data.spawnPoint.rotation
+      ? new THREE.Euler(data.spawnPoint.rotation[0], data.spawnPoint.rotation[1], data.spawnPoint.rotation[2])
+      : undefined;
+
+    // Spawn the player at the spawn point
+    this.player.spawn({ position: spawnPos, rotation: spawnRot });
+
+    // Create floating "Stop" button
+    const stopBtn = document.createElement('button');
+    stopBtn.className = 'ke-btn';
+    stopBtn.textContent = '\u25A0';
+    stopBtn.title = 'Stop Play Test (Ctrl+P)';
+    Object.assign(stopBtn.style, {
+      position: 'fixed',
+      top: '12px',
+      left: '50%',
+      transform: 'translateX(-50%)',
+      zIndex: '10001',
+      background: '#c62828',
+      color: '#fff',
+      border: 'none',
+      borderRadius: '6px',
+      padding: '6px 16px',
+      fontSize: '18px',
+      cursor: 'pointer',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+    });
+    stopBtn.addEventListener('click', () => this.stopPlayTest());
+    document.body.appendChild(stopBtn);
+    this.playTestStopButton = stopBtn;
+  }
+
+  private stopPlayTest(): void {
+    if (!this.playTestActive) return;
+
+    // Remove stop button
+    if (this.playTestStopButton) {
+      this.playTestStopButton.remove();
+      this.playTestStopButton = null;
+    }
+
+    this.playTestActive = false;
+
+    // Re-enter editor mode
+    this.enter();
+
+    // Clear current editor objects (remove editor-spawned objects from scene)
+    for (const obj of this.editorObjects) {
+      if (obj.mesh.userData.editorSource) {
+        this.renderer.scene.remove(obj.mesh);
+        obj.mesh.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.geometry?.dispose();
+            const mat = child.material;
+            if (Array.isArray(mat)) {
+              mat.forEach((m) => m.dispose());
+            } else if (mat) {
+              (mat as THREE.Material).dispose();
+            }
+          }
+        });
+        if (obj.body) {
+          this.physicsWorld.removeBody(obj.body);
+        } else if (obj.collider) {
+          this.physicsWorld.removeCollider(obj.collider);
+        }
+      }
+    }
+    this.editorObjects = this.editorObjects.filter((obj) => !obj.mesh.userData.editorSource);
+
+    // Restore snapshot
+    if (this.playTestSnapshot) {
+      const data = JSON.parse(this.playTestSnapshot) as LevelData;
+      void this.applyLoadedLevel(data).catch((err: unknown) => {
+        console.error('[Editor] Failed to restore play-test snapshot:', err);
+      });
+      this.playTestSnapshot = null;
+    }
+
+    // Restore camera state
+    if (this.playTestCameraState) {
+      this.renderer.camera.position.copy(this.playTestCameraState.position);
+      this.renderer.camera.quaternion.copy(this.playTestCameraState.quaternion);
+      this.playTestCameraState = null;
+      // FreeCamera.enable() (called by enter()) re-derives yaw/pitch from quaternion,
+      // but we need to re-enable after restoring the quaternion. Disable and re-enable.
+      this.freeCamera.disable();
+      this.freeCamera.enable();
+    }
+
+    // Clear selection
+    this.setSelection(null);
+    this.syncHierarchy();
+  }
+
+  /* ==================================================================
    *  Input binding
    * ================================================================== */
 
@@ -273,6 +416,12 @@ export class EditorManager {
     if (target?.isContentEditable) return;
 
     const cmd = navigator.platform.toUpperCase().includes('MAC') ? e.metaKey : e.ctrlKey;
+
+    if (e.code === 'KeyP' && cmd) {
+      e.preventDefault();
+      this.startPlayTest();
+      return;
+    }
 
     if (e.code === 'KeyW' && !cmd && this.selected) this.setTransformMode('translate');
     if (e.code === 'KeyE' && !cmd && this.selected) this.setTransformMode('rotate');

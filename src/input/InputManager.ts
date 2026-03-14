@@ -1,6 +1,7 @@
 import type { EventBus } from '@core/EventBus';
 import type { InputState, Disposable } from '@core/types';
 import { NULL_INPUT } from '@core/types';
+import type { TouchControlsManager } from './TouchControlsManager';
 
 const GAMEPAD_MOVE_THRESHOLD = 0.25;
 const GAMEPAD_LOOK_SPEED = 18;
@@ -52,6 +53,8 @@ export class InputManager implements Disposable {
   private gamepadCurve = 1.4;
   private inputSuppressed = false;
   private editorActive = false;
+  private touchControls: TouchControlsManager | null = null;
+  private touchActive = false;
   private unsubs: (() => void)[] = [];
 
   private _onKeyDown = this.handleKeyDown.bind(this);
@@ -106,19 +109,20 @@ export class InputManager implements Disposable {
       return NULL_INPUT;
     }
     const gamepad = this.readGamepadState();
+    const touch = this.touchActive ? this.touchControls?.getInputState() ?? null : null;
 
     // Use latchedKeys for edge detection so short keypresses (down+up between
     // two polls) aren't missed. Held state still comes from live keys set.
-    const crouch = (this.locked && (this.keys.has('KeyC') || this.keys.has('ControlLeft'))) || gamepad.crouch;
-    const crouchPressed = (crouch || (this.locked && (this.latchedKeys.has('KeyC') || this.latchedKeys.has('ControlLeft')))) && !this.prevCrouch;
-    const jump = (this.locked && (this.keys.has('Space') || this.latchedKeys.has('Space'))) || gamepad.jump;
-    const interact = (this.locked && (this.keys.has('KeyF') || this.latchedKeys.has('KeyF'))) || gamepad.interact;
+    const crouch = (this.locked && (this.keys.has('KeyC') || this.keys.has('ControlLeft'))) || gamepad.crouch || (touch?.crouch ?? false);
+    const crouchPressed = ((crouch || (this.locked && (this.latchedKeys.has('KeyC') || this.latchedKeys.has('ControlLeft')))) && !this.prevCrouch) || (touch?.crouchPressed ?? false);
+    const jump = (this.locked && (this.keys.has('Space') || this.latchedKeys.has('Space'))) || gamepad.jump || (touch?.jump ?? false);
+    const interact = (this.locked && (this.keys.has('KeyF') || this.latchedKeys.has('KeyF'))) || gamepad.interact || (touch?.interact ?? false);
     const primary = (this.locked && this.mousePrimary) || gamepad.primary;
     const altitudeUp = this.locked && this.keys.has('KeyE');
     const altitudeDown = this.locked && this.keys.has('KeyQ');
     this.prevCrouch = crouch;
-    const jumpPressed = jump && !this.prevJump;
-    const interactPressed = interact && !this.prevInteract;
+    const jumpPressed = (jump && !this.prevJump) || (touch?.jumpPressed ?? false);
+    const interactPressed = (interact && !this.prevInteract) || (touch?.interactPressed ?? false);
     const primaryPressed = primary && !this.prevPrimary;
     this.prevJump = jump;
     this.prevInteract = interact;
@@ -126,22 +130,30 @@ export class InputManager implements Disposable {
     // Clear latched keys after consumption — they've served their purpose.
     this.latchedKeys.clear();
 
-    // Compute analog move axes
+    // Compute analog move axes — touch overrides if active
     const kbX = (this.locked && (this.keys.has('KeyD') || this.keys.has('ArrowRight')) ? 1 : 0)
               - (this.locked && (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) ? 1 : 0);
     const kbY = (this.locked && (this.keys.has('KeyW') || this.keys.has('ArrowUp')) ? 1 : 0)
               - (this.locked && (this.keys.has('KeyS') || this.keys.has('ArrowDown')) ? 1 : 0);
-    const rawMoveX = gamepad.moveX !== 0 ? gamepad.moveX : kbX;
-    const rawMoveY = gamepad.moveY !== 0 ? gamepad.moveY : kbY;
+    const touchMoveX = touch?.moveX ?? 0;
+    const touchMoveY = touch?.moveY ?? 0;
+    const rawMoveX = touchMoveX !== 0 ? touchMoveX : (gamepad.moveX !== 0 ? gamepad.moveX : kbX);
+    const rawMoveY = touchMoveY !== 0 ? touchMoveY : (gamepad.moveY !== 0 ? gamepad.moveY : kbY);
     const moveMag = Math.hypot(rawMoveX, rawMoveY);
     const moveX = moveMag > 1 ? rawMoveX / moveMag : rawMoveX;
     const moveY = moveMag > 1 ? rawMoveY / moveMag : rawMoveY;
 
+    // Accumulate touch look deltas into mouse deltas so they flow through pollLook()
+    if (touch) {
+      this.mouseDX += touch.lookDX;
+      this.mouseDY += touch.lookDY;
+    }
+
     const state: InputState = Object.freeze({
-      forward: (this.locked && (this.keys.has('KeyW') || this.keys.has('ArrowUp'))) || gamepad.forward,
-      backward: (this.locked && (this.keys.has('KeyS') || this.keys.has('ArrowDown'))) || gamepad.backward,
-      left: (this.locked && (this.keys.has('KeyA') || this.keys.has('ArrowLeft'))) || gamepad.left,
-      right: (this.locked && (this.keys.has('KeyD') || this.keys.has('ArrowRight'))) || gamepad.right,
+      forward: (this.locked && (this.keys.has('KeyW') || this.keys.has('ArrowUp'))) || gamepad.forward || moveY > 0.25,
+      backward: (this.locked && (this.keys.has('KeyS') || this.keys.has('ArrowDown'))) || gamepad.backward || moveY < -0.25,
+      left: (this.locked && (this.keys.has('KeyA') || this.keys.has('ArrowLeft'))) || gamepad.left || moveX < -0.25,
+      right: (this.locked && (this.keys.has('KeyD') || this.keys.has('ArrowRight'))) || gamepad.right || moveX > 0.25,
       crouch,
       crouchPressed,
       jump,
@@ -154,7 +166,7 @@ export class InputManager implements Disposable {
       altitudeDown,
       moveX,
       moveY,
-      sprint: (this.locked && (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight'))) || gamepad.sprint,
+      sprint: (this.locked && (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight'))) || gamepad.sprint || (touch?.sprint ?? false),
       // Look deltas are now consumed via pollLook() in the render loop.
       // Kept at 0 here for backward compatibility with InputState consumers.
       mouseDeltaX: 0,
@@ -193,6 +205,38 @@ export class InputManager implements Disposable {
 
   get isLocked(): boolean {
     return this.locked;
+  }
+
+  /** Initialize touch controls if device supports touch and has no fine pointer. */
+  initTouchControls(): void {
+    if (!('ontouchstart' in window) || matchMedia('(pointer: fine)').matches) return;
+    // Lazy-load to avoid bundling touch code on desktop
+    void import('./TouchControlsManager').then(({ TouchControlsManager }) => {
+      const overlay = document.getElementById('ui-overlay');
+      if (!overlay) return;
+      this.touchControls = new TouchControlsManager(overlay);
+      this.touchControls.show();
+      this.touchActive = true;
+    });
+  }
+
+  /** Toggle touch controls visibility. */
+  setTouchControlsEnabled(enabled: boolean): void {
+    if (!this.touchControls) return;
+    this.touchActive = enabled;
+    if (enabled) {
+      this.touchControls.show();
+    } else {
+      this.touchControls.hide();
+    }
+  }
+
+  get isTouchActive(): boolean {
+    return this.touchActive;
+  }
+
+  get hasTouchControls(): boolean {
+    return this.touchControls !== null;
   }
 
   setRawMouseInput(enabled: boolean): void {
@@ -346,6 +390,8 @@ export class InputManager implements Disposable {
   dispose(): void {
     for (const unsub of this.unsubs) unsub();
     this.unsubs.length = 0;
+    this.touchControls?.dispose();
+    this.touchControls = null;
     window.removeEventListener('keydown', this._onKeyDown);
     window.removeEventListener('keyup', this._onKeyUp);
     document.removeEventListener('mousemove', this._onMouseMove);

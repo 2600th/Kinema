@@ -1,0 +1,155 @@
+/* ── Touch Controls Container ── */
+.touch-controls-container {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1000;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ── Joystick Canvas ── */
+.touch-joystick {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ── Touch Zones ── */
+.touch-zone {
+  position: absolute;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.touch-zone--left {
+  bottom: 15vh;
+  left: 20vw;
+  transform: translate(-50%, 50%);
+}
+
+.touch-zone--right {
+  bottom: 15vh;
+  right: 20vw;
+  transform: translate(50%, 50%);
+}
+
+.touch-zone--buttons {
+  position: absolute;
+  right: 4vw;
+  bottom: 28vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.touch-zone--sprint {
+  position: absolute;
+  left: 4vw;
+  bottom: 32vh;
+}
+
+/* ── Touch Button Base ── */
+.touch-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font-size: 20px;
+  font-family: system-ui, -apple-system, sans-serif;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: transform 0.1s ease, opacity 0.1s ease, background 0.1s ease;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+  padding: 0;
+}
+
+/* ── Button Variants ── */
+.touch-btn--jump {
+  background: rgba(76, 175, 80, 0.4);
+  border-color: rgba(76, 175, 80, 0.6);
+  font-size: 24px;
+}
+
+.touch-btn--interact {
+  background: rgba(33, 150, 243, 0.35);
+  border-color: rgba(33, 150, 243, 0.5);
+}
+
+.touch-btn--crouch {
+  background: rgba(255, 152, 0, 0.35);
+  border-color: rgba(255, 152, 0, 0.5);
+}
+
+.touch-btn--sprint {
+  background: rgba(156, 39, 176, 0.35);
+  border-color: rgba(156, 39, 176, 0.5);
+}
+
+/* ── Active State ── */
+.touch-btn--active {
+  transform: scale(0.9);
+  opacity: 0.7;
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* ── Responsive: Landscape adjustments ── */
+@media (orientation: landscape) and (max-height: 500px) {
+  .touch-zone--left {
+    bottom: 10vh;
+    left: 12vw;
+  }
+
+  .touch-zone--right {
+    bottom: 10vh;
+    right: 12vw;
+  }
+
+  .touch-zone--buttons {
+    bottom: 18vh;
+    right: 2vw;
+    gap: 8px;
+  }
+
+  .touch-zone--sprint {
+    bottom: 22vh;
+    left: 2vw;
+  }
+}
+
+/* ── Portrait adjustments ── */
+@media (orientation: portrait) {
+  .touch-zone--left {
+    bottom: 12vh;
+    left: 15vw;
+  }
+
+  .touch-zone--right {
+    bottom: 12vh;
+    right: 15vw;
+  }
+
+  .touch-zone--buttons {
+    right: 3vw;
+    bottom: 22vh;
+  }
+
+  .touch-zone--sprint {
+    left: 3vw;
+    bottom: 26vh;
+  }
+}
+
+/* ── Hide on desktop (pointer: fine) ── */
+@media (pointer: fine) {
+  .touch-controls-container {
+    display: none !important;
+  }
+}
