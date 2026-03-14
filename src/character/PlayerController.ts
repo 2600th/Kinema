@@ -15,6 +15,7 @@ import type { PhysicsWorld } from '@physics/PhysicsWorld';
 import { ColliderFactory } from '@physics/ColliderFactory';
 import { CharacterFSM } from './CharacterFSM';
 import { CharacterVisual } from './CharacterVisual';
+import { CharacterMotor, shouldApplyGroundReaction } from './CharacterMotor';
 
 const _forward = new THREE.Vector3();
 const _right = new THREE.Vector3();
@@ -24,9 +25,6 @@ const _currentVel = new THREE.Vector3();
 const _movingDirection = new THREE.Vector3();
 const _jumpVelocityVec = new THREE.Vector3();
 const _jumpDirection = new THREE.Vector3();
-const _rayOrigin = new THREE.Vector3();
-const _slopeRayOrigin = new THREE.Vector3();
-const _slopeForward = new THREE.Vector3();
 const _actualSlopeNormal = new THREE.Vector3(0, 1, 0);
 const _standingForcePoint = new THREE.Vector3();
 const _distanceFromCharacterToObject = new THREE.Vector3();
@@ -63,17 +61,6 @@ function _setRV(v: RAPIER.Vector3, x: number, y: number, z: number): RAPIER.Vect
   return v;
 }
 
-/** Raycast filter: skip sensors and vehicle colliders. */
-function _notSensorOrVehicle(c: RAPIER.Collider): boolean {
-  if (c.isSensor()) return false;
-  const parent = c.parent();
-  if (parent) {
-    const ud = parent.userData as { kind?: string } | null;
-    if (ud?.kind === 'vehicle') return false;
-  }
-  return true;
-}
-
 interface CarryableObject {
   readonly id: string;
   readonly body: RAPIER.RigidBody;
@@ -90,6 +77,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   public readonly collider: RAPIER.Collider;
   public readonly mesh: THREE.Group;
   public readonly fsm: CharacterFSM;
+  public readonly motor: CharacterMotor;
   public readonly config = DEFAULT_PLAYER_CONFIG;
 
   public verticalVelocity = 0;
@@ -102,8 +90,6 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
   private canJump = false;
   private jumpActive = false;
-  /** Frames to suppress grounded detection after a jump to prevent instant re-grounding. */
-  private jumpSuppressGroundFrames = 0;
   private prevVerticalVelocity = 0;
   private jumpBufferRemaining = 0;
   private remainingAirJumps = this.config.maxAirJumps;
@@ -113,9 +99,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   private crouchedCapsuleHalfHeight = Math.max(0.16, this.config.capsuleHalfHeight - this.config.crouchHeightOffset);
   private currentCapsuleHalfHeight = this.config.capsuleHalfHeight;
   private actualSlopeAngle = 0;
-  private currentGravityScale = 1;
   private active = true;
-  private groundedGrace = 0;
   private currentGroundBody: RAPIER.RigidBody | null = null;
   private ladderZones: readonly THREE.Box3[] = [];
   private onLadder = false;
@@ -198,6 +182,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.capsuleMesh.receiveShadow = true;
     this.mesh.add(this.capsuleMesh);
 
+    this.motor = new CharacterMotor();
     this.fsm = new CharacterFSM(this, this.eventBus);
 
     this.characterVisual = new CharacterVisual(this.mesh);
@@ -227,8 +212,9 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.isGrounded = false;
     this.canJump = false;
     this.jumpActive = false;
-    this.jumpSuppressGroundFrames = 0;
     this.actualSlopeAngle = 0;
+    this.motor.reset();
+    this.motor.setGravityScale(this.body, 1);
     _movingObjectVelocity.set(0, 0, 0);
     this.currentGroundBody = null;
     this.onLadder = false;
@@ -318,7 +304,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       const wasGrounded = this.isGrounded;
       this.isGrounded = false;
       this.canJump = false;
-      this.groundedGrace = 0;
+      this.motor.clearGroundedGrace();
       if (wasGrounded) {
         this.eventBus.emit('player:grounded', false);
       }
@@ -352,8 +338,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       this.handleLadderMovement(input);
       return;
     }
-    if (this.currentGravityScale === 0) {
-      this.setGravityScale(1);
+    if (this.motor.gravityScale === 0) {
+      this.motor.setGravityScale(this.body, 1);
     }
 
     this.fsm.handleInput(inputForFsm, this.isGrounded);
@@ -370,93 +356,18 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       this.rotateToward(desiredInputDir, dt);
     }
 
-    _rayOrigin.set(
-      _currentPos.x,
-      _currentPos.y - this.currentCapsuleHalfHeight,
-      _currentPos.z,
+    // -- Ground detection (delegated to CharacterMotor) --
+    const groundInfo = this.motor.queryGround(
+      this.body, this.currentCapsuleHalfHeight, this.mesh.quaternion,
+      this.config, this.physicsWorld, this.floatingDistance, dt,
     );
-
-    const floatingRayHit = this.physicsWorld.castRay(
-      _setRV(_rv3A, _rayOrigin.x, _rayOrigin.y, _rayOrigin.z),
-      _rapierDown,
-      this.config.floatingRayLength,
-      undefined,
-      this.body,
-      _notSensorOrVehicle,
-    );
-
-    const closeToGround =
-      floatingRayHit !== null &&
-      floatingRayHit.timeOfImpact < this.floatingDistance + this.config.floatingRayHitForgiveness;
-
-    // Slope detection: two separate concerns.
-    // 1. standingSlopeAllowed: Is the surface DIRECTLY UNDER the player walkable?
-    //    Used for grounding/jump validation. Uses the floating ray origin (straight down).
-    // 2. actualSlopeAngle/Normal: Forward probe for movement velocity projection on slopes.
-    //    NOT used for grounding — prevents walls from blocking jumps on flat ground.
-    this.actualSlopeAngle = 0;
-    _actualSlopeNormal.set(0, 1, 0);
-    let standingSlopeAllowed = true;
-    if (closeToGround) {
-      // Ground normal directly under the player for jump/grounding validation.
-      const standingNormal = this.physicsWorld.castRayAndGetNormal(
-        _setRV(_rv3A, _rayOrigin.x, _rayOrigin.y, _rayOrigin.z),
-        _rapierDown,
-        this.config.floatingRayLength,
-        undefined,
-        this.body,
-      );
-      if (standingNormal) {
-        const standAngle = new THREE.Vector3(
-          standingNormal.normal.x, standingNormal.normal.y, standingNormal.normal.z,
-        ).angleTo(_worldUp);
-        standingSlopeAllowed = standAngle < this.config.slopeMaxAngle;
-      }
-
-      // Forward slope probe for movement velocity adjustment only.
-      _slopeForward.set(0, 0, 1).applyQuaternion(this.mesh.quaternion);
-      _slopeRayOrigin.copy(_rayOrigin).addScaledVector(_slopeForward, this.config.slopeRayOriginOffset);
-      const slopeRayHit = this.physicsWorld.castRay(
-        _setRV(_rv3A, _slopeRayOrigin.x, _slopeRayOrigin.y, _slopeRayOrigin.z),
-        _rapierDown,
-        this.config.slopeRayLength,
-        undefined,
-        this.body,
-        _notSensorOrVehicle,
-      );
-      if (slopeRayHit) {
-        const n = this.physicsWorld.castRayAndGetNormal(
-          _setRV(_rv3A, _slopeRayOrigin.x, _slopeRayOrigin.y, _slopeRayOrigin.z),
-          _rapierDown,
-          this.config.slopeRayLength,
-          undefined,
-          this.body,
-        );
-        if (n) {
-          _actualSlopeNormal.set(n.normal.x, n.normal.y, n.normal.z).normalize();
-          this.actualSlopeAngle = _actualSlopeNormal.angleTo(_worldUp);
-        }
-      }
-    }
-    const movementGrounded = closeToGround && standingSlopeAllowed;
-
-    // Suppress grounded detection for a few frames after a jump to prevent
-    // the ground probe from re-grounding the player on the same tick.
-    if (this.jumpSuppressGroundFrames > 0) {
-      this.jumpSuppressGroundFrames--;
-    }
-    const effectivelyGrounded = movementGrounded && this.jumpSuppressGroundFrames <= 0;
-
-    if (effectivelyGrounded) {
-      this.groundedGrace = this.config.coyoteTime;
-    } else {
-      this.groundedGrace = Math.max(0, this.groundedGrace - dt);
-    }
-    // isGrounded reflects actual ground contact; canJump keeps coyote forgiveness.
-    this.canJump = effectivelyGrounded || this.groundedGrace > 0;
+    this.actualSlopeAngle = groundInfo.slopeAngle;
+    _actualSlopeNormal.copy(groundInfo.slopeNormal);
+    _standingForcePoint.copy(groundInfo.standingForcePoint);
+    this.canJump = groundInfo.canJump;
 
     const wasGrounded = this.isGrounded;
-    this.isGrounded = effectivelyGrounded;
+    this.isGrounded = groundInfo.isGrounded;
     if (this.isGrounded) {
       this.remainingAirJumps = this.config.maxAirJumps;
     }
@@ -465,7 +376,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     }
     // Landing event: emit impact speed (relative to ground body) for camera dip / audio
     if (this.isGrounded && !wasGrounded) {
-      const groundVy = floatingRayHit?.collider.parent()?.linvel().y ?? 0;
+      const groundVy = groundInfo.floatingRayHit?.collider.parent()?.linvel().y ?? 0;
       const impactSpeed = Math.max(0, Math.abs(this.prevVerticalVelocity - groundVy));
       this.eventBus.emit('player:landed', { impactSpeed });
       this.jumpActive = false;
@@ -474,29 +385,20 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     // Variable jump: cut jump short when player releases jump key while rising.
     // Cap velocity to the cut ceiling using Math.min so it never snaps UP.
     // The suppression window prevents cutting a just-fired buffered jump.
-    const jumpCutCeiling = this.config.jumpForce * 0.58;
     if (!input.jump && this.verticalVelocity > 0 && this.jumpActive
-        && this.jumpSuppressGroundFrames <= 0) {
-      const lv = this.body.linvel();
-      const newVy = Math.min(lv.y, jumpCutCeiling);
-      this.body.setLinvel(_setRV(_rv3A, lv.x, newVy, lv.z), true);
-      this.verticalVelocity = newVy;
-      this.setGravityScale(this.config.fallingGravityScale + 0.25);
+        && !this.motor.isJumpSuppressed) {
+      this.motor.applyJumpCut(this.body, this.config);
+      this.verticalVelocity = this.body.linvel().y;
       this.jumpActive = false;
     }
 
     this.currentGroundBody = null;
     this.isOnMovingObject = false;
     _movingObjectVelocity.set(0, 0, 0);
-    if (floatingRayHit?.collider.parent() && this.canJump) {
-      const groundBody = floatingRayHit.collider.parent()!;
+    if (groundInfo.groundBody) {
+      const groundBody = groundInfo.groundBody;
       const groundBodyType = groundBody.bodyType();
       this.currentGroundBody = groundBody;
-      _standingForcePoint.set(
-        _rayOrigin.x,
-        _rayOrigin.y - floatingRayHit.timeOfImpact,
-        _rayOrigin.z,
-      );
 
       if (groundBodyType === 0 || groundBodyType === 2) {
         this.isOnMovingObject = true;
@@ -543,52 +445,25 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
         this.fsm.requestState(STATE.jump);
         this.applyJumpImpulse(run, false);
         this.jumpBufferRemaining = 0;
-        this.groundedGrace = 0;
+        this.motor.clearGroundedGrace();
         this.canJump = false;
       } else if (this.remainingAirJumps > 0) {
         this.fsm.requestState(STATE.airJump);
         this.applyJumpImpulse(false, true);
         this.jumpBufferRemaining = 0;
         this.remainingAirJumps -= 1;
-        this.groundedGrace = 0;
+        this.motor.clearGroundedGrace();
         this.canJump = false;
       }
     }
 
-    if (floatingRayHit && this.canJump) {
-      const floatingForce =
-        this.config.floatingSpringK * (this.floatingDistance - floatingRayHit.timeOfImpact) -
-        _currentVel.y * this.config.floatingDampingC;
-      this.body.applyImpulse(_setRV(_rv3A, 0, floatingForce, 0), false);
-
-      const standingBody = floatingRayHit.collider.parent();
-      if (standingBody && floatingForce > 0 && this.shouldApplyGroundReaction(standingBody)) {
-        standingBody.applyImpulseAtPoint(
-          _setRV(_rv3A, 0, -floatingForce, 0),
-          _setRV(_rv3B, _standingForcePoint.x, _standingForcePoint.y, _standingForcePoint.z),
-          true,
-        );
-      }
-    }
+    // -- Floating spring force (delegated to CharacterMotor) --
+    this.motor.applyFloatingSpring(this.body, groundInfo, this.config, this.floatingDistance);
 
     // Ground drag is handled by applyMoveVelocity() so we don't double-damp.
 
-    if (_currentVel.y < -this.config.fallingMaxVelocity) {
-      const lv = this.body.linvel();
-      this.body.setLinvel(_setRV(_rv3A, lv.x, -this.config.fallingMaxVelocity, lv.z), true);
-      this.setGravityScale(this.config.fallingGravityScale);
-    } else {
-      const airborne = !this.canJump;
-      const atApex = airborne && Math.abs(_currentVel.y) < this.config.apexHangThreshold;
-      const falling = _currentVel.y < 0 && airborne;
-      if (atApex) {
-        this.setGravityScale(this.config.apexGravityScale);
-      } else if (falling) {
-        this.setGravityScale(this.config.fallingGravityScale);
-      } else {
-        this.setGravityScale(1);
-      }
-    }
+    // -- Gravity scaling (delegated to CharacterMotor) --
+    this.motor.applyGravity(this.body, _currentVel.y, this.canJump, this.config);
 
     if (this.grabbedBody) {
       this.updateGrabbedBody();
@@ -739,7 +614,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.jumpActive = true;
     // Suppress ground detection for 3 frames after any jump to prevent
     // the floating ray from re-grounding and refilling air jumps instantly.
-    this.jumpSuppressGroundFrames = 3;
+    this.motor.onJumpFired();
     const jumpVel =
       (run ? this.config.sprintJumpMultiplier : 1) *
       this.config.jumpForce *
@@ -773,7 +648,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       groundPosition: this.groundPosition.clone(),
     });
 
-    if (this.currentGroundBody && this.shouldApplyGroundReaction(this.currentGroundBody)) {
+    if (this.currentGroundBody && shouldApplyGroundReaction(this.currentGroundBody)) {
       const down = -jumpVel * this.config.jumpForceToGroundMultiplier * 0.5;
       this.currentGroundBody.applyImpulseAtPoint(
         _setRV(_rv3A, 0, down, 0),
@@ -897,7 +772,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     const climbDir = (input.forward ? 1 : 0) - (input.backward ? 1 : 0);
     const climbSpeed = input.sprint ? 3.6 : 2.6;
     const lv = this.body.linvel();
-    this.setGravityScale(0);
+    this.motor.setGravityScale(this.body, 0);
     this.body.setLinvel(
       _setRV(_rv3A, lv.x * 0.2, climbDir * climbSpeed, lv.z * 0.2),
       true,
@@ -905,7 +780,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
     if (input.jumpPressed) {
       this.onLadder = false;
-      this.setGravityScale(1);
+      this.motor.setGravityScale(this.body, 1);
       this.jumpBufferRemaining = 0;
       this.remainingAirJumps = this.config.maxAirJumps;
       this.body.setLinvel(
@@ -1031,20 +906,6 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       (c) => !c.isSensor(),
     );
     return hit != null;
-  }
-
-  private shouldApplyGroundReaction(body: RAPIER.RigidBody | null): boolean {
-    if (!body) return false;
-    const data = body.userData;
-    if (typeof data !== 'object' || data === null) return true;
-    const kind = (data as { kind?: unknown }).kind;
-    return kind !== 'floating-platform';
-  }
-
-  private setGravityScale(scale: number): void {
-    if (Math.abs(this.currentGravityScale - scale) < 0.0001) return;
-    this.currentGravityScale = scale;
-    this.body.setGravityScale(scale, true);
   }
 
   update(_dt: number, alpha: number): void {
@@ -1233,7 +1094,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.onLadder = false;
     this.setCrouchedState(false);
     // Ensure rope dynamics are not amplified by carry-over fall gravity.
-    this.setGravityScale(1);
+    this.motor.setGravityScale(this.body, 1);
     this.jumpBufferRemaining = 0;
     this.remainingAirJumps = this.config.maxAirJumps;
     if (this.fsm.current !== STATE.air) {
