@@ -249,6 +249,15 @@ export class SettingsMenu {
         eventBus.emit('debug:lutEnabled', value);
       }),
     );
+
+    // --- Developer ---
+    this.graphicsSection.appendChild(this.createSectionHeader('Developer'));
+
+    this.graphicsSection.appendChild(
+      this.createToggle('Show Debug Panel', false, () => {
+        eventBus.emit('debug:toggle', undefined);
+      }),
+    );
   }
 
   private buildAudioSection(): void {

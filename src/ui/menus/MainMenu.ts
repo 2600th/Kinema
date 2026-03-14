@@ -3,6 +3,7 @@ interface MainMenuOptions {
   onLevelSelect: () => void;
   onCreateLevel: () => void;
   onSettings: () => void;
+  onHelp: () => void;
   onQuit: () => void;
 }
 
@@ -23,12 +24,14 @@ export class MainMenu {
     const levelSelectBtn = this.createButton('Level Select', this.options.onLevelSelect);
     const createLevelBtn = this.createButton('Create Level', this.options.onCreateLevel);
     const settingsBtn = this.createButton('Settings', this.options.onSettings);
+    const helpBtn = this.createButton('Help', this.options.onHelp);
     const quitBtn = this.createButton('Quit', this.options.onQuit);
 
     this.root.appendChild(playBtn);
     this.root.appendChild(levelSelectBtn);
     this.root.appendChild(createLevelBtn);
     this.root.appendChild(settingsBtn);
+    this.root.appendChild(helpBtn);
     this.root.appendChild(quitBtn);
   }
 
