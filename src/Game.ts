@@ -300,7 +300,11 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
 
   }
 
-  /** Called once per frame before the fixed-step loop to cache input. */
+  /** Called once per frame before the fixed-step loop to cache input.
+   *  Edge triggers (jumpPressed, etc.) are OR-merged across render frames
+   *  so they persist until fixedUpdate consumes them. Without this, high
+   *  refresh rates (144Hz+) can drop a jump press that arrives between
+   *  physics ticks because a subsequent render-frame poll clears it. */
   beginFrame(dt: number): void {
     if (this.testInputOverride && this.testInputFrames > 0) {
       this.frameInput = this.testInputOverride;
@@ -309,15 +313,30 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
         this.testInputOverride = null;
       }
     } else {
-      this.frameInput = this.inputManager.poll();
+      const fresh = this.inputManager.poll();
+      if (this.frameInput) {
+        // Merge: keep continuous state from fresh poll, but OR edge triggers
+        // so a press that happened in a prior render frame isn't lost.
+        this.frameInput = {
+          ...fresh,
+          jumpPressed: this.frameInput.jumpPressed || fresh.jumpPressed,
+          crouchPressed: this.frameInput.crouchPressed || fresh.crouchPressed,
+          interactPressed: this.frameInput.interactPressed || fresh.interactPressed,
+          primaryPressed: this.frameInput.primaryPressed || fresh.primaryPressed,
+        };
+      } else {
+        this.frameInput = fresh;
+      }
     }
     this.frameLook = this.inputManager.pollLook(dt);
   }
 
   /** Fixed 60Hz tick. */
   fixedUpdate(dt: number): void {
-    // Use cached input from beginFrame (polled once per frame, not per substep)
+    // Consume cached input from beginFrame. Nulling it ensures edge triggers
+    // (jumpPressed etc.) don't re-fire on subsequent substeps in the same frame.
     const input = this.frameInput ?? this.inputManager.poll();
+    this.frameInput = null;
     this.playerController.setInput(input);
     this.vehicleManager.setInput(input);
     if (this.vehicleManager.isActive() && input.interactPressed) {

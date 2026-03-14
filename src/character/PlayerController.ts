@@ -264,15 +264,6 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     let consumeJumpPressed = false;
 
     this.prevPosition.copy(this.currPosition);
-    // Only refill jump buffer on a fresh press — NOT during the post-jump
-    // suppression window. Without this guard, multi-substep catch-up frames
-    // re-fill the buffer from the same cached jumpPressed, causing a ground
-    // jump to immediately chain into an air jump in the same frame.
-    if (input.jumpPressed && this.jumpSuppressGroundFrames <= 0) {
-      this.jumpBufferRemaining = this.config.jumpBufferTime;
-    } else {
-      this.jumpBufferRemaining = Math.max(0, this.jumpBufferRemaining - dt);
-    }
 
     if (this.grabbedBody && (input.jumpPressed || input.interactPressed)) {
       consumeInteractPressed = input.interactPressed;
@@ -298,6 +289,14 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
             jumpPressed: consumeJumpPressed ? false : input.jumpPressed,
           }
         : input;
+
+    // Refill jump buffer AFTER grab/carry consumption so that a jumpPressed
+    // used to drop an object doesn't also fill the jump buffer (phantom jump).
+    if (inputForFsm.jumpPressed && this.jumpSuppressGroundFrames <= 0) {
+      this.jumpBufferRemaining = this.config.jumpBufferTime;
+    } else {
+      this.jumpBufferRemaining = Math.max(0, this.jumpBufferRemaining - dt);
+    }
 
     const pos = this.body.translation();
     const vel = this.body.linvel();
@@ -331,7 +330,9 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
     const movementLocked = this.fsm.current === STATE.interact;
     const inLadderZone = this.isInsideLadder(_currentPos);
-    const wantsLadder = !movementLocked && (input.forward || input.backward || input.jumpPressed || this.onLadder);
+    // Only allow jump to trigger ladder grab while airborne — grounded jumps
+    // should fire normally even inside a ladder zone.
+    const wantsLadder = !movementLocked && (input.forward || input.backward || (input.jumpPressed && !this.isGrounded) || this.onLadder);
     this.onLadder = inLadderZone && wantsLadder;
     if (this.onLadder) {
       this.setCrouchedState(false);
@@ -385,11 +386,31 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       floatingRayHit !== null &&
       floatingRayHit.timeOfImpact < this.floatingDistance + this.config.floatingRayHitForgiveness;
 
-    // Skip slope raycasts when airborne — saves 1-2 Rapier queries per tick.
+    // Slope detection: two separate concerns.
+    // 1. standingSlopeAllowed: Is the surface DIRECTLY UNDER the player walkable?
+    //    Used for grounding/jump validation. Uses the floating ray origin (straight down).
+    // 2. actualSlopeAngle/Normal: Forward probe for movement velocity projection on slopes.
+    //    NOT used for grounding — prevents walls from blocking jumps on flat ground.
     this.actualSlopeAngle = 0;
     _actualSlopeNormal.set(0, 1, 0);
-    let slopeAllowed = true;
+    let standingSlopeAllowed = true;
     if (closeToGround) {
+      // Ground normal directly under the player for jump/grounding validation.
+      const standingNormal = this.physicsWorld.castRayAndGetNormal(
+        _setRV(_rv3A, _rayOrigin.x, _rayOrigin.y, _rayOrigin.z),
+        _rapierDown,
+        this.config.floatingRayLength,
+        undefined,
+        this.body,
+      );
+      if (standingNormal) {
+        const standAngle = new THREE.Vector3(
+          standingNormal.normal.x, standingNormal.normal.y, standingNormal.normal.z,
+        ).angleTo(_worldUp);
+        standingSlopeAllowed = standAngle < this.config.slopeMaxAngle;
+      }
+
+      // Forward slope probe for movement velocity adjustment only.
       _slopeForward.set(0, 0, 1).applyQuaternion(this.mesh.quaternion);
       _slopeRayOrigin.copy(_rayOrigin).addScaledVector(_slopeForward, this.config.slopeRayOriginOffset);
       const slopeRayHit = this.physicsWorld.castRay(
@@ -400,7 +421,6 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
         this.body,
         _notSensorOrVehicle,
       );
-
       if (slopeRayHit) {
         const n = this.physicsWorld.castRayAndGetNormal(
           _setRV(_rv3A, _slopeRayOrigin.x, _slopeRayOrigin.y, _slopeRayOrigin.z),
@@ -414,10 +434,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
           this.actualSlopeAngle = _actualSlopeNormal.angleTo(_worldUp);
         }
       }
-
-      slopeAllowed = !slopeRayHit || this.actualSlopeAngle < this.config.slopeMaxAngle;
     }
-    const movementGrounded = closeToGround && slopeAllowed;
+    const movementGrounded = closeToGround && standingSlopeAllowed;
 
     // Suppress grounded detection for a few frames after a jump to prevent
     // the ground probe from re-grounding the player on the same tick.
@@ -451,14 +469,15 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     }
 
     // Variable jump: cut jump short when player releases jump key while rising.
-    // Only apply after the jump suppression window so buffered jumps aren't
-    // instantly cut on the frame they fire (input.jump may already be false).
-    if (!input.jump && this.verticalVelocity > 0 && this.jumpActive
+    // Only apply when velocity exceeds the cut ceiling — prevents snapping
+    // velocity DOWN on a normal keystroke that naturally ends below the ceiling.
+    // Also deferred past the suppression window so buffered jumps aren't killed.
+    const jumpCutCeiling = this.config.jumpForce * 0.58;
+    if (!input.jump && this.verticalVelocity > jumpCutCeiling && this.jumpActive
         && this.jumpSuppressGroundFrames <= 0) {
       const lv = this.body.linvel();
-      const cutVelocity = Math.min(lv.y, this.config.jumpForce * 0.58);
-      this.body.setLinvel(_setRV(_rv3A, lv.x, cutVelocity, lv.z), true);
-      this.verticalVelocity = cutVelocity;
+      this.body.setLinvel(_setRV(_rv3A, lv.x, jumpCutCeiling, lv.z), true);
+      this.verticalVelocity = jumpCutCeiling;
       this.setGravityScale(this.config.fallingGravityScale + 0.25);
       this.jumpActive = false;
     }
