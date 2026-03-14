@@ -13,6 +13,7 @@ import { FreeCamera } from './FreeCamera';
 import { CommandHistory } from './CommandHistory';
 import { LevelSerializer, type LevelData } from './LevelSerializer';
 import { LevelSaveStore } from '@level/LevelSaveStore';
+import { EditorDocument } from './EditorDocument';
 import type { EditorObject } from './EditorObject';
 import { ToolbarPanel } from './panels/ToolbarPanel';
 import { BrushPanel } from './panels/BrushPanel';
@@ -22,15 +23,12 @@ import { getBrushById, BRUSH_REGISTRY } from './brushes/index';
 import type { EditorTool, EditorToolContext } from './tools/EditorTool';
 import { SelectionTool } from './tools/SelectionTool';
 import { BrushPlacementTool } from './tools/BrushPlacementTool';
-
-let glbNameCounter = 0;
+import { GLBPlacementTool } from './tools/GLBPlacementTool';
 
 export class EditorManager {
   private active = false;
   private raycaster = new THREE.Raycaster();
   private mouse = new THREE.Vector2();
-  private editorObjects: EditorObject[] = [];
-  private selected: EditorObject | null = null;
   private selectionHelper: THREE.BoxHelper | null = null;
   private dragStartTransform: {
     position: THREE.Vector3;
@@ -38,11 +36,8 @@ export class EditorManager {
     scale: THREE.Vector3;
   } | null = null;
 
-  /* ---- GLB placement state ---- */
-  private glbPreview: THREE.Object3D | null = null;
-  private pendingGLBAsset: string | null = null;
-  private glbPlacementPhase: 'idle' | 'position' = 'idle';
-  private placementPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  /* ---- Data model ---- */
+  private document: EditorDocument;
 
   /* ---- Play-test state ---- */
   private playTestActive = false;
@@ -62,6 +57,7 @@ export class EditorManager {
   private activeTool: EditorTool;
   private selectionTool: SelectionTool;
   private brushPlacementTool: BrushPlacementTool;
+  private glbPlacementTool: GLBPlacementTool;
 
   /* ---- Panels ---- */
   private toolbarPanel: ToolbarPanel;
@@ -82,6 +78,7 @@ export class EditorManager {
   ) {
     this.injectStyles();
 
+    this.document = new EditorDocument(this.renderer.scene, this.physicsWorld);
     this.freeCamera = new FreeCamera(this.renderer.camera, this.renderer.canvas);
     this.grid = new SnapGrid(this.renderer.scene);
 
@@ -89,7 +86,7 @@ export class EditorManager {
     this.toolbarPanel = new ToolbarPanel({
       onSave: () => this.saveLevel(),
       onLoad: () => this.loadLevel(),
-      onImportGLB: () => this.openGLBFilePicker(),
+      onImportGLB: () => this.onImportGLB(),
       onUndo: () => this.history.undo(),
       onRedo: () => this.history.redo(),
       onToggleSnap: () => this.toggleSnap(),
@@ -107,12 +104,36 @@ export class EditorManager {
       onSelect: (id) => this.selectById(id),
       onDelete: (id) => this.deleteById(id),
       onDuplicate: (id) => this.duplicateById(id),
-      onRename: (id, name) => this.renameById(id, name),
-      onToggleVisible: (id) => this.toggleVisibleById(id),
-      onToggleLock: (id) => this.toggleLockById(id),
-      onReparent: (childId, newParentId) => this.reparentById(childId, newParentId),
-      onGroup: (ids) => this.groupObjects(ids),
-      onUngroup: (groupId) => this.ungroupObject(groupId),
+      onRename: (id, name) => {
+        this.document.renameById(id, name);
+        this.syncHierarchy();
+      },
+      onToggleVisible: (id) => {
+        this.document.toggleVisibleById(id);
+        this.syncHierarchy();
+      },
+      onToggleLock: (id) => {
+        this.document.toggleLockById(id);
+        this.syncHierarchy();
+      },
+      onReparent: (childId, newParentId) => {
+        this.document.reparentById(childId, newParentId);
+        this.syncHierarchy();
+      },
+      onGroup: (ids) => {
+        const groupObj = this.document.groupObjects(ids);
+        if (groupObj) {
+          this.syncHierarchy();
+          this.setSelection(groupObj);
+        }
+      },
+      onUngroup: (groupId) => {
+        const wasSelected = this.document.selected;
+        if (this.document.ungroupObject(groupId)) {
+          if (wasSelected && wasSelected.id === groupId) this.setSelection(null);
+          this.syncHierarchy();
+        }
+      },
     });
 
     this.inspectorPanel = new InspectorPanel({
@@ -144,8 +165,13 @@ export class EditorManager {
       onFinished: () => this.switchTool('selection'),
       onBrushChanged: (brushId) => this.brushPanel.setActiveBrush(brushId),
     });
+    this.glbPlacementTool = new GLBPlacementTool({
+      levelManager: this.levelManager,
+      onFinished: () => this.switchTool('selection'),
+    });
     this.tools.set(this.selectionTool.id, this.selectionTool);
     this.tools.set(this.brushPlacementTool.id, this.brushPlacementTool);
+    this.tools.set(this.glbPlacementTool.id, this.glbPlacementTool);
     this.activeTool = this.selectionTool;
 
     this.unsubs.push(
@@ -177,7 +203,6 @@ export class EditorManager {
     if (!this.active) return;
     this.freeCamera.update(dt);
     this.updateGridHeight();
-    this.updateGLBPlacementPreview();
     this.activeTool.update?.(this.buildToolContext(), dt);
     this.selectionHelper?.update();
   }
@@ -229,17 +254,17 @@ export class EditorManager {
       eventBus: this.eventBus,
       raycaster: this.raycaster,
       mouse: this.mouse,
-      editorObjects: this.editorObjects,
-      selected: this.selected,
+      editorObjects: this.document.objects,
+      selected: this.document.selected,
       setSelection: (obj) => this.setSelection(obj),
-      addEditorObject: (obj, parent) => this.addEditorObject(obj, parent),
+      addEditorObject: (obj, parent) => this.document.addObject(obj, parent),
       removeEditorObject: (id) => {
-        const obj = this.editorObjects.find((o) => o.id === id);
-        if (obj) this.removeEditorObject(obj);
+        const obj = this.document.findById(id);
+        if (obj) this.document.removeObject(obj);
       },
       syncHierarchy: () => this.syncHierarchy(),
       syncInspector: () => {
-        if (this.selected) this.inspectorPanel.setSelection(this.selected);
+        if (this.document.selected) this.inspectorPanel.setSelection(this.document.selected);
       },
     };
   }
@@ -285,7 +310,6 @@ export class EditorManager {
     this.eventBus.emit('editor:closed', undefined);
     this.freeCamera.disable();
     for (const panel of this.panels) panel.hide();
-    this.cancelGLBPlacement();
     this.activeTool.deactivate?.(this.buildToolContext());
     this.switchTool('selection');
     this.setSelection(null);
@@ -303,7 +327,7 @@ export class EditorManager {
     if (this.playTestActive) return;
 
     // Serialize current level state
-    const data = LevelSerializer.serialize('__playtest__', this.editorObjects);
+    const data = LevelSerializer.serialize('__playtest__', this.document.objects);
     this.playTestSnapshot = JSON.stringify(data);
 
     // Save camera state (enter() will call freeCamera.enable() which re-derives yaw/pitch)
@@ -369,29 +393,8 @@ export class EditorManager {
     // Re-enter editor mode
     this.enter();
 
-    // Clear current editor objects (remove editor-spawned objects from scene)
-    for (const obj of this.editorObjects) {
-      if (obj.mesh.userData.editorSource) {
-        this.renderer.scene.remove(obj.mesh);
-        obj.mesh.traverse((child) => {
-          if (child instanceof THREE.Mesh) {
-            child.geometry?.dispose();
-            const mat = child.material;
-            if (Array.isArray(mat)) {
-              mat.forEach((m) => m.dispose());
-            } else if (mat) {
-              (mat as THREE.Material).dispose();
-            }
-          }
-        });
-        if (obj.body) {
-          this.physicsWorld.removeBody(obj.body);
-        } else if (obj.collider) {
-          this.physicsWorld.removeCollider(obj.collider);
-        }
-      }
-    }
-    this.editorObjects = this.editorObjects.filter((obj) => !obj.mesh.userData.editorSource);
+    // Clear editor-spawned objects
+    this.document.removeEditorSpawnedObjects();
 
     // Restore snapshot
     if (this.playTestSnapshot) {
@@ -441,12 +444,6 @@ export class EditorManager {
 
     if (e.button === 2 || e.button === 1) return; // right/middle for camera
 
-    // GLB placement takes priority
-    if (e.button === 0 && this.glbPlacementPhase === 'position' && this.glbPreview) {
-      this.confirmGLBPlacement();
-      return;
-    }
-
     // Delegate to active tool
     const ctx = this.buildToolContext();
     if (this.activeTool.onPointerDown?.(ctx, e)) return;
@@ -480,10 +477,9 @@ export class EditorManager {
     const ctx = this.buildToolContext();
     if (this.activeTool.onKeyDown?.(ctx, e)) return;
 
-    if (e.code === 'KeyW' && !cmd && this.selected) this.setTransformMode('translate');
-    if (e.code === 'KeyE' && !cmd && this.selected) this.setTransformMode('rotate');
-    if (e.code === 'KeyR' && !cmd && this.selected) this.setTransformMode('scale');
-    if (e.code === 'Escape') this.cancelGLBPlacement();
+    if (e.code === 'KeyW' && !cmd && this.document.selected) this.setTransformMode('translate');
+    if (e.code === 'KeyE' && !cmd && this.document.selected) this.setTransformMode('rotate');
+    if (e.code === 'KeyR' && !cmd && this.document.selected) this.setTransformMode('scale');
     if (e.code === 'KeyG' && !cmd) {
       this.grid.toggleGrid();
       this.toolbarPanel.setGridActive(this.grid.isVisible());
@@ -526,6 +522,31 @@ export class EditorManager {
   }
 
   /* ==================================================================
+   *  GLB import (delegates to GLBPlacementTool)
+   * ================================================================== */
+
+  private onImportGLB(): void {
+    this.switchTool('glb-placement');
+    this.glbPlacementTool.openFilePicker(this.buildToolContext());
+  }
+
+  private onDragOver = (e: DragEvent): void => {
+    if (!this.active) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+  };
+
+  private onDrop = (e: DragEvent): void => {
+    if (!this.active) return;
+    e.preventDefault();
+    const file = e.dataTransfer?.files?.[0];
+    if (file && (file.name.endsWith('.glb') || file.name.endsWith('.gltf'))) {
+      this.switchTool('glb-placement');
+      void this.glbPlacementTool.importFile(this.buildToolContext(), file);
+    }
+  };
+
+  /* ==================================================================
    *  Brush selection (delegates to BrushPlacementTool)
    * ================================================================== */
 
@@ -551,12 +572,12 @@ export class EditorManager {
       this.setSelection(null);
       return;
     }
-    const obj = this.editorObjects.find((o) => o.id === id);
+    const obj = this.document.findById(id);
     this.setSelection(obj ?? null);
   }
 
   private setSelection(obj: EditorObject | null): void {
-    this.selected = obj;
+    this.document.selected = obj;
     this.gizmo.attach(obj?.mesh ?? null);
     this.inspectorPanel.setSelection(obj);
     this.hierarchyPanel.setSelection(obj?.id ?? null);
@@ -623,7 +644,7 @@ export class EditorManager {
         map.set(dyn.mesh.uuid, entry);
       }
     }
-    this.editorObjects = Array.from(map.values());
+    this.document.objects = Array.from(map.values());
   }
 
   private buildEditorObject(mesh: THREE.Object3D): EditorObject {
@@ -693,359 +714,33 @@ export class EditorManager {
   }
 
   /* ==================================================================
-   *  GLB import + placement
-   * ================================================================== */
-
-  private openGLBFilePicker(): void {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.glb,.gltf';
-    input.addEventListener('change', () => {
-      const file = input.files?.[0];
-      if (file) void this.importGLBFile(file);
-    });
-    input.click();
-  }
-
-  private async importGLBFile(file: File): Promise<void> {
-    const objectUrl = URL.createObjectURL(file);
-    try {
-      const gltf = await this.levelManager.getAssetLoader().load(objectUrl);
-      const assetPath = `/assets/models/${file.name}`;
-      const clone = gltf.scene.clone();
-      this.startGLBPlacement(clone, assetPath);
-    } catch (err) {
-      console.error('[Editor] Failed to import GLB:', err);
-    } finally {
-      // Blob URL is single-use; evict from cache and revoke to free memory.
-      this.levelManager.getAssetLoader().evict(objectUrl);
-      URL.revokeObjectURL(objectUrl);
-    }
-    console.warn(
-      `[Editor] Imported "${file.name}" for this session. ` +
-      `Copy the file to public/assets/models/ for it to persist across reloads.`,
-    );
-  }
-
-  private startGLBPlacement(scene: THREE.Object3D, assetPath: string): void {
-    this.cancelGLBPlacement();
-    this.pendingGLBAsset = assetPath;
-    this.glbPreview = scene;
-    // Make preview transparent
-    this.glbPreview.traverse((child) => {
-      if (child instanceof THREE.Mesh && child.material) {
-        const mat = (child.material as THREE.Material).clone();
-        (mat as THREE.MeshStandardMaterial).transparent = true;
-        (mat as THREE.MeshStandardMaterial).opacity = 0.4;
-        (mat as THREE.MeshStandardMaterial).depthWrite = false;
-        child.material = mat;
-      }
-    });
-    this.renderer.scene.add(this.glbPreview);
-    this.glbPlacementPhase = 'position';
-  }
-
-  private updateGLBPlacementPreview(): void {
-    if (this.glbPlacementPhase !== 'position' || !this.glbPreview) return;
-    this.raycaster.setFromCamera(this.mouse, this.renderer.camera);
-    const point = new THREE.Vector3();
-    this.raycaster.ray.intersectPlane(this.placementPlane, point);
-    if (this.grid.enabled) {
-      point.x = Math.round(point.x / this.grid.positionSnap) * this.grid.positionSnap;
-      point.y = Math.round(point.y / this.grid.positionSnap) * this.grid.positionSnap;
-      point.z = Math.round(point.z / this.grid.positionSnap) * this.grid.positionSnap;
-    }
-    this.glbPreview.position.copy(point);
-  }
-
-  private confirmGLBPlacement(): void {
-    if (!this.glbPreview || !this.pendingGLBAsset) return;
-    const position = this.glbPreview.position.clone();
-    const assetPath = this.pendingGLBAsset;
-
-    // Remove the transparent preview
-    this.renderer.scene.remove(this.glbPreview);
-
-    // Create final opaque clone
-    const finalObj = this.glbPreview.clone();
-    finalObj.traverse((child) => {
-      if (child instanceof THREE.Mesh && child.material) {
-        const mat = (child.material as THREE.Material).clone();
-        (mat as THREE.MeshStandardMaterial).transparent = false;
-        (mat as THREE.MeshStandardMaterial).opacity = 1;
-        (mat as THREE.MeshStandardMaterial).depthWrite = true;
-        child.material = mat;
-        child.castShadow = true;
-        child.receiveShadow = true;
-      }
-    });
-    finalObj.position.copy(position);
-
-    // Find first mesh for editor object, or use the group
-    let primaryMesh: THREE.Object3D = finalObj;
-    finalObj.traverse((child) => {
-      if (primaryMesh === finalObj && child instanceof THREE.Mesh) {
-        primaryMesh = child;
-      }
-    });
-
-    const editorObj: EditorObject = {
-      id: finalObj.uuid,
-      name: `GLB_${++glbNameCounter}`,
-      mesh: finalObj,
-      source: { type: 'glb', asset: assetPath },
-      transform: {
-        position: [position.x, position.y, position.z],
-        rotation: [0, 0, 0],
-        scale: [1, 1, 1],
-      },
-      parentId: null,
-      children: [],
-      visible: true,
-      locked: false,
-      physicsType: 'static',
-    };
-
-    finalObj.userData.editorSource = editorObj.source;
-
-    // Create static physics body with approximate bounding box
-    const box = new THREE.Box3().setFromObject(finalObj);
-    const size = box.getSize(new THREE.Vector3());
-    const center = box.getCenter(new THREE.Vector3());
-    const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(center.x, center.y, center.z);
-    const body = this.physicsWorld.world.createRigidBody(bodyDesc);
-    const colliderDesc = RAPIER.ColliderDesc.cuboid(
-      Math.max(size.x / 2, 0.01),
-      Math.max(size.y / 2, 0.01),
-      Math.max(size.z / 2, 0.01),
-    );
-    const collider = this.physicsWorld.world.createCollider(colliderDesc, body);
-    editorObj.body = body;
-    editorObj.collider = collider;
-
-    this.history.push({
-      execute: () => {
-        this.addEditorObject(editorObj, this.renderer.scene);
-        this.syncHierarchy();
-        this.eventBus.emit('editor:objectAdded', { id: editorObj.id });
-      },
-      undo: () => {
-        this.removeEditorObject(editorObj);
-        this.syncHierarchy();
-        this.eventBus.emit('editor:objectRemoved', { id: editorObj.id });
-      },
-    });
-
-    this.setSelection(editorObj);
-    this.glbPreview = null;
-    this.pendingGLBAsset = null;
-    this.glbPlacementPhase = 'idle';
-  }
-
-  private cancelGLBPlacement(): void {
-    if (this.glbPreview) {
-      this.renderer.scene.remove(this.glbPreview);
-      this.glbPreview.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          child.geometry?.dispose();
-          const mat = child.material;
-          if (Array.isArray(mat)) {
-            mat.forEach((m) => m.dispose());
-          } else if (mat) {
-            (mat as THREE.Material).dispose();
-          }
-        }
-      });
-    }
-    this.glbPreview = null;
-    this.pendingGLBAsset = null;
-    this.glbPlacementPhase = 'idle';
-  }
-
-  private onDragOver = (e: DragEvent): void => {
-    if (!this.active) return;
-    e.preventDefault();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
-  };
-
-  private onDrop = (e: DragEvent): void => {
-    if (!this.active) return;
-    e.preventDefault();
-    const file = e.dataTransfer?.files?.[0];
-    if (file && (file.name.endsWith('.glb') || file.name.endsWith('.gltf'))) {
-      void this.importGLBFile(file);
-    }
-  };
-
-  /* ==================================================================
-   *  Hierarchy operations
+   *  Hierarchy operations (delegate to EditorDocument)
    * ================================================================== */
 
   private deleteById(id: string): void {
-    const obj = this.editorObjects.find((o) => o.id === id);
+    const obj = this.document.findById(id);
     if (!obj) return;
     this.setSelection(obj);
     this.deleteSelection();
   }
 
   private duplicateById(id: string): void {
-    const obj = this.editorObjects.find((o) => o.id === id);
-    if (!obj) return;
-
-    const clone = obj.mesh.clone(true);
-    clone.position.addScalar(0.5); // Offset slightly
-    const newObj: EditorObject = {
-      ...structuredClone({
-        id: '',
-        name: obj.name + '_copy',
-        source: obj.source,
-        transform: {
-          position: [clone.position.x, clone.position.y, clone.position.z] as [number, number, number],
-          rotation: [clone.rotation.x, clone.rotation.y, clone.rotation.z] as [number, number, number],
-          scale: [clone.scale.x, clone.scale.y, clone.scale.z] as [number, number, number],
-        },
-        parentId: obj.parentId ?? null,
-        children: [],
-        visible: obj.visible ?? true,
-        locked: false,
-        material: obj.material,
-        brushParams: obj.brushParams,
-        physicsType: obj.physicsType ?? 'static',
-      }),
-      id: clone.uuid,
-      mesh: clone,
-    };
+    const newObj = this.document.duplicateById(id);
+    if (!newObj) return;
 
     this.history.push({
       execute: () => {
-        this.addEditorObject(newObj, this.renderer.scene);
+        this.document.addObject(newObj, this.renderer.scene);
         this.syncHierarchy();
         this.eventBus.emit('editor:objectAdded', { id: newObj.id });
       },
       undo: () => {
-        this.removeEditorObject(newObj);
+        this.document.removeObject(newObj);
         this.syncHierarchy();
         this.eventBus.emit('editor:objectRemoved', { id: newObj.id });
       },
     });
     this.setSelection(newObj);
-  }
-
-  private renameById(id: string, name: string): void {
-    const obj = this.editorObjects.find((o) => o.id === id);
-    if (!obj) return;
-    const oldName = obj.name;
-    obj.name = name;
-    obj.mesh.name = name;
-    this.syncHierarchy();
-    // No undo for rename -- too trivial
-    void oldName; // suppress unused
-  }
-
-  private toggleVisibleById(id: string): void {
-    const obj = this.editorObjects.find((o) => o.id === id);
-    if (!obj) return;
-    const newVisible = !(obj.visible ?? true);
-    obj.visible = newVisible;
-    obj.mesh.visible = newVisible;
-    this.syncHierarchy();
-  }
-
-  private toggleLockById(id: string): void {
-    const obj = this.editorObjects.find((o) => o.id === id);
-    if (!obj) return;
-    obj.locked = !(obj.locked ?? false);
-    // If locked and selected, deselect
-    if (obj.locked && this.selected === obj) {
-      this.setSelection(null);
-    }
-    this.syncHierarchy();
-  }
-
-  private reparentById(childId: string, newParentId: string | null): void {
-    const child = this.editorObjects.find((o) => o.id === childId);
-    if (!child) return;
-
-    // Remove from old parent
-    if (child.parentId) {
-      const oldParent = this.editorObjects.find((o) => o.id === child.parentId);
-      if (oldParent?.children) {
-        oldParent.children = oldParent.children.filter((cid) => cid !== childId);
-      }
-    }
-
-    // Set new parent
-    child.parentId = newParentId ?? null;
-
-    if (newParentId) {
-      const newParent = this.editorObjects.find((o) => o.id === newParentId);
-      if (newParent) {
-        if (!newParent.children) newParent.children = [];
-        newParent.children.push(childId);
-        // Reparent in scene graph
-        newParent.mesh.add(child.mesh);
-      }
-    } else {
-      // Reparent to scene root
-      this.renderer.scene.add(child.mesh);
-    }
-
-    this.syncHierarchy();
-  }
-
-  private groupObjects(ids: string[]): void {
-    if (ids.length === 0) return;
-    const objects = ids
-      .map((id) => this.editorObjects.find((o) => o.id === id))
-      .filter((o): o is EditorObject => o != null);
-    if (objects.length === 0) return;
-
-    const group = new THREE.Group();
-    group.name = 'Group';
-    this.renderer.scene.add(group);
-
-    const groupObj: EditorObject = {
-      id: group.uuid,
-      name: 'Group',
-      mesh: group,
-      source: { type: 'primitive', primitive: 'group' },
-      transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
-      parentId: null,
-      children: ids.slice(),
-      visible: true,
-      locked: false,
-      physicsType: 'static',
-    };
-
-    // Move objects into group
-    for (const obj of objects) {
-      obj.parentId = group.uuid;
-      group.add(obj.mesh);
-    }
-
-    this.editorObjects.push(groupObj);
-    this.syncHierarchy();
-    this.setSelection(groupObj);
-  }
-
-  private ungroupObject(groupId: string): void {
-    const groupObj = this.editorObjects.find((o) => o.id === groupId);
-    if (!groupObj || !groupObj.children || groupObj.children.length === 0) return;
-
-    // Move children to scene root
-    for (const childId of groupObj.children) {
-      const child = this.editorObjects.find((o) => o.id === childId);
-      if (child) {
-        child.parentId = null;
-        this.renderer.scene.add(child.mesh);
-      }
-    }
-
-    // Remove group
-    this.renderer.scene.remove(groupObj.mesh);
-    this.editorObjects = this.editorObjects.filter((o) => o.id !== groupId);
-    if (this.selected === groupObj) this.setSelection(null);
-    this.syncHierarchy();
   }
 
   /* ==================================================================
@@ -1060,8 +755,8 @@ export class EditorManager {
     emissiveIntensity: number;
     opacity: number;
   }): void {
-    if (!this.selected) return;
-    const meshObj = this.selected.mesh as THREE.Mesh;
+    if (!this.document.selected) return;
+    const meshObj = this.document.selected.mesh as THREE.Mesh;
     if (!meshObj.isMesh || !meshObj.material) return;
 
     const mat = meshObj.material as THREE.MeshStandardMaterial;
@@ -1075,7 +770,7 @@ export class EditorManager {
     mat.needsUpdate = true;
 
     // Update editor object material record
-    this.selected.material = { ...material };
+    this.document.selected.material = { ...material };
   }
 
   /* ==================================================================
@@ -1083,7 +778,7 @@ export class EditorManager {
    * ================================================================== */
 
   private applyPhysicsTypeChange(id: string, type: 'static' | 'dynamic' | 'kinematic'): void {
-    const obj = this.editorObjects.find((o) => o.id === id);
+    const obj = this.document.findById(id);
     if (!obj) return;
 
     // Remove old body/collider
@@ -1142,12 +837,12 @@ export class EditorManager {
     rotation: [number, number, number];
     scale: [number, number, number];
   }): void {
-    if (!this.selected) return;
-    this.selected.mesh.position.set(transform.position[0], transform.position[1], transform.position[2]);
-    this.selected.mesh.rotation.set(transform.rotation[0], transform.rotation[1], transform.rotation[2]);
-    this.selected.mesh.scale.set(transform.scale[0], transform.scale[1], transform.scale[2]);
-    this.updateEditorObjectTransform(this.selected);
-    this.applyPhysicsTransform(this.selected);
+    if (!this.document.selected) return;
+    this.document.selected.mesh.position.set(transform.position[0], transform.position[1], transform.position[2]);
+    this.document.selected.mesh.rotation.set(transform.rotation[0], transform.rotation[1], transform.rotation[2]);
+    this.document.selected.mesh.scale.set(transform.scale[0], transform.scale[1], transform.scale[2]);
+    this.updateEditorObjectTransform(this.document.selected);
+    this.applyPhysicsTransform(this.document.selected);
   }
 
   /* ==================================================================
@@ -1155,14 +850,14 @@ export class EditorManager {
    * ================================================================== */
 
   private onDragStateChanged(dragging: boolean): void {
-    if (dragging && this.selected) {
+    if (dragging && this.document.selected) {
       this.dragStartTransform = {
-        position: this.selected.mesh.position.clone(),
-        rotation: this.selected.mesh.rotation.clone(),
-        scale: this.selected.mesh.scale.clone(),
+        position: this.document.selected.mesh.position.clone(),
+        rotation: this.document.selected.mesh.rotation.clone(),
+        scale: this.document.selected.mesh.scale.clone(),
       };
-    } else if (!dragging && this.selected && this.dragStartTransform) {
-      const target = this.selected;
+    } else if (!dragging && this.document.selected && this.dragStartTransform) {
+      const target = this.document.selected;
       const before = this.dragStartTransform;
       const after = {
         position: target.mesh.position.clone(),
@@ -1178,13 +873,13 @@ export class EditorManager {
   }
 
   private onGizmoObjectChanged(): void {
-    if (!this.selected) return;
-    this.updateEditorObjectTransform(this.selected);
+    if (!this.document.selected) return;
+    this.updateEditorObjectTransform(this.document.selected);
     if (this.grid.enabled) {
       this.applySnapToSelection();
     }
-    this.applyPhysicsTransform(this.selected);
-    this.inspectorPanel.setSelection(this.selected);
+    this.applyPhysicsTransform(this.document.selected);
+    this.inspectorPanel.setSelection(this.document.selected);
   }
 
   /* ==================================================================
@@ -1220,9 +915,9 @@ export class EditorManager {
   }
 
   private applySnapToSelection(): void {
-    if (!this.selected) return;
+    if (!this.document.selected) return;
     const snap = this.grid.positionSnap;
-    const pos = this.selected.mesh.position;
+    const pos = this.document.selected.mesh.position;
     pos.set(
       Math.round(pos.x / snap) * snap,
       Math.round(pos.y / snap) * snap,
@@ -1261,46 +956,22 @@ export class EditorManager {
   }
 
   /* ==================================================================
-   *  Editor object add / remove
+   *  Delete selection (with undo)
    * ================================================================== */
 
-  private addEditorObject(obj: EditorObject, parent?: THREE.Object3D): void {
-    const targetParent = parent ?? this.renderer.scene;
-    if (!obj.mesh.parent) {
-      targetParent.add(obj.mesh);
-    }
-    if (!this.editorObjects.includes(obj)) {
-      this.editorObjects.push(obj);
-    }
-    obj.body?.setEnabled(true);
-    obj.collider?.setEnabled(true);
-  }
-
-  private removeEditorObject(obj: EditorObject): void {
-    const parent = obj.mesh.parent;
-    if (parent) {
-      parent.remove(obj.mesh);
-    }
-    obj.body?.setEnabled(false);
-    obj.collider?.setEnabled(false);
-    this.editorObjects = this.editorObjects.filter((entry) => entry !== obj);
-    if (this.selected === obj) {
-      this.setSelection(null);
-    }
-  }
-
   private deleteSelection(): void {
-    if (!this.selected) return;
-    const target = this.selected;
+    if (!this.document.selected) return;
+    const target = this.document.selected;
     const parent = target.mesh.parent ?? this.renderer.scene;
     this.history.push({
       execute: () => {
-        this.removeEditorObject(target);
+        this.document.removeObject(target);
+        this.setSelection(null);
         this.syncHierarchy();
         this.eventBus.emit('editor:objectRemoved', { id: target.id });
       },
       undo: () => {
-        this.addEditorObject(target, parent);
+        this.document.addObject(target, parent);
         this.syncHierarchy();
         this.eventBus.emit('editor:objectAdded', { id: target.id });
       },
@@ -1343,7 +1014,7 @@ export class EditorManager {
    * ================================================================== */
 
   private syncHierarchy(): void {
-    this.hierarchyPanel.setObjects(this.editorObjects);
+    this.hierarchyPanel.setObjects(this.document.objects);
   }
 
   /* ==================================================================
@@ -1361,7 +1032,7 @@ export class EditorManager {
       const existingData = LevelSaveStore.load(existingMeta.key);
       existingCreated = existingData?.created;
     }
-    const data = LevelSerializer.serialize(name, this.editorObjects, existingCreated);
+    const data = LevelSerializer.serialize(name, this.document.objects, existingCreated);
     LevelSerializer.download(data);
     LevelSaveStore.save(data);
     this.eventBus.emit('editor:saved', { name: data.name });
@@ -1383,28 +1054,7 @@ export class EditorManager {
 
   private async applyLoadedLevel(data: LevelData): Promise<void> {
     // Remove editor-spawned objects
-    for (const obj of this.editorObjects) {
-      if (obj.mesh.userData.editorSource) {
-        this.renderer.scene.remove(obj.mesh);
-        obj.mesh.traverse((child) => {
-          if (child instanceof THREE.Mesh) {
-            child.geometry?.dispose();
-            const mat = child.material;
-            if (Array.isArray(mat)) {
-              mat.forEach((m) => m.dispose());
-            } else if (mat) {
-              (mat as THREE.Material).dispose();
-            }
-          }
-        });
-        if (obj.body) {
-          this.physicsWorld.removeBody(obj.body);
-        } else if (obj.collider) {
-          this.physicsWorld.removeCollider(obj.collider);
-        }
-      }
-    }
-    this.editorObjects = this.editorObjects.filter((obj) => !obj.mesh.userData.editorSource);
+    this.document.removeEditorSpawnedObjects();
 
     // Spawn loaded objects
     for (const entry of data.objects) {
@@ -1509,6 +1159,6 @@ export class EditorManager {
       editorObj.physicsType = entry.physics.type as 'static' | 'dynamic' | 'kinematic';
     }
 
-    this.addEditorObject(editorObj, this.renderer.scene);
+    this.document.addObject(editorObj, this.renderer.scene);
   }
 }
