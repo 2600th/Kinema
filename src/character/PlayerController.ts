@@ -102,6 +102,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
   private canJump = false;
   private jumpActive = false;
+  /** Frames to suppress grounded detection after a jump to prevent instant re-grounding. */
+  private jumpSuppressGroundFrames = 0;
   private prevVerticalVelocity = 0;
   private jumpBufferRemaining = 0;
   private remainingAirJumps = this.config.maxAirJumps;
@@ -412,16 +414,24 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       slopeAllowed = !slopeRayHit || this.actualSlopeAngle < this.config.slopeMaxAngle;
     }
     const movementGrounded = closeToGround && slopeAllowed;
-    if (movementGrounded) {
+
+    // Suppress grounded detection for a few frames after a jump to prevent
+    // the ground probe from re-grounding the player on the same tick.
+    if (this.jumpSuppressGroundFrames > 0) {
+      this.jumpSuppressGroundFrames--;
+    }
+    const effectivelyGrounded = movementGrounded && this.jumpSuppressGroundFrames <= 0;
+
+    if (effectivelyGrounded) {
       this.groundedGrace = this.config.coyoteTime;
     } else {
       this.groundedGrace = Math.max(0, this.groundedGrace - dt);
     }
     // isGrounded reflects actual ground contact; canJump keeps coyote forgiveness.
-    this.canJump = movementGrounded || this.groundedGrace > 0;
+    this.canJump = effectivelyGrounded || this.groundedGrace > 0;
 
     const wasGrounded = this.isGrounded;
-    this.isGrounded = movementGrounded;
+    this.isGrounded = effectivelyGrounded;
     if (this.isGrounded) {
       this.remainingAirJumps = this.config.maxAirJumps;
     }
@@ -437,9 +447,10 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     }
 
     // Variable jump: cut jump short when player releases jump key while rising.
-    // Cut upward velocity directly for immediate height control, then use
-    // normal falling gravity (not the old 1.5x multiplier which slammed down).
-    if (!input.jump && this.verticalVelocity > 0 && this.jumpActive) {
+    // Only apply after the jump suppression window so buffered jumps aren't
+    // instantly cut on the frame they fire (input.jump may already be false).
+    if (!input.jump && this.verticalVelocity > 0 && this.jumpActive
+        && this.jumpSuppressGroundFrames <= 0) {
       const lv = this.body.linvel();
       const cutVelocity = Math.min(lv.y, this.config.jumpForce * 0.58);
       this.body.setLinvel(_setRV(_rv3A, lv.x, cutVelocity, lv.z), true);
@@ -700,20 +711,33 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
   private applyJumpImpulse(run: boolean, airJump: boolean): void {
     this.jumpActive = true;
+    // Suppress ground detection for 3 frames after any jump to prevent
+    // the floating ray from re-grounding and refilling air jumps instantly.
+    this.jumpSuppressGroundFrames = 3;
     const jumpVel =
       (run ? this.config.sprintJumpMultiplier : 1) *
       this.config.jumpForce *
       (airJump ? this.config.airJumpForceMultiplier : 1);
-    _jumpVelocityVec.set(_currentVel.x, jumpVel, _currentVel.z);
-    _jumpDirection
-      .set(0, jumpVel * this.config.slopeJumpMultiplier, 0)
-      .projectOnVector(_actualSlopeNormal)
-      .add(_jumpVelocityVec);
 
-    this.body.setLinvel(
-      _setRV(_rv3A, _jumpDirection.x, _jumpDirection.y, _jumpDirection.z),
-      true,
-    );
+    if (airJump) {
+      // Air jumps: pure vertical impulse, no slope projection (stale normal data).
+      this.body.setLinvel(
+        _setRV(_rv3A, _currentVel.x, jumpVel, _currentVel.z),
+        true,
+      );
+    } else {
+      // Ground jumps: project onto slope normal for natural slope-boosted takeoff.
+      _jumpVelocityVec.set(_currentVel.x, jumpVel, _currentVel.z);
+      _jumpDirection
+        .set(0, jumpVel * this.config.slopeJumpMultiplier, 0)
+        .projectOnVector(_actualSlopeNormal)
+        .add(_jumpVelocityVec);
+
+      this.body.setLinvel(
+        _setRV(_rv3A, _jumpDirection.x, _jumpDirection.y, _jumpDirection.z),
+        true,
+      );
+    }
 
     this.eventBus.emit('player:jumped', {
       airJump,
