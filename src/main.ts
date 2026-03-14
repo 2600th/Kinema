@@ -88,6 +88,7 @@ async function bootstrap(): Promise<void> {
   const inputManager = new InputManager(eventBus, renderer.canvas);
   inputManager.setRawMouseInput(settings.value.rawMouseInput);
   inputManager.setGamepadTuning(settings.value.gamepadDeadzone, settings.value.gamepadCurve);
+  inputManager.initTouchControls();
   const levelManager = new LevelManager(renderer.scene, physicsWorld, eventBus, renderer.maxAnisotropy);
   levelManager.setGraphicsProfile(settings.value.graphicsProfile);
   levelManager.setShadowsEnabled(settings.value.shadowsEnabled);

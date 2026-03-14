@@ -146,6 +146,15 @@ export class SettingsMenu {
         },
       ),
     );
+
+    // Touch controls toggle — only visible on touch-capable devices
+    if ('ontouchstart' in window) {
+      this.controlsSection.appendChild(
+        this.createToggle('Touch controls', inputManager.isTouchActive, (value) => {
+          inputManager.setTouchControlsEnabled(value);
+        }),
+      );
+    }
   }
 
   private buildGraphicsSection(): void {
