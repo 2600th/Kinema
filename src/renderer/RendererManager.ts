@@ -1,3 +1,7 @@
+// NOTE: `three` and `three/webgpu` are intentionally separate imports.
+// `three` provides core types/classes shared across backends.
+// `three/webgpu` provides WebGPU-specific exports (WebGPURenderer, RenderPipeline, PMREMGenerator).
+// No Vite alias is needed — these are distinct entry points by design since r182.
 import * as THREE from 'three';
 import { WebGPURenderer, RenderPipeline, PMREMGenerator } from 'three/webgpu';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
@@ -101,8 +105,10 @@ export class RendererManager implements Disposable {
   private environmentTarget: THREE.WebGLRenderTarget<THREE.Texture> | null = null;
   private envName = 'Royal Esplanade';
   private readonly envCache = new Map<string, THREE.WebGLRenderTarget<THREE.Texture>>();
+  // Persistent PMREMGenerator — lazily created on first use, reused for all
+  // environment loads (avoids re-compiling the equirectangular shader each time).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private createPmremGenerator: (() => any) | null = null;
+  private pmrem: any | null = null;
   private readonly hdrLoader = new HDRLoader();
   private postProcessingEnabled = true;
   private shadowsEnabled = true;
@@ -170,8 +176,15 @@ export class RendererManager implements Disposable {
    * crash inside ShadowNode, causing a black screen or device loss.
    */
   private static readonly SUPPORTED_THREE_REVISIONS = ['182', '183'];
+  private static shadowPatchApplied = false;
+  private static shadowPatchOriginal: ((ro: unknown) => void) | null = null;
+  private static shadowPatchInstanceCount = 0;
 
   private patchShadowNodeForToggle(wgpuRenderer: WebGPURenderer): void {
+    RendererManager.shadowPatchInstanceCount++;
+
+    if (RendererManager.shadowPatchApplied) return;
+
     if (!RendererManager.SUPPORTED_THREE_REVISIONS.includes(THREE.REVISION)) {
       console.warn(
         `[RendererManager] Shadow toggle patch was written for Three.js r${RendererManager.SUPPORTED_THREE_REVISIONS.join('/')} ` +
@@ -183,10 +196,20 @@ export class RendererManager implements Disposable {
       // r182-r183: WebGPURenderer._nodes (NodeManager) internal
       const nodes = (wgpuRenderer as unknown as { _nodes?: { constructor: { prototype: { updateBefore: (ro: unknown) => void } }; getNodeFrameForRender: (ro: unknown) => { updateBeforeNode: (n: unknown) => void } } })._nodes;
       if (!nodes?.constructor?.prototype?.updateBefore) return;
-      nodes.constructor.prototype.updateBefore = function (renderObject: unknown) {
+
+      // Store the original before patching so we can restore it on dispose.
+      RendererManager.shadowPatchOriginal = nodes.constructor.prototype.updateBefore;
+      const proto = nodes.constructor.prototype;
+
+      proto.updateBefore = function (renderObject: unknown) {
         const ro = renderObject as { getNodeBuilderState: () => { updateBeforeNodes: unknown[] } };
         const nodeBuilder = ro.getNodeBuilderState();
-        const self = this as unknown as { getNodeFrameForRender: (r: unknown) => { updateBeforeNode: (x: unknown) => void } };
+        // Use `this` (the NodeManager instance) rather than capturing a specific renderer,
+        // so the patch works regardless of which RendererManager instance triggers it.
+        const self = this as unknown as {
+          getNodeFrameForRender: (r: unknown) => { updateBeforeNode: (x: unknown) => void };
+          renderer?: { shadowMap?: { enabled?: boolean } };
+        };
         for (const node of nodeBuilder.updateBeforeNodes) {
           const n = node as {
             isShadowNode?: boolean;
@@ -195,7 +218,9 @@ export class RendererManager implements Disposable {
           };
           if (n.isShadowNode === true) {
             // If shadows are disabled, skip shadow updates entirely.
-            if (wgpuRenderer.shadowMap?.enabled === false) continue;
+            // Access the renderer from the NodeManager's own reference (avoids closure capture).
+            const shadowMapEnabled = self.renderer?.shadowMap?.enabled;
+            if (shadowMapEnabled === false) continue;
             // If the light isn't casting shadows, skip.
             if (!n.light?.castShadow) continue;
             // If the shadow resources aren't ready yet, skip this frame (prevents null depthTexture crash).
@@ -211,9 +236,27 @@ export class RendererManager implements Disposable {
           }
         }
       };
+
+      RendererManager.shadowPatchApplied = true;
     } catch {
       // _nodes may not exist before first use
     }
+  }
+
+  private static unpatchShadowNodeForToggle(wgpuRenderer: WebGPURenderer): void {
+    RendererManager.shadowPatchInstanceCount--;
+    if (RendererManager.shadowPatchInstanceCount > 0) return;
+    if (!RendererManager.shadowPatchApplied || !RendererManager.shadowPatchOriginal) return;
+    try {
+      const nodes = (wgpuRenderer as unknown as { _nodes?: { constructor: { prototype: { updateBefore: (ro: unknown) => void } } } })._nodes;
+      if (nodes?.constructor?.prototype) {
+        nodes.constructor.prototype.updateBefore = RendererManager.shadowPatchOriginal;
+      }
+    } catch {
+      // Best-effort restore
+    }
+    RendererManager.shadowPatchApplied = false;
+    RendererManager.shadowPatchOriginal = null;
   }
 
   constructor() {
@@ -311,8 +354,10 @@ export class RendererManager implements Disposable {
 
       this.patchShadowNodeForToggle(wgpuRenderer);
 
-      const pmremGenerator = new PMREMGenerator(wgpuRenderer);
-      const envTarget = pmremGenerator.fromScene(new RoomEnvironment(), 0.04);
+      // Lazy-init persistent PMREMGenerator (reused for all env loads).
+      this.pmrem = new PMREMGenerator(wgpuRenderer);
+      this.pmrem.compileEquirectangularShader();
+      const envTarget = this.pmrem.fromScene(new RoomEnvironment(), 0.04);
       this.environmentTarget = envTarget as unknown as THREE.WebGLRenderTarget<THREE.Texture>;
       this.envCache.set('Room Environment', this.environmentTarget);
       this.scene.environment = this.environmentTarget.texture;
@@ -321,8 +366,6 @@ export class RendererManager implements Disposable {
       this.scene.backgroundIntensity = 1.2;
       this.scene.backgroundBlurriness = 0.5;
       this.applyEnvironmentRotation();
-      pmremGenerator.dispose();
-      this.createPmremGenerator = () => new PMREMGenerator(this.renderer as any);
 
       // Dispose the temporary WebGL fallback renderer before swapping.
       const oldRenderer = this.renderer as THREE.WebGLRenderer;
@@ -609,33 +652,27 @@ export class RendererManager implements Disposable {
           currentNode = keepAlphaWithRgb(currentNode, nextRgb);
         }
 
-        // 3) AA in deterministic non-temporal mode.
-        let applySmaaAfterOutput = false;
-        let applyFxaaAfterOutput = false;
-        switch (this.antiAliasingMode) {
-          case 'none':
-            break;
-          case 'smaa':
-            // SMAA edge detection works best in display space.
-            applySmaaAfterOutput = true;
-            break;
-          case 'fxaa':
-            // FXAA expects display-space input (tone mapped + color converted).
-            applyFxaaAfterOutput = true;
-            break;
-        }
-
-        // 4) Output transform
-        currentNode = applyDisplayOutput(currentNode);
-        if (applySmaaAfterOutput) {
+        // 3) AA + output transform.
+        //    r183 ordering rules:
+        //    - SMAA runs BEFORE renderOutput() (linear space) — its edge detection
+        //      expects linear-space input without sRGB encoding.
+        //    - FXAA runs AFTER renderOutput() (sRGB display space) — it is designed
+        //      for perceptually-encoded (gamma) pixel values.
+        if (this.antiAliasingMode === 'smaa') {
           currentNode = trackTempNode(smaa(currentNode as never)) as TSLNode;
         }
-        if (applyFxaaAfterOutput) {
+
+        // 4) Output transform (tone mapping + sRGB conversion)
+        currentNode = applyDisplayOutput(currentNode);
+
+        if (this.antiAliasingMode === 'fxaa') {
           currentNode = trackTempNode(fxaa(currentNode as never)) as TSLNode;
         }
 
-        // 5) CAS-style sharpening after AA.
-        currentNode = applyCasSharpen(currentNode);
+        // 5) CAS-style sharpening after AA (only when enabled and strength > 0).
+        if (this.casEnabled && this.casStrength > 0) {
+          currentNode = applyCasSharpen(currentNode);
+        }
 
         // 6) Final Grading (Vignette + LUT)
         currentNode = applyColorGrade(currentNode);
@@ -679,8 +716,9 @@ export class RendererManager implements Disposable {
       this.prePassNode = null;
       this.bloomNodes = [];
       this.postFXUniforms = null;
-      const webglPmrem = new THREE.PMREMGenerator(this.renderer as THREE.WebGLRenderer);
-      const envTarget = webglPmrem.fromScene(new RoomEnvironment(), 0.04);
+      this.pmrem = new THREE.PMREMGenerator(this.renderer as THREE.WebGLRenderer);
+      this.pmrem.compileEquirectangularShader();
+      const envTarget = this.pmrem.fromScene(new RoomEnvironment(), 0.04);
       this.environmentTarget = envTarget;
       this.envCache.set('Room Environment', envTarget);
       this.scene.environment = envTarget.texture;
@@ -689,8 +727,6 @@ export class RendererManager implements Disposable {
       this.scene.backgroundIntensity = 1.2;
       this.scene.backgroundBlurriness = 0.5;
       this.applyEnvironmentRotation();
-      webglPmrem.dispose();
-      this.createPmremGenerator = () => new THREE.PMREMGenerator(this.renderer as THREE.WebGLRenderer);
     }
 
     const renderer = this.renderer as THREE.WebGLRenderer;
@@ -974,14 +1010,26 @@ export class RendererManager implements Disposable {
   }
 
   setCasEnabled(enabled: boolean): void {
+    if (this.casEnabled === enabled) return;
     this.casEnabled = enabled;
-    this.syncCasSettings();
+    // CAS node is conditionally added to the pipeline, so toggling requires a rebuild.
+    this.markPipelineDirty();
+    this.applyQualitySettings();
   }
 
   setCasStrength(value: number): void {
     if (!Number.isFinite(value)) return;
-    this.casStrength = THREE.MathUtils.clamp(value, 0, 1);
-    this.syncCasSettings();
+    const newStrength = THREE.MathUtils.clamp(value, 0, 1);
+    // Transitioning to/from zero changes whether the CAS node is in the pipeline.
+    const wasZero = this.casStrength === 0;
+    const isZero = newStrength === 0;
+    this.casStrength = newStrength;
+    if (wasZero !== isZero) {
+      this.markPipelineDirty();
+      this.applyQualitySettings();
+    } else {
+      this.syncCasSettings();
+    }
   }
 
   async setEnvironment(name: string): Promise<void> {
@@ -999,14 +1047,12 @@ export class RendererManager implements Disposable {
 
     // Load HDR
     const preset = ENV_PRESETS.find(p => p.name === name);
-    if (!preset?.file || !this.createPmremGenerator) return;
+    if (!preset?.file || !this.pmrem) return;
 
     try {
       const url = new URL(`../assets/env/${preset.file}`, import.meta.url).href;
       const hdrTexture = await this.hdrLoader.loadAsync(url);
-      const pmrem = this.createPmremGenerator();
-      const envTarget = pmrem.fromEquirectangular(hdrTexture);
-      pmrem.dispose();
+      const envTarget = this.pmrem.fromEquirectangular(hdrTexture);
       hdrTexture.dispose();
 
       this.envCache.set(name, envTarget as unknown as THREE.WebGLRenderTarget<THREE.Texture>);
@@ -1364,11 +1410,20 @@ export class RendererManager implements Disposable {
   dispose(): void {
     window.removeEventListener('resize', this._onResize);
     this.setAnimationLoop(null);
+
+    // Restore the shadow node prototype patch if this was the last instance.
+    if (this.isWebGPUPipeline) {
+      RendererManager.unpatchShadowNodeForToggle(this.renderer as WebGPURenderer);
+    }
+
     for (const target of this.envCache.values()) {
       target.dispose();
     }
     this.envCache.clear();
-    this.createPmremGenerator = null;
+    if (this.pmrem) {
+      this.pmrem.dispose();
+      this.pmrem = null;
+    }
     if (this.postProcessing && typeof (this.postProcessing as { dispose?: () => void }).dispose === 'function') {
       (this.postProcessing as { dispose: () => void }).dispose();
     }
