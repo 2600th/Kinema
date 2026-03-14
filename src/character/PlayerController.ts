@@ -227,6 +227,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.isGrounded = false;
     this.canJump = false;
     this.jumpActive = false;
+    this.jumpSuppressGroundFrames = 0;
     this.actualSlopeAngle = 0;
     _movingObjectVelocity.set(0, 0, 0);
     this.currentGroundBody = null;

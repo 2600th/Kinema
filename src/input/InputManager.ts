@@ -34,6 +34,9 @@ type GamepadSnapshot = {
  */
 export class InputManager implements Disposable {
   private keys = new Set<string>();
+  /** Latched keys: set on keydown, cleared only after poll() consumes them.
+   *  Ensures short keypresses (down+up between two polls) aren't missed. */
+  private latchedKeys = new Set<string>();
   private prevInteract = false;
   private prevJump = false;
   private prevCrouch = false;
@@ -92,15 +95,24 @@ export class InputManager implements Disposable {
   /** Snapshot current input state, reset deltas, emit event. */
   poll(): InputState {
     if (this.inputSuppressed) {
+      // Reset edge-trigger state so a key released while suppressed doesn't
+      // cause a ghost "pressed" event on the first poll after resuming.
+      this.prevJump = false;
+      this.prevInteract = false;
+      this.prevCrouch = false;
+      this.prevPrimary = false;
+      this.latchedKeys.clear();
       this.eventBus.emit('input:state', NULL_INPUT);
       return NULL_INPUT;
     }
     const gamepad = this.readGamepadState();
 
+    // Use latchedKeys for edge detection so short keypresses (down+up between
+    // two polls) aren't missed. Held state still comes from live keys set.
     const crouch = (this.locked && (this.keys.has('KeyC') || this.keys.has('ControlLeft'))) || gamepad.crouch;
-    const crouchPressed = crouch && !this.prevCrouch;
-    const jump = (this.locked && this.keys.has('Space')) || gamepad.jump;
-    const interact = (this.locked && this.keys.has('KeyF')) || gamepad.interact;
+    const crouchPressed = (crouch || (this.locked && (this.latchedKeys.has('KeyC') || this.latchedKeys.has('ControlLeft')))) && !this.prevCrouch;
+    const jump = (this.locked && (this.keys.has('Space') || this.latchedKeys.has('Space'))) || gamepad.jump;
+    const interact = (this.locked && (this.keys.has('KeyF') || this.latchedKeys.has('KeyF'))) || gamepad.interact;
     const primary = (this.locked && this.mousePrimary) || gamepad.primary;
     const altitudeUp = this.locked && this.keys.has('KeyE');
     const altitudeDown = this.locked && this.keys.has('KeyQ');
@@ -111,6 +123,8 @@ export class InputManager implements Disposable {
     this.prevJump = jump;
     this.prevInteract = interact;
     this.prevPrimary = primary;
+    // Clear latched keys after consumption — they've served their purpose.
+    this.latchedKeys.clear();
 
     // Compute analog move axes
     const kbX = (this.locked && (this.keys.has('KeyD') || this.keys.has('ArrowRight')) ? 1 : 0)
@@ -200,6 +214,7 @@ export class InputManager implements Disposable {
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
     this.keys.add(e.code);
+    this.latchedKeys.add(e.code);
 
     // Prevent default for game keys
     if (['Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyE', 'KeyF', 'KeyQ', 'KeyC', 'ControlLeft'].includes(e.code)) {
@@ -265,6 +280,7 @@ export class InputManager implements Disposable {
     this.locked = document.pointerLockElement === this.canvas;
     if (!this.locked) {
       this.keys.clear();
+      this.latchedKeys.clear();
       this.prevInteract = false;
       this.prevJump = false;
       this.prevCrouch = false;
