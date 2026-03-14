@@ -10,6 +10,7 @@ import { AirState } from './states/AirState';
 import { InteractState } from './states/InteractState';
 import { CrouchState } from './states/CrouchState';
 import { GrabState } from './states/GrabState';
+import { AirJumpState } from './states/AirJumpState';
 import { CarryState } from './states/CarryState';
 
 /**
@@ -29,6 +30,7 @@ export class CharacterFSM {
     this.registerState(new MoveState(player));
     this.registerState(new JumpState(player));
     this.registerState(new AirState(player));
+    this.registerState(new AirJumpState(player));
     this.registerState(new InteractState(player));
     this.registerState(new CrouchState(player));
     this.registerState(new GrabState(player));
