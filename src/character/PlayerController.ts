@@ -10,12 +10,13 @@ import {
   type Disposable,
   type SpawnPointData,
 } from '@core/types';
-import { COLLISION_GROUP_WORLD_ONLY, DEFAULT_PLAYER_CONFIG } from '@core/constants';
+import { DEFAULT_PLAYER_CONFIG } from '@core/constants';
 import type { PhysicsWorld } from '@physics/PhysicsWorld';
 import { ColliderFactory } from '@physics/ColliderFactory';
 import { CharacterFSM } from './CharacterFSM';
 import { CharacterVisual } from './CharacterVisual';
 import { CharacterMotor, shouldApplyGroundReaction } from './CharacterMotor';
+import { GrabCarryController, type CarryableObject } from './GrabCarryController';
 
 const _forward = new THREE.Vector3();
 const _right = new THREE.Vector3();
@@ -40,9 +41,6 @@ const _standProbeOrigin = new THREE.Vector3();
 const _standProbeDir = new THREE.Vector3();
 const _standProbeRight = new THREE.Vector3();
 const _worldUp = new THREE.Vector3(0, 1, 0);
-const _grabTarget = new THREE.Vector3();
-const _grabForward = new THREE.Vector3();
-const _carryTarget = new THREE.Vector3();
 const _slopeProjected = new THREE.Vector3();
 const _groundBodyTranslation = new THREE.Vector3();
 const _groundBodyAngvel = new THREE.Vector3();
@@ -61,14 +59,6 @@ function _setRV(v: RAPIER.Vector3, x: number, y: number, z: number): RAPIER.Vect
   return v;
 }
 
-interface CarryableObject {
-  readonly id: string;
-  readonly body: RAPIER.RigidBody;
-  readonly collider: RAPIER.Collider;
-  readonly mesh: THREE.Object3D;
-  readonly throwForce: number;
-}
-
 /**
  * Dynamic rigidbody player controller with floating and impulse movement.
  */
@@ -78,6 +68,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   public readonly mesh: THREE.Group;
   public readonly fsm: CharacterFSM;
   public readonly motor: CharacterMotor;
+  public readonly grabCarry: GrabCarryController;
   public readonly config = DEFAULT_PLAYER_CONFIG;
 
   public verticalVelocity = 0;
@@ -109,16 +100,6 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   private crouchReleaseGraceRemaining = 0;
   private crouchVisual = 0;
   private respawnPoint: SpawnPointData | null = null;
-  private grabbedBody: RAPIER.RigidBody | null = null;
-  private grabbedBodyType: number | null = null;
-  private grabbedGravityScale: number | null = null;
-  private grabbedCollisionGroups: number | null = null;
-  private grabDistance = 1.2;
-  private grabOffsetY = 0;
-  private carriedObject: CarryableObject | null = null;
-  private carriedBodyType: number | null = null;
-  private carriedGravityScale: number | null = null;
-  private carriedCollisionGroups: number | null = null;
   private cachedHorizontalSpeed = 0;
   private interactSuppressFrames = 0;
 
@@ -183,6 +164,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.mesh.add(this.capsuleMesh);
 
     this.motor = new CharacterMotor();
+    this.grabCarry = new GrabCarryController();
     this.fsm = new CharacterFSM(this, this.eventBus);
 
     this.characterVisual = new CharacterVisual(this.mesh);
@@ -252,18 +234,18 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
     this.prevPosition.copy(this.currPosition);
 
-    if (this.grabbedBody && (input.jumpPressed || input.interactPressed)) {
+    if (this.grabCarry.isGrabbing && (input.jumpPressed || input.interactPressed)) {
       consumeInteractPressed = input.interactPressed;
       consumeJumpPressed = input.jumpPressed;
       this.fsm.requestState(STATE.idle);
     }
 
-    if (this.carriedObject) {
+    if (this.grabCarry.isCarrying) {
       if (input.primaryPressed || input.interactPressed) {
-        this.throwCarried();
+        this.grabCarry.throwCarried(this.getCameraForward(), this.eventBus);
         this.fsm.requestState(this.hasMovementInput(input) ? STATE.move : STATE.idle);
       } else if (input.crouchPressed) {
-        this.dropCarried();
+        this.grabCarry.dropCarried(this.currPosition, this.currentCapsuleHalfHeight, this.getCameraForward(), this.eventBus);
         this.fsm.requestState(this.hasMovementInput(input) ? STATE.move : STATE.idle);
       }
     }
@@ -465,11 +447,11 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     // -- Gravity scaling (delegated to CharacterMotor) --
     this.motor.applyGravity(this.body, _currentVel.y, this.canJump, this.config);
 
-    if (this.grabbedBody) {
-      this.updateGrabbedBody();
+    if (this.grabCarry.isGrabbing) {
+      this.grabCarry.updateGrab(_currentPos, this.getCameraForward());
     }
-    if (this.carriedObject) {
-      this.updateCarriedObject();
+    if (this.grabCarry.isCarrying) {
+      this.grabCarry.updateCarry(_currentPos, this.currentCapsuleHalfHeight);
     }
 
   }
@@ -941,132 +923,21 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   }
 
   startGrab(body: RAPIER.RigidBody, offset?: THREE.Vector3): void {
-    if (this.grabbedBody || this.carriedObject) return;
-    this.grabbedBody = body;
-    this.grabbedBodyType = body.bodyType();
-    this.grabbedGravityScale = body.gravityScale();
-    const collider = body.collider(0);
-    if (collider) {
-      const cg = collider as unknown as { collisionGroups?: () => number };
-      this.grabbedCollisionGroups = cg.collisionGroups ? cg.collisionGroups() : null;
-      collider.setCollisionGroups(COLLISION_GROUP_WORLD_ONLY);
-    } else {
-      this.grabbedCollisionGroups = null;
+    this.grabCarry.startGrab(body, this.currPosition, offset);
+    if (this.grabCarry.isGrabbing) {
+      this.fsm.requestState(STATE.grab);
     }
-    const bodyPos = body.translation();
-    const sourceOffset =
-      offset ?? new THREE.Vector3(bodyPos.x, bodyPos.y, bodyPos.z).sub(this.currPosition);
-    this.grabDistance = Math.min(2.5, Math.max(0.8, Math.sqrt(sourceOffset.x ** 2 + sourceOffset.z ** 2)));
-    this.grabOffsetY = sourceOffset.y;
-    body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
-    body.setGravityScale(0, true);
-    this.fsm.requestState(STATE.grab);
   }
 
   endGrab(): void {
-    if (!this.grabbedBody) return;
-    const body = this.grabbedBody;
-    const collider = body.collider(0);
-    if (collider && this.grabbedCollisionGroups != null) {
-      collider.setCollisionGroups(this.grabbedCollisionGroups);
-    }
-    const bodyType = this.grabbedBodyType ?? RAPIER.RigidBodyType.Dynamic;
-    body.setBodyType(bodyType, true);
-    body.setGravityScale(this.grabbedGravityScale ?? 1, true);
-    if (bodyType === RAPIER.RigidBodyType.Dynamic) {
-      const forward = this.getCameraForward().setY(0).normalize();
-      body.applyImpulse(_setRV(_rv3A, forward.x * 0.25, 0, forward.z * 0.25), true);
-    }
-    this.grabbedBody = null;
-    this.grabbedBodyType = null;
-    this.grabbedGravityScale = null;
-    this.grabbedCollisionGroups = null;
-    this.eventBus.emit('interaction:grabEnd', undefined);
+    this.grabCarry.endGrab(this.getCameraForward(), this.eventBus);
   }
 
   startCarry(object: CarryableObject): void {
-    if (this.carriedObject || this.grabbedBody) return;
-    this.carriedObject = object;
-    this.carriedBodyType = object.body.bodyType();
-    this.carriedGravityScale = object.body.gravityScale();
-    const collider = object.collider as unknown as { collisionGroups?: () => number };
-    this.carriedCollisionGroups = collider.collisionGroups ? collider.collisionGroups() : null;
-    object.body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
-    object.body.setGravityScale(0, true);
-    object.collider.setCollisionGroups(COLLISION_GROUP_WORLD_ONLY);
-    this.fsm.requestState(STATE.carry);
-  }
-
-  throwCarried(): void {
-    if (!this.carriedObject) return;
-    const object = this.carriedObject;
-    this.releaseCarryBody();
-    object.body.enableCcd(true);
-    const forward = this.getCameraForward().normalize();
-    // Treat throwForce as a *target throw speed* (m/s) rather than a raw impulse.
-    // WHY: applying a fixed impulse makes small/light objects reach extreme
-    // velocities and tunnel through walls even with contact events enabled.
-    const targetSpeed = Math.max(0.5, Math.min(object.throwForce, 10));
-    object.body.setLinvel(
-      _setRV(_rv3A, forward.x * targetSpeed, forward.y * targetSpeed, forward.z * targetSpeed),
-      true,
-    );
-    // Add some spin for readability.
-    object.body.setAngvel(_setRV(_rv3B, forward.z * 6, 5, -forward.x * 6), true);
-    this.eventBus.emit('interaction:throw', { direction: forward.clone(), force: targetSpeed });
-  }
-
-  dropCarried(): void {
-    if (!this.carriedObject) return;
-    const object = this.carriedObject;
-    const forward = this.getCameraForward().setY(0).normalize();
-    _carryTarget.copy(this.currPosition).addScaledVector(forward, 0.8);
-    _carryTarget.y += this.currentCapsuleHalfHeight + 0.2;
-    this.releaseCarryBody();
-    object.body.setTranslation(_setRV(_rv3A, _carryTarget.x, _carryTarget.y, _carryTarget.z), true);
-    object.body.setLinvel(_setRV(_rv3B, 0, 0, 0), true);
-    this.eventBus.emit('interaction:drop', undefined);
-  }
-
-  private releaseCarryBody(): void {
-    if (!this.carriedObject) return;
-    const object = this.carriedObject;
-    object.body.setBodyType(this.carriedBodyType ?? RAPIER.RigidBodyType.Dynamic, true);
-    object.body.setGravityScale(this.carriedGravityScale ?? 1, true);
-    if (this.carriedCollisionGroups != null) {
-      object.collider.setCollisionGroups(this.carriedCollisionGroups);
+    this.grabCarry.startCarry(object);
+    if (this.grabCarry.isCarrying) {
+      this.fsm.requestState(STATE.carry);
     }
-    this.carriedObject = null;
-    this.carriedBodyType = null;
-    this.carriedGravityScale = null;
-    this.carriedCollisionGroups = null;
-  }
-
-  private updateGrabbedBody(): void {
-    if (!this.grabbedBody) return;
-    _grabForward.copy(this.getCameraForward()).setY(0);
-    if (_grabForward.lengthSq() < 0.0001) {
-      _grabForward.set(0, 0, -1);
-    } else {
-      _grabForward.normalize();
-    }
-    _grabTarget
-      .set(_currentPos.x, _currentPos.y, _currentPos.z)
-      .addScaledVector(_grabForward, this.grabDistance);
-    _grabTarget.y += this.grabOffsetY;
-    // Use only setNextKinematicTranslation so Rapier computes the correct
-    // derived velocity for collision response. Mesh interpolation captures
-    // the position after world.step() via postPhysicsUpdate().
-    this.grabbedBody.setNextKinematicTranslation(_setRV(_rv3A, _grabTarget.x, _grabTarget.y, _grabTarget.z));
-  }
-
-  private updateCarriedObject(): void {
-    if (!this.carriedObject) return;
-    _carryTarget.set(_currentPos.x, _currentPos.y + this.currentCapsuleHalfHeight + 0.4, _currentPos.z);
-    // Use only setNextKinematicTranslation so Rapier computes the correct
-    // derived velocity for collision response. Mesh interpolation captures
-    // the position after world.step() via postPhysicsUpdate().
-    this.carriedObject.body.setNextKinematicTranslation(_setRV(_rv3A, _carryTarget.x, _carryTarget.y, _carryTarget.z));
   }
 
   private hasMovementInput(input: InputState): boolean {
