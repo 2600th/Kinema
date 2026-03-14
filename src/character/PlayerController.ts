@@ -15,49 +15,43 @@ import type { PhysicsWorld } from '@physics/PhysicsWorld';
 import { ColliderFactory } from '@physics/ColliderFactory';
 import { CharacterFSM } from './CharacterFSM';
 import { CharacterVisual } from './CharacterVisual';
-import { CharacterMotor, shouldApplyGroundReaction } from './CharacterMotor';
+import { CharacterMotor, type GroundInfo } from './CharacterMotor';
 import { GrabCarryController, type CarryableObject } from './GrabCarryController';
+import type { CharacterMode, PlayerContext } from './modes/CharacterMode';
+import { GroundedMode } from './modes/GroundedMode';
 
 const _forward = new THREE.Vector3();
 const _right = new THREE.Vector3();
 const _desiredMove = new THREE.Vector3();
 const _currentPos = new THREE.Vector3();
 const _currentVel = new THREE.Vector3();
-const _movingDirection = new THREE.Vector3();
-const _jumpVelocityVec = new THREE.Vector3();
-const _jumpDirection = new THREE.Vector3();
-const _actualSlopeNormal = new THREE.Vector3(0, 1, 0);
-const _standingForcePoint = new THREE.Vector3();
-const _distanceFromCharacterToObject = new THREE.Vector3();
-const _objectAngvelToLinvel = new THREE.Vector3();
-const _velocityDiff = new THREE.Vector3();
 const _movingObjectVelocity = new THREE.Vector3();
-const _stepForward = new THREE.Vector3();
-const _stepProbeLowOrigin = new THREE.Vector3();
-const _stepProbeHighOrigin = new THREE.Vector3();
-const _stepGroundProbeOrigin = new THREE.Vector3();
 const _ladderProbePoint = new THREE.Vector3();
-const _standProbeOrigin = new THREE.Vector3();
-const _standProbeDir = new THREE.Vector3();
-const _standProbeRight = new THREE.Vector3();
 const _worldUp = new THREE.Vector3(0, 1, 0);
-const _slopeProjected = new THREE.Vector3();
-const _groundBodyTranslation = new THREE.Vector3();
-const _groundBodyAngvel = new THREE.Vector3();
 
-const _rapierDown = new RAPIER.Vector3(0, -1, 0);
-const _rapierUp = new RAPIER.Vector3(0, 1, 0);
-
-// Pre-allocated Rapier vectors to avoid per-frame GC pressure.
-// Use A/B/C when multiple live vectors are needed simultaneously (e.g. applyImpulseAtPoint).
 const _rv3A = new RAPIER.Vector3(0, 0, 0);
-const _rv3B = new RAPIER.Vector3(0, 0, 0);
 
 /** Set x/y/z on a pre-allocated RAPIER.Vector3 and return it. */
 function _setRV(v: RAPIER.Vector3, x: number, y: number, z: number): RAPIER.Vector3 {
   v.x = x; v.y = y; v.z = z;
   return v;
 }
+
+/** Default GroundInfo used before the first motor query. */
+const NULL_GROUND_INFO: GroundInfo = {
+  closeToGround: false,
+  movementGrounded: false,
+  effectivelyGrounded: false,
+  canJump: false,
+  isGrounded: false,
+  slopeAngle: 0,
+  slopeNormal: new THREE.Vector3(0, 1, 0),
+  standingSlopeAllowed: true,
+  groundBody: null,
+  floatingRayHit: null,
+  groundedGrace: 0,
+  standingForcePoint: new THREE.Vector3(),
+};
 
 /**
  * Dynamic rigidbody player controller with floating and impulse movement.
@@ -102,6 +96,11 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   private respawnPoint: SpawnPointData | null = null;
   private cachedHorizontalSpeed = 0;
   private interactSuppressFrames = 0;
+  private groundInfo: GroundInfo = NULL_GROUND_INFO;
+
+  // -- Mode system --
+  private readonly groundedMode: GroundedMode;
+  private currentMode: CharacterMode;
 
   get lastInputSnapshot(): InputState | null {
     return this.lastInput;
@@ -167,6 +166,9 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.grabCarry = new GrabCarryController();
     this.fsm = new CharacterFSM(this, this.eventBus);
 
+    this.groundedMode = new GroundedMode();
+    this.currentMode = this.groundedMode;
+
     this.characterVisual = new CharacterVisual(this.mesh);
     void this.characterVisual.init(); // non-blocking; keeps capsule fallback if no model is present
 
@@ -209,10 +211,81 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.mesh.scale.set(1, 1, 1);
     this.currentCapsuleHalfHeight = this.standingCapsuleHalfHeight;
     this.collider.setHalfHeight(this.standingCapsuleHalfHeight);
+    this.currentMode = this.groundedMode;
     this.respawnPoint = {
       position: spawn.position.clone(),
       rotation: spawn.rotation?.clone(),
     };
+  }
+
+  /** Build a mutable PlayerContext snapshot from controller state. */
+  private buildContext(): PlayerContext {
+    return {
+      body: this.body,
+      collider: this.collider,
+      mesh: this.mesh,
+      config: this.config,
+      motor: this.motor,
+      grabCarry: this.grabCarry,
+      fsm: this.fsm,
+      eventBus: this.eventBus,
+      physicsWorld: this.physicsWorld,
+
+      cameraYaw: this.cameraYaw,
+      verticalVelocity: this.verticalVelocity,
+      prevVerticalVelocity: this.prevVerticalVelocity,
+      jumpActive: this.jumpActive,
+      jumpBufferRemaining: this.jumpBufferRemaining,
+      remainingAirJumps: this.remainingAirJumps,
+      isCrouched: this.isCrouched,
+      isGrounded: this.isGrounded,
+      canJump: this.canJump,
+      groundInfo: this.groundInfo,
+      isOnMovingObject: this.isOnMovingObject,
+      currentGroundBody: this.currentGroundBody,
+
+      currentCapsuleHalfHeight: this.currentCapsuleHalfHeight,
+      standingCapsuleHalfHeight: this.standingCapsuleHalfHeight,
+      crouchedCapsuleHalfHeight: this.crouchedCapsuleHalfHeight,
+      floatingDistance: this.floatingDistance,
+      actualSlopeAngle: this.actualSlopeAngle,
+
+      crouchReleaseGraceRemaining: this.crouchReleaseGraceRemaining,
+      crouchReleaseGraceSeconds: this.crouchReleaseGraceSeconds,
+      crouchVisual: this.crouchVisual,
+
+      currentPos: _currentPos,
+      currentVel: _currentVel,
+      currPosition: this.currPosition,
+      prevPosition: this.prevPosition,
+      groundPosition: this.groundPosition,
+
+      movingObjectVelocity: _movingObjectVelocity,
+
+      computeMovementDirection: (input: InputState) => this.computeMovementDirection(input),
+      lastInput: this.lastInput,
+    };
+  }
+
+  /** Sync mutable context fields back into the controller after a mode tick. */
+  private syncFromContext(ctx: PlayerContext): void {
+    this.cameraYaw = ctx.cameraYaw;
+    this.verticalVelocity = ctx.verticalVelocity;
+    this.prevVerticalVelocity = ctx.prevVerticalVelocity;
+    this.jumpActive = ctx.jumpActive;
+    this.jumpBufferRemaining = ctx.jumpBufferRemaining;
+    this.remainingAirJumps = ctx.remainingAirJumps;
+    this.isCrouched = ctx.isCrouched;
+    this.isGrounded = ctx.isGrounded;
+    this.canJump = ctx.canJump;
+    this.groundInfo = ctx.groundInfo;
+    this.isOnMovingObject = ctx.isOnMovingObject;
+    this.currentGroundBody = ctx.currentGroundBody;
+    this.currentCapsuleHalfHeight = ctx.currentCapsuleHalfHeight;
+    this.floatingDistance = ctx.floatingDistance;
+    this.actualSlopeAngle = ctx.actualSlopeAngle;
+    this.crouchReleaseGraceRemaining = ctx.crouchReleaseGraceRemaining;
+    this.crouchVisual = ctx.crouchVisual;
   }
 
   fixedUpdate(dt: number): void {
@@ -261,8 +334,6 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
     // Refill jump buffer AFTER grab/carry consumption so that a jumpPressed
     // used to drop an object doesn't also fill the jump buffer (phantom jump).
-    // No suppression guard here — the buffer should always fill on a press.
-    // Suppression only affects grounded detection, not input acceptance.
     if (inputForFsm.jumpPressed) {
       this.jumpBufferRemaining = this.config.jumpBufferTime;
     } else {
@@ -295,9 +366,6 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       }
       return;
     }
-
-    this.updateCrouchState(input.crouch, _currentPos, dt);
-    this.floatingDistance = this.getTargetFloatingDistance();
 
     const movementLocked = this.fsm.current === STATE.interact;
     const inLadderZone = this.isInsideLadder(_currentPos);
@@ -338,115 +406,16 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       this.rotateToward(desiredInputDir, dt);
     }
 
-    // -- Ground detection (delegated to CharacterMotor) --
-    const groundInfo = this.motor.queryGround(
-      this.body, this.currentCapsuleHalfHeight, this.mesh.quaternion,
-      this.config, this.physicsWorld, this.floatingDistance, dt,
-    );
-    this.actualSlopeAngle = groundInfo.slopeAngle;
-    _actualSlopeNormal.copy(groundInfo.slopeNormal);
-    _standingForcePoint.copy(groundInfo.standingForcePoint);
-    this.canJump = groundInfo.canJump;
+    // -- Delegate to current mode --
+    const ctx = this.buildContext();
+    const nextModeId = this.currentMode.fixedUpdate(ctx, inputForFsm, dt);
+    this.syncFromContext(ctx);
 
-    const wasGrounded = this.isGrounded;
-    this.isGrounded = groundInfo.isGrounded;
-    if (this.isGrounded) {
-      this.remainingAirJumps = this.config.maxAirJumps;
-    }
-    if (this.isGrounded !== wasGrounded) {
-      this.eventBus.emit('player:grounded', this.isGrounded);
-    }
-    // Landing event: emit impact speed (relative to ground body) for camera dip / audio
-    if (this.isGrounded && !wasGrounded) {
-      const groundVy = groundInfo.floatingRayHit?.collider.parent()?.linvel().y ?? 0;
-      const impactSpeed = Math.max(0, Math.abs(this.prevVerticalVelocity - groundVy));
-      this.eventBus.emit('player:landed', { impactSpeed });
-      this.jumpActive = false;
+    if (nextModeId !== null && nextModeId !== this.currentMode.id) {
+      this.switchMode(nextModeId);
     }
 
-    // Variable jump: cut jump short when player releases jump key while rising.
-    // Cap velocity to the cut ceiling using Math.min so it never snaps UP.
-    // The suppression window prevents cutting a just-fired buffered jump.
-    if (!input.jump && this.verticalVelocity > 0 && this.jumpActive
-        && !this.motor.isJumpSuppressed) {
-      this.motor.applyJumpCut(this.body, this.config);
-      this.verticalVelocity = this.body.linvel().y;
-      this.jumpActive = false;
-    }
-
-    this.currentGroundBody = null;
-    this.isOnMovingObject = false;
-    _movingObjectVelocity.set(0, 0, 0);
-    if (groundInfo.groundBody) {
-      const groundBody = groundInfo.groundBody;
-      const groundBodyType = groundBody.bodyType();
-      this.currentGroundBody = groundBody;
-
-      if (groundBodyType === 0 || groundBodyType === 2) {
-        this.isOnMovingObject = true;
-        const gbt = groundBody.translation();
-        _groundBodyTranslation.set(gbt.x, gbt.y, gbt.z);
-        _distanceFromCharacterToObject
-          .copy(_currentPos)
-          .sub(_groundBodyTranslation);
-        const lv = groundBody.linvel();
-        const av = groundBody.angvel();
-        _groundBodyAngvel.set(av.x, av.y, av.z);
-        _objectAngvelToLinvel.crossVectors(
-          _groundBodyAngvel,
-          _distanceFromCharacterToObject,
-        );
-        _movingObjectVelocity.set(
-          lv.x + _objectAngvelToLinvel.x,
-          lv.y,
-          lv.z + _objectAngvelToLinvel.z,
-        );
-
-        const groundMass = Math.max(groundBody.mass(), 0.001);
-        const massRatio = this.body.mass() / groundMass;
-        _movingObjectVelocity.multiplyScalar(Math.min(1, 1 / massRatio));
-        _velocityDiff.subVectors(_movingObjectVelocity, _currentVel);
-        if (_velocityDiff.length() > 30) {
-          _movingObjectVelocity.multiplyScalar(1 / _velocityDiff.length());
-        }
-      }
-    }
-
-    const movementLockedNow = this.fsm.current === STATE.interact;
-    const hasMovement = !movementLockedNow && (input.moveX !== 0 || input.moveY !== 0);
-    const run = this.fsm.current !== STATE.grab && input.sprint && !this.isCrouched;
-    // Movement: use velocity steering (character-controller feel) instead of impulse accumulation.
-    // WHY: Impulse-based locomotion felt floaty and caused direction drift when releasing strafe.
-    this.applyMoveVelocity(desiredInputDir, run, hasMovement, dt, input);
-    if (hasMovement) {
-      this.applyStepAssist(desiredInputDir, run, dt);
-    }
-
-    if (!movementLockedNow && this.fsm.current !== STATE.grab && this.jumpBufferRemaining > 0) {
-      if (this.canJump) {
-        this.fsm.requestState(STATE.jump);
-        this.applyJumpImpulse(run, false);
-        this.jumpBufferRemaining = 0;
-        this.motor.clearGroundedGrace();
-        this.canJump = false;
-      } else if (this.remainingAirJumps > 0) {
-        this.fsm.requestState(STATE.airJump);
-        this.applyJumpImpulse(false, true);
-        this.jumpBufferRemaining = 0;
-        this.remainingAirJumps -= 1;
-        this.motor.clearGroundedGrace();
-        this.canJump = false;
-      }
-    }
-
-    // -- Floating spring force (delegated to CharacterMotor) --
-    this.motor.applyFloatingSpring(this.body, groundInfo, this.config, this.floatingDistance);
-
-    // Ground drag is handled by applyMoveVelocity() so we don't double-damp.
-
-    // -- Gravity scaling (delegated to CharacterMotor) --
-    this.motor.applyGravity(this.body, _currentVel.y, this.canJump, this.config);
-
+    // -- Grab/carry updates (mode-independent) --
     if (this.grabCarry.isGrabbing) {
       this.grabCarry.updateGrab(_currentPos, this.getCameraForward());
     }
@@ -456,287 +425,25 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
   }
 
+  private switchMode(modeId: string): void {
+    const mode = this.resolveMode(modeId);
+    if (!mode) return;
+    this.currentMode.exit?.(this.buildContext());
+    this.currentMode = mode;
+    this.currentMode.enter?.(this.buildContext());
+  }
+
+  private resolveMode(id: string): CharacterMode | null {
+    switch (id) {
+      case 'grounded': return this.groundedMode;
+      default: return null;
+    }
+  }
+
   postPhysicsUpdate(_dt: number): void {
     if (!this.active) return;
     const pos = this.body.translation();
     this.currPosition.set(pos.x, pos.y, pos.z);
-  }
-
-  private applyMoveVelocity(
-    desiredInputDir: THREE.Vector3,
-    run: boolean,
-    hasMovement: boolean,
-    dt: number,
-    input?: InputState | null,
-  ): void {
-    // Target speed based on stance/state, scaled by analog stick magnitude.
-    const crouchMult = this.isCrouched ? this.config.crouchSpeedMultiplier : 1;
-    const grabMult = this.fsm.current === STATE.grab ? this.config.crouchSpeedMultiplier : 1;
-    const stickMag = input ? Math.min(1, Math.hypot(input.moveX, input.moveY)) : 1;
-    const targetSpeed =
-      this.config.moveSpeed * crouchMult * grabMult * (run ? this.config.sprintMultiplier : 1) * stickMag;
-
-    // Desired horizontal velocity (camera-relative input), plus moving-platform contribution.
-    const platformVx = this.isOnMovingObject ? _movingObjectVelocity.x : 0;
-    const platformVz = this.isOnMovingObject ? _movingObjectVelocity.z : 0;
-
-    const lv = this.body.linvel();
-    const grounded = this.canJump;
-    const inAir = !grounded;
-
-    // Slope projection: when grounded on a non-trivial slope, project movement
-    // onto the slope surface so velocity follows the terrain instead of fighting it.
-    const MIN_SLOPE_THRESHOLD = 0.05; // radians — ignore near-flat surfaces
-    const onSlope = grounded && this.actualSlopeAngle > MIN_SLOPE_THRESHOLD;
-
-    // Compute desired direction on XZ plane.
-    _movingDirection.copy(desiredInputDir).setY(0);
-    const hasDir = hasMovement && _movingDirection.lengthSq() > 0.0001;
-    if (hasDir) _movingDirection.normalize();
-
-    // If on a slope with active input, project the XZ direction onto the slope plane.
-    // This gives the velocity a Y component that follows the surface.
-    let useSlope = false;
-    let slopeDirX = 0;
-    let slopeDirY = 0;
-    let slopeDirZ = 0;
-    let slopeExtraMultiplier = 1;
-
-    if (onSlope && hasDir) {
-      // Project desired direction onto slope: dir - normal * dot(dir, normal)
-      const dot = _movingDirection.x * _actualSlopeNormal.x +
-                  _movingDirection.y * _actualSlopeNormal.y +
-                  _movingDirection.z * _actualSlopeNormal.z;
-      _slopeProjected.set(
-        _movingDirection.x - _actualSlopeNormal.x * dot,
-        _movingDirection.y - _actualSlopeNormal.y * dot,
-        _movingDirection.z - _actualSlopeNormal.z * dot,
-      );
-      const projLen = _slopeProjected.length();
-      if (projLen > 0.0001) {
-        _slopeProjected.divideScalar(projLen);
-        useSlope = true;
-        slopeDirX = _slopeProjected.x;
-        slopeDirY = _slopeProjected.y;
-        slopeDirZ = _slopeProjected.z;
-
-        // Determine uphill vs downhill: projected Y > 0 means moving uphill.
-        if (slopeDirY > 0.001) {
-          slopeExtraMultiplier = 1 + this.config.slopeUpExtraForce;
-        } else if (slopeDirY < -0.001) {
-          slopeExtraMultiplier = 1 + this.config.slopeDownExtraForce;
-        }
-      }
-    }
-
-    // Relative (to moving platform) velocity.
-    const relVx0 = lv.x - platformVx;
-    const relVz0 = lv.z - platformVz;
-
-    // Snappy stop on ground, limited control in air.
-    const accelLambdaGround = 30;
-    const stopLambdaGround = 58;
-    const sideKillLambdaGround = 82; // kill sideways drift fast when input direction changes
-    const baseLambda = hasDir ? accelLambdaGround : stopLambdaGround;
-    const lambda = inAir ? baseLambda * this.config.airControlFactor : baseLambda;
-    const sideLambda = inAir ? sideKillLambdaGround * this.config.airControlFactor : sideKillLambdaGround;
-
-    const t = 1 - Math.exp(-lambda * dt);
-    const tSide = 1 - Math.exp(-sideLambda * dt);
-
-    let nextVx: number;
-    let nextVy: number;
-    let nextVz: number;
-
-    if (hasDir && useSlope) {
-      // 3D decomposition along the slope-projected direction.
-      // Parallel component: dot of relative velocity with slope direction.
-      const relVy0 = lv.y;
-      const vParMag0 = relVx0 * slopeDirX + relVy0 * slopeDirY + relVz0 * slopeDirZ;
-      const vPerpX0 = relVx0 - slopeDirX * vParMag0;
-      const vPerpY0 = relVy0 - slopeDirY * vParMag0;
-      const vPerpZ0 = relVz0 - slopeDirZ * vParMag0;
-
-      // Steer parallel speed toward target (with slope extra force), damp perpendicular.
-      const adjustedTarget = targetSpeed * slopeExtraMultiplier;
-      const vParMag = vParMag0 + (adjustedTarget - vParMag0) * t;
-      const vPerpX = vPerpX0 + (0 - vPerpX0) * tSide;
-      const vPerpY = vPerpY0 + (0 - vPerpY0) * tSide;
-      const vPerpZ = vPerpZ0 + (0 - vPerpZ0) * tSide;
-
-      nextVx = (slopeDirX * vParMag + vPerpX) + platformVx;
-      nextVy = slopeDirY * vParMag + vPerpY;
-      nextVz = (slopeDirZ * vParMag + vPerpZ) + platformVz;
-    } else if (hasDir) {
-      // Flat ground / air: original XZ-only logic.
-      const dirX = _movingDirection.x;
-      const dirZ = _movingDirection.z;
-      const vParMag0 = relVx0 * dirX + relVz0 * dirZ;
-      const vPerpX0 = relVx0 - dirX * vParMag0;
-      const vPerpZ0 = relVz0 - dirZ * vParMag0;
-
-      const vParMag = vParMag0 + (targetSpeed - vParMag0) * t;
-      const vPerpX = vPerpX0 + (0 - vPerpX0) * tSide;
-      const vPerpZ = vPerpZ0 + (0 - vPerpZ0) * tSide;
-
-      nextVx = (dirX * vParMag + vPerpX) + platformVx;
-      nextVy = lv.y;
-      nextVz = (dirZ * vParMag + vPerpZ) + platformVz;
-    } else {
-      // No input: damp relative velocity to zero.
-      nextVx = (relVx0 + (0 - relVx0) * t) + platformVx;
-      nextVy = lv.y;
-      nextVz = (relVz0 + (0 - relVz0) * t) + platformVz;
-    }
-
-    this.body.setLinvel(_setRV(_rv3A, nextVx, nextVy, nextVz), true);
-  }
-
-  private applyJumpImpulse(run: boolean, airJump: boolean): void {
-    this.jumpActive = true;
-    // Suppress ground detection for 3 frames after any jump to prevent
-    // the floating ray from re-grounding and refilling air jumps instantly.
-    this.motor.onJumpFired();
-    const jumpVel =
-      (run ? this.config.sprintJumpMultiplier : 1) *
-      this.config.jumpForce *
-      (airJump ? this.config.airJumpForceMultiplier : 1);
-
-    if (airJump) {
-      // Air jumps: pure vertical impulse, no slope projection (stale normal data).
-      this.body.setLinvel(
-        _setRV(_rv3A, _currentVel.x, jumpVel, _currentVel.z),
-        true,
-      );
-    } else {
-      // Ground jumps: project onto slope normal for natural slope-boosted takeoff.
-      _jumpVelocityVec.set(_currentVel.x, jumpVel, _currentVel.z);
-      _jumpDirection
-        .set(0, jumpVel * this.config.slopeJumpMultiplier, 0)
-        .projectOnVector(_actualSlopeNormal)
-        .add(_jumpVelocityVec);
-
-      this.body.setLinvel(
-        _setRV(_rv3A, _jumpDirection.x, _jumpDirection.y, _jumpDirection.z),
-        true,
-      );
-    }
-
-    this.eventBus.emit('player:jumped', {
-      airJump,
-      run,
-      jumpVel,
-      position: this.currPosition.clone(),
-      groundPosition: this.groundPosition.clone(),
-    });
-
-    if (this.currentGroundBody && shouldApplyGroundReaction(this.currentGroundBody)) {
-      const down = -jumpVel * this.config.jumpForceToGroundMultiplier * 0.5;
-      this.currentGroundBody.applyImpulseAtPoint(
-        _setRV(_rv3A, 0, down, 0),
-        _setRV(_rv3B, _standingForcePoint.x, _standingForcePoint.y, _standingForcePoint.z),
-        true,
-      );
-    }
-  }
-
-  private applyStepAssist(desiredInputDir: THREE.Vector3, run: boolean, dt: number): void {
-    if (!this.canJump && !this.isGrounded) return;
-    if (desiredInputDir.lengthSq() < 0.0001) return;
-    if (_currentVel.y > 0.55) return;
-
-    _stepForward.copy(desiredInputDir).setY(0);
-    if (_stepForward.lengthSq() < 0.0001) return;
-    _stepForward.normalize();
-
-    const probeDist = this.config.capsuleRadius + (run ? 0.95 : 0.85);
-    _stepProbeLowOrigin.set(
-      _currentPos.x,
-      _currentPos.y - this.currentCapsuleHalfHeight + 0.08,
-      _currentPos.z,
-    );
-    _stepProbeHighOrigin.set(
-      _currentPos.x,
-      _currentPos.y - this.currentCapsuleHalfHeight + 0.68,
-      _currentPos.z,
-    );
-
-    const lowHit = this.physicsWorld.castRay(
-      _setRV(_rv3A, _stepProbeLowOrigin.x, _stepProbeLowOrigin.y, _stepProbeLowOrigin.z),
-      _setRV(_rv3B, _stepForward.x, _stepForward.y, _stepForward.z),
-      probeDist,
-      undefined,
-      this.body,
-      (c) => !c.isSensor(),
-    );
-    if (!lowHit || lowHit.timeOfImpact > probeDist) return;
-
-    const highHit = this.physicsWorld.castRay(
-      _setRV(_rv3A, _stepProbeHighOrigin.x, _stepProbeHighOrigin.y, _stepProbeHighOrigin.z),
-      _setRV(_rv3B, _stepForward.x, _stepForward.y, _stepForward.z),
-      probeDist,
-      undefined,
-      this.body,
-      (c) => !c.isSensor(),
-    );
-    if (highHit) return;
-
-    const lv = this.body.linvel();
-    // Velocity-only step assist: fold the step-up displacement into the
-    // vertical velocity so the physics solver handles it naturally without
-    // teleporting the dynamic body (which can cause jitter, missed contacts,
-    // or ghost-step behavior on edges).
-    // At 60 Hz, a displacement of d metres/frame ≈ d * 60 m/s in velocity.
-    const stepUpVel = (run ? 0.12 : 0.1) / dt; // per-frame displacement → velocity
-    const fwdNudgeVel = 0.05 / dt;              // per-frame displacement → velocity
-    const upBoost = run ? 3.4 : 3.0;
-    const fwdBoost = run ? 1.35 : 1.2;
-    if (lv.y < upBoost) {
-      this.body.setLinvel(
-        _setRV(_rv3A,
-          lv.x + _stepForward.x * (fwdBoost + fwdNudgeVel),
-          Math.max(lv.y, upBoost + stepUpVel),
-          lv.z + _stepForward.z * (fwdBoost + fwdNudgeVel),
-        ),
-        true,
-      );
-    }
-
-    // Ground probe ahead to keep capsule "stuck" to short stair runs/curbs while moving forward.
-    _stepGroundProbeOrigin.set(
-      _currentPos.x + _stepForward.x * (run ? 0.58 : 0.5),
-      _currentPos.y - this.currentCapsuleHalfHeight + 0.75,
-      _currentPos.z + _stepForward.z * (run ? 0.58 : 0.5),
-    );
-    const downHit = this.physicsWorld.castRay(
-      _setRV(_rv3A, _stepGroundProbeOrigin.x, _stepGroundProbeOrigin.y, _stepGroundProbeOrigin.z),
-      _rapierDown,
-      1.4,
-      undefined,
-      this.body,
-      (c) => !c.isSensor(),
-    );
-    if (downHit) {
-      const groundAheadY = _stepGroundProbeOrigin.y - downHit.timeOfImpact;
-      const feetY = _currentPos.y - this.currentCapsuleHalfHeight;
-      const stepHeight = groundAheadY - feetY;
-      const maxStepHeight = run ? 0.34 : 0.28;
-      if (stepHeight > 0.02 && stepHeight <= maxStepHeight) {
-        // Convert step-up displacement to velocity impulse instead of teleporting.
-        const curLv = this.body.linvel();
-        const clampedHeight = Math.min(stepHeight + 0.02, maxStepHeight);
-        const stepVel = clampedHeight * 60;
-        const fwdStepVel = 0.06 * 60;
-        this.body.setLinvel(
-          _setRV(_rv3A,
-            curLv.x + _stepForward.x * fwdStepVel,
-            Math.max(curLv.y, stepVel),
-            curLv.z + _stepForward.z * fwdStepVel,
-          ),
-          true,
-        );
-      }
-    }
   }
 
   private isInsideLadder(position: THREE.Vector3): boolean {
@@ -748,6 +455,27 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       }
     }
     return false;
+  }
+
+  /** Uncrouch helper for non-mode paths (rope attach, ladder). */
+  private setCrouchedState(crouched: boolean): void {
+    if (this.isCrouched === crouched) return;
+    this.isCrouched = crouched;
+    if (!crouched) {
+      this.crouchReleaseGraceRemaining = 0;
+    }
+    const targetHalf = crouched ? this.crouchedCapsuleHalfHeight : this.standingCapsuleHalfHeight;
+    if (Math.abs(targetHalf - this.currentCapsuleHalfHeight) <= 0.0001) return;
+
+    const pos = this.body.translation();
+    const deltaHalf = this.currentCapsuleHalfHeight - targetHalf;
+    this.currentCapsuleHalfHeight = targetHalf;
+    this.collider.setHalfHeight(targetHalf);
+    this.body.setTranslation(_setRV(_rv3A, pos.x, pos.y - deltaHalf, pos.z), true);
+    this.body.wakeUp();
+    this.currPosition.set(pos.x, pos.y - deltaHalf, pos.z);
+    this.prevPosition.set(pos.x, pos.y - deltaHalf, pos.z);
+    this.floatingDistance = this.config.capsuleRadius + this.config.floatHeight;
   }
 
   private handleLadderMovement(input: InputState): void {
@@ -770,124 +498,6 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
         true,
       );
     }
-  }
-
-  private getTargetFloatingDistance(): number {
-    return this.config.capsuleRadius + this.config.floatHeight;
-  }
-
-  private updateCrouchState(wantsCrouch: boolean, position: THREE.Vector3, dt: number): void {
-    if (wantsCrouch) {
-      this.crouchReleaseGraceRemaining = this.crouchReleaseGraceSeconds;
-      this.setCrouchedState(true);
-      return;
-    }
-    if (!this.isCrouched) {
-      this.crouchReleaseGraceRemaining = 0;
-      return;
-    }
-    const blocked = !this.canStandUp(position);
-    if (blocked) {
-      this.crouchReleaseGraceRemaining = this.crouchReleaseGraceSeconds;
-      this.setCrouchedState(true);
-      return;
-    }
-    if (this.crouchReleaseGraceRemaining > 0) {
-      this.crouchReleaseGraceRemaining = Math.max(0, this.crouchReleaseGraceRemaining - dt);
-      this.setCrouchedState(true);
-      return;
-    }
-    this.setCrouchedState(false);
-  }
-
-  private setCrouchedState(crouched: boolean): void {
-    if (this.isCrouched === crouched) return;
-    this.isCrouched = crouched;
-    if (!crouched) {
-      this.crouchReleaseGraceRemaining = 0;
-    }
-    const targetHalf = crouched ? this.crouchedCapsuleHalfHeight : this.standingCapsuleHalfHeight;
-    if (Math.abs(targetHalf - this.currentCapsuleHalfHeight) <= 0.0001) return;
-
-    const pos = this.body.translation();
-    const deltaHalf = this.currentCapsuleHalfHeight - targetHalf;
-    this.currentCapsuleHalfHeight = targetHalf;
-    this.collider.setHalfHeight(targetHalf);
-    this.body.setTranslation(_setRV(_rv3A, pos.x, pos.y - deltaHalf, pos.z), true);
-    this.body.wakeUp();
-    this.currPosition.set(pos.x, pos.y - deltaHalf, pos.z);
-    this.prevPosition.set(pos.x, pos.y - deltaHalf, pos.z);
-    this.floatingDistance = this.getTargetFloatingDistance();
-  }
-
-  private canStandUp(position: THREE.Vector3): boolean {
-    const standDelta = this.standingCapsuleHalfHeight - this.currentCapsuleHalfHeight;
-    if (standDelta <= 0.001) return true;
-    const probeLength = standDelta * 2 + 0.04;
-    if (this.isStandProbeBlocked(position.x, position.y, position.z, probeLength)) {
-      return false;
-    }
-
-    const input = this.lastInput;
-    if (!input) return true;
-
-    _standProbeDir.copy(this.computeMovementDirection(input)).setY(0);
-    if (_standProbeDir.lengthSq() < 0.0001) {
-      return true;
-    }
-    _standProbeDir.normalize();
-    _standProbeRight.crossVectors(_standProbeDir, _worldUp).normalize();
-    const forward = this.config.capsuleRadius * 0.95;
-    const shoulder = this.config.capsuleRadius * 0.55;
-
-    if (
-      this.isStandProbeBlocked(
-        position.x + _standProbeDir.x * forward,
-        position.y,
-        position.z + _standProbeDir.z * forward,
-        probeLength,
-      )
-    ) {
-      return false;
-    }
-    if (
-      this.isStandProbeBlocked(
-        position.x + _standProbeDir.x * forward + _standProbeRight.x * shoulder,
-        position.y,
-        position.z + _standProbeDir.z * forward + _standProbeRight.z * shoulder,
-        probeLength,
-      )
-    ) {
-      return false;
-    }
-    if (
-      this.isStandProbeBlocked(
-        position.x + _standProbeDir.x * forward - _standProbeRight.x * shoulder,
-        position.y,
-        position.z + _standProbeDir.z * forward - _standProbeRight.z * shoulder,
-        probeLength,
-      )
-    ) {
-      return false;
-    }
-    return true;
-  }
-
-  private isStandProbeBlocked(x: number, y: number, z: number, probeLength: number): boolean {
-    _standProbeOrigin.set(
-      x,
-      y + this.currentCapsuleHalfHeight + this.config.capsuleRadius,
-      z,
-    );
-    const hit = this.physicsWorld.castRay(
-      _setRV(_rv3A, _standProbeOrigin.x, _standProbeOrigin.y, _standProbeOrigin.z),
-      _rapierUp,
-      probeLength,
-      undefined,
-      this.body,
-      (c) => !c.isSensor(),
-    );
-    return hit != null;
   }
 
   update(_dt: number, alpha: number): void {
