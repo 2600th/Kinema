@@ -1,24 +1,27 @@
-import * as THREE from 'three';
-import RAPIER from '@dimforge/rapier3d-compat';
-import type { EventBus } from '@core/EventBus';
+import { DEFAULT_PLAYER_CONFIG } from "@core/constants";
+import type { EventBus } from "@core/EventBus";
 import {
-  STATE,
-  type InputState,
-  type FixedUpdatable,
-  type PostPhysicsUpdatable,
-  type Updatable,
   type Disposable,
+  type FixedUpdatable,
+  type InputState,
+  type PostPhysicsUpdatable,
   type SpawnPointData,
-} from '@core/types';
-import { DEFAULT_PLAYER_CONFIG } from '@core/constants';
-import type { PhysicsWorld } from '@physics/PhysicsWorld';
-import { ColliderFactory } from '@physics/ColliderFactory';
-import { CharacterFSM } from './CharacterFSM';
-import { CharacterVisual } from './CharacterVisual';
-import { CharacterMotor, type GroundInfo } from './CharacterMotor';
-import { GrabCarryController, type CarryableObject } from './GrabCarryController';
-import type { CharacterMode, PlayerContext } from './modes/CharacterMode';
-import { GroundedMode } from './modes/GroundedMode';
+  STATE,
+  type Updatable,
+} from "@core/types";
+import RAPIER from "@dimforge/rapier3d-compat";
+import { ColliderFactory } from "@physics/ColliderFactory";
+import type { PhysicsWorld } from "@physics/PhysicsWorld";
+import * as THREE from "three";
+import { CharacterFSM } from "./CharacterFSM";
+import { CharacterMotor, type GroundInfo } from "./CharacterMotor";
+import { CharacterVisual } from "./CharacterVisual";
+import { type CarryableObject, GrabCarryController } from "./GrabCarryController";
+import { AirMode } from "./modes/AirMode";
+import type { CharacterMode, PlayerContext } from "./modes/CharacterMode";
+import { GroundedMode } from "./modes/GroundedMode";
+import { LadderMode } from "./modes/LadderMode";
+import { RopeMode } from "./modes/RopeMode";
 
 const _forward = new THREE.Vector3();
 const _right = new THREE.Vector3();
@@ -26,16 +29,8 @@ const _desiredMove = new THREE.Vector3();
 const _currentPos = new THREE.Vector3();
 const _currentVel = new THREE.Vector3();
 const _movingObjectVelocity = new THREE.Vector3();
-const _ladderProbePoint = new THREE.Vector3();
 const _worldUp = new THREE.Vector3(0, 1, 0);
-
-const _rv3A = new RAPIER.Vector3(0, 0, 0);
-
-/** Set x/y/z on a pre-allocated RAPIER.Vector3 and return it. */
-function _setRV(v: RAPIER.Vector3, x: number, y: number, z: number): RAPIER.Vector3 {
-  v.x = x; v.y = y; v.z = z;
-  return v;
-}
+const _ladderProbePoint = new THREE.Vector3();
 
 /** Default GroundInfo used before the first motor query. */
 const NULL_GROUND_INFO: GroundInfo = {
@@ -55,6 +50,7 @@ const NULL_GROUND_INFO: GroundInfo = {
 
 /**
  * Dynamic rigidbody player controller with floating and impulse movement.
+ * Acts as a thin orchestrator — locomotion logic lives in CharacterMode implementations.
  */
 export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Disposable {
   public readonly body: RAPIER.RigidBody;
@@ -99,7 +95,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   private groundInfo: GroundInfo = NULL_GROUND_INFO;
 
   // -- Mode system --
-  private readonly groundedMode: GroundedMode;
+  private readonly modes: Map<string, CharacterMode>;
   private currentMode: CharacterMode;
 
   get lastInputSnapshot(): InputState | null {
@@ -119,8 +115,6 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   }
 
   getCameraHeightOffset(): number {
-    // Camera needs a stronger crouch drop than the physics body offset
-    // so it can follow through low tunnels instead of staying above roofs.
     return 0.95 * this.crouchVisual;
   }
 
@@ -143,7 +137,6 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.body = body;
     this.collider = collider;
     this.body.setAdditionalMass(this.config.mass, true);
-    // Lock rigidbody rotations for stable capsule-ground contact.
     this.body.setEnabledRotations(false, false, false, true);
     this.body.setLinearDamping(0);
     this.body.setAngularDamping(0);
@@ -151,13 +144,13 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.body.enableCcd(true);
 
     this.mesh = new THREE.Group();
-    this.mesh.name = 'PlayerVisual';
+    this.mesh.name = "PlayerVisual";
     this.scene.add(this.mesh);
 
     const capsuleGeom = new THREE.CapsuleGeometry(this.config.capsuleRadius, this.config.capsuleHalfHeight * 2, 8, 16);
     const capsuleMat = new THREE.MeshStandardMaterial({ color: 0x3388ff });
     this.capsuleMesh = new THREE.Mesh(capsuleGeom, capsuleMat);
-    this.capsuleMesh.name = 'PlayerCapsule';
+    this.capsuleMesh.name = "PlayerCapsule";
     this.capsuleMesh.castShadow = true;
     this.capsuleMesh.receiveShadow = true;
     this.mesh.add(this.capsuleMesh);
@@ -166,11 +159,18 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.grabCarry = new GrabCarryController();
     this.fsm = new CharacterFSM(this, this.eventBus);
 
-    this.groundedMode = new GroundedMode();
-    this.currentMode = this.groundedMode;
+    // Register all locomotion modes
+    const groundedMode = new GroundedMode();
+    this.modes = new Map<string, CharacterMode>([
+      ["grounded", groundedMode],
+      ["air", new AirMode()],
+      ["ladder", new LadderMode()],
+      ["rope", new RopeMode()],
+    ]);
+    this.currentMode = groundedMode;
 
     this.characterVisual = new CharacterVisual(this.mesh);
-    void this.characterVisual.init(); // non-blocking; keeps capsule fallback if no model is present
+    void this.characterVisual.init();
 
     const pos = this.body.translation();
     this.currPosition.set(pos.x, pos.y, pos.z);
@@ -211,7 +211,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.mesh.scale.set(1, 1, 1);
     this.currentCapsuleHalfHeight = this.standingCapsuleHalfHeight;
     this.collider.setHalfHeight(this.standingCapsuleHalfHeight);
-    this.currentMode = this.groundedMode;
+    const resetMode = this.modes.get("grounded");
+    if (resetMode) this.currentMode = resetMode;
     this.respawnPoint = {
       position: spawn.position.clone(),
       rotation: spawn.rotation?.clone(),
@@ -262,6 +263,10 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
       movingObjectVelocity: _movingObjectVelocity,
 
+      onLadder: this.onLadder,
+      ladderZones: this.ladderZones,
+      ropeAttached: this.ropeAttached,
+
       computeMovementDirection: (input: InputState) => this.computeMovementDirection(input),
       lastInput: this.lastInput,
     };
@@ -286,6 +291,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.actualSlopeAngle = ctx.actualSlopeAngle;
     this.crouchReleaseGraceRemaining = ctx.crouchReleaseGraceRemaining;
     this.crouchVisual = ctx.crouchVisual;
+    this.onLadder = ctx.onLadder;
+    this.ropeAttached = ctx.ropeAttached;
   }
 
   fixedUpdate(dt: number): void {
@@ -293,8 +300,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     let input = this.lastInput;
     if (!input) return;
 
-    // Mask interactPressed for a few frames after vehicle exit to prevent
-    // the same press from triggering a grounded interaction.
+    // -- Interact suppression (vehicle exit) --
     if (this.interactSuppressFrames > 0) {
       this.interactSuppressFrames--;
       if (input.interactPressed) {
@@ -302,6 +308,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       }
     }
 
+    // -- Grab/carry input consumption --
     let consumeInteractPressed = false;
     let consumeJumpPressed = false;
 
@@ -318,7 +325,12 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
         this.grabCarry.throwCarried(this.getCameraForward(), this.eventBus);
         this.fsm.requestState(this.hasMovementInput(input) ? STATE.move : STATE.idle);
       } else if (input.crouchPressed) {
-        this.grabCarry.dropCarried(this.currPosition, this.currentCapsuleHalfHeight, this.getCameraForward(), this.eventBus);
+        this.grabCarry.dropCarried(
+          this.currPosition,
+          this.currentCapsuleHalfHeight,
+          this.getCameraForward(),
+          this.eventBus,
+        );
         this.fsm.requestState(this.hasMovementInput(input) ? STATE.move : STATE.idle);
       }
     }
@@ -332,14 +344,14 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
           }
         : input;
 
-    // Refill jump buffer AFTER grab/carry consumption so that a jumpPressed
-    // used to drop an object doesn't also fill the jump buffer (phantom jump).
+    // -- Jump buffer --
     if (inputForFsm.jumpPressed) {
       this.jumpBufferRemaining = this.config.jumpBufferTime;
     } else {
       this.jumpBufferRemaining = Math.max(0, this.jumpBufferRemaining - dt);
     }
 
+    // -- Sync physics state --
     const pos = this.body.translation();
     const vel = this.body.linvel();
     _currentPos.set(pos.x, pos.y, pos.z);
@@ -348,62 +360,26 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.verticalVelocity = _currentVel.y;
     this.cachedHorizontalSpeed = Math.hypot(_currentVel.x, _currentVel.z);
 
-    if (this.ropeAttached) {
-      this.jumpBufferRemaining = 0;
-      this.onLadder = false;
-      this.setCrouchedState(false);
-      this.floatingDistance = this.config.capsuleRadius + this.config.floatHeight;
-      this.remainingAirJumps = this.config.maxAirJumps;
-      const wasGrounded = this.isGrounded;
-      this.isGrounded = false;
-      this.canJump = false;
-      this.motor.clearGroundedGrace();
-      if (wasGrounded) {
-        this.eventBus.emit('player:grounded', false);
-      }
-      if (this.fsm.current !== STATE.air) {
-        this.fsm.requestState(STATE.air);
-      }
-      return;
+    // -- Determine target mode --
+    const targetModeId = this.determineTargetMode(inputForFsm);
+
+    // -- Switch mode if needed --
+    if (targetModeId !== this.currentMode.id) {
+      this.switchMode(targetModeId);
     }
 
-    const movementLocked = this.fsm.current === STATE.interact;
-    const inLadderZone = this.isInsideLadder(_currentPos);
-    // Only allow jump to trigger ladder grab while airborne — grounded jumps
-    // should fire normally even inside a ladder zone.
-    const wantsLadder = !movementLocked && (input.forward || input.backward || (input.jumpPressed && !this.isGrounded) || this.onLadder);
-    this.onLadder = inLadderZone && wantsLadder;
-    if (this.onLadder) {
-      this.setCrouchedState(false);
-      this.floatingDistance = this.config.capsuleRadius + this.config.floatHeight;
-      const wasGrounded = this.isGrounded;
-      this.isGrounded = true;
-      this.canJump = true;
-      this.remainingAirJumps = this.config.maxAirJumps;
-      if (this.isGrounded !== wasGrounded) {
-        this.eventBus.emit('player:grounded', this.isGrounded);
-      }
-      this.fsm.handleInput(input, true);
+    // -- FSM update (skip for ladder — LadderMode handles its own FSM) --
+    if (this.currentMode.id !== "ladder") {
+      this.fsm.handleInput(inputForFsm, this.isGrounded);
       this.fsm.update(dt);
-      this.handleLadderMovement(input);
-      return;
-    }
-    if (this.motor.gravityScale === 0) {
-      this.motor.setGravityScale(this.body, 1);
     }
 
-    this.fsm.handleInput(inputForFsm, this.isGrounded);
-    this.fsm.update(dt);
-    if (this.ropeAttached) {
-      if (this.fsm.current !== STATE.air) {
-        this.fsm.requestState(STATE.air);
+    // -- Rotation (skip for rope/ladder — no player-driven movement) --
+    if (this.currentMode.id !== "rope" && this.currentMode.id !== "ladder") {
+      const desiredInputDir = this.computeMovementDirection(inputForFsm);
+      if (desiredInputDir.lengthSq() > 0.0001) {
+        this.rotateToward(desiredInputDir, dt);
       }
-      return;
-    }
-
-    const desiredInputDir = this.computeMovementDirection(inputForFsm);
-    if (desiredInputDir.lengthSq() > 0.0001) {
-      this.rotateToward(desiredInputDir, dt);
     }
 
     // -- Delegate to current mode --
@@ -422,28 +398,43 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     if (this.grabCarry.isCarrying) {
       this.grabCarry.updateCarry(_currentPos, this.currentCapsuleHalfHeight);
     }
+  }
 
+  /**
+   * Determine which mode should be active based on current state.
+   * Priority: rope > ladder > grounded > air.
+   */
+  private determineTargetMode(input: InputState): string {
+    if (this.ropeAttached) return "rope";
+
+    const movementLocked = this.fsm.current === STATE.interact;
+    const inLadderZone = this.isInsideLadder(_currentPos);
+    // Only allow jump to trigger ladder grab while airborne — grounded jumps
+    // should fire normally even inside a ladder zone.
+    const wantsLadder =
+      !movementLocked && (input.forward || input.backward || (input.jumpPressed && !this.isGrounded) || this.onLadder);
+    if (inLadderZone && wantsLadder) return "ladder";
+
+    // When leaving ladder zone, restore gravity
+    if (this.currentMode.id === "ladder" && !inLadderZone) {
+      return "grounded";
+    }
+
+    // If currently in grounded or air mode, let the mode itself decide transitions
+    // via its fixedUpdate return value.
+    return this.currentMode.id === "ladder" ? "grounded" : this.currentMode.id;
   }
 
   private switchMode(modeId: string): void {
-    const mode = this.resolveMode(modeId);
+    const mode = this.modes.get(modeId);
     if (!mode) return;
-    this.currentMode.exit?.(this.buildContext());
+    const ctx = this.buildContext();
+    this.currentMode.exit?.(ctx);
+    this.syncFromContext(ctx);
     this.currentMode = mode;
-    this.currentMode.enter?.(this.buildContext());
-  }
-
-  private resolveMode(id: string): CharacterMode | null {
-    switch (id) {
-      case 'grounded': return this.groundedMode;
-      default: return null;
-    }
-  }
-
-  postPhysicsUpdate(_dt: number): void {
-    if (!this.active) return;
-    const pos = this.body.translation();
-    this.currPosition.set(pos.x, pos.y, pos.z);
+    const enterCtx = this.buildContext();
+    this.currentMode.enter?.(enterCtx);
+    this.syncFromContext(enterCtx);
   }
 
   private isInsideLadder(position: THREE.Vector3): boolean {
@@ -457,47 +448,10 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     return false;
   }
 
-  /** Uncrouch helper for non-mode paths (rope attach, ladder). */
-  private setCrouchedState(crouched: boolean): void {
-    if (this.isCrouched === crouched) return;
-    this.isCrouched = crouched;
-    if (!crouched) {
-      this.crouchReleaseGraceRemaining = 0;
-    }
-    const targetHalf = crouched ? this.crouchedCapsuleHalfHeight : this.standingCapsuleHalfHeight;
-    if (Math.abs(targetHalf - this.currentCapsuleHalfHeight) <= 0.0001) return;
-
+  postPhysicsUpdate(_dt: number): void {
+    if (!this.active) return;
     const pos = this.body.translation();
-    const deltaHalf = this.currentCapsuleHalfHeight - targetHalf;
-    this.currentCapsuleHalfHeight = targetHalf;
-    this.collider.setHalfHeight(targetHalf);
-    this.body.setTranslation(_setRV(_rv3A, pos.x, pos.y - deltaHalf, pos.z), true);
-    this.body.wakeUp();
-    this.currPosition.set(pos.x, pos.y - deltaHalf, pos.z);
-    this.prevPosition.set(pos.x, pos.y - deltaHalf, pos.z);
-    this.floatingDistance = this.config.capsuleRadius + this.config.floatHeight;
-  }
-
-  private handleLadderMovement(input: InputState): void {
-    const climbDir = (input.forward ? 1 : 0) - (input.backward ? 1 : 0);
-    const climbSpeed = input.sprint ? 3.6 : 2.6;
-    const lv = this.body.linvel();
-    this.motor.setGravityScale(this.body, 0);
-    this.body.setLinvel(
-      _setRV(_rv3A, lv.x * 0.2, climbDir * climbSpeed, lv.z * 0.2),
-      true,
-    );
-
-    if (input.jumpPressed) {
-      this.onLadder = false;
-      this.motor.setGravityScale(this.body, 1);
-      this.jumpBufferRemaining = 0;
-      this.remainingAirJumps = this.config.maxAirJumps;
-      this.body.setLinvel(
-        _setRV(_rv3A, lv.x * 0.6, Math.max(this.config.jumpForce * 0.9, 3.2), lv.z * 0.6),
-        true,
-      );
-    }
+    this.currPosition.set(pos.x, pos.y, pos.z);
   }
 
   update(_dt: number, alpha: number): void {
@@ -508,9 +462,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     const scaleY = 1 - this.crouchVisual * 0.28;
     const scaleXZ = 1 + this.crouchVisual * 0.04;
     this.mesh.scale.set(scaleXZ, scaleY, scaleXZ);
-    // Sync animation playback speed to cached horizontal velocity to prevent foot-sliding.
     this.characterVisual?.setMovementSpeed(this.cachedHorizontalSpeed);
-
     this.characterVisual?.setState(this.fsm.current);
     this.characterVisual?.update(_dt);
   }
@@ -572,19 +524,12 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
   attachToRope(): void {
     this.ropeAttached = true;
-    this.onLadder = false;
-    this.setCrouchedState(false);
-    // Ensure rope dynamics are not amplified by carry-over fall gravity.
-    this.motor.setGravityScale(this.body, 1);
-    this.jumpBufferRemaining = 0;
-    this.remainingAirJumps = this.config.maxAirJumps;
-    if (this.fsm.current !== STATE.air) {
-      this.fsm.requestState(STATE.air);
-    }
+    this.switchMode("rope");
   }
 
   detachFromRope(): void {
     this.ropeAttached = false;
+    // RopeMode.fixedUpdate will detect ropeAttached=false and return 'air'
   }
 
   getCameraForward(): THREE.Vector3 {

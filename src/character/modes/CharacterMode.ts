@@ -1,11 +1,11 @@
-import type * as THREE from 'three';
-import type * as RAPIER from '@dimforge/rapier3d-compat';
-import type { InputState, PlayerConfig } from '@core/types';
-import type { CharacterFSM } from '../CharacterFSM';
-import type { CharacterMotor, GroundInfo } from '../CharacterMotor';
-import type { GrabCarryController } from '../GrabCarryController';
-import type { EventBus } from '@core/EventBus';
-import type { PhysicsWorld } from '@physics/PhysicsWorld';
+import type { EventBus } from "@core/EventBus";
+import type { InputState, PlayerConfig } from "@core/types";
+import type * as RAPIER from "@dimforge/rapier3d-compat";
+import type { PhysicsWorld } from "@physics/PhysicsWorld";
+import type * as THREE from "three";
+import type { CharacterFSM } from "../CharacterFSM";
+import type { CharacterMotor, GroundInfo } from "../CharacterMotor";
+import type { GrabCarryController } from "../GrabCarryController";
 
 /** Shared context that CharacterModes read and write. */
 export interface PlayerContext {
@@ -53,6 +53,13 @@ export interface PlayerContext {
 
   // Moving platform velocity (written by GroundedMode)
   readonly movingObjectVelocity: THREE.Vector3;
+
+  // Ladder state
+  onLadder: boolean;
+  readonly ladderZones: readonly THREE.Box3[];
+
+  // Rope state
+  ropeAttached: boolean;
 
   /** Compute camera-relative movement direction from input. */
   computeMovementDirection(input: InputState): THREE.Vector3;
