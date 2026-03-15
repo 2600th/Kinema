@@ -129,7 +129,7 @@ export class ProceduralBuilder {
     const gridTexture = this.createGroundGridTexture();
     // ── Astro Bot-inspired bright, plastic-toy palette — all clearcoat for premium look ──
     const floorMat = new THREE.MeshStandardMaterial({
-      color: 0xf0f0f4,
+      color: 0xd0d4d8,
       map: gridTexture,
       roughness: 0.55,
       metalness: 0.0,
@@ -190,13 +190,13 @@ export class ProceduralBuilder {
     hallGridTex.repeat.set(10, 10 * corridorAspect);
     hallGridTex.needsUpdate = true;
     floorRoughnessNoise.repeat.set(3, 3 * corridorAspect);
-    // Bright clean floor — Astro Bot plastic toy aesthetic.
-    const hallFloorMat = new THREE.MeshStandardMaterial({ color: 0xf4f4f6, roughness: 0.5, metalness: 0.0 });
+    // PBR-safe bright floor — slightly toned down to allow highlight readability.
+    const hallFloorMat = new THREE.MeshStandardMaterial({ color: 0xd8dce0, roughness: 0.5, metalness: 0.0 });
     hallFloorMat.map = hallGridTex;
     hallFloorMat.roughnessMap = floorRoughnessNoise;
     hallFloorMat.needsUpdate = true;
-    // Clean bright walls with slight sheen.
-    const hallWallMat = new THREE.MeshStandardMaterial({ color: 0xfafbff, roughness: 0.4, metalness: 0.05 });
+    // PBR-safe bright walls — max 80% albedo to prevent exposure blowout.
+    const hallWallMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.4, metalness: 0.05 });
     // Bay material is now per-station themed (see stationColors array below).
 
     const wallThickness = 0.6;
@@ -428,7 +428,7 @@ export class ProceduralBuilder {
       const lightColor = new THREE.Color().lerpColors(warmLight, coolLight, t);
 
       const panelMat = new THREE.MeshStandardMaterial({
-        color: 0xfafafa,
+        color: 0xd0d4dc,
         roughness: 0.2,
         metalness: 0.0,
         emissive: panelEmissive,
@@ -793,8 +793,8 @@ export class ProceduralBuilder {
     }
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    // Bright base for Astro Bot clean floor look.
-    ctx.fillStyle = '#e8ecf0';
+    // PBR-safe bright base — slight warmth for the grid texture.
+    ctx.fillStyle = '#d0d4d8';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const majorStep = 256;
