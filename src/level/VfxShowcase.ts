@@ -33,11 +33,14 @@ export async function createVfxShowcase(
       vec3,
       mix,
       step,
+      abs,
+      pow,
+      smoothstep,
+      mul,
+      add,
+      cos,
     } = await import('three/tsl');
     const { mx_fractal_noise_float } = await import('three/tsl');
-
-    // Helper constant — TSL float for PI
-    const PI_VAL = float(Math.PI);
 
     // =====================================================================
     // EFFECT A — DISSOLVE SPHERE
@@ -89,76 +92,183 @@ export async function createVfxShowcase(
     }
 
     // =====================================================================
-    // EFFECT B — FIRE WITH SMOKE
+    // EFFECT B — FIRE WITH SMOKE (multi-layered volumetric)
     // =====================================================================
     {
       const posX = base.x - 5;
-      const posY = base.y + 1.5;
+      const posY = base.y + 0.2;
       const posZ = base.z;
 
-      // --- Fire cylinder ---
-      const fireGeo = new THREE.CylinderGeometry(0.8, 0.4, 3, 16, 16, true);
-      const fireMat = new MeshBasicNodeMaterial();
-      fireMat.transparent = true;
-      fireMat.blending = THREE.AdditiveBlending;
-      fireMat.depthWrite = false;
-      fireMat.side = THREE.DoubleSide;
+      const fireGroup = new THREE.Group();
+      fireGroup.position.set(posX, posY, posZ);
+      scene.add(fireGroup);
+      created.push(fireGroup);
 
-      // Scrolling UV for upward flame motion
-      const fireUV = uv();
-      const scrolledUV = fireUV.sub(vec2(0, time.mul(0.8)));
+      // --- 6 flame sheet planes rotated around Y axis ---
+      const FLAME_COUNT = 6;
+      const flameGeo = new THREE.PlaneGeometry(1.0, 2.5, 1, 12);
 
-      // Two octaves of fractal noise for fire shape
-      const noise1 = mx_fractal_noise_float(scrolledUV.mul(4.0));
-      const noise2 = mx_fractal_noise_float(scrolledUV.mul(8.0).add(1.5));
-      const fireMask = noise1.mul(0.7).add(noise2.mul(0.3));
+      for (let i = 0; i < FLAME_COUNT; i++) {
+        const flameMat = new MeshBasicNodeMaterial();
+        flameMat.transparent = true;
+        flameMat.blending = THREE.AdditiveBlending;
+        flameMat.depthWrite = false;
+        flameMat.side = THREE.DoubleSide;
 
-      // Vertical fade: strongest in the middle, fades at top and bottom
-      const vertFade = sin(fireUV.y.mul(PI_VAL)).pow(float(0.5));
-      const fireAlpha = fireMask.mul(vertFade).clamp(0, 1);
+        // Unique seed per sheet for variation
+        const seed = float(i * 1.7 + 0.3);
 
-      // Color gradient: white-yellow core → orange-red at edges
-      const fireColor = mix(vec3(1, 0.9, 0.3), vec3(1, 0.2, 0), fireMask);
+        // --- Position node: sway upper vertices ---
+        const uvY = uv().y;
+        const swayAmount = mul(uvY, uvY); // quadratic weight — base stays still
+        const swayX = sin(add(time.mul(2.5), seed)).mul(0.12).mul(swayAmount);
+        const swayZ = cos(add(time.mul(1.8), seed.mul(1.3))).mul(0.06).mul(swayAmount);
+        flameMat.positionNode = vec3(
+          positionLocal.x.add(swayX),
+          positionLocal.y,
+          positionLocal.z.add(swayZ),
+        );
 
-      fireMat.colorNode = fireColor;
-      fireMat.opacityNode = fireAlpha;
+        // --- Scrolling UV for upward flame motion ---
+        const flameUV = uv();
+        const scrollSpeed = float(0.9).add(sin(seed).mul(0.15)); // slight per-sheet speed variation
+        const scrolledV = flameUV.y.sub(time.mul(scrollSpeed));
+        const scrolledUV = vec2(
+          flameUV.x.add(sin(add(time.mul(0.7), seed.mul(2.0))).mul(0.08)),
+          scrolledV,
+        );
 
-      const fireMesh = new THREE.Mesh(fireGeo, fireMat);
-      fireMesh.position.set(posX, posY, posZ);
-      fireMesh.castShadow = false;
-      scene.add(fireMesh);
-      created.push(fireMesh);
+        // --- Fractal noise for fire shape ---
+        const noise = mx_fractal_noise_float(scrolledUV.mul(3.5).add(seed));
+
+        // Remap noise to 0..1 heat value
+        const heat = noise.mul(0.5).add(0.5).clamp(0, 1);
+
+        // --- 5-stop color ramp ---
+        // 0.0: #2A0A02  0.3: #A61E06  0.55: #FF5A0A  0.8: #FFB01F  1.0: #FFFFFF
+        const darkEmber  = vec3(0.165, 0.039, 0.008);
+        const redOrange  = vec3(0.651, 0.118, 0.024);
+        const hotOrange  = vec3(1.0, 0.353, 0.039);
+        const golden     = vec3(1.0, 0.690, 0.122);
+        const whiteCore  = vec3(1.0, 1.0, 1.0);
+
+        // Piecewise lerp through the ramp stops
+        const t1 = smoothstep(0.0, 0.3, heat);
+        const t2 = smoothstep(0.3, 0.55, heat);
+        const t3 = smoothstep(0.55, 0.8, heat);
+        const t4 = smoothstep(0.8, 1.0, heat);
+
+        const rampColor = mix(
+          mix(
+            mix(
+              mix(darkEmber, redOrange, t1),
+              hotOrange,
+              t2,
+            ),
+            golden,
+            t3,
+          ),
+          whiteCore,
+          t4,
+        );
+
+        flameMat.colorNode = rampColor;
+
+        // --- Opacity: noise * vertical fade * horizontal taper ---
+        // Horizontal taper: fade at left/right edges
+        const horizDist = abs(flameUV.x.mul(2.0).sub(1.0));
+        const horizTaper = pow(float(1.0).sub(horizDist), float(1.3));
+
+        // Vertical fade: strong at bottom, fades out at top, small fade at very bottom
+        const topFade = float(1.0).sub(smoothstep(0.65, 1.0, flameUV.y));
+        const bottomFade = smoothstep(0.0, 0.08, flameUV.y);
+        const vertFade = mul(topFade, bottomFade);
+
+        // Combine
+        const flameAlpha = mul(heat, mul(vertFade, horizTaper)).clamp(0, 1);
+
+        flameMat.opacityNode = flameAlpha;
+
+        const flameMesh = new THREE.Mesh(flameGeo, flameMat);
+        flameMesh.rotation.y = (i * 30 * Math.PI) / 180; // every 30 degrees
+        flameMesh.position.y = 1.25; // raise so base sits at group origin
+        flameMesh.castShadow = false;
+        flameMesh.renderOrder = 1;
+        fireGroup.add(flameMesh);
+      }
 
       // --- Point light for ground illumination ---
       const fireLight = new THREE.PointLight(0xff6600, 8, 10, 2);
-      fireLight.position.set(posX, base.y + 0.3, posZ);
+      fireLight.position.set(posX, base.y + 0.5, posZ);
       fireLight.castShadow = false;
       scene.add(fireLight);
       created.push(fireLight);
 
-      // --- Dark smoke puffs above the fire ---
-      const smokeOffsets = [2.5, 3.0, 3.5, 3.8];
-      for (const yOff of smokeOffsets) {
+      // --- Smoke puffs above the fire (improved with node material) ---
+      const smokeOffsets = [2.8, 3.4, 4.0, 4.5, 5.0];
+      for (let s = 0; s < smokeOffsets.length; s++) {
+        const yOff = smokeOffsets[s];
         const smokeGeo = new THREE.SphereGeometry(
-          0.25 + Math.random() * 0.15,
+          0.2 + Math.random() * 0.2,
           8,
           8,
         );
-        const smokeMat = new THREE.MeshStandardMaterial({
-          color: 0x222222,
-          transparent: true,
-          opacity: 0.4,
-        });
+        const smokeMat = new MeshBasicNodeMaterial();
+        smokeMat.transparent = true;
+        smokeMat.depthWrite = false;
+
+        // Dark wispy smoke with slight noise-driven opacity variation
+        const smokeSeed = float(s * 2.3 + 7.0);
+        const smokeNoise = mx_fractal_noise_float(
+          positionLocal.mul(2.0).add(vec3(0, time.mul(0.3), smokeSeed)),
+        );
+        smokeMat.colorNode = vec3(0.08, 0.08, 0.1);
+        // Fade out higher smoke puffs more
+        const heightRatio = float(1.0 - (yOff - 2.8) / 2.5);
+        smokeMat.opacityNode = smokeNoise
+          .mul(0.5)
+          .add(0.5)
+          .mul(0.35)
+          .mul(heightRatio)
+          .clamp(0, 0.4);
+
         const smokeMesh = new THREE.Mesh(smokeGeo, smokeMat);
         smokeMesh.position.set(
-          posX + (Math.random() - 0.5) * 0.6,
-          posY + yOff,
-          posZ + (Math.random() - 0.5) * 0.6,
+          (Math.random() - 0.5) * 0.5,
+          yOff,
+          (Math.random() - 0.5) * 0.5,
         );
         smokeMesh.castShadow = false;
-        scene.add(smokeMesh);
-        created.push(smokeMesh);
+        fireGroup.add(smokeMesh);
       }
+
+      // --- Ember particles (tiny rising sparks) ---
+      const emberCount = 30;
+      const emberPositions = new Float32Array(emberCount * 3);
+      for (let e = 0; e < emberCount; e++) {
+        const e3 = e * 3;
+        const angle = Math.random() * Math.PI * 2;
+        const radius = Math.random() * 0.4;
+        emberPositions[e3] = Math.cos(angle) * radius;
+        emberPositions[e3 + 1] = 0.5 + Math.random() * 2.0;
+        emberPositions[e3 + 2] = Math.sin(angle) * radius;
+      }
+      const emberGeo = new THREE.BufferGeometry();
+      emberGeo.setAttribute(
+        'position',
+        new THREE.BufferAttribute(emberPositions, 3),
+      );
+      const emberMat = new THREE.PointsMaterial({
+        color: 0xff8820,
+        size: 0.06,
+        blending: THREE.AdditiveBlending,
+        transparent: true,
+        opacity: 0.9,
+        depthWrite: false,
+      });
+      const emberPoints = new THREE.Points(emberGeo, emberMat);
+      emberPoints.castShadow = false;
+      fireGroup.add(emberPoints);
     }
 
     // =====================================================================
