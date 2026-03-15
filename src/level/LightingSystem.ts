@@ -86,11 +86,19 @@ export class LightingSystem implements Disposable {
     return this.ownedObjects;
   }
 
-  /** Keep directional light near player for stable, sharp shadows. */
+  /** Keep directional light near player for stable, sharp shadows.
+   * Snaps to shadow texel grid to prevent shadow swimming/shimmer. */
   updateLighting(playerPos: THREE.Vector3): void {
     if (!this.dirLight || !this.dirLightTarget) return;
-    _lightGoalPos.set(playerPos.x + 10, playerPos.y + 30, playerPos.z + 8);
-    _lightGoalTarget.set(playerPos.x, playerPos.y + 1, playerPos.z);
+    // Snap to shadow texel size to prevent shadow swimming from continuous movement.
+    const shadowFrustumSize = 70; // matches shadow.camera.left/right
+    const shadowMapSize = this.dirLight.shadow.mapSize.x || 2048;
+    const texelSize = shadowFrustumSize / shadowMapSize;
+    const snappedX = Math.round(playerPos.x / texelSize) * texelSize;
+    const snappedZ = Math.round(playerPos.z / texelSize) * texelSize;
+
+    _lightGoalPos.set(snappedX + 10, playerPos.y + 30, snappedZ + 8);
+    _lightGoalTarget.set(snappedX, playerPos.y + 1, snappedZ);
     this.lightFollowPos.lerp(_lightGoalPos, 0.08);
     this.lightTargetPos.lerp(_lightGoalTarget, 0.1);
     this.dirLight.position.copy(this.lightFollowPos);
