@@ -196,12 +196,10 @@ export class ProceduralBuilder {
     hallFloorMat.map = hallGridTex;
     hallFloorMat.roughnessMap = floorRoughnessNoise;
     hallFloorMat.needsUpdate = true;
-    // Muted warm-gray walls — provides contrast for colorful station elements to pop.
-    const hallWallMat = new THREE.MeshStandardMaterial({ color: 0xa8b0b8, roughness: 0.5, metalness: 0.03 });
+    // (Walls removed — open-air design. hallWallMat no longer needed.)
     // Bay material is now per-station themed (see stationColors array below).
 
-    const wallThickness = 0.6;
-    const wallHeight = 5; // Low walls for open-air Astro Bot feel — sky visible above
+    // Walls removed — open-air floating walkway design.
 
     // Corridor structure (skip in single-station mode)
     if (buildAll) {
@@ -214,101 +212,58 @@ export class ProceduralBuilder {
     hallFloor.updateWorldMatrix(true, false);
     this.colliders.push(this.colliderFactory.createTrimesh(hallFloor));
 
-    // Extend walls 0.5 units below floor to seal the floor/wall seam (prevents light leaks).
-    const wallOverlap = 0.5;
-    const extendedWallHeight = wallHeight + wallOverlap;
-    const leftWall = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, extendedWallHeight, hallLength), hallWallMat);
-    leftWall.position.set(-hallWidth / 2 - wallThickness / 2, extendedWallHeight / 2 - 1.0 - wallOverlap, showcaseCenterZ);
-    leftWall.name = 'ShowcaseWallL_col';
-    leftWall.receiveShadow = true;
-    this.scene.add(leftWall);
-    this.meshes.push(leftWall);
-    leftWall.updateWorldMatrix(true, false);
-    this.colliders.push(this.colliderFactory.createTrimesh(leftWall));
+    // ── Astro Bot-style: open-air floating walkway with rounded edge rails ──
+    // No walls, no ribs, no beams — just clean rounded borders on the floor edges.
+    const railMat = new THREE.MeshPhysicalMaterial({
+      color: 0xf0f0f0,
+      roughness: 0.2,
+      metalness: 0.0,
+      clearcoat: 0.6,
+      clearcoatRoughness: 0.1,
+    });
+    const railRadius = 0.2;
+    const railSegments = 12;
 
-    const rightWall = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, extendedWallHeight, hallLength), hallWallMat);
-    rightWall.position.set(hallWidth / 2 + wallThickness / 2, extendedWallHeight / 2 - 1.0 - wallOverlap, showcaseCenterZ);
-    rightWall.name = 'ShowcaseWallR_col';
-    rightWall.receiveShadow = true;
-    this.scene.add(rightWall);
-    this.meshes.push(rightWall);
-    rightWall.updateWorldMatrix(true, false);
-    this.colliders.push(this.colliderFactory.createTrimesh(rightWall));
+    // Left edge rail — rounded cylinder running the length of the corridor
+    const leftRail = new THREE.Mesh(
+      new THREE.CylinderGeometry(railRadius, railRadius, hallLength, railSegments),
+      railMat,
+    );
+    leftRail.rotation.x = Math.PI / 2; // align along Z
+    leftRail.position.set(-hallWidth / 2, -0.8, showcaseCenterZ);
+    leftRail.name = 'WalkwayRail_L';
+    leftRail.castShadow = true;
+    leftRail.receiveShadow = true;
+    this.scene.add(leftRail);
+    this.meshes.push(leftRail);
+    leftRail.updateWorldMatrix(true, false);
+    this.colliders.push(this.colliderFactory.createTrimesh(leftRail));
 
-    const endWall = new THREE.Mesh(new THREE.BoxGeometry(hallWidth + wallThickness * 2, wallHeight, wallThickness), hallWallMat);
-    endWall.position.set(0, wallHeight / 2 - 1.0, showcaseCenterZ - hallLength / 2 - wallThickness / 2);
-    endWall.name = 'ShowcaseWallEnd_col';
-    endWall.receiveShadow = true;
-    this.scene.add(endWall);
-    this.meshes.push(endWall);
-    endWall.updateWorldMatrix(true, false);
-    this.colliders.push(this.colliderFactory.createTrimesh(endWall));
+    // Right edge rail
+    const rightRail = leftRail.clone();
+    rightRail.position.set(hallWidth / 2, -0.8, showcaseCenterZ);
+    rightRail.name = 'WalkwayRail_R';
+    this.scene.add(rightRail);
+    this.meshes.push(rightRail);
+    rightRail.updateWorldMatrix(true, false);
+    this.colliders.push(this.colliderFactory.createTrimesh(rightRail));
 
-    // Close the corridor on the entrance side as well, to avoid seeing the environment.
-    const frontWall = new THREE.Mesh(new THREE.BoxGeometry(hallWidth + wallThickness * 2, wallHeight, wallThickness), hallWallMat);
-    frontWall.position.set(0, wallHeight / 2 - 1.0, showcaseCenterZ + hallLength / 2 + wallThickness / 2);
-    frontWall.name = 'ShowcaseWallFront_col';
-    frontWall.receiveShadow = true;
-    this.scene.add(frontWall);
-    this.meshes.push(frontWall);
-    frontWall.updateWorldMatrix(true, false);
-    this.colliders.push(this.colliderFactory.createTrimesh(frontWall));
+    // Thin side skirt below the floor for visual thickness (like a floating platform)
+    const skirtMat = new THREE.MeshStandardMaterial({ color: 0x8090a0, roughness: 0.5, metalness: 0.1 });
+    const leftSkirt = new THREE.Mesh(
+      new THREE.BoxGeometry(0.3, 1.2, hallLength),
+      skirtMat,
+    );
+    leftSkirt.position.set(-hallWidth / 2 + 0.15, -1.6, showcaseCenterZ);
+    leftSkirt.name = 'WalkwaySkirt_L';
+    this.scene.add(leftSkirt);
+    this.meshes.push(leftSkirt);
 
-    // Open-air — no canopy or ceiling structure. Sky is the roof.
-
-    // --- Instanced structural ribs for parallax and visual rhythm ---
-    const ribSpacing = 15;
-    const ribCount = Math.floor(hallLength / ribSpacing);
-    const ribWidth = 0.65;
-    const ribHeight = wallHeight;
-    const ribDepth = 0.65;
-    // Darker accent ribs — contrasts against lighter walls for framing.
-    const ribMat = new THREE.MeshStandardMaterial({ color: 0x607088, roughness: 0.35, metalness: 0.15 });
-    const ribGeom = new THREE.BoxGeometry(ribWidth, ribHeight, ribDepth);
-
-    // Left ribs
-    const leftRibs = new THREE.InstancedMesh(ribGeom, ribMat, ribCount);
-    leftRibs.name = 'CorridorRibs_L';
-    leftRibs.castShadow = true;
-    leftRibs.receiveShadow = true;
-    const ribMatrix = new THREE.Matrix4();
-    for (let i = 0; i < ribCount; i++) {
-      const z = showcaseCenterZ + hallLength / 2 - (i + 0.5) * ribSpacing;
-      ribMatrix.makeTranslation(-hallWidth / 2 + ribWidth / 2, ribHeight / 2 - 1.0, z);
-      leftRibs.setMatrixAt(i, ribMatrix);
-    }
-    leftRibs.instanceMatrix.needsUpdate = true;
-    this.scene.add(leftRibs);
-    this.meshes.push(leftRibs);
-
-    // Right ribs
-    const rightRibs = new THREE.InstancedMesh(ribGeom, ribMat, ribCount);
-    rightRibs.name = 'CorridorRibs_R';
-    rightRibs.castShadow = true;
-    rightRibs.receiveShadow = true;
-    for (let i = 0; i < ribCount; i++) {
-      const z = showcaseCenterZ + hallLength / 2 - (i + 0.5) * ribSpacing;
-      ribMatrix.makeTranslation(hallWidth / 2 - ribWidth / 2, ribHeight / 2 - 1.0, z);
-      rightRibs.setMatrixAt(i, ribMatrix);
-    }
-    rightRibs.instanceMatrix.needsUpdate = true;
-    this.scene.add(rightRibs);
-    this.meshes.push(rightRibs);
-
-    // Ceiling cross-beams connecting the ribs (visual depth)
-    const beamGeom = new THREE.BoxGeometry(hallWidth, 0.5, ribDepth);
-    const beamRibs = new THREE.InstancedMesh(beamGeom, ribMat, ribCount);
-    beamRibs.name = 'CorridorBeams';
-    beamRibs.castShadow = true;
-    beamRibs.receiveShadow = true;
-    for (let i = 0; i < ribCount; i++) {
-      const z = showcaseCenterZ + hallLength / 2 - (i + 0.5) * ribSpacing;
-      ribMatrix.makeTranslation(0, wallHeight - 1.0 - 0.15, z);
-      beamRibs.setMatrixAt(i, ribMatrix);
-    }
-    beamRibs.instanceMatrix.needsUpdate = true;
-    this.scene.add(beamRibs);
-    this.meshes.push(beamRibs);
+    const rightSkirt = leftSkirt.clone();
+    rightSkirt.position.set(hallWidth / 2 - 0.15, -1.6, showcaseCenterZ);
+    rightSkirt.name = 'WalkwaySkirt_R';
+    this.scene.add(rightSkirt);
+    this.meshes.push(rightSkirt);
 
     // ── Floating sparkle particles throughout the corridor ──
     const sparkles = new SparkleParticles({
@@ -813,21 +768,15 @@ export class ProceduralBuilder {
     } // end futureA
 
     // --- Visual polish (skip in single-station mode) ---
+    // Open-air design: only floor-level decorations, no wall/ceiling references.
     if (buildAll) {
     this.addFloorCenterline(hallLength, showcaseCenterZ);
     this.addBayAccentBorders(bayZ, bayWidth, bayLength, bayPedestalY, bayPedestalHeight);
-    this.addCorridorTrim(hallWidth, wallHeight, hallLength, showcaseCenterZ, wallThickness);
-    this.addWallPilasters(bayZ, hallWidth, wallHeight, wallThickness);
-    this.addEntranceFrame(hallWidth, wallHeight, hallLength, showcaseCenterZ);
     this.addFloorBayGrooves(bayZ, hallWidth, bayLength);
-    this.addWallEmissiveStrips(hallWidth, hallLength, showcaseCenterZ, wallThickness);
     this.addDustMotes(hallWidth, hallLength, showcaseCenterZ);
-    this.addBulkheadFrames(hallWidth, wallHeight, showcaseCenterZ);
     this.addBayPedestalEdgeGlow(bayZ, bayWidth, bayLength, bayPedestalY, bayPedestalHeight);
     this.addHeroSpotlights(bayZ, bayPedestalY);
-    this.addWallRecessedPanels(bayZ, hallWidth, wallHeight, wallThickness);
     this.addReflectiveFloorPatches(bayZ, bayWidth, bayLength, bayPedestalY);
-    this.addBackWallPartition(hallWidth, wallHeight, showcaseCenterZ, hallLength, hallWallMat);
     } // end buildAll visual polish
 
     // spawnPoint is set to the showcase corridor near the top of this method.
@@ -1556,160 +1505,6 @@ export class ProceduralBuilder {
     this.meshes.push(mesh);
   }
 
-  /** Baseboard and ceiling trim strips at wall-floor / wall-ceiling junctions. */
-  private addCorridorTrim(
-    hallWidth: number,
-    wallHeight: number,
-    hallLength: number,
-    centerZ: number,
-    wallThickness: number,
-  ): void {
-    const trimMat = new THREE.MeshStandardMaterial({ color: 0x4a6090, roughness: 0.7, metalness: 0.05 });
-    const trimHeight = 0.18;
-    const trimDepth = 0.12;
-    const floorY = -1.0 + trimHeight / 2;
-    const ceilingY = -1.0 + wallHeight - trimHeight / 2;
-    const halfW = hallWidth / 2 + wallThickness / 2 - trimDepth / 2;
-
-    const positions = [
-      { x: -halfW, y: floorY, label: 'BaseboardL' },
-      { x: halfW, y: floorY, label: 'BaseboardR' },
-      { x: -halfW, y: ceilingY, label: 'CeilingTrimL' },
-      { x: halfW, y: ceilingY, label: 'CeilingTrimR' },
-    ];
-
-    for (const p of positions) {
-      const strip = new THREE.Mesh(new THREE.BoxGeometry(trimDepth, trimHeight, hallLength), trimMat);
-      strip.position.set(p.x, p.y, centerZ);
-      strip.name = p.label;
-      strip.castShadow = false;
-      strip.receiveShadow = false;
-      this.scene.add(strip);
-      this.meshes.push(strip);
-    }
-  }
-
-  /** Subtle vertical extrusions at bay boundaries along both walls. */
-  private addWallPilasters(
-    bayZ: number[],
-    hallWidth: number,
-    wallHeight: number,
-    wallThickness: number,
-  ): void {
-    const count = bayZ.length;
-    if (count === 0) return;
-    const pilasterWidth = 0.5;
-    const pilasterDepth = 0.2;
-    const pilasterHeight = wallHeight - 0.4;
-    const geo = new THREE.BoxGeometry(pilasterDepth, pilasterHeight, pilasterWidth);
-    const mat = new THREE.MeshStandardMaterial({ color: 0x4060a0, roughness: 0.7, metalness: 0.05 });
-
-    // 2 instanced meshes: left wall and right wall.
-    const halfW = hallWidth / 2 + wallThickness / 2 - pilasterDepth / 2;
-    const yCenter = -1.0 + pilasterHeight / 2 + 0.2;
-
-    for (const side of [-1, 1]) {
-      const mesh = new THREE.InstancedMesh(geo, mat, count);
-      mesh.name = side < 0 ? 'PilastersL' : 'PilastersR';
-      mesh.castShadow = false;
-      mesh.receiveShadow = false;
-      const dummy = new THREE.Object3D();
-      for (let i = 0; i < count; i++) {
-        dummy.position.set(side * halfW, yCenter, bayZ[i]);
-        dummy.updateMatrix();
-        mesh.setMatrixAt(i, dummy.matrix);
-      }
-      mesh.instanceMatrix.needsUpdate = true;
-      mesh.computeBoundingSphere();
-      this.scene.add(mesh);
-      this.meshes.push(mesh);
-    }
-  }
-
-  private addEntranceFrame(
-    hallWidth: number,
-    wallHeight: number,
-    hallLength: number,
-    centerZ: number,
-  ): void {
-    const frameMat = new THREE.MeshStandardMaterial({ color: 0x3a5080, roughness: 0.55, metalness: 0.15, emissive: 0x2244aa, emissiveIntensity: 0.3 });
-    const pillarW = 1.2;
-    const pillarD = 0.8;
-    const pillarH = 14.0;
-    // Place entrance frame near the spawn point (player spawns at hallLength/2 - 160)
-    const entranceZ = centerZ + hallLength / 2 - 165;
-    const halfW = hallWidth / 2 - pillarW / 2 - 1.0;
-    const pillarY = -1.0 + pillarH / 2;
-
-    // Left pillar
-    const leftPillar = new THREE.Mesh(new THREE.BoxGeometry(pillarW, pillarH, pillarD), frameMat);
-    leftPillar.position.set(-halfW, pillarY, entranceZ);
-    leftPillar.name = 'EntrancePillarL';
-    leftPillar.castShadow = true;
-    leftPillar.receiveShadow = true;
-    this.scene.add(leftPillar);
-    this.meshes.push(leftPillar);
-
-    // Right pillar
-    const rightPillar = new THREE.Mesh(new THREE.BoxGeometry(pillarW, pillarH, pillarD), frameMat);
-    rightPillar.position.set(halfW, pillarY, entranceZ);
-    rightPillar.name = 'EntrancePillarR';
-    rightPillar.castShadow = true;
-    rightPillar.receiveShadow = true;
-    this.scene.add(rightPillar);
-    this.meshes.push(rightPillar);
-
-    // Emissive accent strips on pillars (vertical glowing lines)
-    const accentMat = new THREE.MeshStandardMaterial({ color: 0x3388dd, emissive: 0x3388dd, emissiveIntensity: 1.5, roughness: 0.2 });
-    for (const sideX of [-halfW, halfW]) {
-      const strip = new THREE.Mesh(new THREE.BoxGeometry(0.06, pillarH - 1.0, 0.06), accentMat);
-      strip.position.set(sideX, pillarY, entranceZ + pillarD / 2 + 0.04);
-      strip.castShadow = false;
-      strip.receiveShadow = false;
-      this.scene.add(strip);
-      this.meshes.push(strip);
-    }
-
-    // Lintel (thicker, grander)
-    const lintelW = halfW * 2 + pillarW;
-    const lintelH = 0.8;
-    const lintel = new THREE.Mesh(new THREE.BoxGeometry(lintelW, lintelH, pillarD), frameMat);
-    lintel.position.set(0, pillarY + pillarH / 2 + lintelH / 2, entranceZ);
-    lintel.name = 'EntranceLintel';
-    lintel.castShadow = true;
-    lintel.receiveShadow = true;
-    this.scene.add(lintel);
-    this.meshes.push(lintel);
-
-    // Emissive underside glow on lintel
-    const undersideMat = new THREE.MeshStandardMaterial({ color: 0xd8e0f0, emissive: 0xd8e0f0, emissiveIntensity: 1.2, roughness: 0.3 });
-    const underside = new THREE.Mesh(new THREE.BoxGeometry(lintelW - 2, 0.05, pillarD - 0.2), undersideMat);
-    underside.position.set(0, pillarY + pillarH / 2 - 0.03, entranceZ);
-    underside.castShadow = false;
-    underside.receiveShadow = false;
-    this.scene.add(underside);
-    this.meshes.push(underside);
-
-    // Branding label above the entrance
-    this.createSectionLabel(
-      'KINEMA\nThird-Person Controller Showcase',
-      new THREE.Vector3(0, pillarY + pillarH / 2 + lintelH + 1.4, entranceZ + 0.3),
-      14,
-      3.6,
-    );
-
-    // Extra entrance spotlight for brighter spawn area
-    const spot = new THREE.SpotLight(0xe8f0ff, 60, 35, Math.PI / 4, 0.5, 1.5);
-    spot.position.set(0, -1.0 + wallHeight - 0.6, entranceZ - 2);
-    spot.target.position.set(0, -1.0, entranceZ);
-    spot.castShadow = false;
-    spot.name = 'EntranceSpot';
-    this.scene.add(spot);
-    this.scene.add(spot.target);
-    this.meshes.push(spot);
-    this.meshes.push(spot.target);
-  }
-
   /** Thin dark grooves on the floor at bay boundaries. */
   private addFloorBayGrooves(bayZ: number[], hallWidth: number, bayLength: number): void {
     const count = bayZ.length;
@@ -1741,57 +1536,6 @@ export class ProceduralBuilder {
     mesh.computeBoundingSphere();
     this.scene.add(mesh);
     this.meshes.push(mesh);
-  }
-
-  /** Emissive accent strips at 1m and 3m height on both corridor walls. */
-  private addWallEmissiveStrips(
-    hallWidth: number,
-    hallLength: number,
-    centerZ: number,
-    wallThickness: number,
-  ): void {
-    const stripMat = new THREE.MeshStandardMaterial({
-      color: 0x2255aa,
-      emissive: 0x3366bb,
-      emissiveIntensity: 0.8,
-      roughness: 0.3,
-    });
-    const stripHeight = 0.06;
-    const stripDepth = 0.04;
-    const halfW = hallWidth / 2 + wallThickness / 2 - stripDepth / 2;
-
-    // Two strips per side at different heights
-    for (const yOffset of [1.0, 3.0]) {
-      const y = -1.0 + yOffset;
-      for (const side of [-1, 1]) {
-        const strip = new THREE.Mesh(new THREE.BoxGeometry(stripDepth, stripHeight, hallLength), stripMat);
-        strip.position.set(side * halfW, y, centerZ);
-        strip.name = `WallStrip${side < 0 ? 'L' : 'R'}_${yOffset}m`;
-        strip.castShadow = false;
-        strip.receiveShadow = false;
-        this.scene.add(strip);
-        this.meshes.push(strip);
-      }
-    }
-
-    // Floor edge glow strips along both walls
-    const floorGlowMat = new THREE.MeshStandardMaterial({
-      color: 0xaa8800,
-      emissive: 0xccaa22,
-      emissiveIntensity: 0.8,
-      roughness: 0.3,
-    });
-    const floorGlowY = -0.99;
-    const floorGlowHalfW = hallWidth / 2 - 0.15;
-    for (const side of [-1, 1]) {
-      const glow = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.02, hallLength), floorGlowMat);
-      glow.position.set(side * floorGlowHalfW, floorGlowY, centerZ);
-      glow.name = `FloorEdgeGlow${side < 0 ? 'L' : 'R'}`;
-      glow.castShadow = false;
-      glow.receiveShadow = false;
-      this.scene.add(glow);
-      this.meshes.push(glow);
-    }
   }
 
   /** Gentle floating dust motes throughout the corridor. */
@@ -1830,42 +1574,6 @@ export class ProceduralBuilder {
         speed: 0.3 + Math.random() * 0.5,
         phase: Math.random() * Math.PI * 2,
       });
-    }
-  }
-
-  /** Structural archway frames every ~60 units to break infinite-corridor look. */
-  private addBulkheadFrames(hallWidth: number, wallHeight: number, centerZ: number): void {
-    const mat = new THREE.MeshStandardMaterial({
-      color: 0x3a5080, roughness: 0.55, metalness: 0.15,
-      emissive: 0x2244aa, emissiveIntensity: 0.2,
-    });
-    const postW = 0.4, postD = 0.3;
-    const beamH = 0.4;
-    const halfW = hallWidth / 2;
-    const floorY = -1.0;
-    // Place at z=150, 90, 30, -30, -90, -150, -210 (every 60 units)
-    for (let z = 150; z >= -210; z -= 60) {
-      // Left post
-      const leftPost = new THREE.Mesh(new THREE.BoxGeometry(postW, wallHeight, postD), mat);
-      leftPost.position.set(-halfW + postW / 2 + 0.3, floorY + wallHeight / 2, centerZ + z);
-      leftPost.name = `Bulkhead_L_${z}`;
-      leftPost.receiveShadow = true;
-      this.scene.add(leftPost);
-      this.meshes.push(leftPost);
-      // Right post
-      const rightPost = new THREE.Mesh(new THREE.BoxGeometry(postW, wallHeight, postD), mat);
-      rightPost.position.set(halfW - postW / 2 - 0.3, floorY + wallHeight / 2, centerZ + z);
-      rightPost.name = `Bulkhead_R_${z}`;
-      rightPost.receiveShadow = true;
-      this.scene.add(rightPost);
-      this.meshes.push(rightPost);
-      // Horizontal beam
-      const beam = new THREE.Mesh(new THREE.BoxGeometry(hallWidth - 1.0, beamH, postD), mat);
-      beam.position.set(0, floorY + wallHeight - beamH / 2 - 0.2, centerZ + z);
-      beam.name = `Bulkhead_Beam_${z}`;
-      beam.receiveShadow = true;
-      this.scene.add(beam);
-      this.meshes.push(beam);
     }
   }
 
@@ -1935,39 +1643,6 @@ export class ProceduralBuilder {
     });
   }
 
-  /** Shallow recessed wall panels between bays for architectural detail. */
-  private addWallRecessedPanels(
-    bayZ: number[], hallWidth: number, _wallHeight: number, wallThickness: number,
-  ): void {
-    const panelW = 4, panelH = 3, panelD = 0.08;
-    const frameMat = new THREE.MeshStandardMaterial({ color: 0x8090a8, roughness: 0.7, metalness: 0.1 });
-    const recessMat = new THREE.MeshStandardMaterial({
-      color: 0x606878, roughness: 0.85, metalness: 0.05,
-      emissive: 0x4466aa, emissiveIntensity: 0.2,
-    });
-    const halfW = hallWidth / 2;
-    const panelY = -1.0 + 4; // Eye-level
-    // Place a panel between each pair of consecutive bays
-    for (let i = 0; i < bayZ.length - 1; i++) {
-      const midZ = (bayZ[i] + bayZ[i + 1]) / 2;
-      for (const side of [-1, 1]) {
-        const wallX = side * (halfW - wallThickness / 2);
-        // Outer frame
-        const frame = new THREE.Mesh(new THREE.BoxGeometry(panelD, panelH + 0.2, panelW + 0.2), frameMat);
-        frame.position.set(wallX + side * 0.04, panelY, midZ);
-        frame.name = `WallPanel_F_${i}_${side > 0 ? 'R' : 'L'}`;
-        this.scene.add(frame);
-        this.meshes.push(frame);
-        // Inner recess (slightly inset)
-        const recess = new THREE.Mesh(new THREE.BoxGeometry(panelD, panelH, panelW), recessMat);
-        recess.position.set(wallX + side * 0.08, panelY, midZ);
-        recess.name = `WallPanel_R_${i}_${side > 0 ? 'R' : 'L'}`;
-        this.scene.add(recess);
-        this.meshes.push(recess);
-      }
-    }
-  }
-
   /** Reflective floor patches in front of each bay for SSR showcase. */
   private addReflectiveFloorPatches(
     bayZ: number[], bayWidth: number, bayLength: number, _bayPedestalY: number,
@@ -1984,36 +1659,6 @@ export class ProceduralBuilder {
       this.scene.add(patch);
       this.meshes.push(patch);
     });
-  }
-
-  /** Ground-hugging fog sprites for atmospheric depth. */
-  /** Solid wall behind spawn to close off the empty corridor end. */
-  private addBackWallPartition(
-    hallWidth: number, wallHeight: number, centerZ: number,
-    hallLength: number, wallMat: THREE.Material,
-  ): void {
-    const spawnZ = centerZ + hallLength / 2 - 160;
-    const wallZ = spawnZ + 10; // 10 units behind spawn
-    const floorY = -1.0;
-    // Main wall
-    const wall = new THREE.Mesh(new THREE.BoxGeometry(hallWidth - 1.2, wallHeight, 0.6), wallMat);
-    wall.position.set(0, floorY + wallHeight / 2, wallZ);
-    wall.receiveShadow = true;
-    wall.name = 'BackWallPartition_col';
-    this.scene.add(wall);
-    this.meshes.push(wall);
-    wall.updateWorldMatrix(true, false);
-    this.colliders.push(this.colliderFactory.createTrimesh(wall));
-    // Emissive accent strip on the player-facing side
-    const accentMat = new THREE.MeshStandardMaterial({
-      color: 0x3366aa, emissive: 0x3388dd, emissiveIntensity: 0.8,
-      roughness: 0.3, metalness: 0.1,
-    });
-    const accent = new THREE.Mesh(new THREE.BoxGeometry(hallWidth - 4, 0.06, 0.02), accentMat);
-    accent.position.set(0, floorY + 1.0, wallZ - 0.32);
-    accent.name = 'BackWallAccent';
-    this.scene.add(accent);
-    this.meshes.push(accent);
   }
 
   private createSectionLabel(
