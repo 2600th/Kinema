@@ -739,12 +739,12 @@ export class ProceduralBuilder {
     if (isTarget('vfx')) {
     // VFX bay.
     this.createSectionLabel(
-      'Visual Effects\nTornado \u2022 Fire \u2022 Laser \u2022 Lightning \u2022 Scanner',
+      'Visual Effects\nDissolve \u2022 Fire & Smoke \u2022 Lightning & Rain \u2022 Glowing Ring',
       new THREE.Vector3(0, 3.2, zVfx + 6),
       11.4,
       2.15,
     );
-    void this.createVfxBay(new THREE.Vector3(0, bayTopY, zVfx), bayWidth);
+    void this.createVfxBayV2(new THREE.Vector3(0, bayTopY, zVfx), bayWidth);
     } // end vfx
 
     if (isTarget('navigation')) {
@@ -1823,6 +1823,22 @@ export class ProceduralBuilder {
     return tex;
   }
 
+  /** New VFX showcase with 4 demos: dissolve, fire+smoke, lightning+rain, glowing ring. */
+  private async createVfxBayV2(base: THREE.Vector3, bayWidth: number): Promise<void> {
+    const gen = this.loadGenerationRef.value;
+    try {
+      const { createVfxShowcase } = await import('@level/VfxShowcase');
+      if (this.loadGenerationRef.value !== gen) return;
+      const objects = await createVfxShowcase(this.scene, base, bayWidth);
+      this.meshes.push(...objects);
+    } catch (err) {
+      console.warn('[ProceduralBuilder] VFX showcase V2 failed, falling back to legacy:', err);
+      // Fall back to old VFX bay
+      await this.createVfxBay(base, bayWidth);
+    }
+  }
+
+  /** @deprecated Legacy VFX bay — kept as fallback if TSL imports fail. */
   private async createVfxBay(base: THREE.Vector3, bayWidth: number): Promise<void> {
     const gen = this.loadGenerationRef.value;
     // Try TSL GPU-driven path; fall back to legacy sprites if unavailable.
