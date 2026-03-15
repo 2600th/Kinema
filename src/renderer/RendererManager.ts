@@ -1050,7 +1050,7 @@ export class RendererManager implements Disposable {
     if (!preset?.file || !this.pmrem) return;
 
     try {
-      const url = new URL(`../assets/env/${preset.file}`, import.meta.url).href;
+      const url = `/assets/env/${preset.file}`;
       const hdrTexture = await this.hdrLoader.loadAsync(url);
       const envTarget = this.pmrem.fromEquirectangular(hdrTexture);
       hdrTexture.dispose();
@@ -1163,7 +1163,7 @@ export class RendererManager implements Disposable {
       return;
     }
     try {
-      const url = new URL(`../assets/postfx/${preset.file}`, import.meta.url).href;
+      const url = `/assets/postfx/${preset.file}`;
       const result = await this.loadLutByFormat(url, preset.format);
       if (result) {
         result.needsUpdate = true;
@@ -1331,7 +1331,7 @@ export class RendererManager implements Disposable {
   private async batchLoadLuts(): Promise<void> {
     const loadPromises = LUT_PRESETS.map(async (preset) => {
       try {
-        const url = new URL(`../assets/postfx/${preset.file}`, import.meta.url).href;
+        const url = `/assets/postfx/${preset.file}`;
         const tex = await this.loadLutByFormat(url, preset.format);
         if (tex) {
           tex.needsUpdate = true;
