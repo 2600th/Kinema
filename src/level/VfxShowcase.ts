@@ -296,255 +296,44 @@ export async function createVfxShowcase(
     }
 
     // =====================================================================
-    // EFFECT C — LIGHTNING WITH RAIN
+    // EFFECT C — LIGHTNING WITH RAIN (Sketchfab GLB model by Kyyy_24, CC-BY)
     // =====================================================================
     {
-      const posX = base.x + 5;
-      const posZ = base.z;
-
-      // --- Bolt point generation with jittered control points ---
-      function generateBoltPoints(
-        boltStart: THREE.Vector3,
-        boltEnd: THREE.Vector3,
-        segments: number,
-        seed: number,
-      ): THREE.Vector3[] {
-        const pts: THREE.Vector3[] = [];
-        for (let i = 0; i <= segments; i++) {
-          const t = i / segments;
-          const p = boltStart.clone().lerp(boltEnd, t);
-          // Lateral jitter — bell curve amplitude, stronger in the middle
-          const amplitude = 0.4 * Math.sin(t * Math.PI);
-          const jitterX = (Math.sin(seed * 13.7 + i * 7.3) * 2 - 1) * amplitude;
-          const jitterZ = (Math.cos(seed * 17.1 + i * 11.2) * 2 - 1) * amplitude * 0.5;
-          // Snap direction changes every 3 segments for electric feel
-          if (i % 3 === 0) {
-            p.x += jitterX * 1.5;
-            p.z += jitterZ * 1.5;
-          } else {
-            p.x += jitterX * 0.4;
-            p.z += jitterZ * 0.4;
-          }
-          pts.push(p);
-        }
-        return pts;
-      }
-
-      // --- TSL materials for bolt core and halo ---
-      // Strike timing: visible for ~200ms every 3 seconds (fract(time*0.33) < 0.07)
-      const strikePhase = time.mul(0.33); // 3-second cycle
-      const strikeFract = strikePhase.sub(strikePhase.floor()); // fract
-      const boltFlicker = step(strikeFract, float(0.07)); // ON for first 7% of cycle (~210ms)
-
-      const coreMat = new MeshBasicNodeMaterial();
-      coreMat.transparent = true;
-      coreMat.blending = THREE.AdditiveBlending;
-      coreMat.depthWrite = false;
-      coreMat.side = THREE.DoubleSide;
-      coreMat.colorNode = vec3(0.9, 0.95, 1.0);
-      coreMat.opacityNode = boltFlicker;
-
-      const haloMat = new MeshBasicNodeMaterial();
-      haloMat.transparent = true;
-      haloMat.blending = THREE.AdditiveBlending;
-      haloMat.depthWrite = false;
-      haloMat.side = THREE.DoubleSide;
-      haloMat.colorNode = vec3(0.56, 0.83, 1.0);
-      haloMat.opacityNode = mul(boltFlicker, float(0.3));
-
-      // Smaller materials for fork branches
-      const forkCoreMat = coreMat.clone();
-      const forkHaloMat = haloMat.clone();
-
-      // --- Container group for all bolt meshes ---
-      const boltGroup = new THREE.Group();
-      boltGroup.position.set(posX, 0, posZ);
-      scene.add(boltGroup);
-      created.push(boltGroup);
-
-      // --- Build bolt geometry from a set of points ---
-      function createBoltMeshes(
-        pts: THREE.Vector3[],
-        coreRadius: number,
-        haloRadius: number,
-        cMat: InstanceType<typeof MeshBasicNodeMaterial>,
-        hMat: InstanceType<typeof MeshBasicNodeMaterial>,
-      ): THREE.Mesh[] {
-        const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.5);
-        const coreGeo = new THREE.TubeGeometry(curve, pts.length * 4, coreRadius, 6, false);
-        const haloGeo = new THREE.TubeGeometry(curve, pts.length * 4, haloRadius, 6, false);
-
-        const coreBoltMesh = new THREE.Mesh(coreGeo, cMat);
-        coreBoltMesh.castShadow = false;
-        const haloBoltMesh = new THREE.Mesh(haloGeo, hMat);
-        haloBoltMesh.castShadow = false;
-
-        return [coreBoltMesh, haloBoltMesh];
-      }
-
-      // --- Regenerate the entire bolt structure ---
-      function rebuildBolt(): void {
-        // Clear previous bolt meshes from group
-        while (boltGroup.children.length > 0) {
-          const child = boltGroup.children[0];
-          boltGroup.remove(child);
-          if (child instanceof THREE.Mesh) {
-            child.geometry.dispose();
-          }
-        }
-
-        const seed = Math.random() * 1000;
-
-        // Main bolt: 12 control points from cloud to ground
-        const mainStart = new THREE.Vector3(0, base.y + 5, 0);
-        const mainEnd = new THREE.Vector3(0, base.y + 0.5, 0);
-        const mainPts = generateBoltPoints(mainStart, mainEnd, 12, seed);
-        const mainMeshes = createBoltMeshes(mainPts, 0.03, 0.12, coreMat, haloMat);
-        for (const m of mainMeshes) boltGroup.add(m);
-
-        // Fork branches at 30%, 50%, 70% along the main bolt
-        const forkIndices = [
-          Math.round(12 * 0.3),
-          Math.round(12 * 0.5),
-          Math.round(12 * 0.7),
-        ];
-
-        for (let f = 0; f < forkIndices.length; f++) {
-          const idx = forkIndices[f];
-          const forkOrigin = mainPts[idx].clone();
-          // Fork direction: outward at 25-45 degree angle
-          const angleDeg = 25 + Math.random() * 20;
-          const angleRad = (angleDeg * Math.PI) / 180;
-          const forkSide = f % 2 === 0 ? 1 : -1;
-          const forkLength = 1.2 + Math.random() * 0.8;
-          const forkEnd = forkOrigin.clone().add(
-            new THREE.Vector3(
-              Math.sin(angleRad) * forkSide * forkLength,
-              -Math.cos(angleRad) * forkLength,
-              (Math.random() - 0.5) * 0.4,
-            ),
-          );
-
-          const forkSeed = seed + (f + 1) * 100;
-          const forkPts = generateBoltPoints(forkOrigin, forkEnd, 6, forkSeed);
-          const forkMeshes = createBoltMeshes(
-            forkPts, 0.015, 0.06, forkCoreMat, forkHaloMat,
-          );
-          for (const m of forkMeshes) boltGroup.add(m);
-        }
-      }
-
-      // Initial build + periodic regeneration every ~2 seconds
-      rebuildBolt();
-      const boltInterval = setInterval(rebuildBolt, 2000);
-      void boltInterval; // suppress unused-var lint
-
-      // --- Rain particles — dense, tall column of falling streaks ---
-      const rainCount = 500;
-      const rainPositions = new Float32Array(rainCount * 3);
-      for (let i = 0; i < rainCount; i++) {
-        const i3 = i * 3;
-        rainPositions[i3] = (Math.random() - 0.5) * 10;
-        rainPositions[i3 + 1] = Math.random() * 8;
-        rainPositions[i3 + 2] = (Math.random() - 0.5) * 10;
-      }
-
-      const rainGeo = new THREE.BufferGeometry();
-      rainGeo.setAttribute(
-        'position',
-        new THREE.BufferAttribute(rainPositions, 3),
-      );
-
-      const rainMat = new THREE.PointsMaterial({
-        color: 0x99bbdd,
-        size: 0.12,
-        transparent: true,
-        opacity: 0.7,
-      });
-
-      const rainPoints = new THREE.Points(rainGeo, rainMat);
-      rainPoints.position.set(posX, base.y + 1.5, posZ);
-      rainPoints.castShadow = false;
-      scene.add(rainPoints);
-      created.push(rainPoints);
-
-      // --- Storm cloud using billboard sprite puffs for soft, natural look ---
-      const cloudTexture = new THREE.TextureLoader().load('/assets/sprites/smoke_white.png');
-      const cloudGroup = new THREE.Group();
-      cloudGroup.position.set(posX, base.y + 6.0, posZ);
-      // Arrange many soft sprite puffs to form a cloud mass
-      const cloudPuffs = [
-        { pos: [0, 0, 0], s: 5.0 },
-        { pos: [-2.0, 0.3, 0.5], s: 4.5 },
-        { pos: [2.0, 0.2, -0.3], s: 4.0 },
-        { pos: [0, 0.6, -1.2], s: 3.5 },
-        { pos: [-1.2, 0.5, 1.0], s: 3.8 },
-        { pos: [1.5, 0.4, 0.8], s: 3.2 },
-        { pos: [-2.5, -0.1, -0.3], s: 2.8 },
-        { pos: [2.3, 0.1, 0.4], s: 2.5 },
-        { pos: [0, 0.8, 0], s: 4.2 },
-        { pos: [-0.8, -0.3, -0.6], s: 4.8 },
-        { pos: [0.5, 0.2, 1.5], s: 3.0 },
-        { pos: [-1.8, 0.6, -0.8], s: 2.6 },
-      ];
-      for (const cp of cloudPuffs) {
-        const puffMat = new THREE.SpriteMaterial({
-          map: cloudTexture,
-          transparent: true,
-          opacity: 0.55 + Math.random() * 0.15,
-          depthWrite: false,
-          color: 0x2a3040, // dark storm tint
+      // Load the cloud_lightning.glb model instead of procedural generation
+      const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
+      const loader = new GLTFLoader();
+      try {
+        const gltf = await new Promise<{ scene: THREE.Group }>((resolve, reject) => {
+          loader.load('/assets/models/cloud_lightning.glb', resolve as (gltf: unknown) => void, undefined, reject);
         });
-        const puffSprite = new THREE.Sprite(puffMat);
-        puffSprite.scale.setScalar(cp.s);
-        puffSprite.position.set(cp.pos[0], cp.pos[1], cp.pos[2]);
-        cloudGroup.add(puffSprite);
+        const model = gltf.scene;
+        const posX = base.x + 5;
+        const posZ = base.z;
+
+        // Scale and position the model on the station
+        model.scale.setScalar(1.5);
+        model.position.set(posX, base.y + 0.5, posZ);
+
+        // Enable shadows on all meshes
+        model.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
+
+        scene.add(model);
+        created.push(model);
+
+        // Add a subtle ambient flash light
+        const flashLight = new THREE.PointLight(0x88ccff, 5, 20, 2);
+        flashLight.position.set(posX, base.y + 5, posZ);
+        flashLight.castShadow = false;
+        scene.add(flashLight);
+        created.push(flashLight);
+      } catch (err) {
+        console.warn('[VfxShowcase] Failed to load cloud_lightning.glb:', err);
       }
-      scene.add(cloudGroup);
-      created.push(cloudGroup);
-
-      const cloudMesh = cloudGroup; // alias for reference below
-      void cloudMesh;
-      cloudMesh.castShadow = false;
-      scene.add(cloudMesh);
-      created.push(cloudMesh);
-
-      // --- Lightning flash point light (pulses with bolt) ---
-      const lightningLight = new THREE.PointLight(0x88ccff, 0, 20, 2);
-      lightningLight.position.set(posX, base.y + 3, posZ);
-      lightningLight.castShadow = false;
-      scene.add(lightningLight);
-      created.push(lightningLight);
-
-      // Periodic flash: sharp double-strike pattern
-      let flashTimer = 0;
-      const flashInterval = setInterval(() => {
-        flashTimer += 0.05;
-        if (flashTimer < 0.15) {
-          lightningLight.intensity = 20;
-          rainMat.color.setHex(0xffffff);
-        } else if (flashTimer < 0.3) {
-          lightningLight.intensity = 0;
-          rainMat.color.setHex(0xddeeff);
-        } else if (flashTimer < 0.4) {
-          lightningLight.intensity = 12;
-          rainMat.color.setHex(0xeef4ff);
-        } else {
-          lightningLight.intensity = 0;
-          rainMat.color.setHex(0xddeeff);
-          flashTimer = 0;
-        }
-      }, 50);
-
-      // Random flash timing: restart the flash cycle at random intervals
-      const triggerFlash = (): void => {
-        flashTimer = 0;
-        const nextDelay = 1500 + Math.random() * 3000;
-        setTimeout(triggerFlash, nextDelay);
-      };
-      setTimeout(triggerFlash, 2000 + Math.random() * 2000);
-
-      void flashInterval; // suppress unused-var lint
     }
 
     // =====================================================================
