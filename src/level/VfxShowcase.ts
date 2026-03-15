@@ -372,7 +372,7 @@ export async function createVfxShowcase(
             rainYPositions[i] = ry;
             rainSpeeds[i] = RAIN_SPEED + Math.random() * 1.5;
             dummy.position.set(rx, ry, rz);
-            dummy.scale.setScalar(0.3 + Math.random() * 0.4);
+            dummy.scale.setScalar(0.06 + Math.random() * 0.06);
             dummy.updateMatrix();
             rainInstancedMesh.setMatrixAt(i, dummy.matrix);
           }
@@ -407,7 +407,7 @@ export async function createVfxShowcase(
                 rainXZ[i * 2 + 1] = (Math.random() - 0.5) * RAIN_AREA_D;
               }
               dummy.position.set(rainXZ[i * 2], rainYPositions[i], rainXZ[i * 2 + 1]);
-              dummy.scale.setScalar(0.3 + Math.random() * 0.1); // slight size variation
+              dummy.scale.setScalar(0.06 + Math.random() * 0.04);
               dummy.updateMatrix();
               rainInstancedMesh.setMatrixAt(i, dummy.matrix);
             }
