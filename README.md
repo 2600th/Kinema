@@ -1,25 +1,43 @@
 # Kinema
 
-Kinema is a modular third-person gameplay framework built with **TypeScript**, **Three.js r183 (WebGPU)**, **Rapier physics**, **Tone.js**, and **Vite 8**. It ships a procedural showcase corridor, a built-in level editor with play-test mode, full mobile touch controls, and a post-processing stack aligned with Three.js r183's TSL pipeline.
+Kinema is a modular third-person gameplay framework built with **TypeScript**, **Three.js r183 (WebGPU)**, **Rapier physics**, **Tone.js**, and **Vite 8**. It features an Astro Bot PS5-inspired open-air procedural showcase, a built-in level editor with play-test mode, full mobile touch controls, and a post-processing stack aligned with Three.js r183's TSL pipeline.
 
 ## Feature Overview
 
 ### Gameplay
-- **Character controller** — dynamic rigidbody with floating spring, modular locomotion modes (grounded, air, ladder, rope), coyote time, jump buffering, double jump, crouch, sprint, and moving-platform carry.
+- **Character controller** — dynamic rigibody with floating spring, modular locomotion modes (grounded, air, ladder, rope), coyote time, jump buffering, double jump, crouch, sprint, and moving-platform carry.
 - **Interaction system** — distance + line-of-sight focus, prompt generation, hold-to-interact, grab/carry/throw with physics.
-- **Vehicles** — arcade car (throttle, steer, handbrake) and hover drone (6DOF flight).
+- **Vehicles** — arcade car (throttle, steer, handbrake, boost) and hover drone (6DOF flight).
 - **Checkpoint & objective system** — proximity-based checkpoints with fall respawn.
-- **Procedural showcase** — 700-unit corridor with 14 stations: steps, slopes, movement (ladder/crouch/rope), double jump, grab, throw, door/beacon, vehicles, moving platforms, physics platforms, materials (10 PBR samples), GPU VFX (tornado, fire, lasers, lightning, scanner), and navigation (navmesh + patrol agents).
+- **Procedural showcase** — open-air floating walkway with sunrise HDR skybox, 14 color-themed stations: steps, slopes, movement (ladder/crouch/rope), double jump, grab, throw, door/beacon, vehicles, moving platforms, physics platforms (floating + rotating drum), materials (10 PBR samples), GPU VFX (dissolve, campfire, storm lightning, glowing ring), and navigation (navmesh + patrol agents).
+
+### Visual Design (Astro Bot PS5-inspired)
+- **Open-air floating walkway** — no walls/ceiling, sunrise HDR sky visible from all angles.
+- **Per-station color themes** — 14 distinct glossy clearcoat colored pedestals (RoundedBoxGeometry).
+- **Organic props** — procedural bushes, trees, flowers, rocks on green stations.
+- **TSL grass shader** — InstancedMesh wind-animated grass blades on station pedestals.
+- **Sparkle particles** — 400 HDR floating points with additive twinkle and bloom.
+- **Station lamp posts** — colored glowing spheres matching each station's theme.
+- **Rounded edge rails** — thick white CapsuleGeometry walkway bumpers.
+- **Glowing cyan centerline** — emissive guide strip running the corridor length.
+
+### VFX Station
+- **Dissolve sphere** — TSL noise-based alpha threshold with oscillating orange edge glow.
+- **Campfire** — 7-sheet volumetric TSL fire (multi-octave FBM noise, 4-stop color ramp), wood logs, rocks, ember bed, rising ember particles, Kenney smoke texture sprites.
+- **Storm lightning** — Sketchfab cloud GLB model (CC-BY Kyyy_24) with animated rain particles (InstancedMesh), periodic lightning bolt flashes, and point light illumination.
+- **Glowing ring** — rotating TorusGeometry with HDR emissive material and orbiting sparkle particles.
 
 ### Rendering
 - **WebGPU-first** renderer with WebGL2 fallback (Three.js r183).
 - **TSL post-processing pipeline**: GTAO, SSR, Bloom, SMAA/FXAA, CAS sharpening, Vignette, 3D LUT color grading (11 presets).
 - **Three graphics profiles**: performance, balanced, cinematic — with per-effect runtime toggles.
 - **Environment maps**: 7 HDR presets + procedural RoomEnvironment, with rotation and intensity controls.
-- **PCF shadow mapping** with quality tiers (auto/performance/balanced/cinematic).
+- **PCF shadow mapping** with quality tiers and texel-snapped camera to prevent shadow swimming.
+- **ACESFilmic tone mapping** with configurable exposure.
 
 ### Editor
-- **Brush-based placement** — 8 preset types (block, floor, pillar, stairs, ramp, door frame, spawn, trigger).
+- **Brush-based placement** — 8 preset types with player-scaled defaults (block, floor, pillar, stairs, ramp, door frame, spawn, trigger).
+- **Spawn tag system** — tagged spawn points (player/ai/item) with backwards-compatible serialization.
 - **GLB import** via file picker or drag-and-drop.
 - **Transform gizmo** with translate/rotate/scale modes and grid snapping.
 - **Hierarchy panel** — tree view with drag-drop reparenting, rename, visibility/lock toggles, grouping, search filter.
@@ -27,6 +45,12 @@ Kinema is a modular third-person gameplay framework built with **TypeScript**, *
 - **Play-test mode** — Start/Stop like Unity/Unreal with snapshot save/restore (Ctrl+P).
 - **Undo/redo** — command-based history (50 items).
 - **Save/load** — localStorage persistence + JSON download, V1→V2 migration.
+
+### Physics
+- **Slope handling** — 45° max climb angle (industry standard), slope sliding force on steep surfaces.
+- **Step assist** — cooldown-protected, single-write velocity to prevent jumpiness.
+- **Floating spring** — configurable damping (0.35) for stable ground contact.
+- **Camera** — ceiling-aware pivot prevents clipping in crouch tunnels, self-clip floor prevents entering player capsule.
 
 ### UI/UX
 - **Menu system** — stack-based navigation with glassmorphic dark theme (Main, Pause, Settings, Level Select, Help).
@@ -85,7 +109,7 @@ Open `http://localhost:5173`. Click the canvas to engage pointer lock and audio.
 ```
 http://localhost:5173?station=vehicles
 http://localhost:5173?station=movement
-http://localhost:5173?station=materials
+http://localhost:5173?station=vfx
 ```
 
 All 14 stations: `steps`, `slopes`, `movement`, `doubleJump`, `grab`, `throw`, `door`, `vehicles`, `platformsMoving`, `platformsPhysics`, `materials`, `vfx`, `navigation`, `futureA`.
@@ -123,6 +147,7 @@ Playwright tests (`tests/`) cover:
 - **station-screenshots.ts** — loads all 14 stations, verifies player spawns grounded, captures screenshots.
 - **vehicle-controllers.ts** — car and drone vehicle flows.
 - **vfx-particles.ts** — VFX bay rendering.
+- **physics-verification.ts** — slope grounding, slope angle config, bootstrap verification.
 
 The Playwright config auto-starts the dev server. Tests use SwiftShader for headless GPU rendering.
 
@@ -130,7 +155,10 @@ The Playwright config auto-starts the dev server. Tests use SwiftShader for head
 
 When running via `?station=`, a `window.__KINEMA__` debug API is available:
 - `__KINEMA__.player` — position, velocity, isGrounded, state
+- `__KINEMA__.config` — player physics configuration
 - `__KINEMA__.simulateJump()` — inject jump input (bypasses pointer lock)
+- `__KINEMA__.simulateMove(moveX, moveY, frames)` — inject movement input
+- `__KINEMA__.setCameraLook(pitch, yaw)` — set camera angle for screenshots
 - `__KINEMA__.waitFor(predicate, timeout)` — poll physics state
 
 ## Controls
@@ -251,7 +279,7 @@ When running via `?station=`, a `window.__KINEMA__` debug API is available:
 ```
 src/
   audio/           — Tone.js procedural music + synth SFX
-  camera/          — OrbitFollowCamera with spring arm collision
+  camera/          — OrbitFollowCamera with spring arm collision + ceiling-aware pivot
   character/       — PlayerController (orchestrator)
     modes/         — GroundedMode, AirMode, LadderMode, RopeMode
     states/        — FSM states (Idle, Move, Jump, AirJump, Air, Crouch, Grab, Carry, Interact)
@@ -264,6 +292,7 @@ src/
   interaction/     — InteractionManager + interactables (Door, Beacon, Rope, Grabbable, Throwable, VehicleSeat)
   juice/           — ScreenShake, Hitstop, FOVPunch, FeedbackPlayer, GameParticles, ParticlePool
   level/           — LevelManager, ProceduralBuilder, LightingSystem, AssetLoader, MeshParser, ShowcaseLayout
+                     GrassEffect (TSL), SparkleParticles, ProceduralProps, VfxShowcase (TSL)
   navigation/      — NavMeshManager, NavPatrolSystem, NavAgent, NavDebugOverlay
   physics/         — PhysicsWorld, ColliderFactory, PhysicsHelpers, PhysicsDebugView
   renderer/        — RendererManager (WebGPU/WebGL, TSL post-processing, graphics profiles)
@@ -272,23 +301,31 @@ src/
     components/    — HUD, FadeScreen, DebugPanel
     menus/         — MenuManager, MainMenu, PauseMenu, SettingsMenu, LevelSelectMenu, HelpMenu
   vehicle/         — VehicleManager, CarController, DroneController
-tests/             — Playwright GPU tests (visual, jump mechanics, station screenshots, vehicles, VFX)
+public/
+  assets/
+    audio/         — Audio files (placeholder)
+    env/           — HDR environment maps (6 presets)
+    models/        — GLB models (cloud_lightning.glb)
+    postfx/        — LUT color grading files (11 presets)
+    sprites/       — Kenney smoke particle textures (CC0)
+tests/             — Playwright GPU tests (visual, jump mechanics, station screenshots, vehicles, VFX, physics)
 ```
 
 Path aliases: `@core`, `@physics`, `@character`, `@camera`, `@level`, `@input`, `@interaction`, `@ui`, `@renderer`, `@audio`, `@vehicle`, `@editor`, `@navigation`, `@juice`, `@systems`.
 
 ### Key Modules
 
-| Module | Lines | Responsibility |
-|--------|-------|---------------|
-| PlayerController | ~580 | Thin orchestrator — input routing, mode switching, visual sync |
-| CharacterMotor | ~300 | Ground detection, floating spring, gravity scaling |
-| GroundedMode | ~550 | Walk, sprint, crouch, step assist, ground jump, platforms |
-| Game.ts | ~600 | Composition root — registers and ticks RuntimeSystems |
-| LevelManager | ~800 | Level loading/unloading orchestrator |
-| ProceduralBuilder | ~2700 | Showcase corridor geometry generation |
-| RendererManager | ~1400 | WebGPU renderer, TSL post-FX, graphics profiles |
-| EditorManager | ~1160 | Editor shell — routes input to EditorTools |
+| Module | Responsibility |
+|--------|---------------|
+| PlayerController | Thin orchestrator — input routing, mode switching, visual sync |
+| CharacterMotor | Ground detection, floating spring, gravity scaling, slope sliding |
+| GroundedMode | Walk, sprint, crouch, step assist, ground jump, platforms |
+| Game.ts | Composition root — registers and ticks RuntimeSystems |
+| LevelManager | Level loading/unloading orchestrator |
+| ProceduralBuilder | Open-air showcase walkway generation with Astro Bot theming |
+| VfxShowcase | 4 TSL-based VFX demos (dissolve, campfire, storm, ring) |
+| RendererManager | WebGPU renderer, TSL post-FX, graphics profiles |
+| EditorManager | Editor shell — routes input to EditorTools |
 
 ### Rendering Pipeline (r183-aligned)
 
@@ -305,6 +342,12 @@ Scene Pass (opaque depth + normal MRT)
   → Vignette
   → LUT 3D color grading
 ```
+
+## Credits
+
+- **Cloud Lightning model** — [Kyyy_24](https://sketchfab.com/3d-models/cloud-lightning-d0e6edbfaedd40559a77611ade3c147b) (CC Attribution 4.0)
+- **Smoke particle textures** — [Kenney](https://kenney.nl/assets/smoke-particles) (CC0)
+- **Fire shader inspiration** — Shadertoy Wtc3W2 "Night Campfire" by Maurogik
 
 ## Current Limitations
 
