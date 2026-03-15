@@ -356,23 +356,28 @@ export async function createVfxShowcase(
         const rainSpeeds = new Float32Array(RAIN_COUNT);
         const rainXZ: Float32Array = new Float32Array(RAIN_COUNT * 2);
 
-        if (rainDropGeo && rainDropMat) {
-          rainInstancedMesh = new THREE.InstancedMesh(rainDropGeo, rainDropMat, RAIN_COUNT);
+        // Use a tiny sphere for rain drops — model's rain geometry is 600+ units tall
+        const tinyDropGeo = new THREE.SphereGeometry(0.03, 4, 4);
+        const dropMat = rainDropMat ?? new THREE.MeshStandardMaterial({
+          color: 0xaaccee, transparent: true, opacity: 0.7, depthWrite: false,
+        });
+        {
+          rainInstancedMesh = new THREE.InstancedMesh(tinyDropGeo, dropMat, RAIN_COUNT);
           rainInstancedMesh.castShadow = false;
-          rainInstancedMesh.position.set(posX, base.y + 3.5, posZ);
-          rainInstancedMesh.scale.setScalar(0.56); // match model scale
+          // Position directly in world space under the cloud
+          rainInstancedMesh.position.set(posX, 0, posZ);
 
           const dummy = new THREE.Object3D();
           for (let i = 0; i < RAIN_COUNT; i++) {
             const rx = (Math.random() - 0.5) * RAIN_AREA_W;
             const rz = (Math.random() - 0.5) * RAIN_AREA_D;
-            const ry = RAIN_BOTTOM + Math.random() * (RAIN_TOP - RAIN_BOTTOM);
+            const ry = base.y + RAIN_BOTTOM + Math.random() * (RAIN_TOP - RAIN_BOTTOM);
             rainXZ[i * 2] = rx;
             rainXZ[i * 2 + 1] = rz;
             rainYPositions[i] = ry;
             rainSpeeds[i] = RAIN_SPEED + Math.random() * 1.5;
             dummy.position.set(rx, ry, rz);
-            dummy.scale.setScalar(0.06 + Math.random() * 0.06);
+            dummy.scale.set(1, 2 + Math.random(), 1); // elongate slightly for streak look
             dummy.updateMatrix();
             rainInstancedMesh.setMatrixAt(i, dummy.matrix);
           }
@@ -401,13 +406,13 @@ export async function createVfxShowcase(
           if (rainInstancedMesh) {
             for (let i = 0; i < RAIN_COUNT; i++) {
               rainYPositions[i] -= rainSpeeds[i] * dt;
-              if (rainYPositions[i] < RAIN_BOTTOM) {
-                rainYPositions[i] = RAIN_TOP + Math.random() * 0.5;
+              if (rainYPositions[i] < base.y + RAIN_BOTTOM) {
+                rainYPositions[i] = base.y + RAIN_TOP + Math.random() * 0.5;
                 rainXZ[i * 2] = (Math.random() - 0.5) * RAIN_AREA_W;
                 rainXZ[i * 2 + 1] = (Math.random() - 0.5) * RAIN_AREA_D;
               }
               dummy.position.set(rainXZ[i * 2], rainYPositions[i], rainXZ[i * 2 + 1]);
-              dummy.scale.setScalar(0.06 + Math.random() * 0.04);
+              dummy.scale.set(1, 2 + Math.random(), 1);
               dummy.updateMatrix();
               rainInstancedMesh.setMatrixAt(i, dummy.matrix);
             }
