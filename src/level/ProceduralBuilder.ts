@@ -13,6 +13,7 @@ import {
   type ShowcaseStationKey,
 } from '@level/ShowcaseLayout';
 import { GrassEffect } from '@level/GrassEffect';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { NavMeshManager } from '@navigation/NavMeshManager';
 import { NavPatrolSystem } from '@navigation/NavPatrolSystem';
 import { NavDebugOverlay } from '@navigation/NavDebugOverlay';
@@ -337,17 +338,23 @@ export class ProceduralBuilder {
     const stationKeys = buildAll ? SHOWCASE_STATION_ORDER : [this.stationFilterKey!];
     const bayZ = stationKeys.map((k) => getShowcaseStationZ(k));
     bayZ.forEach((z, i) => {
-      // Per-station colored pedestal — glossy plastic Astro Bot look.
+      // Per-station colored pedestal — MeshPhysicalMaterial with clearcoat for premium plastic.
       const stationColorIdx = SHOWCASE_STATION_ORDER.indexOf(stationKeys[i] ?? stationKeys[0]);
       const stationColor = stationColors[stationColorIdx] ?? 0xe8ecf4;
-      const stationBayMat = new THREE.MeshStandardMaterial({
+      const stationBayMat = new THREE.MeshPhysicalMaterial({
         color: stationColor,
-        roughness: 0.15,
-        metalness: 0.1,
+        roughness: 0.4,
+        metalness: 0.0,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.05,
         emissive: stationColor,
-        emissiveIntensity: 0.08,
+        emissiveIntensity: 0.05,
       });
-      const pedestal = new THREE.Mesh(new THREE.BoxGeometry(bayWidth, bayPedestalHeight, bayLength), stationBayMat);
+      // Rounded box for soft toy-like edges that catch specular highlights.
+      const pedestal = new THREE.Mesh(
+        new RoundedBoxGeometry(bayWidth, bayPedestalHeight, bayLength, 4, 0.06),
+        stationBayMat,
+      );
       pedestal.position.set(0, bayPedestalY, z);
       pedestal.receiveShadow = true;
       pedestal.name = `ShowcaseBay${i}_col`;
@@ -355,6 +362,23 @@ export class ProceduralBuilder {
       this.meshes.push(pedestal);
       pedestal.updateWorldMatrix(true, false);
       this.colliders.push(this.colliderFactory.createTrimesh(pedestal));
+
+      // Emissive accent edge — glowing strip around the pedestal top edge for bloom.
+      const accentMat = new THREE.MeshStandardMaterial({
+        color: 0x000000,
+        emissive: stationColor,
+        emissiveIntensity: 3.0,
+        roughness: 0.0,
+        metalness: 0.0,
+      });
+      const accentRing = new THREE.Mesh(
+        new THREE.BoxGeometry(bayWidth + 0.2, 0.06, bayLength + 0.2),
+        accentMat,
+      );
+      accentRing.position.set(0, bayTopY + 0.03, z);
+      accentRing.name = `ShowcaseBayAccent${i}`;
+      this.scene.add(accentRing);
+      this.meshes.push(accentRing);
 
       // Add grass patches on green-themed stations (slopes, materials, navigation)
       if (buildAll && (stationColorIdx === 1 || stationColorIdx === 10 || stationColorIdx === 12)) {
