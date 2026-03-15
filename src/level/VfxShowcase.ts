@@ -297,9 +297,10 @@ export async function createVfxShowcase(
 
     // =====================================================================
     // EFFECT C — LIGHTNING WITH RAIN (Sketchfab GLB model by Kyyy_24, CC-BY)
+    // Uses the model's own cloud, lightning bolts, and rain drop meshes.
+    // Lightning bolts flash on/off. Rain drops animate falling downward.
     // =====================================================================
     {
-      // Load the cloud_lightning.glb model instead of procedural generation
       const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
       const loader = new GLTFLoader();
       try {
@@ -310,85 +311,83 @@ export async function createVfxShowcase(
         const posX = base.x + 5;
         const posZ = base.z;
 
-        // Scale and position the model on the station
-        model.scale.setScalar(0.75);
-        model.position.set(posX, base.y + 0.5, posZ);
+        // 75% of previous 0.75 = ~0.56
+        model.scale.setScalar(0.56);
+        model.position.set(posX, base.y + 1.5, posZ);
 
-        // Enable shadows on all meshes
+        // Categorize meshes by name/material for animation
+        const boltMeshes: THREE.Mesh[] = [];
+        const rainMeshes: THREE.Object3D[] = [];
+        const rainStartY: number[] = [];
+
         model.traverse((child) => {
           if (child instanceof THREE.Mesh) {
-            child.castShadow = true;
-            child.receiveShadow = true;
+            child.castShadow = false;
+            child.receiveShadow = false;
+          }
+          // Lightning bolts: names contain "bolt"
+          if (child.name.toLowerCase().includes('bolt') && child instanceof THREE.Mesh) {
+            boltMeshes.push(child);
+            child.visible = false; // start hidden
+          }
+          // Rain drops: names contain "Sphere" with Rain material
+          if (child.name.includes('Sphere')) {
+            rainMeshes.push(child);
+            rainStartY.push(child.position.y);
           }
         });
 
         scene.add(model);
         created.push(model);
 
-        // --- Animated rain particles falling from the cloud ---
-        const rainCount = 300;
-        const rainPositions = new Float32Array(rainCount * 3);
-        const rainVelocities = new Float32Array(rainCount);
-        for (let i = 0; i < rainCount; i++) {
-          rainPositions[i * 3] = posX + (Math.random() - 0.5) * 8;
-          rainPositions[i * 3 + 1] = base.y + 1 + Math.random() * 6;
-          rainPositions[i * 3 + 2] = posZ + (Math.random() - 0.5) * 8;
-          rainVelocities[i] = 4 + Math.random() * 3; // fall speed
-        }
-        const rainGeo = new THREE.BufferGeometry();
-        rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPositions, 3));
-        const rainMat = new THREE.PointsMaterial({
-          color: 0x99bbdd,
-          size: 0.08,
-          transparent: true,
-          opacity: 0.6,
-          depthWrite: false,
-        });
-        const rainPoints = new THREE.Points(rainGeo, rainMat);
-        rainPoints.castShadow = false;
-        scene.add(rainPoints);
-        created.push(rainPoints);
-
-        // Animate rain falling + lightning flash
-        const flashLight = new THREE.PointLight(0x88ccff, 0, 25, 2);
+        // Flash point light
+        const flashLight = new THREE.PointLight(0x88ccff, 0, 20, 2);
         flashLight.position.set(posX, base.y + 5, posZ);
         flashLight.castShadow = false;
         scene.add(flashLight);
         created.push(flashLight);
 
-        let flashTimer = 0;
-        const rainInterval = setInterval(() => {
-          const dt = 0.016;
-          const posAttr = rainGeo.getAttribute('position') as THREE.BufferAttribute;
-          const pos = posAttr.array as Float32Array;
-          for (let i = 0; i < rainCount; i++) {
-            pos[i * 3 + 1] -= rainVelocities[i] * dt;
-            // Respawn at top when hitting ground
-            if (pos[i * 3 + 1] < base.y) {
-              pos[i * 3 + 1] = base.y + 5 + Math.random() * 2;
-              pos[i * 3] = posX + (Math.random() - 0.5) * 8;
-              pos[i * 3 + 2] = posZ + (Math.random() - 0.5) * 8;
-            }
-          }
-          posAttr.needsUpdate = true;
+        // --- Animate lightning bolts (flash on/off) and rain (falling) ---
+        let strikeTimer = 2 + Math.random() * 2; // seconds until next strike
+        let flashActive = false;
+        let flashDuration = 0;
+        const RAIN_SPEED = 2.0; // units per second
+        const RAIN_RESET_OFFSET = 4.0; // how far rain falls before respawning
 
-          // Lightning flash: periodic bright flash then fade
-          flashTimer -= dt;
-          if (flashTimer <= 0) {
-            if (Math.random() < 0.008) { // ~0.5 strikes per second
-              flashLight.intensity = 15 + Math.random() * 10;
-              flashTimer = 0.1 + Math.random() * 0.15;
-              rainMat.color.setHex(0xffffff); // rain goes white during flash
+        const animInterval = setInterval(() => {
+          const dt = 0.016;
+
+          // --- Rain animation: move drops downward, respawn at start ---
+          for (let i = 0; i < rainMeshes.length; i++) {
+            rainMeshes[i].position.y -= RAIN_SPEED * dt;
+            if (rainMeshes[i].position.y < rainStartY[i] - RAIN_RESET_OFFSET) {
+              rainMeshes[i].position.y = rainStartY[i] + Math.random() * 0.5;
             }
-          } else {
-            flashLight.intensity *= 0.85; // rapid decay
           }
-          if (flashLight.intensity < 0.5) {
-            flashLight.intensity = 0;
-            rainMat.color.setHex(0x99bbdd); // back to normal rain color
+
+          // --- Lightning strike timing ---
+          strikeTimer -= dt;
+          if (strikeTimer <= 0 && !flashActive) {
+            // STRIKE! Show bolts, flash light
+            flashActive = true;
+            flashDuration = 0.15 + Math.random() * 0.1; // 150-250ms flash
+            for (const bolt of boltMeshes) bolt.visible = true;
+            flashLight.intensity = 20;
+            strikeTimer = 2 + Math.random() * 3; // 2-5 seconds until next
+          }
+
+          if (flashActive) {
+            flashDuration -= dt;
+            flashLight.intensity *= 0.88; // rapid decay
+            if (flashDuration <= 0) {
+              // End strike
+              flashActive = false;
+              for (const bolt of boltMeshes) bolt.visible = false;
+              flashLight.intensity = 0;
+            }
           }
         }, 16);
-        void rainInterval;
+        void animInterval;
       } catch (err) {
         console.warn('[VfxShowcase] Failed to load cloud_lightning.glb:', err);
       }
