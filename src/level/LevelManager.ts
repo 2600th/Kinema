@@ -97,6 +97,7 @@ export class LevelManager implements Disposable {
   private vfxNoiseTexture: THREE.CanvasTexture | null = null;
   private vfxLightningLight: THREE.PointLight | null = null;
   private dustMotes: DustMoteEntry[] = [];
+  private sparkleParticles: { update(dt: number): void; dispose(): void } | null = null;
   private lighting: LightingSystem;
   private navMeshManager: NavMeshManager | null = null;
   private navPatrolSystem: NavPatrolSystem | null = null;
@@ -487,6 +488,8 @@ export class LevelManager implements Disposable {
     this.vfxNoiseTexture = null;
     this.vfxLightningLight = null;
     this.dustMotes = [];
+    this.sparkleParticles?.dispose();
+    this.sparkleParticles = null;
     this.navPatrolSystem?.dispose();
     this.navPatrolSystem = null;
     this.navDebugOverlay?.dispose();
@@ -615,6 +618,9 @@ export class LevelManager implements Disposable {
     if (this.vfxLightningLight) {
       this.vfxLightningLight.intensity = 8 + Math.random() * 4;
     }
+
+    // Sparkle particles
+    this.sparkleParticles?.update(dt);
 
     // Dust motes gentle drift.
     for (const mote of this.dustMotes) {
@@ -796,6 +802,7 @@ export class LevelManager implements Disposable {
     this.ladderZones = result.ladderZones;
     this.animatedMaterials = result.animatedMaterials;
     this.dustMotes = result.dustMotes;
+    this.sparkleParticles = result.sparkleParticles;
     this.spawnPoint = result.spawnPoint;
     this.vfxNoiseTexture = result.vfxNoiseTexture;
     this.vfxLightningLight = result.vfxLightningLight;

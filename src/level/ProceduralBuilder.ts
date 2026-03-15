@@ -13,6 +13,7 @@ import {
   type ShowcaseStationKey,
 } from '@level/ShowcaseLayout';
 import { GrassEffect } from '@level/GrassEffect';
+import { SparkleParticles } from '@level/SparkleParticles';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { NavMeshManager } from '@navigation/NavMeshManager';
 import { NavPatrolSystem } from '@navigation/NavPatrolSystem';
@@ -78,6 +79,7 @@ export interface ProceduralBuildResult {
   ladderZones: THREE.Box3[];
   animatedMaterials: AnimatedMaterialEntry[];
   dustMotes: DustMoteEntry[];
+  sparkleParticles: SparkleParticles | null;
   vfxNoiseTexture: THREE.CanvasTexture | null;
   vfxLightningLight: THREE.PointLight | null;
   spawnPoint: SpawnPointData;
@@ -125,18 +127,18 @@ export class ProceduralBuilder {
   /** Build the procedural showcase corridor and return all created resources. */
   build(): void {
     const gridTexture = this.createGroundGridTexture();
-    // ── Astro Bot-inspired bright, plastic-toy palette ──
+    // ── Astro Bot-inspired bright, plastic-toy palette — all clearcoat for premium look ──
     const floorMat = new THREE.MeshStandardMaterial({
       color: 0xf0f0f4,
       map: gridTexture,
       roughness: 0.55,
       metalness: 0.0,
     });
-    const stepMat = new THREE.MeshStandardMaterial({ color: 0x00a2ff, roughness: 0.15, metalness: 0.1, emissive: 0x0066cc, emissiveIntensity: 0.15 });
-    const slopeMat = new THREE.MeshStandardMaterial({ color: 0x33cc33, roughness: 0.2, metalness: 0.05 });
-    const obstacleMat = new THREE.MeshStandardMaterial({ color: 0xff3366, roughness: 0.2, metalness: 0.05, emissive: 0xff1144, emissiveIntensity: 0.1 });
-    const kinematicPlatformMat = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.15, metalness: 0.1 });
-    const floatingPlatformMat = new THREE.MeshStandardMaterial({ color: 0x00cccc, roughness: 0.2, metalness: 0.1 });
+    const stepMat = new THREE.MeshPhysicalMaterial({ color: 0x00a2ff, roughness: 0.35, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.05, emissive: 0x0066cc, emissiveIntensity: 0.1 });
+    const slopeMat = new THREE.MeshPhysicalMaterial({ color: 0x33cc33, roughness: 0.35, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.05 });
+    const obstacleMat = new THREE.MeshPhysicalMaterial({ color: 0xff3366, roughness: 0.3, metalness: 0.0, clearcoat: 0.8, clearcoatRoughness: 0.1, emissive: 0xff1144, emissiveIntensity: 0.08 });
+    const kinematicPlatformMat = new THREE.MeshPhysicalMaterial({ color: 0xffd700, roughness: 0.25, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.05 });
+    const floatingPlatformMat = new THREE.MeshPhysicalMaterial({ color: 0x00cccc, roughness: 0.3, metalness: 0.0, clearcoat: 0.8, clearcoatRoughness: 0.1 });
 
     // Station filter: when set, only build the target station + a minimal floor.
     const buildAll = this.stationFilterKey === null;
@@ -314,6 +316,19 @@ export class ProceduralBuilder {
     beamRibs.instanceMatrix.needsUpdate = true;
     this.scene.add(beamRibs);
     this.meshes.push(beamRibs);
+
+    // ── Floating sparkle particles throughout the corridor ──
+    const sparkles = new SparkleParticles({
+      count: 400,
+      areaWidth: hallWidth - 4,
+      areaHeight: 14,
+      areaDepth: hallLength - 20,
+      position: new THREE.Vector3(0, 6, showcaseCenterZ),
+    });
+    this.scene.add(sparkles.points);
+    this.meshes.push(sparkles.points);
+    // Store sparkles for update in fixedUpdate
+    (this as unknown as { _sparkles?: SparkleParticles })._sparkles = sparkles;
     } // end buildAll corridor structure
 
     // ── Per-station Astro Bot color theme palette ──
@@ -581,7 +596,7 @@ export class ProceduralBuilder {
       10.2,
       2.2,
     );
-    const grabbableMat = new THREE.MeshStandardMaterial({ color: 0x4fa8d8, roughness: 0.5, metalness: 0.1 });
+    const grabbableMat = new THREE.MeshPhysicalMaterial({ color: 0x4fa8d8, roughness: 0.3, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.05 });
     this.createDynamicBox('PushCubeS', new THREE.Vector3(0, bayTopY + 0.5, zGrab + 2), new THREE.Vector3(1, 1, 1), grabbableMat, { grabbable: true });
     this.createDynamicBox('PushCubeM', new THREE.Vector3(0, bayTopY + 0.75, zGrab), new THREE.Vector3(1.5, 1.5, 1.5), grabbableMat, { grabbable: true });
     this.createDynamicBox('PushCubeL', new THREE.Vector3(0, bayTopY + 1.0, zGrab - 3), new THREE.Vector3(2, 2, 2), grabbableMat, { grabbable: true });
@@ -2887,6 +2902,7 @@ export class ProceduralBuilder {
       ladderZones: this.ladderZonesArr,
       animatedMaterials: this.animatedMaterialsArr,
       dustMotes: this.dustMotesArr,
+      sparkleParticles: (this as unknown as { _sparkles?: SparkleParticles })._sparkles ?? null,
       vfxNoiseTexture: this.vfxNoiseTextureRef,
       vfxLightningLight: this.vfxLightningLightRef,
       spawnPoint: this.spawnPointData,
