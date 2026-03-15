@@ -481,10 +481,11 @@ export async function createVfxShowcase(
       scene.add(ringGroup);
       created.push(ringGroup);
 
-      // Animate the group rotation via a simple per-frame updater on userData
-      ringGroup.userData.update = (dt: number): void => {
-        ringGroup.rotation.y += dt * 0.5;
-      };
+      // Slowly rotate the ring group
+      const ringInterval = setInterval(() => {
+        ringGroup.rotation.y += 0.008; // ~0.5 rad/s at 60fps
+      }, 16);
+      void ringInterval;
 
       // --- Orbiting particles ---
       const particleCount = 100;
