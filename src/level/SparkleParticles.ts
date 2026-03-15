@@ -105,6 +105,9 @@ export class SparkleParticles {
       depthWrite: false,
     });
 
+    // Disable fog on sparkles so they don't wash out at distance.
+    this.material.fog = false;
+
     this.points = new THREE.Points(this.geometry, this.material);
     this.points.position.copy(position);
     this.points.frustumCulled = false;

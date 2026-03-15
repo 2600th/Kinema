@@ -379,10 +379,11 @@ export class ProceduralBuilder {
       this.colliders.push(this.colliderFactory.createTrimesh(pedestal));
 
       // Emissive accent edge — glowing strip around the pedestal top edge for bloom.
+      // High emissive intensity to survive ACESFilmic shoulder and trigger bloom.
       const accentMat = new THREE.MeshStandardMaterial({
         color: 0x000000,
         emissive: stationColor,
-        emissiveIntensity: 3.0,
+        emissiveIntensity: 12.0,
         roughness: 0.0,
         metalness: 0.0,
       });
