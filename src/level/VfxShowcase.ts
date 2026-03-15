@@ -204,39 +204,30 @@ export async function createVfxShowcase(
       scene.add(fireLight);
       created.push(fireLight);
 
-      // --- Smoke puffs above the fire (large, dark, clearly visible) ---
-      const smokeOffsets = [3.0, 3.8, 4.6, 5.4, 6.2, 7.0];
-      for (let s = 0; s < smokeOffsets.length; s++) {
-        const yOff = smokeOffsets[s];
-        const smokeGeo = new THREE.SphereGeometry(
-          0.5 + Math.random() * 0.5,
-          10,
-          10,
-        );
-        const smokeMat = new MeshBasicNodeMaterial();
-        smokeMat.transparent = true;
-        smokeMat.depthWrite = false;
-
-        // Dark wispy smoke with slight noise-driven opacity variation
-        const smokeSeed = float(s * 2.3 + 7.0);
-        const smokeNoise = mx_fractal_noise_float(
-          positionLocal.mul(2.0).add(vec3(0, time.mul(0.3), smokeSeed)),
-        );
-        smokeMat.colorNode = vec3(0.08, 0.08, 0.1);
-        // Fade out higher smoke puffs more
-        const heightRatio = float(1.0 - (yOff - 2.8) / 2.5);
-        smokeMat.opacityNode = smokeNoise
-          .mul(0.5)
-          .add(0.5)
-          .mul(0.35)
-          .mul(heightRatio)
-          .clamp(0, 0.4);
-
+      // --- Smoke puffs rising above the fire — simple dark spheres ---
+      const smokeData = [
+        { y: 2.5, r: 0.6, op: 0.5 },
+        { y: 3.2, r: 0.8, op: 0.45 },
+        { y: 4.0, r: 1.0, op: 0.35 },
+        { y: 4.9, r: 1.2, op: 0.25 },
+        { y: 5.8, r: 1.3, op: 0.18 },
+        { y: 6.8, r: 1.5, op: 0.12 },
+      ];
+      for (const sd of smokeData) {
+        const smokeGeo = new THREE.SphereGeometry(sd.r, 12, 12);
+        const smokeMat = new THREE.MeshStandardMaterial({
+          color: 0x222228,
+          transparent: true,
+          opacity: sd.op,
+          depthWrite: false,
+          roughness: 1.0,
+          metalness: 0.0,
+        });
         const smokeMesh = new THREE.Mesh(smokeGeo, smokeMat);
         smokeMesh.position.set(
-          (Math.random() - 0.5) * 0.5,
-          yOff,
-          (Math.random() - 0.5) * 0.5,
+          (Math.random() - 0.5) * 0.6,
+          sd.y,
+          (Math.random() - 0.5) * 0.6,
         );
         smokeMesh.castShadow = false;
         fireGroup.add(smokeMesh);
@@ -444,44 +435,45 @@ export async function createVfxShowcase(
       scene.add(rainPoints);
       created.push(rainPoints);
 
-      // --- Storm cloud — large dark billowing mass above the lightning ---
+      // --- Storm cloud — soft puffy overlapping spheres with low opacity ---
       const cloudGroup = new THREE.Group();
-      cloudGroup.position.set(posX, base.y + 5.5, posZ);
-      // Multiple overlapping spheres for volumetric cloud look
-      const cloudSpheres = [
-        { pos: [0, 0, 0], r: 3.0 },
-        { pos: [-2, 0.3, 0.5], r: 2.5 },
-        { pos: [2, 0.2, -0.3], r: 2.2 },
-        { pos: [0, 0.5, -1.5], r: 1.8 },
-        { pos: [-1.5, -0.2, 1.2], r: 2.0 },
-        { pos: [1.8, 0.4, 1.0], r: 1.6 },
+      cloudGroup.position.set(posX, base.y + 6.0, posZ);
+      // Many small soft puffs create a natural cloud shape
+      const cloudPuffs = [
+        { pos: [0, 0, 0], r: 2.0 },
+        { pos: [-1.5, 0.3, 0.3], r: 1.8 },
+        { pos: [1.5, 0.2, -0.2], r: 1.7 },
+        { pos: [0, -0.3, -1.0], r: 1.5 },
+        { pos: [-0.8, 0.5, 0.8], r: 1.3 },
+        { pos: [0.8, 0.4, 0.6], r: 1.4 },
+        { pos: [-2.2, -0.1, -0.3], r: 1.2 },
+        { pos: [2.0, 0.1, 0.4], r: 1.1 },
+        { pos: [0, 0.6, 0], r: 1.6 },
+        { pos: [-0.5, -0.4, -0.5], r: 1.9 },
       ];
-      const cloudMat = new THREE.MeshStandardMaterial({
-        color: 0x1a2233,
-        roughness: 1.0,
-        metalness: 0.0,
-        transparent: true,
-        opacity: 0.85,
-      });
-      for (const cs of cloudSpheres) {
-        const csMesh = new THREE.Mesh(new THREE.SphereGeometry(cs.r, 12, 12), cloudMat);
-        csMesh.position.set(cs.pos[0], cs.pos[1], cs.pos[2]);
-        csMesh.castShadow = false;
-        cloudGroup.add(csMesh);
+      for (const cp of cloudPuffs) {
+        // Each puff gets its own material with slightly varied opacity
+        const puffMat = new THREE.MeshStandardMaterial({
+          color: 0x2a3040,
+          roughness: 1.0,
+          metalness: 0.0,
+          transparent: true,
+          opacity: 0.35 + Math.random() * 0.15,
+          depthWrite: false,
+        });
+        const puffMesh = new THREE.Mesh(
+          new THREE.SphereGeometry(cp.r, 16, 16),
+          puffMat,
+        );
+        puffMesh.position.set(cp.pos[0], cp.pos[1], cp.pos[2]);
+        puffMesh.castShadow = false;
+        cloudGroup.add(puffMesh);
       }
       scene.add(cloudGroup);
       created.push(cloudGroup);
-      // Also keep a flat rain catcher underneath
-      const cloudGeo = new THREE.PlaneGeometry(14, 10);
-      const cloudFlatMat = new THREE.MeshStandardMaterial({
-        color: 0x0f1822,
-        transparent: true,
-        opacity: 0.5,
-        side: THREE.DoubleSide,
-      });
-      const cloudMesh = new THREE.Mesh(cloudGeo, cloudFlatMat);
-      cloudMesh.position.set(posX, base.y + 4.5, posZ);
-      cloudMesh.rotation.x = -Math.PI / 2;
+
+      // No flat plane — clouds only
+      const cloudMesh = cloudGroup; // alias for reference below
       cloudMesh.castShadow = false;
       scene.add(cloudMesh);
       created.push(cloudMesh);
