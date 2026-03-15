@@ -204,69 +204,63 @@ export async function createVfxShowcase(
       scene.add(fireLight);
       created.push(fireLight);
 
-      // --- Animated smoke particles rising from fire ---
-      const SMOKE_COUNT = 8;
+      // --- Animated smoke billboard sprites using Kenney smoke texture ---
+      const smokeTexture = new THREE.TextureLoader().load('/assets/sprites/smoke_black.png');
+      const SMOKE_COUNT = 12;
       const smokeMinY = 2.0;
-      const smokeMaxY = 8.0;
-      const smokePuffs: { mesh: THREE.Mesh; mat: THREE.MeshStandardMaterial; speed: number; baseX: number; baseZ: number; phase: number }[] = [];
+      const smokeMaxY = 9.0;
+      const smokeSprites: { sprite: THREE.Sprite; mat: THREE.SpriteMaterial; speed: number; baseX: number; baseZ: number; phase: number; startScale: number }[] = [];
       for (let s = 0; s < SMOKE_COUNT; s++) {
-        const startR = 0.4 + Math.random() * 0.3;
-        const smokeGeo = new THREE.SphereGeometry(startR, 10, 10);
-        const smokeMat = new THREE.MeshStandardMaterial({
-          color: 0x222228,
+        const smokeMat = new THREE.SpriteMaterial({
+          map: smokeTexture,
           transparent: true,
-          opacity: 0.45,
+          opacity: 0.5,
           depthWrite: false,
-          roughness: 1.0,
-          metalness: 0.0,
+          color: 0x333338,
         });
-        const smokeMesh = new THREE.Mesh(smokeGeo, smokeMat);
-        // Stagger initial positions so they don't all start at once
+        const sprite = new THREE.Sprite(smokeMat);
         const startY = smokeMinY + (s / SMOKE_COUNT) * (smokeMaxY - smokeMinY);
-        smokeMesh.position.set(
-          (Math.random() - 0.5) * 0.5,
+        const startScale = 0.8 + Math.random() * 0.5;
+        sprite.scale.setScalar(startScale);
+        sprite.position.set(
+          (Math.random() - 0.5) * 0.6,
           startY,
-          (Math.random() - 0.5) * 0.5,
+          (Math.random() - 0.5) * 0.6,
         );
-        smokeMesh.castShadow = false;
-        fireGroup.add(smokeMesh);
-        smokePuffs.push({
-          mesh: smokeMesh,
+        fireGroup.add(sprite);
+        smokeSprites.push({
+          sprite,
           mat: smokeMat,
-          speed: 0.4 + Math.random() * 0.3,
-          baseX: (Math.random() - 0.5) * 0.4,
-          baseZ: (Math.random() - 0.5) * 0.4,
+          speed: 0.5 + Math.random() * 0.4,
+          baseX: sprite.position.x,
+          baseZ: sprite.position.z,
           phase: Math.random() * Math.PI * 2,
+          startScale,
         });
       }
 
-      // Animate smoke: rise, grow, fade, then respawn at base
+      // Animate smoke sprites: rise, grow, fade, respawn
       let smokeTime = 0;
       const smokeInterval = setInterval(() => {
-        smokeTime += 0.016; // ~60fps assumed
-        for (const sp of smokePuffs) {
-          sp.mesh.position.y += sp.speed * 0.016;
-          // Gentle lateral drift
-          sp.mesh.position.x = sp.baseX + Math.sin(smokeTime * 0.8 + sp.phase) * 0.3;
-          sp.mesh.position.z = sp.baseZ + Math.cos(smokeTime * 0.6 + sp.phase) * 0.2;
-
-          // Grow as it rises
-          const lifeT = (sp.mesh.position.y - smokeMinY) / (smokeMaxY - smokeMinY);
-          const scale = 1.0 + lifeT * 2.0; // grows to 3x original size
-          sp.mesh.scale.setScalar(scale);
-
-          // Fade out as it rises
-          sp.mat.opacity = Math.max(0, 0.45 * (1.0 - lifeT));
-
-          // Respawn at base when it reaches the top
-          if (sp.mesh.position.y > smokeMaxY) {
-            sp.mesh.position.y = smokeMinY;
-            sp.mesh.position.x = (Math.random() - 0.5) * 0.5;
-            sp.mesh.position.z = (Math.random() - 0.5) * 0.5;
-            sp.baseX = sp.mesh.position.x;
-            sp.baseZ = sp.mesh.position.z;
-            sp.mesh.scale.setScalar(1.0);
-            sp.mat.opacity = 0.45;
+        smokeTime += 0.016;
+        for (const sp of smokeSprites) {
+          sp.sprite.position.y += sp.speed * 0.016;
+          sp.sprite.position.x = sp.baseX + Math.sin(smokeTime * 0.7 + sp.phase) * 0.4;
+          sp.sprite.position.z = sp.baseZ + Math.cos(smokeTime * 0.5 + sp.phase) * 0.3;
+          // Rotate sprite slightly over time
+          sp.mat.rotation += 0.005;
+          const lifeT = (sp.sprite.position.y - smokeMinY) / (smokeMaxY - smokeMinY);
+          const scale = sp.startScale * (1.0 + lifeT * 3.0);
+          sp.sprite.scale.setScalar(scale);
+          sp.mat.opacity = Math.max(0, 0.5 * (1.0 - lifeT * lifeT));
+          if (sp.sprite.position.y > smokeMaxY) {
+            sp.sprite.position.y = smokeMinY;
+            sp.sprite.position.x = (Math.random() - 0.5) * 0.6;
+            sp.sprite.position.z = (Math.random() - 0.5) * 0.6;
+            sp.baseX = sp.sprite.position.x;
+            sp.baseZ = sp.sprite.position.z;
+            sp.sprite.scale.setScalar(sp.startScale);
+            sp.mat.opacity = 0.5;
           }
         }
       }, 16);
@@ -474,45 +468,43 @@ export async function createVfxShowcase(
       scene.add(rainPoints);
       created.push(rainPoints);
 
-      // --- Storm cloud — soft puffy overlapping spheres with low opacity ---
+      // --- Storm cloud using billboard sprite puffs for soft, natural look ---
+      const cloudTexture = new THREE.TextureLoader().load('/assets/sprites/smoke_white.png');
       const cloudGroup = new THREE.Group();
       cloudGroup.position.set(posX, base.y + 6.0, posZ);
-      // Many small soft puffs create a natural cloud shape
+      // Arrange many soft sprite puffs to form a cloud mass
       const cloudPuffs = [
-        { pos: [0, 0, 0], r: 2.0 },
-        { pos: [-1.5, 0.3, 0.3], r: 1.8 },
-        { pos: [1.5, 0.2, -0.2], r: 1.7 },
-        { pos: [0, -0.3, -1.0], r: 1.5 },
-        { pos: [-0.8, 0.5, 0.8], r: 1.3 },
-        { pos: [0.8, 0.4, 0.6], r: 1.4 },
-        { pos: [-2.2, -0.1, -0.3], r: 1.2 },
-        { pos: [2.0, 0.1, 0.4], r: 1.1 },
-        { pos: [0, 0.6, 0], r: 1.6 },
-        { pos: [-0.5, -0.4, -0.5], r: 1.9 },
+        { pos: [0, 0, 0], s: 5.0 },
+        { pos: [-2.0, 0.3, 0.5], s: 4.5 },
+        { pos: [2.0, 0.2, -0.3], s: 4.0 },
+        { pos: [0, 0.6, -1.2], s: 3.5 },
+        { pos: [-1.2, 0.5, 1.0], s: 3.8 },
+        { pos: [1.5, 0.4, 0.8], s: 3.2 },
+        { pos: [-2.5, -0.1, -0.3], s: 2.8 },
+        { pos: [2.3, 0.1, 0.4], s: 2.5 },
+        { pos: [0, 0.8, 0], s: 4.2 },
+        { pos: [-0.8, -0.3, -0.6], s: 4.8 },
+        { pos: [0.5, 0.2, 1.5], s: 3.0 },
+        { pos: [-1.8, 0.6, -0.8], s: 2.6 },
       ];
       for (const cp of cloudPuffs) {
-        // Each puff gets its own material with slightly varied opacity
-        const puffMat = new THREE.MeshStandardMaterial({
-          color: 0x2a3040,
-          roughness: 1.0,
-          metalness: 0.0,
+        const puffMat = new THREE.SpriteMaterial({
+          map: cloudTexture,
           transparent: true,
-          opacity: 0.35 + Math.random() * 0.15,
+          opacity: 0.55 + Math.random() * 0.15,
           depthWrite: false,
+          color: 0x2a3040, // dark storm tint
         });
-        const puffMesh = new THREE.Mesh(
-          new THREE.SphereGeometry(cp.r, 16, 16),
-          puffMat,
-        );
-        puffMesh.position.set(cp.pos[0], cp.pos[1], cp.pos[2]);
-        puffMesh.castShadow = false;
-        cloudGroup.add(puffMesh);
+        const puffSprite = new THREE.Sprite(puffMat);
+        puffSprite.scale.setScalar(cp.s);
+        puffSprite.position.set(cp.pos[0], cp.pos[1], cp.pos[2]);
+        cloudGroup.add(puffSprite);
       }
       scene.add(cloudGroup);
       created.push(cloudGroup);
 
-      // No flat plane — clouds only
       const cloudMesh = cloudGroup; // alias for reference below
+      void cloudMesh;
       cloudMesh.castShadow = false;
       scene.add(cloudMesh);
       created.push(cloudMesh);
