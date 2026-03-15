@@ -347,15 +347,29 @@ export async function createVfxShowcase(
         // Rain spawns directly under the cloud's visual center.
         // The model geometry is huge (1000+ units) so bounding box is unreliable.
         // Use the cloud's known world position instead.
-        const cloudWorldY = base.y + 3.5; // model.position.y
-        const RAIN_COUNT = 150;
-        const RAIN_AREA_W = 6;  // visual width of rain area
-        const RAIN_AREA_D = 6;
-        const RAIN_TOP = cloudWorldY - 0.5;  // just below cloud visual bottom
-        const RAIN_BOTTOM = base.y - 0.5;    // ground level
+        void (base.y + 3.5); // cloudWorldY — now computed from bounding box instead
+        // Measure cloud-only bounds (exclude lightning bolts which extend to ground)
+        const cloudOnlyBox = new THREE.Box3();
+        model.traverse((child) => {
+          if (child.name.includes('Mball') || child.name.includes('Cloud')) {
+            const childBox = new THREE.Box3().setFromObject(child);
+            cloudOnlyBox.union(childBox);
+          }
+        });
+        // Fallback if cloud meshes not found by name
+        if (cloudOnlyBox.isEmpty()) cloudOnlyBox.setFromObject(model);
+
+        const rainCenterX = (cloudOnlyBox.min.x + cloudOnlyBox.max.x) / 2;
+        const rainCenterZ = (cloudOnlyBox.min.z + cloudOnlyBox.max.z) / 2;
+        const rainWidth = Math.min((cloudOnlyBox.max.x - cloudOnlyBox.min.x) * 0.8, 12);
+        const rainDepth = Math.min((cloudOnlyBox.max.z - cloudOnlyBox.min.z) * 0.8, 12);
+
+        const RAIN_COUNT = 200;
+        const RAIN_AREA_W = rainWidth;
+        const RAIN_AREA_D = rainDepth;
+        const RAIN_TOP = cloudOnlyBox.min.y - 0.2; // just below cloud bottom
+        const RAIN_BOTTOM = base.y - 0.5;
         const RAIN_SPEED = 4.0;
-        const rainCenterX = posX;
-        const rainCenterZ = posZ;
 
         let rainInstancedMesh: THREE.InstancedMesh | null = null;
         const rainYPositions = new Float32Array(RAIN_COUNT);
