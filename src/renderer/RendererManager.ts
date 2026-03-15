@@ -103,7 +103,7 @@ export class RendererManager implements Disposable {
   private readonly lutCache = new Map<string, THREE.Data3DTexture>();
   private graphicsProfile: GraphicsProfile = 'cinematic';
   private environmentTarget: THREE.WebGLRenderTarget<THREE.Texture> | null = null;
-  private envName = 'Royal Esplanade';
+  private envName = 'Sunrise';
   private readonly envCache = new Map<string, THREE.WebGLRenderTarget<THREE.Texture>>();
   // Persistent PMREMGenerator — lazily created on first use, reused for all
   // environment loads (avoids re-compiling the equirectangular shader each time).
@@ -261,8 +261,8 @@ export class RendererManager implements Disposable {
 
   constructor() {
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0xd4e8f5);
-    this.scene.fog = new THREE.Fog(0xd4e8f5, 140, 400);
+    this.scene.background = new THREE.Color(0xe8d8c8);
+    this.scene.fog = new THREE.Fog(0xe8d8c8, 140, 400);
     this.applyEnvironmentRotation();
 
     this.camera = new THREE.PerspectiveCamera(

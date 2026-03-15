@@ -46,14 +46,14 @@ export class LightingSystem implements Disposable {
     this.scene.add(hemiLight);
     this.ownedObjects.push(hemiLight);
 
-    // Soft blue-tinted fog for depth.
-    this.scene.fog = new THREE.FogExp2(0xc8dae8, 0.0025);
+    // Warm sunrise-tinted fog for outdoor depth.
+    this.scene.fog = new THREE.FogExp2(0xe8d8c8, 0.002);
 
     // Moderate environment intensity for clearcoat reflections.
     this.scene.environmentIntensity = 0.5;
-    // Sky visible through open ceiling — soft blur for dreamy Astro Bot feel.
-    this.scene.backgroundIntensity = 0.8;
-    this.scene.backgroundBlurriness = 0.3;
+    // Clear sunrise sky visible through open ceiling — sharp HDR, no blur.
+    this.scene.backgroundIntensity = 1.0;
+    this.scene.backgroundBlurriness = 0;
 
     // Warm directional key — main shadow caster.
     const dirLight = new THREE.DirectionalLight(0xfff5e0, 2.0);

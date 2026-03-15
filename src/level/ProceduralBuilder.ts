@@ -201,7 +201,7 @@ export class ProceduralBuilder {
     // Bay material is now per-station themed (see stationColors array below).
 
     const wallThickness = 0.6;
-    const wallHeight = 18;
+    const wallHeight = 5; // Low walls for open-air Astro Bot feel — sky visible above
 
     // Corridor structure (skip in single-station mode)
     if (buildAll) {
@@ -254,19 +254,7 @@ export class ProceduralBuilder {
     frontWall.updateWorldMatrix(true, false);
     this.colliders.push(this.colliderFactory.createTrimesh(frontWall));
 
-    // Open-sky corridor: no solid ceiling — let the HDR skybox show through.
-    // Add a thin canopy frame at ceiling height for structural definition.
-    const canopyFrameMat = new THREE.MeshStandardMaterial({ color: 0x505868, roughness: 0.4, metalness: 0.2 });
-    const canopyBeamW = new THREE.Mesh(new THREE.BoxGeometry(hallWidth + wallThickness * 2, 0.3, 1.0), canopyFrameMat);
-    canopyBeamW.position.set(0, -1.0 + wallHeight, showcaseCenterZ + hallLength / 2);
-    canopyBeamW.name = 'CanopyFrame_front';
-    this.scene.add(canopyBeamW);
-    this.meshes.push(canopyBeamW);
-    const canopyBeamW2 = canopyBeamW.clone();
-    canopyBeamW2.position.z = showcaseCenterZ - hallLength / 2;
-    canopyBeamW2.name = 'CanopyFrame_back';
-    this.scene.add(canopyBeamW2);
-    this.meshes.push(canopyBeamW2);
+    // Open-air — no canopy or ceiling structure. Sky is the roof.
 
     // --- Instanced structural ribs for parallax and visual rhythm ---
     const ribSpacing = 15;
@@ -475,40 +463,39 @@ export class ProceduralBuilder {
       }
     });
 
-    // Ceiling accent lights above each bay (no shadows) for clearer readability.
-    // WHY: keeps the corridor visually appealing without adding expensive shadowed lights.
-    // Colors progress warm→cool along the corridor for a visual journey.
-    const ceilingY = 17 - 0.45;
-    // Astro Bot: vibrant warm→cool panel gradient for visual journey.
-    const warmPanel = new THREE.Color(0xffe4b5);
-    const coolPanel = new THREE.Color(0xb5e4ff);
-    const warmLight = new THREE.Color(0xfff0d0);
-    const coolLight = new THREE.Color(0xd0f0ff);
-    const bayCount = bayZ.length;
+    // Open-air corridor: no ceiling panels. Use low-height lamp posts instead
+    // for per-station accent lighting that doesn't float in the sky.
     bayZ.forEach((z, i) => {
-      const t = bayCount > 1 ? i / (bayCount - 1) : 0;
-      const panelEmissive = new THREE.Color().lerpColors(warmPanel, coolPanel, t);
-      const lightColor = new THREE.Color().lerpColors(warmLight, coolLight, t);
+      const stationColorIdx = SHOWCASE_STATION_ORDER.indexOf(stationKeys[i] ?? stationKeys[0]);
+      const stationColor = stationColors[stationColorIdx] ?? 0xffffff;
 
-      const panelMat = new THREE.MeshStandardMaterial({
-        color: 0xb8bcc4,
-        roughness: 0.3,
-        metalness: 0.0,
-        emissive: panelEmissive,
-        emissiveIntensity: 0.8,
+      // Low lamp post at each station — sits on the pedestal edge.
+      const postMat = new THREE.MeshStandardMaterial({ color: 0x606878, roughness: 0.4, metalness: 0.3 });
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 3.5, 8), postMat);
+      post.position.set(-bayWidth / 2 + 2, bayTopY + 1.75, z);
+      post.castShadow = true;
+      post.name = `StationLamp${i}`;
+      this.scene.add(post);
+      this.meshes.push(post);
+
+      // Glowing lamp head
+      const lampMat = new THREE.MeshStandardMaterial({
+        color: stationColor,
+        emissive: stationColor,
+        emissiveIntensity: 2.0,
+        roughness: 0.1,
       });
-      const panel = new THREE.Mesh(new THREE.BoxGeometry(bayWidth - 6, 0.08, 2.6), panelMat);
-      panel.position.set(0, ceilingY, z);
-      panel.name = `ShowcaseCeilingPanel${i}`;
-      panel.castShadow = false;
-      panel.receiveShadow = false;
-      this.scene.add(panel);
-      this.meshes.push(panel);
+      const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.25, 12, 12), lampMat);
+      lamp.position.set(-bayWidth / 2 + 2, bayTopY + 3.7, z);
+      lamp.name = `StationLampHead${i}`;
+      this.scene.add(lamp);
+      this.meshes.push(lamp);
 
-      const light = new THREE.PointLight(lightColor, 50, 25, 2);
-      light.position.set(0, ceilingY - 0.25, z);
+      // Warm point light from the lamp
+      const light = new THREE.PointLight(stationColor, 30, 20, 2);
+      light.position.set(-bayWidth / 2 + 2, bayTopY + 3.5, z);
       light.castShadow = false;
-      light.name = `ShowcaseBayLight${i}`;
+      light.name = `StationLampLight${i}`;
       this.scene.add(light);
       this.meshes.push(light);
     });
