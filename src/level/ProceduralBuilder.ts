@@ -14,6 +14,7 @@ import {
 } from '@level/ShowcaseLayout';
 import { GrassEffect } from '@level/GrassEffect';
 import { SparkleParticles } from '@level/SparkleParticles';
+import { createBush, createTree, createRock, createFlower, scatterProps } from '@level/ProceduralProps';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { NavMeshManager } from '@navigation/NavMeshManager';
 import { NavPatrolSystem } from '@navigation/NavPatrolSystem';
@@ -396,20 +397,63 @@ export class ProceduralBuilder {
       this.scene.add(accentRing);
       this.meshes.push(accentRing);
 
-      // Add grass patches on green-themed stations (slopes, materials, navigation)
+      // Add grass + organic props on green-themed stations (slopes, materials, navigation)
       if (buildAll && (stationColorIdx === 1 || stationColorIdx === 10 || stationColorIdx === 12)) {
         const grass = new GrassEffect({
           width: bayWidth - 4,
           depth: bayLength - 2,
-          bladeCount: 800,
-          bladeHeight: 0.35,
-          bladeWidth: 0.06,
+          bladeCount: 1200,
+          bladeHeight: 0.4,
+          bladeWidth: 0.07,
           position: new THREE.Vector3(0, bayTopY + 0.01, z),
           windSpeed: 1.2,
           windStrength: 0.25,
         });
         this.scene.add(grass.mesh);
         this.meshes.push(grass.mesh);
+
+        // Scatter bushes along the edges
+        const bushes = scatterProps(
+          () => createBush(0.8, 0x3daa5f),
+          6, bayWidth - 8, bayLength - 4,
+          new THREE.Vector3(0, bayTopY + 0.25, z),
+          { minScale: 0.6, maxScale: 1.2 },
+        );
+        this.scene.add(bushes);
+        this.meshes.push(bushes);
+
+        // Add a few trees
+        const trees = scatterProps(
+          () => createTree(2.5, 0x28a745, 0x8b6914),
+          3, bayWidth - 12, bayLength - 6,
+          new THREE.Vector3(0, bayTopY, z),
+          { minScale: 0.7, maxScale: 1.1 },
+        );
+        this.scene.add(trees);
+        this.meshes.push(trees);
+
+        // Scatter small flowers
+        const flowers = scatterProps(
+          () => createFlower(0.5, [0xff69b4, 0xffcc00, 0xff6b6b, 0x69b4ff][Math.floor(Math.random() * 4)]),
+          12, bayWidth - 6, bayLength - 3,
+          new THREE.Vector3(0, bayTopY, z),
+          { minScale: 0.5, maxScale: 1.0 },
+        );
+        this.scene.add(flowers);
+        this.meshes.push(flowers);
+      }
+
+      // Add rocks on non-green stations for visual variety
+      if (buildAll && stationColorIdx !== 1 && stationColorIdx !== 10 && stationColorIdx !== 12) {
+        // Scatter 2-3 small decorative rocks at station edges
+        const rocks = scatterProps(
+          () => createRock(0.4, [0xaab2bd, 0x95a5a6, 0x7f8c8d][Math.floor(Math.random() * 3)]),
+          3, bayWidth - 10, 2,
+          new THREE.Vector3(0, bayTopY + 0.1, z + bayLength / 2 - 1),
+          { minScale: 0.5, maxScale: 0.9 },
+        );
+        this.scene.add(rocks);
+        this.meshes.push(rocks);
       }
     });
 
@@ -794,9 +838,18 @@ export class ProceduralBuilder {
     }
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    // PBR-safe bright base — slight warmth for the grid texture.
-    ctx.fillStyle = '#d0d4d8';
+    // Astro Bot-style tech-tile floor: alternating light/slightly-lighter tiles.
+    ctx.fillStyle = '#c8ccd0';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Subtle checkerboard overlay for tile rhythm
+    const tileSize = 256;
+    for (let ty = 0; ty < canvas.height; ty += tileSize) {
+      for (let tx = 0; tx < canvas.width; tx += tileSize) {
+        const checker = ((tx / tileSize) + (ty / tileSize)) % 2 === 0;
+        ctx.fillStyle = checker ? 'rgba(220, 225, 230, 0.4)' : 'rgba(195, 200, 208, 0.3)';
+        ctx.fillRect(tx + 2, ty + 2, tileSize - 4, tileSize - 4);
+      }
+    }
 
     const majorStep = 256;
     const minorStep = 64;
