@@ -304,7 +304,7 @@ export async function createVfxShowcase(
       const loader = new GLTFLoader();
       try {
         const gltf = await new Promise<{ scene: THREE.Group }>((resolve, reject) => {
-          loader.load('/assets/models/cloud_lightning.glb', resolve as (gltf: unknown) => void, undefined, reject);
+          loader.load('assets/models/cloud_lightning.glb', resolve as (gltf: unknown) => void, undefined, reject);
         });
         const model = gltf.scene;
         const posX = base.x + 5;
@@ -325,12 +325,70 @@ export async function createVfxShowcase(
         scene.add(model);
         created.push(model);
 
-        // Add a subtle ambient flash light
-        const flashLight = new THREE.PointLight(0x88ccff, 5, 20, 2);
+        // --- Animated rain particles falling from the cloud ---
+        const rainCount = 300;
+        const rainPositions = new Float32Array(rainCount * 3);
+        const rainVelocities = new Float32Array(rainCount);
+        for (let i = 0; i < rainCount; i++) {
+          rainPositions[i * 3] = posX + (Math.random() - 0.5) * 8;
+          rainPositions[i * 3 + 1] = base.y + 1 + Math.random() * 6;
+          rainPositions[i * 3 + 2] = posZ + (Math.random() - 0.5) * 8;
+          rainVelocities[i] = 4 + Math.random() * 3; // fall speed
+        }
+        const rainGeo = new THREE.BufferGeometry();
+        rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPositions, 3));
+        const rainMat = new THREE.PointsMaterial({
+          color: 0x99bbdd,
+          size: 0.08,
+          transparent: true,
+          opacity: 0.6,
+          depthWrite: false,
+        });
+        const rainPoints = new THREE.Points(rainGeo, rainMat);
+        rainPoints.castShadow = false;
+        scene.add(rainPoints);
+        created.push(rainPoints);
+
+        // Animate rain falling + lightning flash
+        const flashLight = new THREE.PointLight(0x88ccff, 0, 25, 2);
         flashLight.position.set(posX, base.y + 5, posZ);
         flashLight.castShadow = false;
         scene.add(flashLight);
         created.push(flashLight);
+
+        let flashTimer = 0;
+        const rainInterval = setInterval(() => {
+          const dt = 0.016;
+          const posAttr = rainGeo.getAttribute('position') as THREE.BufferAttribute;
+          const pos = posAttr.array as Float32Array;
+          for (let i = 0; i < rainCount; i++) {
+            pos[i * 3 + 1] -= rainVelocities[i] * dt;
+            // Respawn at top when hitting ground
+            if (pos[i * 3 + 1] < base.y) {
+              pos[i * 3 + 1] = base.y + 5 + Math.random() * 2;
+              pos[i * 3] = posX + (Math.random() - 0.5) * 8;
+              pos[i * 3 + 2] = posZ + (Math.random() - 0.5) * 8;
+            }
+          }
+          posAttr.needsUpdate = true;
+
+          // Lightning flash: periodic bright flash then fade
+          flashTimer -= dt;
+          if (flashTimer <= 0) {
+            if (Math.random() < 0.008) { // ~0.5 strikes per second
+              flashLight.intensity = 15 + Math.random() * 10;
+              flashTimer = 0.1 + Math.random() * 0.15;
+              rainMat.color.setHex(0xffffff); // rain goes white during flash
+            }
+          } else {
+            flashLight.intensity *= 0.85; // rapid decay
+          }
+          if (flashLight.intensity < 0.5) {
+            flashLight.intensity = 0;
+            rainMat.color.setHex(0x99bbdd); // back to normal rain color
+          }
+        }, 16);
+        void rainInterval;
       } catch (err) {
         console.warn('[VfxShowcase] Failed to load cloud_lightning.glb:', err);
       }
