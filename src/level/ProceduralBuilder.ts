@@ -337,11 +337,11 @@ export class ProceduralBuilder {
       this.colliders.push(this.colliderFactory.createTrimesh(pedestal));
 
       // Emissive accent edge — glowing strip around the pedestal top edge for bloom.
-      // Moderate emissive — enough for bloom without overpowering the scene.
+      // Subtle emissive accent — gentle bloom glow.
       const accentMat = new THREE.MeshStandardMaterial({
         color: 0x000000,
         emissive: stationColor,
-        emissiveIntensity: 4.0,
+        emissiveIntensity: 2.0,
         roughness: 0.0,
         metalness: 0.0,
       });
@@ -447,7 +447,7 @@ export class ProceduralBuilder {
       const lampMat = new THREE.MeshStandardMaterial({
         color: stationColor,
         emissive: stationColor,
-        emissiveIntensity: 2.0,
+        emissiveIntensity: 1.0,
         roughness: 0.1,
       });
       const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.25, 12, 12), lampMat);
@@ -786,7 +786,6 @@ export class ProceduralBuilder {
     this.addDustMotes(hallWidth, hallLength, showcaseCenterZ);
     this.addBayPedestalEdgeGlow(bayZ, bayWidth, bayLength, bayPedestalY, bayPedestalHeight);
     this.addHeroSpotlights(bayZ, bayPedestalY);
-    this.addReflectiveFloorPatches(bayZ, bayWidth, bayLength, bayPedestalY);
     } // end buildAll visual polish
 
     // spawnPoint is set to the showcase corridor near the top of this method.
@@ -1462,7 +1461,7 @@ export class ProceduralBuilder {
     const mat = new THREE.MeshStandardMaterial({
       color: 0x00e5ff,
       emissive: 0x00e5ff,
-      emissiveIntensity: 3.0,
+      emissiveIntensity: 1.5,
       roughness: 0.0,
     });
     const strip = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.03, hallLength), mat);
@@ -1650,24 +1649,6 @@ export class ProceduralBuilder {
       this.scene.add(light.target);
       this.meshes.push(light);
       this.meshes.push(light.target);
-    });
-  }
-
-  /** Reflective floor patches in front of each bay for SSR showcase. */
-  private addReflectiveFloorPatches(
-    bayZ: number[], bayWidth: number, bayLength: number, _bayPedestalY: number,
-  ): void {
-    const floorY = -1.0 + 0.005; // Just above hall floor surface
-    const patchMat = new THREE.MeshStandardMaterial({
-      color: 0x1a1e28, roughness: 0.08, metalness: 0.85,
-    });
-    bayZ.forEach((z, i) => {
-      const patch = new THREE.Mesh(new THREE.BoxGeometry(bayWidth - 4, 0.02, 3), patchMat);
-      patch.position.set(0, floorY, z + bayLength / 2 + 2);
-      patch.receiveShadow = true;
-      patch.name = `FloorPatch_${i}`;
-      this.scene.add(patch);
-      this.meshes.push(patch);
     });
   }
 
