@@ -355,8 +355,8 @@ export async function createVfxShowcase(
         const rainCenterZ = posZ;
 
         const RAIN_COUNT = 200;
-        const RAIN_AREA_W = 8;
-        const RAIN_AREA_D = 6;
+        const RAIN_AREA_W = 7.5;
+        const RAIN_AREA_D = 5.4;
         const RAIN_TOP = base.y + 3.0;   // just below cloud visual bottom
         const RAIN_BOTTOM = base.y - 0.5;
         const RAIN_SPEED = 4.0;
