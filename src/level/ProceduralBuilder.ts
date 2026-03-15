@@ -397,63 +397,77 @@ export class ProceduralBuilder {
       this.scene.add(accentRing);
       this.meshes.push(accentRing);
 
-      // Add grass + organic props on green-themed stations (slopes, materials, navigation)
+      // Add grass + organic props on green-themed stations.
+      // Props are placed on the OUTER EDGES of the pedestal to avoid overlapping
+      // station obstacles (steps, slopes, etc.) which occupy the center.
       if (buildAll && (stationColorIdx === 1 || stationColorIdx === 10 || stationColorIdx === 12)) {
-        const grass = new GrassEffect({
-          width: bayWidth - 4,
-          depth: bayLength - 2,
-          bladeCount: 1200,
-          bladeHeight: 0.4,
-          bladeWidth: 0.07,
-          position: new THREE.Vector3(0, bayTopY + 0.01, z),
-          windSpeed: 1.2,
-          windStrength: 0.25,
-        });
-        this.scene.add(grass.mesh);
-        this.meshes.push(grass.mesh);
+        // Grass only on outer edges — two side strips, not full center.
+        const edgeDepth = 3;
+        for (const side of [-1, 1]) {
+          const grass = new GrassEffect({
+            width: bayWidth - 6,
+            depth: edgeDepth,
+            bladeCount: 400,
+            bladeHeight: 0.35,
+            bladeWidth: 0.06,
+            position: new THREE.Vector3(0, bayTopY + 0.01, z + side * (bayLength / 2 - edgeDepth / 2 - 0.5)),
+            windSpeed: 1.2,
+            windStrength: 0.2,
+          });
+          this.scene.add(grass.mesh);
+          this.meshes.push(grass.mesh);
+        }
 
-        // Scatter bushes along the edges
-        const bushes = scatterProps(
-          () => createBush(0.8, 0x3daa5f),
-          6, bayWidth - 8, bayLength - 4,
-          new THREE.Vector3(0, bayTopY + 0.25, z),
-          { minScale: 0.6, maxScale: 1.2 },
-        );
-        this.scene.add(bushes);
-        this.meshes.push(bushes);
+        // Bushes along the LEFT and RIGHT edges only (high |X|), avoiding center obstacles.
+        for (const xSide of [-1, 1]) {
+          const bushes = scatterProps(
+            () => createBush(0.7, 0x3daa5f),
+            3, 8, bayLength - 4,
+            new THREE.Vector3(xSide * (bayWidth / 2 - 6), bayTopY + 0.2, z),
+            { minScale: 0.5, maxScale: 1.0 },
+          );
+          this.scene.add(bushes);
+          this.meshes.push(bushes);
+        }
 
-        // Add a few trees
-        const trees = scatterProps(
-          () => createTree(2.5, 0x28a745, 0x8b6914),
-          3, bayWidth - 12, bayLength - 6,
-          new THREE.Vector3(0, bayTopY, z),
-          { minScale: 0.7, maxScale: 1.1 },
-        );
-        this.scene.add(trees);
-        this.meshes.push(trees);
+        // Trees at the far corners only (high |X| AND |Z|).
+        const treePositions = [
+          new THREE.Vector3(-bayWidth / 2 + 5, bayTopY, z + bayLength / 2 - 2),
+          new THREE.Vector3(bayWidth / 2 - 5, bayTopY, z - bayLength / 2 + 2),
+        ];
+        for (const tPos of treePositions) {
+          const tree = createTree(2.0, 0x28a745, 0x8b6914);
+          tree.position.copy(tPos);
+          const s = 0.7 + Math.random() * 0.3;
+          tree.scale.setScalar(s);
+          this.scene.add(tree);
+          this.meshes.push(tree as unknown as THREE.Object3D);
+        }
 
-        // Scatter small flowers
+        // Flowers along the front edge strip only.
         const flowers = scatterProps(
-          () => createFlower(0.5, [0xff69b4, 0xffcc00, 0xff6b6b, 0x69b4ff][Math.floor(Math.random() * 4)]),
-          12, bayWidth - 6, bayLength - 3,
-          new THREE.Vector3(0, bayTopY, z),
-          { minScale: 0.5, maxScale: 1.0 },
+          () => createFlower(0.4, [0xff69b4, 0xffcc00, 0xff6b6b, 0x69b4ff][Math.floor(Math.random() * 4)]),
+          8, bayWidth - 10, 2,
+          new THREE.Vector3(0, bayTopY, z + bayLength / 2 - 1.5),
+          { minScale: 0.5, maxScale: 0.9 },
         );
         this.scene.add(flowers);
         this.meshes.push(flowers);
       }
 
-      // Add rocks on non-green stations for visual variety
+      // Rocks on non-green stations — placed at far corners, not edges.
       if (buildAll && stationColorIdx !== 1 && stationColorIdx !== 10 && stationColorIdx !== 12) {
-        // Scatter 2-3 small decorative rocks at station edges
-        const rocks = scatterProps(
-          () => createRock(0.4, [0xaab2bd, 0x95a5a6, 0x7f8c8d][Math.floor(Math.random() * 3)]),
-          3, bayWidth - 10, 2,
-          new THREE.Vector3(0, bayTopY + 0.1, z + bayLength / 2 - 1),
-          { minScale: 0.5, maxScale: 0.9 },
-        );
-        this.scene.add(rocks);
-        this.meshes.push(rocks);
+        const rockPositions = [
+          new THREE.Vector3(-bayWidth / 2 + 4, bayTopY + 0.08, z + bayLength / 2 - 2),
+          new THREE.Vector3(bayWidth / 2 - 4, bayTopY + 0.08, z - bayLength / 2 + 2),
+        ];
+        for (const rPos of rockPositions) {
+          const rock = createRock(0.35, [0xaab2bd, 0x95a5a6, 0x7f8c8d][Math.floor(Math.random() * 3)]);
+          rock.position.copy(rPos);
+          rock.rotation.y = Math.random() * Math.PI * 2;
+          this.scene.add(rock);
+          this.meshes.push(rock);
+        }
       }
     });
 
