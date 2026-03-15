@@ -34,24 +34,24 @@ export class LightingSystem implements Disposable {
   addLighting(): THREE.Object3D[] {
     this.ownedObjects = [];
 
-    // Low ambient with enough fill to read shadow detail indoors.
-    const ambientLight = new THREE.AmbientLight(0xfff8f0, 0.12);
+    // Astro Bot-inspired bright, warm ambient — high fill for cheerful look.
+    const ambientLight = new THREE.AmbientLight(0xe5f2ff, 1.2);
     ambientLight.name = '__kinema_ambient';
     this.scene.add(ambientLight);
     this.ownedObjects.push(ambientLight);
 
-    const hemiLight = new THREE.HemisphereLight(0xffeedd, 0x282c38, 0.35);
+    // Sky/ground hemisphere for natural outdoor-ish bounce light.
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0xb3d9ff, 0.7);
     hemiLight.name = '__kinema_hemilight';
     this.scene.add(hemiLight);
     this.ownedObjects.push(hemiLight);
 
-    // Exponential fog for depth perception in the long corridor.
-    this.scene.fog = new THREE.FogExp2(0x8a95a5, 0.0035);
+    // Lighter fog tinted to match the bright palette.
+    this.scene.fog = new THREE.FogExp2(0xd4e8f5, 0.003);
 
-    // Softer fill-key light — positioned high overhead for indoor corridor feel.
-    // Shadows are subtle; most visual grounding comes from GTAO contact shadows.
-    const dirLight = new THREE.DirectionalLight(0xfff4e0, 1.8);
-    dirLight.position.set(5, 35, 3);
+    // Bright warm directional for readable cast shadows and cheerful tone.
+    const dirLight = new THREE.DirectionalLight(0xfff9e6, 2.5);
+    dirLight.position.set(10, 30, 8);
     dirLight.castShadow = this.shadowsEnabled;
     const shadowSize = this.getShadowMapSize();
     dirLight.shadow.mapSize.set(shadowSize, shadowSize);
@@ -91,7 +91,7 @@ export class LightingSystem implements Disposable {
   /** Keep directional light near player for stable, sharp shadows. */
   updateLighting(playerPos: THREE.Vector3): void {
     if (!this.dirLight || !this.dirLightTarget) return;
-    _lightGoalPos.set(playerPos.x + 5, playerPos.y + 35, playerPos.z + 3);
+    _lightGoalPos.set(playerPos.x + 10, playerPos.y + 30, playerPos.z + 8);
     _lightGoalTarget.set(playerPos.x, playerPos.y + 1, playerPos.z);
     this.lightFollowPos.lerp(_lightGoalPos, 0.08);
     this.lightTargetPos.lerp(_lightGoalTarget, 0.1);

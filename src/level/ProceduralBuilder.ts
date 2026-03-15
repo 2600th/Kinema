@@ -12,6 +12,7 @@ import {
   getShowcaseStationZ,
   type ShowcaseStationKey,
 } from '@level/ShowcaseLayout';
+import { GrassEffect } from '@level/GrassEffect';
 import { NavMeshManager } from '@navigation/NavMeshManager';
 import { NavPatrolSystem } from '@navigation/NavPatrolSystem';
 import { NavDebugOverlay } from '@navigation/NavDebugOverlay';
@@ -123,17 +124,18 @@ export class ProceduralBuilder {
   /** Build the procedural showcase corridor and return all created resources. */
   build(): void {
     const gridTexture = this.createGroundGridTexture();
+    // ── Astro Bot-inspired bright, plastic-toy palette ──
     const floorMat = new THREE.MeshStandardMaterial({
-      color: 0x1a1d24,
+      color: 0xf0f0f4,
       map: gridTexture,
-      roughness: 0.7,
-      metalness: 0.1,
+      roughness: 0.55,
+      metalness: 0.0,
     });
-    const stepMat = new THREE.MeshStandardMaterial({ color: 0x3a4a68, roughness: 0.85, metalness: 0.05, emissive: 0xc0d8ff, emissiveIntensity: 0.4 });
-    const slopeMat = new THREE.MeshStandardMaterial({ color: 0x5568a0, roughness: 0.8, metalness: 0.05 });
-    const obstacleMat = new THREE.MeshStandardMaterial({ color: 0x2a2e38, roughness: 0.8, metalness: 0.05, emissive: 0x4488cc, emissiveIntensity: 0.3 });
-    const kinematicPlatformMat = new THREE.MeshStandardMaterial({ color: 0xccaa22, roughness: 0.85, metalness: 0.05 });
-    const floatingPlatformMat = new THREE.MeshStandardMaterial({ color: 0x3366aa, roughness: 0.85, metalness: 0.05 });
+    const stepMat = new THREE.MeshStandardMaterial({ color: 0x00a2ff, roughness: 0.15, metalness: 0.1, emissive: 0x0066cc, emissiveIntensity: 0.15 });
+    const slopeMat = new THREE.MeshStandardMaterial({ color: 0x33cc33, roughness: 0.2, metalness: 0.05 });
+    const obstacleMat = new THREE.MeshStandardMaterial({ color: 0xff3366, roughness: 0.2, metalness: 0.05, emissive: 0xff1144, emissiveIntensity: 0.1 });
+    const kinematicPlatformMat = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.15, metalness: 0.1 });
+    const floatingPlatformMat = new THREE.MeshStandardMaterial({ color: 0x00cccc, roughness: 0.2, metalness: 0.1 });
 
     // Station filter: when set, only build the target station + a minimal floor.
     const buildAll = this.stationFilterKey === null;
@@ -185,13 +187,14 @@ export class ProceduralBuilder {
     hallGridTex.repeat.set(10, 10 * corridorAspect);
     hallGridTex.needsUpdate = true;
     floorRoughnessNoise.repeat.set(3, 3 * corridorAspect);
-    const hallFloorMat = new THREE.MeshStandardMaterial({ color: 0x282c38, roughness: 0.65, metalness: 0.12 });
+    // Bright clean floor — Astro Bot plastic toy aesthetic.
+    const hallFloorMat = new THREE.MeshStandardMaterial({ color: 0xf4f4f6, roughness: 0.5, metalness: 0.0 });
     hallFloorMat.map = hallGridTex;
     hallFloorMat.roughnessMap = floorRoughnessNoise;
     hallFloorMat.needsUpdate = true;
-    // Lower roughness + slight metalness lets ceiling lights cast specular highlights on walls.
-    const hallWallMat = new THREE.MeshStandardMaterial({ color: 0xd8dce5, roughness: 0.6, metalness: 0.15 });
-    const bayMat = new THREE.MeshStandardMaterial({ color: 0x404858, roughness: 0.75, metalness: 0.05 });
+    // Clean bright walls with slight sheen.
+    const hallWallMat = new THREE.MeshStandardMaterial({ color: 0xfafbff, roughness: 0.4, metalness: 0.05 });
+    // Bay material is now per-station themed (see stationColors array below).
 
     const wallThickness = 0.6;
     const wallHeight = 18;
@@ -263,7 +266,8 @@ export class ProceduralBuilder {
     const ribWidth = 0.65;
     const ribHeight = wallHeight;
     const ribDepth = 0.65;
-    const ribMat = new THREE.MeshStandardMaterial({ color: 0x3a4050, roughness: 0.4, metalness: 0.6 });
+    // Bright accent ribs — soft blue-white plastic to frame the corridor.
+    const ribMat = new THREE.MeshStandardMaterial({ color: 0xc0d8f0, roughness: 0.25, metalness: 0.1 });
     const ribGeom = new THREE.BoxGeometry(ribWidth, ribHeight, ribDepth);
 
     // Left ribs
@@ -311,11 +315,39 @@ export class ProceduralBuilder {
     this.meshes.push(beamRibs);
     } // end buildAll corridor structure
 
+    // ── Per-station Astro Bot color theme palette ──
+    const stationColors: number[] = [
+      0x00a2ff, // steps — sky blue
+      0x33cc33, // slopes — green
+      0xffcc66, // movement — warm yellow
+      0xff3399, // doubleJump — hot pink
+      0x00ffff, // grab — cyan
+      0xff6600, // throw — orange
+      0x9900ff, // door — purple
+      0xffd700, // vehicles — gold
+      0x00b3b3, // platformsMoving — teal
+      0xe63900, // platformsPhysics — red
+      0x00e680, // materials — emerald
+      0x4b0082, // vfx — indigo
+      0xc0c0c0, // navigation — silver
+      0xffdf00, // futureA — bright yellow
+    ];
+
     // Bay pedestals: all in normal mode, single target in station mode.
     const stationKeys = buildAll ? SHOWCASE_STATION_ORDER : [this.stationFilterKey!];
     const bayZ = stationKeys.map((k) => getShowcaseStationZ(k));
     bayZ.forEach((z, i) => {
-      const pedestal = new THREE.Mesh(new THREE.BoxGeometry(bayWidth, bayPedestalHeight, bayLength), bayMat);
+      // Per-station colored pedestal — glossy plastic Astro Bot look.
+      const stationColorIdx = SHOWCASE_STATION_ORDER.indexOf(stationKeys[i] ?? stationKeys[0]);
+      const stationColor = stationColors[stationColorIdx] ?? 0xe8ecf4;
+      const stationBayMat = new THREE.MeshStandardMaterial({
+        color: stationColor,
+        roughness: 0.15,
+        metalness: 0.1,
+        emissive: stationColor,
+        emissiveIntensity: 0.08,
+      });
+      const pedestal = new THREE.Mesh(new THREE.BoxGeometry(bayWidth, bayPedestalHeight, bayLength), stationBayMat);
       pedestal.position.set(0, bayPedestalY, z);
       pedestal.receiveShadow = true;
       pedestal.name = `ShowcaseBay${i}_col`;
@@ -323,16 +355,33 @@ export class ProceduralBuilder {
       this.meshes.push(pedestal);
       pedestal.updateWorldMatrix(true, false);
       this.colliders.push(this.colliderFactory.createTrimesh(pedestal));
+
+      // Add grass patches on green-themed stations (slopes, materials, navigation)
+      if (buildAll && (stationColorIdx === 1 || stationColorIdx === 10 || stationColorIdx === 12)) {
+        const grass = new GrassEffect({
+          width: bayWidth - 4,
+          depth: bayLength - 2,
+          bladeCount: 800,
+          bladeHeight: 0.35,
+          bladeWidth: 0.06,
+          position: new THREE.Vector3(0, bayTopY + 0.01, z),
+          windSpeed: 1.2,
+          windStrength: 0.25,
+        });
+        this.scene.add(grass.mesh);
+        this.meshes.push(grass.mesh);
+      }
     });
 
     // Ceiling accent lights above each bay (no shadows) for clearer readability.
     // WHY: keeps the corridor visually appealing without adding expensive shadowed lights.
     // Colors progress warm→cool along the corridor for a visual journey.
     const ceilingY = 17 - 0.45;
-    const warmPanel = new THREE.Color(0xd0e0ff);
-    const coolPanel = new THREE.Color(0xe0e8ff);
-    const warmLight = new THREE.Color(0xc8d8ff);
-    const coolLight = new THREE.Color(0xe8e0f0);
+    // Astro Bot: vibrant warm→cool panel gradient for visual journey.
+    const warmPanel = new THREE.Color(0xffe4b5);
+    const coolPanel = new THREE.Color(0xb5e4ff);
+    const warmLight = new THREE.Color(0xfff0d0);
+    const coolLight = new THREE.Color(0xd0f0ff);
     const bayCount = bayZ.length;
     bayZ.forEach((z, i) => {
       const t = bayCount > 1 ? i / (bayCount - 1) : 0;
@@ -340,11 +389,11 @@ export class ProceduralBuilder {
       const lightColor = new THREE.Color().lerpColors(warmLight, coolLight, t);
 
       const panelMat = new THREE.MeshStandardMaterial({
-        color: 0xd0d4dc,
-        roughness: 0.35,
-        metalness: 0.05,
+        color: 0xfafafa,
+        roughness: 0.2,
+        metalness: 0.0,
         emissive: panelEmissive,
-        emissiveIntensity: 0.6,
+        emissiveIntensity: 0.8,
       });
       const panel = new THREE.Mesh(new THREE.BoxGeometry(bayWidth - 6, 0.08, 2.6), panelMat);
       panel.position.set(0, ceilingY, z);
@@ -354,7 +403,7 @@ export class ProceduralBuilder {
       this.scene.add(panel);
       this.meshes.push(panel);
 
-      const light = new THREE.PointLight(lightColor, 60, 28, 2);
+      const light = new THREE.PointLight(lightColor, 100, 30, 2);
       light.position.set(0, ceilingY - 0.25, z);
       light.castShadow = false;
       light.name = `ShowcaseBayLight${i}`;
@@ -705,7 +754,8 @@ export class ProceduralBuilder {
     }
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#1a1e28';
+    // Bright base for Astro Bot clean floor look.
+    ctx.fillStyle = '#e8ecf0';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const majorStep = 256;
@@ -718,7 +768,7 @@ export class ProceduralBuilder {
     ctx.save();
     ctx.translate(0.5, 0.5);
 
-    ctx.strokeStyle = 'rgba(160, 170, 190, 0.15)';
+    ctx.strokeStyle = 'rgba(180, 195, 210, 0.25)';
     ctx.lineWidth = 1;
     for (let x = 0; x < canvas.width; x += minorStep) {
       ctx.beginPath();
@@ -733,7 +783,7 @@ export class ProceduralBuilder {
       ctx.stroke();
     }
 
-    ctx.strokeStyle = 'rgba(180, 190, 210, 0.30)';
+    ctx.strokeStyle = 'rgba(160, 180, 200, 0.35)';
     ctx.lineWidth = 2;
     for (let x = 0; x < canvas.width; x += majorStep) {
       ctx.beginPath();
