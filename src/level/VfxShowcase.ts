@@ -29,15 +29,11 @@ export async function createVfxShowcase(
       positionLocal,
       float,
       sin,
-      vec2,
       vec3,
       mix,
       step,
       abs,
-      pow,
       smoothstep,
-      mul,
-      add,
       cos,
     } = await import('three/tsl');
     const { mx_fractal_noise_float } = await import('three/tsl');
@@ -105,6 +101,114 @@ export async function createVfxShowcase(
       scene.add(fireGroup);
       created.push(fireGroup);
 
+      // --- WOOD LOGS (5 tilted cylinders like Shadertoy Wtc3W2) ---
+      const logMat = new THREE.MeshStandardMaterial({
+        color: 0x4a2810, roughness: 0.9, metalness: 0.0,
+      });
+      const logConfigs = [
+        { pos: [0.15, 0.05, 0], rotY: 1.9, rotZ: 0.5, r: 0.08, len: 0.7 },
+        { pos: [-0.1, 0.12, 0.1], rotY: -0.8, rotZ: 0.42, r: 0.06, len: 0.9 },
+        { pos: [0.2, 0.1, -0.15], rotY: 0.4, rotZ: 0.3, r: 0.055, len: 0.5 },
+        { pos: [-0.15, 0.18, -0.08], rotY: -2.1, rotZ: 0.35, r: 0.05, len: 0.8 },
+        { pos: [0.05, 0.22, 0.12], rotY: 1.0, rotZ: 0.2, r: 0.05, len: 0.75 },
+      ];
+      for (const lc of logConfigs) {
+        const logGeo = new THREE.CylinderGeometry(lc.r, lc.r * 1.05, lc.len, 8);
+        const log = new THREE.Mesh(logGeo, logMat);
+        log.position.set(lc.pos[0], lc.pos[1], lc.pos[2]);
+        log.rotation.set(0, lc.rotY, lc.rotZ);
+        log.castShadow = true;
+        log.receiveShadow = true;
+        fireGroup.add(log);
+      }
+
+      // --- ROCKS (ring of 6-8 around the fire base) ---
+      const rockMat = new THREE.MeshStandardMaterial({
+        color: 0x555555, roughness: 0.85, metalness: 0.0, flatShading: true,
+      });
+      const ROCK_COUNT = 7;
+      const rockRingRadius = 0.65;
+      for (let ri = 0; ri < ROCK_COUNT; ri++) {
+        const angle = (ri / ROCK_COUNT) * Math.PI * 2 + Math.random() * 0.3;
+        const rockGeo = new THREE.IcosahedronGeometry(0.08 + Math.random() * 0.06, 1);
+        // Displace vertices slightly for natural shape
+        const rpos = rockGeo.attributes.position;
+        for (let vi = 0; vi < rpos.count; vi++) {
+          rpos.setY(vi, rpos.getY(vi) * (0.5 + Math.random() * 0.3));
+        }
+        rpos.needsUpdate = true;
+        rockGeo.computeVertexNormals();
+        const rock = new THREE.Mesh(rockGeo, rockMat);
+        rock.position.set(
+          Math.cos(angle) * rockRingRadius,
+          -0.02,
+          Math.sin(angle) * rockRingRadius,
+        );
+        rock.rotation.y = Math.random() * Math.PI;
+        rock.castShadow = true;
+        rock.receiveShadow = true;
+        fireGroup.add(rock);
+      }
+
+      // --- EMBER BED (glowing disc at the base) ---
+      const emberMat = new THREE.MeshStandardMaterial({
+        color: 0x331100,
+        emissive: 0xff4400,
+        emissiveIntensity: 1.5,
+        roughness: 0.9,
+        metalness: 0.0,
+      });
+      const emberDisc = new THREE.Mesh(
+        new THREE.CircleGeometry(0.45, 16),
+        emberMat,
+      );
+      emberDisc.rotation.x = -Math.PI / 2;
+      emberDisc.position.y = 0.01;
+      emberDisc.receiveShadow = true;
+      fireGroup.add(emberDisc);
+
+      // --- EMBER PARTICLES (tiny hot sparks rising) ---
+      const emberParticleCount = 40;
+      const emberPositions = new Float32Array(emberParticleCount * 3);
+      for (let e = 0; e < emberParticleCount; e++) {
+        const a = Math.random() * Math.PI * 2;
+        const r = Math.random() * 0.3;
+        emberPositions[e * 3] = Math.cos(a) * r;
+        emberPositions[e * 3 + 1] = 0.2 + Math.random() * 1.5;
+        emberPositions[e * 3 + 2] = Math.sin(a) * r;
+      }
+      const emberGeo = new THREE.BufferGeometry();
+      emberGeo.setAttribute('position', new THREE.BufferAttribute(emberPositions, 3));
+      const emberPMat = new THREE.PointsMaterial({
+        color: 0xff6600, size: 0.04,
+        blending: THREE.AdditiveBlending, transparent: true, opacity: 0.9, depthWrite: false,
+      });
+      const emberPts = new THREE.Points(emberGeo, emberPMat);
+      emberPts.castShadow = false;
+      fireGroup.add(emberPts);
+
+      // Animate embers rising
+      const emberSpeeds = new Float32Array(emberParticleCount);
+      for (let e = 0; e < emberParticleCount; e++) emberSpeeds[e] = 0.3 + Math.random() * 0.5;
+      const emberInterval = setInterval(() => {
+        const epos = (emberGeo.attributes.position as THREE.BufferAttribute).array as Float32Array;
+        for (let e = 0; e < emberParticleCount; e++) {
+          epos[e * 3 + 1] += emberSpeeds[e] * 0.016;
+          epos[e * 3] += (Math.random() - 0.5) * 0.005;
+          epos[e * 3 + 2] += (Math.random() - 0.5) * 0.005;
+          if (epos[e * 3 + 1] > 2.5) {
+            const a = Math.random() * Math.PI * 2;
+            const r = Math.random() * 0.3;
+            epos[e * 3] = Math.cos(a) * r;
+            epos[e * 3 + 1] = 0.1;
+            epos[e * 3 + 2] = Math.sin(a) * r;
+          }
+        }
+        (emberGeo.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+      }, 16);
+      void emberInterval;
+
+      // --- FIRE SHEETS (TSL volumetric flames above the logs) ---
       const flameWidth = 1.6;
       const flameHeight = 3.2;
       const SHEET_COUNT = 7;
