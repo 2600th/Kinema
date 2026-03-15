@@ -130,10 +130,10 @@ export class ProceduralBuilder {
     const gridTexture = this.createGroundGridTexture();
     // ── Astro Bot-inspired bright, plastic-toy palette — all clearcoat for premium look ──
     const floorMat = new THREE.MeshStandardMaterial({
-      color: 0xd0d4d8,
+      color: 0x8a9098,
       map: gridTexture,
-      roughness: 0.55,
-      metalness: 0.0,
+      roughness: 0.6,
+      metalness: 0.02,
     });
     const stepMat = new THREE.MeshPhysicalMaterial({ color: 0x00a2ff, roughness: 0.35, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.05, emissive: 0x0066cc, emissiveIntensity: 0.1 });
     const slopeMat = new THREE.MeshPhysicalMaterial({ color: 0x33cc33, roughness: 0.35, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.05 });
@@ -191,13 +191,13 @@ export class ProceduralBuilder {
     hallGridTex.repeat.set(10, 10 * corridorAspect);
     hallGridTex.needsUpdate = true;
     floorRoughnessNoise.repeat.set(3, 3 * corridorAspect);
-    // PBR-safe bright floor — slightly toned down to allow highlight readability.
-    const hallFloorMat = new THREE.MeshStandardMaterial({ color: 0xd8dce0, roughness: 0.5, metalness: 0.0 });
+    // Muted floor — darker than walls to ground the scene.
+    const hallFloorMat = new THREE.MeshStandardMaterial({ color: 0x9aa0a8, roughness: 0.55, metalness: 0.02 });
     hallFloorMat.map = hallGridTex;
     hallFloorMat.roughnessMap = floorRoughnessNoise;
     hallFloorMat.needsUpdate = true;
-    // PBR-safe bright walls — max 80% albedo to prevent exposure blowout.
-    const hallWallMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.4, metalness: 0.05 });
+    // Muted warm-gray walls — provides contrast for colorful station elements to pop.
+    const hallWallMat = new THREE.MeshStandardMaterial({ color: 0xa8b0b8, roughness: 0.5, metalness: 0.03 });
     // Bay material is now per-station themed (see stationColors array below).
 
     const wallThickness = 0.6;
@@ -270,8 +270,8 @@ export class ProceduralBuilder {
     const ribWidth = 0.65;
     const ribHeight = wallHeight;
     const ribDepth = 0.65;
-    // Bright accent ribs — soft blue-white plastic to frame the corridor.
-    const ribMat = new THREE.MeshStandardMaterial({ color: 0xc0d8f0, roughness: 0.25, metalness: 0.1 });
+    // Darker accent ribs — contrasts against lighter walls for framing.
+    const ribMat = new THREE.MeshStandardMaterial({ color: 0x607088, roughness: 0.35, metalness: 0.15 });
     const ribGeom = new THREE.BoxGeometry(ribWidth, ribHeight, ribDepth);
 
     // Left ribs
@@ -380,11 +380,11 @@ export class ProceduralBuilder {
       this.colliders.push(this.colliderFactory.createTrimesh(pedestal));
 
       // Emissive accent edge — glowing strip around the pedestal top edge for bloom.
-      // High emissive intensity to survive ACESFilmic shoulder and trigger bloom.
+      // Moderate emissive — enough for bloom without overpowering the scene.
       const accentMat = new THREE.MeshStandardMaterial({
         color: 0x000000,
         emissive: stationColor,
-        emissiveIntensity: 12.0,
+        emissiveIntensity: 4.0,
         roughness: 0.0,
         metalness: 0.0,
       });
@@ -473,8 +473,8 @@ export class ProceduralBuilder {
       const lightColor = new THREE.Color().lerpColors(warmLight, coolLight, t);
 
       const panelMat = new THREE.MeshStandardMaterial({
-        color: 0xd0d4dc,
-        roughness: 0.2,
+        color: 0xb8bcc4,
+        roughness: 0.3,
         metalness: 0.0,
         emissive: panelEmissive,
         emissiveIntensity: 0.8,
@@ -487,7 +487,7 @@ export class ProceduralBuilder {
       this.scene.add(panel);
       this.meshes.push(panel);
 
-      const light = new THREE.PointLight(lightColor, 100, 30, 2);
+      const light = new THREE.PointLight(lightColor, 50, 25, 2);
       light.position.set(0, ceilingY - 0.25, z);
       light.castShadow = false;
       light.name = `ShowcaseBayLight${i}`;
@@ -838,15 +838,15 @@ export class ProceduralBuilder {
     }
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    // Astro Bot-style tech-tile floor: alternating light/slightly-lighter tiles.
-    ctx.fillStyle = '#c8ccd0';
+    // Medium-gray tech-tile floor with subtle checkerboard.
+    ctx.fillStyle = '#8a9098';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    // Subtle checkerboard overlay for tile rhythm
+    // Checkerboard tile pattern for visual rhythm.
     const tileSize = 256;
     for (let ty = 0; ty < canvas.height; ty += tileSize) {
       for (let tx = 0; tx < canvas.width; tx += tileSize) {
         const checker = ((tx / tileSize) + (ty / tileSize)) % 2 === 0;
-        ctx.fillStyle = checker ? 'rgba(220, 225, 230, 0.4)' : 'rgba(195, 200, 208, 0.3)';
+        ctx.fillStyle = checker ? 'rgba(170, 178, 188, 0.35)' : 'rgba(130, 138, 148, 0.25)';
         ctx.fillRect(tx + 2, ty + 2, tileSize - 4, tileSize - 4);
       }
     }

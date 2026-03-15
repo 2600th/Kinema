@@ -90,36 +90,35 @@ export function createTree(
   return group as unknown as THREE.Mesh;
 }
 
-/** Stylized rock — displaced icosahedron with flat shading. */
+/** Stylized rock — gently displaced icosahedron with flat shading. */
 export function createRock(scale = 1.0, color = 0x95a5a6): THREE.Mesh {
-  const geo = new THREE.IcosahedronGeometry(0.5 * scale, 1);
+  // Use detail level 2 for smoother base, then displace gently
+  const geo = new THREE.IcosahedronGeometry(0.4 * scale, 2);
 
-  // Displace vertices for natural irregularity
+  // Gentle radial displacement for natural irregularity (not random XYZ which breaks faces)
   const pos = geo.attributes.position;
+  const vertex = new THREE.Vector3();
   for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i);
-    const y = pos.getY(i);
-    const z = pos.getZ(i);
-    const displacement = 0.15 * scale;
-    pos.setXYZ(
-      i,
-      x + (Math.random() - 0.5) * displacement * 2,
-      y + (Math.random() - 0.5) * displacement * 2,
-      z + (Math.random() - 0.5) * displacement * 2,
-    );
+    vertex.set(pos.getX(i), pos.getY(i), pos.getZ(i));
+    const len = vertex.length();
+    // Displace along the vertex normal direction (radial) — keeps faces intact
+    const noise = 1.0 + (Math.sin(vertex.x * 7.3 + vertex.y * 5.1) *
+                          Math.cos(vertex.z * 6.2 + vertex.x * 3.7)) * 0.15 * scale;
+    vertex.normalize().multiplyScalar(len * noise);
+    pos.setXYZ(i, vertex.x, vertex.y, vertex.z);
   }
   pos.needsUpdate = true;
   geo.computeVertexNormals();
 
-  // Random per-axis scale for variety
-  const sx = 0.8 + Math.random() * 0.4;
-  const sy = 0.8 + Math.random() * 0.4;
-  const sz = 0.8 + Math.random() * 0.4;
-  geo.scale(sx, sy, sz);
+  // Flatten Y slightly for a natural sitting-on-ground look
+  const sy = 0.6 + Math.random() * 0.3;
+  geo.scale(1, sy, 1);
+  // Shift upward so the bottom sits at y=0
+  geo.translate(0, 0.2 * scale * sy, 0);
 
   const material = new THREE.MeshStandardMaterial({
     color,
-    roughness: 0.8,
+    roughness: 0.85,
     metalness: 0.0,
     flatShading: true,
   });

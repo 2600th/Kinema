@@ -34,21 +34,26 @@ export class LightingSystem implements Disposable {
   addLighting(): THREE.Object3D[] {
     this.ownedObjects = [];
 
-    // No AmbientLight — let the HDRI environment map provide realistic fill.
-    // Minimal hemisphere for shadow-only fill (prevents pure black shadows).
-    const hemiLight = new THREE.HemisphereLight(0xffffff, 0xb3d9ff, 0.25);
+    // Minimal ambient to prevent pitch-black shadows.
+    const ambientLight = new THREE.AmbientLight(0xf0f0ff, 0.15);
+    ambientLight.name = '__kinema_ambient';
+    this.scene.add(ambientLight);
+    this.ownedObjects.push(ambientLight);
+
+    // Gentle hemisphere fill — sky white, ground blue-gray.
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x8899aa, 0.3);
     hemiLight.name = '__kinema_hemilight';
     this.scene.add(hemiLight);
     this.ownedObjects.push(hemiLight);
 
-    // Lighter fog tinted to match the bright palette.
-    this.scene.fog = new THREE.FogExp2(0xd4e8f5, 0.003);
+    // Soft blue-tinted fog for depth.
+    this.scene.fog = new THREE.FogExp2(0xc8dae8, 0.0025);
 
-    // Boost environment map intensity for glossy toy reflections.
-    this.scene.environmentIntensity = 1.2;
+    // Moderate environment intensity — enough for clearcoat reflections without blowout.
+    this.scene.environmentIntensity = 0.5;
 
-    // Bright warm directional key for sharp shadows + specular.
-    const dirLight = new THREE.DirectionalLight(0xfff9e6, 3.0);
+    // Warm directional key — main shadow caster.
+    const dirLight = new THREE.DirectionalLight(0xfff5e0, 2.0);
     dirLight.position.set(10, 30, 8);
     dirLight.castShadow = this.shadowsEnabled;
     const shadowSize = this.getShadowMapSize();
