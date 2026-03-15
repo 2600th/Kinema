@@ -46,11 +46,11 @@ export class LightingSystem implements Disposable {
     this.scene.add(hemiLight);
     this.ownedObjects.push(hemiLight);
 
-    // Warm sunrise-tinted fog for outdoor depth.
-    this.scene.fog = new THREE.FogExp2(0xe8d8c8, 0.002);
+    // Clean sky-blue fog — pushed far back so foreground stays vibrant.
+    this.scene.fog = new THREE.Fog(0xdcf2ff, 60, 200);
 
-    // Moderate environment intensity for clearcoat reflections.
-    this.scene.environmentIntensity = 0.5;
+    // Higher environment intensity for vibrant clearcoat reflections.
+    this.scene.environmentIntensity = 0.8;
     // Clear sunrise sky visible through open ceiling — sharp HDR, no blur.
     this.scene.backgroundIntensity = 1.0;
     this.scene.backgroundBlurriness = 0;

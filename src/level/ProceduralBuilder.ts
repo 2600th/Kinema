@@ -129,11 +129,13 @@ export class ProceduralBuilder {
   build(): void {
     const gridTexture = this.createGroundGridTexture();
     // ── Astro Bot-inspired bright, plastic-toy palette — all clearcoat for premium look ──
-    const floorMat = new THREE.MeshStandardMaterial({
-      color: 0x8a9098,
+    const floorMat = new THREE.MeshPhysicalMaterial({
+      color: 0xe8ecf0,
       map: gridTexture,
-      roughness: 0.6,
-      metalness: 0.02,
+      roughness: 0.25,
+      metalness: 0.0,
+      clearcoat: 0.6,
+      clearcoatRoughness: 0.15,
     });
     const stepMat = new THREE.MeshPhysicalMaterial({ color: 0x00a2ff, roughness: 0.35, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.05, emissive: 0x0066cc, emissiveIntensity: 0.1 });
     const slopeMat = new THREE.MeshPhysicalMaterial({ color: 0x33cc33, roughness: 0.35, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.05 });
@@ -191,8 +193,14 @@ export class ProceduralBuilder {
     hallGridTex.repeat.set(10, 10 * corridorAspect);
     hallGridTex.needsUpdate = true;
     floorRoughnessNoise.repeat.set(3, 3 * corridorAspect);
-    // Muted floor — darker than walls to ground the scene.
-    const hallFloorMat = new THREE.MeshStandardMaterial({ color: 0x9aa0a8, roughness: 0.55, metalness: 0.02 });
+    // Bright white clearcoat floor — shiny Astro Bot toybox plastic.
+    const hallFloorMat = new THREE.MeshPhysicalMaterial({
+      color: 0xf0f4f8,
+      roughness: 0.2,
+      metalness: 0.0,
+      clearcoat: 0.8,
+      clearcoatRoughness: 0.1,
+    });
     hallFloorMat.map = hallGridTex;
     hallFloorMat.roughnessMap = floorRoughnessNoise;
     hallFloorMat.needsUpdate = true;
@@ -214,23 +222,23 @@ export class ProceduralBuilder {
 
     // ── Astro Bot-style: open-air floating walkway with rounded edge rails ──
     // No walls, no ribs, no beams — just clean rounded borders on the floor edges.
+    // Thick chunky rounded rails — Astro Bot "safe bumper" aesthetic.
     const railMat = new THREE.MeshPhysicalMaterial({
-      color: 0xf0f0f0,
-      roughness: 0.2,
-      metalness: 0.0,
-      clearcoat: 0.6,
-      clearcoatRoughness: 0.1,
+      color: 0xffffff,
+      roughness: 0.1,
+      metalness: 0.1,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.05,
     });
-    const railRadius = 0.2;
-    const railSegments = 12;
+    const railRadius = 0.5;
 
-    // Left edge rail — rounded cylinder running the length of the corridor
+    // Left edge rail — thick capsule-style bumper
     const leftRail = new THREE.Mesh(
-      new THREE.CylinderGeometry(railRadius, railRadius, hallLength, railSegments),
+      new THREE.CapsuleGeometry(railRadius, hallLength, 6, 12),
       railMat,
     );
     leftRail.rotation.x = Math.PI / 2; // align along Z
-    leftRail.position.set(-hallWidth / 2, -0.8, showcaseCenterZ);
+    leftRail.position.set(-hallWidth / 2, -0.7, showcaseCenterZ);
     leftRail.name = 'WalkwayRail_L';
     leftRail.castShadow = true;
     leftRail.receiveShadow = true;
@@ -306,12 +314,14 @@ export class ProceduralBuilder {
       const stationColor = stationColors[stationColorIdx] ?? 0xe8ecf4;
       const stationBayMat = new THREE.MeshPhysicalMaterial({
         color: stationColor,
-        roughness: 0.4,
+        roughness: 0.2,
         metalness: 0.0,
         clearcoat: 1.0,
         clearcoatRoughness: 0.05,
+        transmission: 0.15,
+        thickness: 0.5,
         emissive: stationColor,
-        emissiveIntensity: 0.05,
+        emissiveIntensity: 0.08,
       });
       // Rounded box for soft toy-like edges that catch specular highlights.
       const pedestal = new THREE.Mesh(
@@ -792,15 +802,15 @@ export class ProceduralBuilder {
     }
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    // Medium-gray tech-tile floor with subtle checkerboard.
-    ctx.fillStyle = '#8a9098';
+    // Bright white-blue tile floor — Astro Bot toybox aesthetic.
+    ctx.fillStyle = '#e4eaf0';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    // Checkerboard tile pattern for visual rhythm.
+    // Subtle light-blue/white checkerboard for playful tile rhythm.
     const tileSize = 256;
     for (let ty = 0; ty < canvas.height; ty += tileSize) {
       for (let tx = 0; tx < canvas.width; tx += tileSize) {
         const checker = ((tx / tileSize) + (ty / tileSize)) % 2 === 0;
-        ctx.fillStyle = checker ? 'rgba(170, 178, 188, 0.35)' : 'rgba(130, 138, 148, 0.25)';
+        ctx.fillStyle = checker ? 'rgba(220, 235, 250, 0.5)' : 'rgba(200, 215, 235, 0.35)';
         ctx.fillRect(tx + 2, ty + 2, tileSize - 4, tileSize - 4);
       }
     }
@@ -1447,16 +1457,16 @@ export class ProceduralBuilder {
   // Visual polish helpers
   // ---------------------------------------------------------------------------
 
-  /** Thin emissive strip running the full corridor length at center. */
+  /** Glowing cyan centerline running the full corridor length — Astro Bot guide light. */
   private addFloorCenterline(hallLength: number, centerZ: number): void {
     const mat = new THREE.MeshStandardMaterial({
-      color: 0xaa8800,
-      emissive: 0xddbb33,
-      emissiveIntensity: 1.2,
-      roughness: 0.3,
+      color: 0x00e5ff,
+      emissive: 0x00e5ff,
+      emissiveIntensity: 3.0,
+      roughness: 0.0,
     });
-    const strip = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.02, hallLength), mat);
-    strip.position.set(0, -0.99, centerZ);
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.03, hallLength), mat);
+    strip.position.set(0, -0.97, centerZ);
     strip.name = 'FloorCenterline';
     strip.receiveShadow = false;
     strip.castShadow = false;

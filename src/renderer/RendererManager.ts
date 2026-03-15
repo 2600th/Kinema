@@ -113,7 +113,7 @@ export class RendererManager implements Disposable {
   private postProcessingEnabled = true;
   private shadowsEnabled = true;
   private shadowQualityTier: ShadowQualityTier = 'auto';
-  private toneExposure = 0.65;
+  private toneExposure = 1.1;
   private resolutionScale = 1;
   private envRotationDegrees = 0;
   private aoOnlyView = false;
