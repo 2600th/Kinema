@@ -248,10 +248,39 @@ export class OrbitFollowCamera implements Updatable, Disposable {
       this.targetYaw += delta * chaseT;
     }
 
-    // Pivot at player head height
+    // Pivot at player head height — clamp to ceiling if in tight tunnel.
     const targetPos = this.target ? this.target.position : this.player.position;
     const crouchCameraOffset = this.target ? 0 : this.player.getCameraHeightOffset();
-    const heightOffset = this.targetHeightOverride ?? this.config.heightOffset;
+    let heightOffset = this.targetHeightOverride ?? this.config.heightOffset;
+
+    // Ceiling probe: check if there's geometry above the ideal pivot.
+    // If so, lower the pivot to stay below it (prevents camera fighting ceiling).
+    if (!this.target) {
+      const probeY = targetPos.y + heightOffset - crouchCameraOffset;
+      const ceilingClearance = 0.4; // stay this far below ceiling
+      this._rv3Origin.x = targetPos.x;
+      this._rv3Origin.y = targetPos.y + 0.2; // probe from just above player center
+      this._rv3Origin.z = targetPos.z;
+      const upDir = { x: 0, y: 1, z: 0 } as RAPIER.Vector3;
+      const ceilingHit = this.physicsWorld.castRay(
+        this._rv3Origin,
+        upDir,
+        heightOffset + 1,
+        undefined,
+        this.player.body,
+      );
+      if (ceilingHit) {
+        const ceilingY = targetPos.y + 0.2 + ceilingHit.timeOfImpact;
+        const maxPivotY = ceilingY - ceilingClearance;
+        const idealPivotY = probeY;
+        if (idealPivotY > maxPivotY) {
+          // Reduce height offset so pivot stays below ceiling
+          heightOffset = maxPivotY - targetPos.y + crouchCameraOffset;
+          heightOffset = Math.max(0.3, heightOffset); // never go below player center
+        }
+      }
+    }
+
     _pivotPos.set(targetPos.x, targetPos.y + heightOffset - crouchCameraOffset, targetPos.z);
     // Landing dip: critically-damped spring drives pivot back to neutral.
     const landingK = 150;
@@ -339,20 +368,8 @@ export class OrbitFollowCamera implements Updatable, Disposable {
       desiredDistance = Math.max(this.config.zoomMinDistance, Math.min(desiredDistance, hitDistance));
     }
     // Self-clip floor: prevent camera from entering the player capsule.
-    // Use capsule radius + spherecast radius + margin as minimum distance.
     const selfClipMin = 0.3 + this.config.spherecastRadius + 0.15;
     desiredDistance = Math.max(selfClipMin, desiredDistance);
-
-    // When the camera is forced very close (tight tunnel/crouch), raise the
-    // camera pitch upward so the player stays visible from above-behind
-    // rather than the camera going inside the player for a first-person view.
-    if (desiredDistance < this.config.distance * 0.4) {
-      const squeeze = 1 - (desiredDistance / (this.config.distance * 0.4));
-      // Override the ideal direction to tilt camera more overhead.
-      const overheadPitch = this.pitch - squeeze * 0.6; // tilt up to ~35 degrees extra
-      _spherical.set(1, Math.PI / 2 - overheadPitch, this.yaw);
-      _idealDir.setFromSpherical(_spherical);
-    }
 
     // Smooth camera distance with frame-rate independent exponential smoothing.
     const contractionSpeed = 12;  // fast pull-in on collision
