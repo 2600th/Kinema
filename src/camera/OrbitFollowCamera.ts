@@ -338,6 +338,13 @@ export class OrbitFollowCamera implements Updatable, Disposable {
       const hitDistance = this.cachedCollisionToi - this.config.spherecastRadius * 0.92;
       desiredDistance = Math.max(this.config.zoomMinDistance, Math.min(desiredDistance, hitDistance));
     }
+    // Self-clip floor: prevent camera from entering the player capsule.
+    // Capsule radius (0.3) + camera near plane + margin ensures the camera
+    // always renders the player from outside.
+    const selfClipMin = 0.3 + this.camera.near + 0.1;
+    if (desiredDistance < selfClipMin) {
+      desiredDistance = selfClipMin;
+    }
 
     // Smooth camera distance with frame-rate independent exponential smoothing.
     const contractionSpeed = 12;  // fast pull-in on collision
