@@ -106,12 +106,12 @@ export async function createVfxShowcase(
 
       // --- 6 flame sheet planes rotated around Y axis ---
       const FLAME_COUNT = 6;
-      const flameGeo = new THREE.PlaneGeometry(1.0, 2.5, 1, 12);
+      const flameGeo = new THREE.PlaneGeometry(1.8, 3.5, 1, 12);
 
       for (let i = 0; i < FLAME_COUNT; i++) {
         const flameMat = new MeshBasicNodeMaterial();
         flameMat.transparent = true;
-        flameMat.blending = THREE.AdditiveBlending;
+        flameMat.blending = THREE.NormalBlending;
         flameMat.depthWrite = false;
         flameMat.side = THREE.DoubleSide;
 
@@ -204,14 +204,14 @@ export async function createVfxShowcase(
       scene.add(fireLight);
       created.push(fireLight);
 
-      // --- Smoke puffs above the fire (improved with node material) ---
-      const smokeOffsets = [2.8, 3.4, 4.0, 4.5, 5.0];
+      // --- Smoke puffs above the fire (large, dark, clearly visible) ---
+      const smokeOffsets = [3.0, 3.8, 4.6, 5.4, 6.2, 7.0];
       for (let s = 0; s < smokeOffsets.length; s++) {
         const yOff = smokeOffsets[s];
         const smokeGeo = new THREE.SphereGeometry(
-          0.2 + Math.random() * 0.2,
-          8,
-          8,
+          0.5 + Math.random() * 0.5,
+          10,
+          10,
         );
         const smokeMat = new MeshBasicNodeMaterial();
         smokeMat.transparent = true;
@@ -307,7 +307,10 @@ export async function createVfxShowcase(
       }
 
       // --- TSL materials for bolt core and halo ---
-      const boltFlicker = step(float(0.6), sin(time.mul(45)).mul(0.5).add(0.5));
+      // Strike timing: visible for ~200ms every 3 seconds (fract(time*0.33) < 0.07)
+      const strikePhase = time.mul(0.33); // 3-second cycle
+      const strikeFract = strikePhase.sub(strikePhase.floor()); // fract
+      const boltFlicker = step(strikeFract, float(0.07)); // ON for first 7% of cycle (~210ms)
 
       const coreMat = new MeshBasicNodeMaterial();
       coreMat.transparent = true;
@@ -412,14 +415,14 @@ export async function createVfxShowcase(
       const boltInterval = setInterval(rebuildBolt, 2000);
       void boltInterval; // suppress unused-var lint
 
-      // --- Rain particles (brighter during flash) ---
-      const rainCount = 200;
+      // --- Rain particles — dense, tall column of falling streaks ---
+      const rainCount = 500;
       const rainPositions = new Float32Array(rainCount * 3);
       for (let i = 0; i < rainCount; i++) {
         const i3 = i * 3;
-        rainPositions[i3] = (Math.random() - 0.5) * 6;
-        rainPositions[i3 + 1] = Math.random() * 4;
-        rainPositions[i3 + 2] = (Math.random() - 0.5) * 6;
+        rainPositions[i3] = (Math.random() - 0.5) * 10;
+        rainPositions[i3 + 1] = Math.random() * 8;
+        rainPositions[i3 + 2] = (Math.random() - 0.5) * 10;
       }
 
       const rainGeo = new THREE.BufferGeometry();
@@ -429,8 +432,8 @@ export async function createVfxShowcase(
       );
 
       const rainMat = new THREE.PointsMaterial({
-        color: 0xddeeff,
-        size: 0.05,
+        color: 0x99bbdd,
+        size: 0.12,
         transparent: true,
         opacity: 0.7,
       });
@@ -441,16 +444,43 @@ export async function createVfxShowcase(
       scene.add(rainPoints);
       created.push(rainPoints);
 
-      // --- Cloud plane (darker storm cloud) ---
-      const cloudGeo = new THREE.PlaneGeometry(8, 6);
+      // --- Storm cloud — large dark billowing mass above the lightning ---
+      const cloudGroup = new THREE.Group();
+      cloudGroup.position.set(posX, base.y + 5.5, posZ);
+      // Multiple overlapping spheres for volumetric cloud look
+      const cloudSpheres = [
+        { pos: [0, 0, 0], r: 3.0 },
+        { pos: [-2, 0.3, 0.5], r: 2.5 },
+        { pos: [2, 0.2, -0.3], r: 2.2 },
+        { pos: [0, 0.5, -1.5], r: 1.8 },
+        { pos: [-1.5, -0.2, 1.2], r: 2.0 },
+        { pos: [1.8, 0.4, 1.0], r: 1.6 },
+      ];
       const cloudMat = new THREE.MeshStandardMaterial({
         color: 0x1a2233,
+        roughness: 1.0,
+        metalness: 0.0,
         transparent: true,
-        opacity: 0.7,
+        opacity: 0.85,
+      });
+      for (const cs of cloudSpheres) {
+        const csMesh = new THREE.Mesh(new THREE.SphereGeometry(cs.r, 12, 12), cloudMat);
+        csMesh.position.set(cs.pos[0], cs.pos[1], cs.pos[2]);
+        csMesh.castShadow = false;
+        cloudGroup.add(csMesh);
+      }
+      scene.add(cloudGroup);
+      created.push(cloudGroup);
+      // Also keep a flat rain catcher underneath
+      const cloudGeo = new THREE.PlaneGeometry(14, 10);
+      const cloudFlatMat = new THREE.MeshStandardMaterial({
+        color: 0x0f1822,
+        transparent: true,
+        opacity: 0.5,
         side: THREE.DoubleSide,
       });
-      const cloudMesh = new THREE.Mesh(cloudGeo, cloudMat);
-      cloudMesh.position.set(posX, base.y + 5, posZ);
+      const cloudMesh = new THREE.Mesh(cloudGeo, cloudFlatMat);
+      cloudMesh.position.set(posX, base.y + 4.5, posZ);
       cloudMesh.rotation.x = -Math.PI / 2;
       cloudMesh.castShadow = false;
       scene.add(cloudMesh);
