@@ -78,12 +78,14 @@ export class SparkleParticles {
       sizes[i] = size;
       this.baseSizes[i] = size;
 
-      // Color — pick randomly from palette
+      // Color — pick randomly from palette. Multiply into HDR range so
+      // sparkles exceed 1.0 and trigger the bloom pass on bright backgrounds.
       const hex = colors[Math.floor(Math.random() * colors.length)];
       tmpColor.setHex(hex);
-      colorsArr[i3] = tmpColor.r;
-      colorsArr[i3 + 1] = tmpColor.g;
-      colorsArr[i3 + 2] = tmpColor.b;
+      const hdrBoost = 4.0;
+      colorsArr[i3] = tmpColor.r * hdrBoost;
+      colorsArr[i3 + 1] = tmpColor.g * hdrBoost;
+      colorsArr[i3 + 2] = tmpColor.b * hdrBoost;
     }
 
     this.geometry = new THREE.BufferGeometry();
@@ -91,12 +93,14 @@ export class SparkleParticles {
     this.geometry.setAttribute('color', new THREE.BufferAttribute(colorsArr, 3));
     this.geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
+    // Sparkles need HDR-range color to trigger bloom on bright backgrounds.
+    // Use standard blending with high opacity to remain visible against light floors.
     this.material = new THREE.PointsMaterial({
       size: maxSize,
       sizeAttenuation: true,
       vertexColors: true,
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.9,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
