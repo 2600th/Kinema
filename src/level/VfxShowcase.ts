@@ -311,76 +311,122 @@ export async function createVfxShowcase(
         const posX = base.x + 5;
         const posZ = base.z;
 
-        // 75% of previous 0.75 = ~0.56
         model.scale.setScalar(0.56);
-        model.position.set(posX, base.y + 1.5, posZ);
+        // Move cloud up by 2 units from previous position
+        model.position.set(posX, base.y + 3.5, posZ);
 
-        // Categorize meshes by name/material for animation
+        // Categorize meshes: keep cloud, collect bolts, extract ONE rain drop for particles
         const boltMeshes: THREE.Mesh[] = [];
-        const rainMeshes: THREE.Object3D[] = [];
-        const rainStartY: number[] = [];
+        let rainDropGeo: THREE.BufferGeometry | null = null;
+        let rainDropMat: THREE.Material | null = null;
 
         model.traverse((child) => {
           if (child instanceof THREE.Mesh) {
             child.castShadow = false;
             child.receiveShadow = false;
           }
-          // Lightning bolts: names contain "bolt"
+          // Lightning bolts
           if (child.name.toLowerCase().includes('bolt') && child instanceof THREE.Mesh) {
             boltMeshes.push(child);
-            child.visible = false; // start hidden
+            child.visible = false;
           }
-          // Rain drops: names contain "Sphere" with Rain material
-          if (child.name.includes('Sphere')) {
-            rainMeshes.push(child);
-            rainStartY.push(child.position.y);
+          // Grab geometry/material from the first rain drop mesh, hide ALL rain meshes
+          if (child.name.includes('Sphere') && child instanceof THREE.Mesh) {
+            if (!rainDropGeo) {
+              rainDropGeo = child.geometry.clone();
+              rainDropMat = child.material;
+            }
+            child.visible = false; // hide all original rain drop meshes
           }
         });
 
         scene.add(model);
         created.push(model);
 
+        // --- Create instanced rain particles from the single drop mesh ---
+        const RAIN_COUNT = 120;
+        const RAIN_AREA_W = 5;
+        const RAIN_AREA_D = 5;
+        const RAIN_TOP = 3.0;    // relative to model position
+        const RAIN_BOTTOM = -4.0;
+        const RAIN_SPEED = 3.5;
+
+        let rainInstancedMesh: THREE.InstancedMesh | null = null;
+        const rainYPositions = new Float32Array(RAIN_COUNT);
+        const rainSpeeds = new Float32Array(RAIN_COUNT);
+        const rainXZ: Float32Array = new Float32Array(RAIN_COUNT * 2);
+
+        if (rainDropGeo && rainDropMat) {
+          rainInstancedMesh = new THREE.InstancedMesh(rainDropGeo, rainDropMat, RAIN_COUNT);
+          rainInstancedMesh.castShadow = false;
+          rainInstancedMesh.position.set(posX, base.y + 3.5, posZ);
+          rainInstancedMesh.scale.setScalar(0.56); // match model scale
+
+          const dummy = new THREE.Object3D();
+          for (let i = 0; i < RAIN_COUNT; i++) {
+            const rx = (Math.random() - 0.5) * RAIN_AREA_W;
+            const rz = (Math.random() - 0.5) * RAIN_AREA_D;
+            const ry = RAIN_BOTTOM + Math.random() * (RAIN_TOP - RAIN_BOTTOM);
+            rainXZ[i * 2] = rx;
+            rainXZ[i * 2 + 1] = rz;
+            rainYPositions[i] = ry;
+            rainSpeeds[i] = RAIN_SPEED + Math.random() * 1.5;
+            dummy.position.set(rx, ry, rz);
+            dummy.scale.setScalar(0.3 + Math.random() * 0.4);
+            dummy.updateMatrix();
+            rainInstancedMesh.setMatrixAt(i, dummy.matrix);
+          }
+          rainInstancedMesh.instanceMatrix.needsUpdate = true;
+          scene.add(rainInstancedMesh);
+          created.push(rainInstancedMesh);
+        }
+
         // Flash point light
         const flashLight = new THREE.PointLight(0x88ccff, 0, 20, 2);
-        flashLight.position.set(posX, base.y + 5, posZ);
+        flashLight.position.set(posX, base.y + 6, posZ);
         flashLight.castShadow = false;
         scene.add(flashLight);
         created.push(flashLight);
 
-        // --- Animate lightning bolts (flash on/off) and rain (falling) ---
-        let strikeTimer = 2 + Math.random() * 2; // seconds until next strike
+        // --- Animate lightning + rain particles ---
+        let strikeTimer = 2 + Math.random() * 2;
         let flashActive = false;
         let flashDuration = 0;
-        const RAIN_SPEED = 2.0; // units per second
-        const RAIN_RESET_OFFSET = 4.0; // how far rain falls before respawning
+        const dummy = new THREE.Object3D();
 
         const animInterval = setInterval(() => {
           const dt = 0.016;
 
-          // --- Rain animation: move drops downward, respawn at start ---
-          for (let i = 0; i < rainMeshes.length; i++) {
-            rainMeshes[i].position.y -= RAIN_SPEED * dt;
-            if (rainMeshes[i].position.y < rainStartY[i] - RAIN_RESET_OFFSET) {
-              rainMeshes[i].position.y = rainStartY[i] + Math.random() * 0.5;
+          // --- Rain particle animation ---
+          if (rainInstancedMesh) {
+            for (let i = 0; i < RAIN_COUNT; i++) {
+              rainYPositions[i] -= rainSpeeds[i] * dt;
+              if (rainYPositions[i] < RAIN_BOTTOM) {
+                rainYPositions[i] = RAIN_TOP + Math.random() * 0.5;
+                rainXZ[i * 2] = (Math.random() - 0.5) * RAIN_AREA_W;
+                rainXZ[i * 2 + 1] = (Math.random() - 0.5) * RAIN_AREA_D;
+              }
+              dummy.position.set(rainXZ[i * 2], rainYPositions[i], rainXZ[i * 2 + 1]);
+              dummy.scale.setScalar(0.3 + Math.random() * 0.1); // slight size variation
+              dummy.updateMatrix();
+              rainInstancedMesh.setMatrixAt(i, dummy.matrix);
             }
+            rainInstancedMesh.instanceMatrix.needsUpdate = true;
           }
 
           // --- Lightning strike timing ---
           strikeTimer -= dt;
           if (strikeTimer <= 0 && !flashActive) {
-            // STRIKE! Show bolts, flash light
             flashActive = true;
-            flashDuration = 0.15 + Math.random() * 0.1; // 150-250ms flash
+            flashDuration = 0.15 + Math.random() * 0.1;
             for (const bolt of boltMeshes) bolt.visible = true;
             flashLight.intensity = 20;
-            strikeTimer = 2 + Math.random() * 3; // 2-5 seconds until next
+            strikeTimer = 2 + Math.random() * 3;
           }
-
           if (flashActive) {
             flashDuration -= dt;
-            flashLight.intensity *= 0.88; // rapid decay
+            flashLight.intensity *= 0.88;
             if (flashDuration <= 0) {
-              // End strike
               flashActive = false;
               for (const bolt of boltMeshes) bolt.visible = false;
               flashLight.intensity = 0;
