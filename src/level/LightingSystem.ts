@@ -49,8 +49,8 @@ export class LightingSystem implements Disposable {
     // Clean sky-blue fog — pushed far back so foreground stays vibrant.
     this.scene.fog = new THREE.Fog(0xdcf2ff, 60, 200);
 
-    // Higher environment intensity for vibrant clearcoat reflections.
-    this.scene.environmentIntensity = 0.8;
+    // Balanced environment intensity — enough for reflections without washout.
+    this.scene.environmentIntensity = 0.55;
     // Clear sunrise sky visible through open ceiling — sharp HDR, no blur.
     this.scene.backgroundIntensity = 1.0;
     this.scene.backgroundBlurriness = 0;
