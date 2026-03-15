@@ -251,8 +251,12 @@ export async function createVfxShowcase(
           vec3(flameX.mul(5.3), v.y.mul(7.2).sub(t.mul(3.2)), t.mul(0.47).add(8.1))
         );
 
-        // Body mask — horizontal falloff
-        const bodyMask = float(1.0).sub(smoothstep(0.28, 1.0, widthCoord));
+        // Body mask — aggressive horizontal falloff to hide plane edges
+        // Use the raw centeredX distance (not divided by flameW) to ensure
+        // alpha is zero well before the hard geometry edge at ±1.0
+        const rawEdgeDist = abs(centeredX); // 0 at center, 1 at edge
+        const edgeFade = float(1.0).sub(smoothstep(0.5, 0.92, rawEdgeDist));
+        const bodyMask = float(1.0).sub(smoothstep(0.2, 0.85, widthCoord)).mul(edgeFade);
 
         // Noisy body
         const noisyBody = smoothstep(
@@ -261,7 +265,9 @@ export async function createVfxShowcase(
         );
 
         // Tip fade + breakup
-        const tipFade = float(1.0).sub(smoothstep(0.84, 1.0, v.y));
+        const tipFade = float(1.0).sub(smoothstep(0.82, 1.0, v.y));
+        // Bottom fade — prevent hard line at base of plane
+        const bottomFade = smoothstep(0.0, 0.08, v.y);
         const tipBreakMask = smoothstep(0.42, 1.0, v.y);
         const tipBreakup = smoothstep(
           -0.10, 0.85,
@@ -271,6 +277,7 @@ export async function createVfxShowcase(
         const alpha = bodyMask
           .mul(noisyBody)
           .mul(tipFade)
+          .mul(bottomFade)
           .mul(mix(float(1.0), tipBreakup, tipBreakMask))
           .clamp(0, 1);
 
