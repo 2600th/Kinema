@@ -295,10 +295,20 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.ropeAttached = ctx.ropeAttached;
   }
 
+  /** Neutral input state used when no real input is available (pre-pointer-lock). */
+  private static readonly NEUTRAL_INPUT: InputState = {
+    forward: false, backward: false, left: false, right: false,
+    crouch: false, crouchPressed: false, jump: false, jumpPressed: false,
+    interact: false, interactPressed: false, primary: false, primaryPressed: false,
+    altitudeUp: false, altitudeDown: false, moveX: 0, moveY: 0,
+    sprint: false, mouseDeltaX: 0, mouseDeltaY: 0, mouseWheelDelta: 0,
+  };
+
   fixedUpdate(dt: number): void {
     if (!this.active) return;
-    let input = this.lastInput;
-    if (!input) return;
+    // Use neutral input if no real input available yet (before pointer lock).
+    // This ensures gravity and physics still apply so the player lands on the ground.
+    let input = this.lastInput ?? PlayerController.NEUTRAL_INPUT;
 
     // -- Interact suppression (vehicle exit) --
     if (this.interactSuppressFrames > 0) {

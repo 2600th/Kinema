@@ -311,7 +311,7 @@ export async function createVfxShowcase(
         const posZ = base.z;
 
         // Scale and position the model on the station
-        model.scale.setScalar(1.5);
+        model.scale.setScalar(0.75);
         model.position.set(posX, base.y + 0.5, posZ);
 
         // Enable shadows on all meshes
