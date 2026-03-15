@@ -115,7 +115,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   }
 
   getCameraHeightOffset(): number {
-    return 0.95 * this.crouchVisual;
+    return 0.55 * this.crouchVisual;
   }
 
   private colliderFactory: ColliderFactory;
