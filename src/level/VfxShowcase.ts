@@ -344,12 +344,18 @@ export async function createVfxShowcase(
         created.push(model);
 
         // --- Create instanced rain particles from the single drop mesh ---
-        const RAIN_COUNT = 120;
-        const RAIN_AREA_W = 5;
-        const RAIN_AREA_D = 5;
-        const RAIN_TOP = 3.0;    // relative to model position
-        const RAIN_BOTTOM = -4.0;
-        const RAIN_SPEED = 3.5;
+        // Rain spawns directly under the cloud's visual center.
+        // The model geometry is huge (1000+ units) so bounding box is unreliable.
+        // Use the cloud's known world position instead.
+        const cloudWorldY = base.y + 3.5; // model.position.y
+        const RAIN_COUNT = 150;
+        const RAIN_AREA_W = 6;  // visual width of rain area
+        const RAIN_AREA_D = 6;
+        const RAIN_TOP = cloudWorldY - 0.5;  // just below cloud visual bottom
+        const RAIN_BOTTOM = base.y - 0.5;    // ground level
+        const RAIN_SPEED = 4.0;
+        const rainCenterX = posX;
+        const rainCenterZ = posZ;
 
         let rainInstancedMesh: THREE.InstancedMesh | null = null;
         const rainYPositions = new Float32Array(RAIN_COUNT);
@@ -364,14 +370,14 @@ export async function createVfxShowcase(
         {
           rainInstancedMesh = new THREE.InstancedMesh(tinyDropGeo, dropMat, RAIN_COUNT);
           rainInstancedMesh.castShadow = false;
-          // Position directly in world space under the cloud
-          rainInstancedMesh.position.set(posX, 0, posZ);
+          // World space — centered under the cloud
+          rainInstancedMesh.position.set(0, 0, 0);
 
           const dummy = new THREE.Object3D();
           for (let i = 0; i < RAIN_COUNT; i++) {
-            const rx = (Math.random() - 0.5) * RAIN_AREA_W;
-            const rz = (Math.random() - 0.5) * RAIN_AREA_D;
-            const ry = base.y + RAIN_BOTTOM + Math.random() * (RAIN_TOP - RAIN_BOTTOM);
+            const rx = rainCenterX + (Math.random() - 0.5) * RAIN_AREA_W;
+            const rz = rainCenterZ + (Math.random() - 0.5) * RAIN_AREA_D;
+            const ry = RAIN_BOTTOM + Math.random() * (RAIN_TOP - RAIN_BOTTOM);
             rainXZ[i * 2] = rx;
             rainXZ[i * 2 + 1] = rz;
             rainYPositions[i] = ry;
@@ -406,10 +412,10 @@ export async function createVfxShowcase(
           if (rainInstancedMesh) {
             for (let i = 0; i < RAIN_COUNT; i++) {
               rainYPositions[i] -= rainSpeeds[i] * dt;
-              if (rainYPositions[i] < base.y + RAIN_BOTTOM) {
-                rainYPositions[i] = base.y + RAIN_TOP + Math.random() * 0.5;
-                rainXZ[i * 2] = (Math.random() - 0.5) * RAIN_AREA_W;
-                rainXZ[i * 2 + 1] = (Math.random() - 0.5) * RAIN_AREA_D;
+              if (rainYPositions[i] < RAIN_BOTTOM) {
+                rainYPositions[i] = RAIN_TOP + Math.random() * 0.3;
+                rainXZ[i * 2] = rainCenterX + (Math.random() - 0.5) * RAIN_AREA_W;
+                rainXZ[i * 2 + 1] = rainCenterZ + (Math.random() - 0.5) * RAIN_AREA_D;
               }
               dummy.position.set(rainXZ[i * 2], rainYPositions[i], rainXZ[i * 2 + 1]);
               dummy.scale.set(1, 2 + Math.random(), 1);
