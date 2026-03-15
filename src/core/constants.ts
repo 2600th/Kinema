@@ -86,7 +86,7 @@ export const DEFAULT_PLAYER_CONFIG: PlayerConfig = {
 /** Default camera configuration */
 export const DEFAULT_CAMERA_CONFIG: CameraConfig = {
   distance: 5,
-  zoomMinDistance: 0.7,
+  zoomMinDistance: 0.3,
   zoomMaxDistance: 7,
   heightOffset: 1.6,
   pitchMin: -1.3,

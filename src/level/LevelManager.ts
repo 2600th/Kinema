@@ -568,10 +568,11 @@ export class LevelManager implements Disposable {
       }
     }
 
-    // Floating dynamic platforms.
+    // Floating dynamic platforms — ray from bottom of platform body.
     for (const platform of this.floatingPlatforms) {
       const p = platform.body.translation();
-      _floatOrigin.x = p.x; _floatOrigin.y = p.y; _floatOrigin.z = p.z;
+      // Cast from slightly below center to better detect ground below.
+      _floatOrigin.x = p.x; _floatOrigin.y = p.y - 0.15; _floatOrigin.z = p.z;
       const rayHit = this.physicsWorld.castRay(
         _floatOrigin,
         _floatDown,

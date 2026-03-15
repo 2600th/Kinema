@@ -268,15 +268,16 @@ export class InteractableSystem implements RuntimeSystem {
   private spawnVehicles(): void {
     const zVehicles = getShowcaseStationZ("vehicles");
     const bayTopY = getShowcaseBayTopY();
+    // Spread vehicles wider to avoid overlapping with each other and station geometry.
     const drone = new DroneController(
       "drone-1",
-      new THREE.Vector3(-3.5, bayTopY + 2.2, zVehicles),
+      new THREE.Vector3(-10, bayTopY + 2.5, zVehicles),
       this.physicsWorld,
       this.renderer.scene,
     );
     const car = new CarController(
       "car-1",
-      new THREE.Vector3(3.5, bayTopY + 0.42, zVehicles),
+      new THREE.Vector3(10, bayTopY + 0.5, zVehicles),
       this.physicsWorld,
       this.renderer.scene,
     );
