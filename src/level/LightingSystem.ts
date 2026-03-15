@@ -49,8 +49,11 @@ export class LightingSystem implements Disposable {
     // Soft blue-tinted fog for depth.
     this.scene.fog = new THREE.FogExp2(0xc8dae8, 0.0025);
 
-    // Moderate environment intensity — enough for clearcoat reflections without blowout.
+    // Moderate environment intensity for clearcoat reflections.
     this.scene.environmentIntensity = 0.5;
+    // Sky visible through open ceiling — soft blur for dreamy Astro Bot feel.
+    this.scene.backgroundIntensity = 0.8;
+    this.scene.backgroundBlurriness = 0.3;
 
     // Warm directional key — main shadow caster.
     const dirLight = new THREE.DirectionalLight(0xfff5e0, 2.0);

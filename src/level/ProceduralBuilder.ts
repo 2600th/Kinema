@@ -254,15 +254,19 @@ export class ProceduralBuilder {
     frontWall.updateWorldMatrix(true, false);
     this.colliders.push(this.colliderFactory.createTrimesh(frontWall));
 
-    // Ceiling to fully enclose the bay corridor (prevents "sky triangle" artifacts).
-    const ceiling = new THREE.Mesh(new THREE.BoxGeometry(hallWidth + wallThickness * 2, wallThickness, hallLength + wallThickness * 2), hallWallMat);
-    ceiling.position.set(0, -1.0 + wallHeight + wallThickness / 2, showcaseCenterZ);
-    ceiling.name = 'ShowcaseCeiling_col';
-    ceiling.receiveShadow = true;
-    this.scene.add(ceiling);
-    this.meshes.push(ceiling);
-    ceiling.updateWorldMatrix(true, false);
-    this.colliders.push(this.colliderFactory.createTrimesh(ceiling));
+    // Open-sky corridor: no solid ceiling — let the HDR skybox show through.
+    // Add a thin canopy frame at ceiling height for structural definition.
+    const canopyFrameMat = new THREE.MeshStandardMaterial({ color: 0x505868, roughness: 0.4, metalness: 0.2 });
+    const canopyBeamW = new THREE.Mesh(new THREE.BoxGeometry(hallWidth + wallThickness * 2, 0.3, 1.0), canopyFrameMat);
+    canopyBeamW.position.set(0, -1.0 + wallHeight, showcaseCenterZ + hallLength / 2);
+    canopyBeamW.name = 'CanopyFrame_front';
+    this.scene.add(canopyBeamW);
+    this.meshes.push(canopyBeamW);
+    const canopyBeamW2 = canopyBeamW.clone();
+    canopyBeamW2.position.z = showcaseCenterZ - hallLength / 2;
+    canopyBeamW2.name = 'CanopyFrame_back';
+    this.scene.add(canopyBeamW2);
+    this.meshes.push(canopyBeamW2);
 
     // --- Instanced structural ribs for parallax and visual rhythm ---
     const ribSpacing = 15;
