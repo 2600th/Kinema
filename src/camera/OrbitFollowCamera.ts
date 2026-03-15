@@ -339,11 +339,19 @@ export class OrbitFollowCamera implements Updatable, Disposable {
       desiredDistance = Math.max(this.config.zoomMinDistance, Math.min(desiredDistance, hitDistance));
     }
     // Self-clip floor: prevent camera from entering the player capsule.
-    // Capsule radius (0.3) + camera near plane + margin ensures the camera
-    // always renders the player from outside.
-    const selfClipMin = 0.3 + this.camera.near + 0.1;
-    if (desiredDistance < selfClipMin) {
-      desiredDistance = selfClipMin;
+    // Use capsule radius + spherecast radius + margin as minimum distance.
+    const selfClipMin = 0.3 + this.config.spherecastRadius + 0.15;
+    desiredDistance = Math.max(selfClipMin, desiredDistance);
+
+    // When the camera is forced very close (tight tunnel/crouch), raise the
+    // camera pitch upward so the player stays visible from above-behind
+    // rather than the camera going inside the player for a first-person view.
+    if (desiredDistance < this.config.distance * 0.4) {
+      const squeeze = 1 - (desiredDistance / (this.config.distance * 0.4));
+      // Override the ideal direction to tilt camera more overhead.
+      const overheadPitch = this.pitch - squeeze * 0.6; // tilt up to ~35 degrees extra
+      _spherical.set(1, Math.PI / 2 - overheadPitch, this.yaw);
+      _idealDir.setFromSpherical(_spherical);
     }
 
     // Smooth camera distance with frame-rate independent exponential smoothing.
