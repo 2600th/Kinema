@@ -351,7 +351,7 @@ export async function createVfxShowcase(
         // The cloud model geometry is in Blender units (hundreds) — bounding box
         // values are enormous even after scaling. Use visual observation instead:
         // The cloud appears centered ~3 units right of posX, ~4 units above base.
-        const rainCenterX = posX + 3;
+        const rainCenterX = posX + 2.5;
         const rainCenterZ = posZ;
 
         const RAIN_COUNT = 200;
