@@ -707,11 +707,12 @@ export class ProceduralBuilder {
       undefined,
       { minX: -5, maxX: 10, speedX: 2 },
     );
+    // Drum offset in Z to avoid blocking the floating moving platform on X axis.
     this.createKinematicDrum(
       'RotatingDrum',
-      new THREE.Vector3(0, bayTopY + 1.0, zPlatformsPhysics - 4),
-      1.0,
-      10.0,
+      new THREE.Vector3(0, bayTopY + 0.8, zPlatformsPhysics + 2),
+      1.5,
+      14.0,
       'rotateX',
       0.5,
       kinematicPlatformMat,
@@ -781,10 +782,7 @@ export class ProceduralBuilder {
     // Open-air design: only floor-level decorations, no wall/ceiling references.
     if (buildAll) {
     this.addFloorCenterline(hallLength, showcaseCenterZ);
-    this.addBayAccentBorders(bayZ, bayWidth, bayLength, bayPedestalY, bayPedestalHeight);
-    this.addFloorBayGrooves(bayZ, hallWidth, bayLength);
     this.addDustMotes(hallWidth, hallLength, showcaseCenterZ);
-    this.addBayPedestalEdgeGlow(bayZ, bayWidth, bayLength, bayPedestalY, bayPedestalHeight);
     this.addHeroSpotlights(bayZ, bayPedestalY);
     } // end buildAll visual polish
 
@@ -1292,9 +1290,32 @@ export class ProceduralBuilder {
     length: number,
     mode: 'rotateX' | 'rotateY',
     speed: number,
-    material: THREE.Material,
+    _material: THREE.Material,
   ): void {
-    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, length, 24), material);
+    // Procedural striped texture so rotation is visually obvious.
+    const stripeCanvas = document.createElement('canvas');
+    stripeCanvas.width = 256;
+    stripeCanvas.height = 256;
+    const sctx = stripeCanvas.getContext('2d')!;
+    const stripeCount = 8;
+    const stripeH = stripeCanvas.height / stripeCount;
+    for (let i = 0; i < stripeCount; i++) {
+      sctx.fillStyle = i % 2 === 0 ? '#ff4444' : '#ffffff';
+      sctx.fillRect(0, i * stripeH, stripeCanvas.width, stripeH);
+    }
+    const stripeTex = new THREE.CanvasTexture(stripeCanvas);
+    stripeTex.wrapS = THREE.RepeatWrapping;
+    stripeTex.wrapT = THREE.RepeatWrapping;
+    stripeTex.needsUpdate = true;
+
+    const drumMat = new THREE.MeshPhysicalMaterial({
+      map: stripeTex,
+      roughness: 0.3,
+      metalness: 0.0,
+      clearcoat: 0.5,
+      clearcoatRoughness: 0.1,
+    });
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, length, 24), drumMat);
     mesh.position.copy(base);
     mesh.rotation.z = Math.PI / 2; // align drum
     mesh.castShadow = true;
@@ -1332,7 +1353,7 @@ export class ProceduralBuilder {
   private createNavcatBay(zStation: number, bayTopY: number): void {
     // Dedicated navigation platform — agents are confined to this area only.
     const platformWidth = 24;
-    const platformDepth = 20;
+    const platformDepth = 12; // fits within bay pedestal (bayLength = 14)
     const platformThickness = 0.12;
     const platformY = bayTopY + 0.01; // sits just above the bay pedestal
     const surfaceY = platformY + platformThickness / 2;
@@ -1473,80 +1494,6 @@ export class ProceduralBuilder {
     this.meshes.push(strip);
   }
 
-  /** Emissive strip at front edge of each bay pedestal, colors warm→cool. */
-  private addBayAccentBorders(
-    bayZ: number[],
-    bayWidth: number,
-    bayLength: number,
-    pedestalY: number,
-    pedestalHeight: number,
-  ): void {
-    const count = bayZ.length;
-    if (count === 0) return;
-    const geo = new THREE.BoxGeometry(bayWidth - 2, 0.04, 0.12);
-    const mat = new THREE.MeshStandardMaterial({
-      color: 0x222222,
-      emissive: 0xffffff,
-      emissiveIntensity: 0.8,
-      roughness: 0.3,
-    });
-    const mesh = new THREE.InstancedMesh(geo, mat, count);
-    mesh.name = 'BayAccentBorders';
-    mesh.castShadow = false;
-    mesh.receiveShadow = false;
-
-    const warmColor = new THREE.Color(0x3388dd);
-    const coolColor = new THREE.Color(0x3388dd);
-    const dummy = new THREE.Object3D();
-    const topY = pedestalY + pedestalHeight * 0.5 + 0.02;
-
-    for (let i = 0; i < count; i++) {
-      const t = count > 1 ? i / (count - 1) : 0;
-      dummy.position.set(0, topY, bayZ[i] + bayLength / 2 - 0.05);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(i, dummy.matrix);
-      mesh.setColorAt(i, new THREE.Color().lerpColors(warmColor, coolColor, t));
-    }
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    mesh.computeBoundingSphere();
-    this.scene.add(mesh);
-    this.meshes.push(mesh);
-  }
-
-  /** Thin dark grooves on the floor at bay boundaries. */
-  private addFloorBayGrooves(bayZ: number[], hallWidth: number, bayLength: number): void {
-    const count = bayZ.length;
-    if (count === 0) return;
-    // Two grooves per bay (front + back edge) = 2 * count instances.
-    const instanceCount = count * 2;
-    const geo = new THREE.BoxGeometry(hallWidth - 2, 0.02, 0.06);
-    const mat = new THREE.MeshStandardMaterial({ color: 0x0e1018, roughness: 0.9 });
-    const mesh = new THREE.InstancedMesh(geo, mat, instanceCount);
-    mesh.name = 'FloorBayGrooves';
-    mesh.castShadow = false;
-    mesh.receiveShadow = false;
-
-    const dummy = new THREE.Object3D();
-    const grooveY = -0.99;
-    const halfBay = bayLength / 2;
-
-    for (let i = 0; i < count; i++) {
-      // Front edge
-      dummy.position.set(0, grooveY, bayZ[i] + halfBay);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(i * 2, dummy.matrix);
-      // Back edge
-      dummy.position.set(0, grooveY, bayZ[i] - halfBay);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(i * 2 + 1, dummy.matrix);
-    }
-    mesh.instanceMatrix.needsUpdate = true;
-    mesh.computeBoundingSphere();
-    this.scene.add(mesh);
-    this.meshes.push(mesh);
-  }
-
   /** Gentle floating dust motes throughout the corridor. */
   private addDustMotes(hallWidth: number, hallLength: number, centerZ: number): void {
     const circleTexture = this.createCircleTexture();
@@ -1584,51 +1531,6 @@ export class ProceduralBuilder {
         phase: Math.random() * Math.PI * 2,
       });
     }
-  }
-
-  /** Emissive edge strips around each bay pedestal for definition. */
-  private addBayPedestalEdgeGlow(
-    bayZ: number[], bayWidth: number, bayLength: number,
-    bayPedestalY: number, bayPedestalHeight: number,
-  ): void {
-    const topY = bayPedestalY + bayPedestalHeight / 2 + 0.015;
-    const stripH = 0.03;
-    const stripW = 0.08;
-    const warmColor = new THREE.Color(0x3388dd);
-    const coolColor = new THREE.Color(0x3388dd);
-
-    bayZ.forEach((z, i) => {
-      const t = bayZ.length > 1 ? i / (bayZ.length - 1) : 0;
-      const emissiveColor = new THREE.Color().lerpColors(warmColor, coolColor, t);
-      const mat = new THREE.MeshStandardMaterial({
-        color: 0x222222, emissive: emissiveColor, emissiveIntensity: 1.0,
-        roughness: 0.3, metalness: 0.1,
-      });
-      // Front edge
-      const front = new THREE.Mesh(new THREE.BoxGeometry(bayWidth - 1, stripH, stripW), mat);
-      front.position.set(0, topY, z + bayLength / 2 - stripW / 2);
-      front.name = `BayEdge_F_${i}`;
-      this.scene.add(front);
-      this.meshes.push(front);
-      // Back edge
-      const back = new THREE.Mesh(new THREE.BoxGeometry(bayWidth - 1, stripH, stripW), mat);
-      back.position.set(0, topY, z - bayLength / 2 + stripW / 2);
-      back.name = `BayEdge_B_${i}`;
-      this.scene.add(back);
-      this.meshes.push(back);
-      // Left edge
-      const left = new THREE.Mesh(new THREE.BoxGeometry(stripW, stripH, bayLength - 1), mat);
-      left.position.set(-(bayWidth / 2) + stripW / 2 + 0.5, topY, z);
-      left.name = `BayEdge_L_${i}`;
-      this.scene.add(left);
-      this.meshes.push(left);
-      // Right edge
-      const right = new THREE.Mesh(new THREE.BoxGeometry(stripW, stripH, bayLength - 1), mat);
-      right.position.set(bayWidth / 2 - stripW / 2 - 0.5, topY, z);
-      right.name = `BayEdge_R_${i}`;
-      this.scene.add(right);
-      this.meshes.push(right);
-    });
   }
 
   /** Focused SpotLight per bay for hero illumination. */
@@ -1775,7 +1677,7 @@ export class ProceduralBuilder {
     this.meshes.push(sprite);
   }
 
-  private createMaterialsBay(base: THREE.Vector3, bayWidth: number, fallbackMaterial: THREE.Material): void {
+  private createMaterialsBay(base: THREE.Vector3, bayWidth: number, _fallbackMaterial: THREE.Material): void {
     const frontZ = base.z + 3;
     const backZ = base.z - 2;
     const xSpan = Math.max(8, bayWidth - 12);
@@ -1867,13 +1769,7 @@ export class ProceduralBuilder {
     this.scene.add(lavaLight);
     this.meshes.push(lavaLight);
 
-    // Backplate to catch reflections.
-    this.createStaticColliderBox(
-      'MaterialsBackplate_col',
-      new THREE.Vector3(bayWidth - 10, 3.5, 0.25),
-      new THREE.Vector3(base.x, base.y + 2.0, base.z - 5.8),
-      fallbackMaterial,
-    );
+    // Backplate removed — open-air design, no walls.
   }
 
   /** Generate a 256x256 tileable noise texture (3 independent channels) for TSL VFX. */
@@ -2465,17 +2361,7 @@ export class ProceduralBuilder {
       this.scene.add(scanBeam);
       this.meshes.push(scanBeam);
 
-      // ── Receiver wall backdrop (unchanged) ────────────────────────────────
-
-      const wallMat = new THREE.MeshStandardMaterial({ color: 0x101218, roughness: 0.8, metalness: 0.0 });
-      const receiver = new THREE.Mesh(new THREE.BoxGeometry(bayWidth - 10, 3.2, 0.25), wallMat);
-      receiver.position.set(0, base.y + 1.8, base.z - 6.0);
-      receiver.receiveShadow = true;
-      receiver.name = 'VFX_Backdrop';
-      this.scene.add(receiver);
-      this.meshes.push(receiver);
-      receiver.updateWorldMatrix(true, false);
-      this.colliders.push(this.colliderFactory.createTrimesh(receiver));
+      // Backdrop removed — open-air design.
 
     } catch (err) {
       console.warn('[LevelManager] TSL VFX unavailable, using fallback sprites:', err);
@@ -2554,16 +2440,7 @@ export class ProceduralBuilder {
     this.scene.add(scanRing);
     this.meshes.push(scanRing);
 
-    // Receiver wall backdrop.
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x101218, roughness: 0.8, metalness: 0.0 });
-    const receiver = new THREE.Mesh(new THREE.BoxGeometry(bayWidth - 10, 3.2, 0.25), wallMat);
-    receiver.position.set(0, base.y + 1.8, base.z - 6.0);
-    receiver.receiveShadow = true;
-    receiver.name = 'VFX_Backdrop';
-    this.scene.add(receiver);
-    this.meshes.push(receiver);
-    receiver.updateWorldMatrix(true, false);
-    this.colliders.push(this.colliderFactory.createTrimesh(receiver));
+    // Backdrop removed — open-air design.
   }
 
   private createCircleTexture(): THREE.CanvasTexture {

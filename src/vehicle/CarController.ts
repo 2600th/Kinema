@@ -64,10 +64,10 @@ export class CarController implements VehicleController {
   private taillightMeshes: THREE.Mesh[] = [];
   private braking = false;
 
-  private readonly acceleration = 22;
-  private readonly drag = 6;
-  private readonly maxSteerAngle = Math.PI / 6;
-  private readonly steerSpeed = 8;
+  private readonly acceleration = 40;
+  private readonly drag = 4;
+  private readonly maxSteerAngle = Math.PI / 5;
+  private readonly steerSpeed = 12;
   private readonly wheelRadius = 0.32;
 
   // 4-wheel suspension
@@ -179,9 +179,9 @@ export class CarController implements VehicleController {
       const boosting = input.sprint;
       const handbrake = input.jump;
 
-      const maxForward = boosting ? 18 : 14;
-      const maxReverse = 10;
-      const accelRate = boosting ? 26 : this.acceleration;
+      const maxForward = boosting ? 28 : 22;
+      const maxReverse = 14;
+      const accelRate = boosting ? 50 : this.acceleration;
       const reverseAccelRate = accelRate * 0.75;
       const coastRate = handbrake ? 30 : this.drag;
       const brakeRate = handbrake ? 60 : 45;
