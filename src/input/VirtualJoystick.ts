@@ -15,8 +15,6 @@ export interface JoystickState {
 }
 
 const DEFAULT_SIZE = 140;
-const DEFAULT_BASE_COLOR = 'rgba(255, 255, 255, 0.15)';
-const DEFAULT_THUMB_COLOR = 'rgba(255, 255, 255, 0.6)';
 const DEFAULT_DEADZONE = 0.1;
 
 /**
@@ -29,8 +27,6 @@ export class VirtualJoystick implements Disposable {
   private size: number;
   private radius: number;
   private thumbRadius: number;
-  private baseColor: string;
-  private thumbColor: string;
   private deadzone: number;
   private fixed: boolean;
 
@@ -52,8 +48,6 @@ export class VirtualJoystick implements Disposable {
     this.size = options.size ?? DEFAULT_SIZE;
     this.radius = this.size / 2;
     this.thumbRadius = this.radius * 0.35;
-    this.baseColor = options.baseColor ?? DEFAULT_BASE_COLOR;
-    this.thumbColor = options.thumbColor ?? DEFAULT_THUMB_COLOR;
     this.deadzone = options.deadzone ?? DEFAULT_DEADZONE;
     this.fixed = options.fixed ?? false;
 
@@ -213,20 +207,32 @@ export class VirtualJoystick implements Disposable {
     // Outer ring
     ctx.beginPath();
     ctx.arc(this.originX, this.originY, r - 2, 0, Math.PI * 2);
-    ctx.strokeStyle = this.baseColor;
+    ctx.strokeStyle = this.active ? 'rgba(123, 47, 255, 0.5)' : 'rgba(123, 47, 255, 0.27)';
     ctx.lineWidth = 2;
+    if (this.active) {
+      ctx.shadowBlur = 12;
+      ctx.shadowColor = 'rgba(123, 47, 255, 0.53)';
+    }
     ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'transparent';
 
     // Base fill
     ctx.beginPath();
     ctx.arc(this.originX, this.originY, r - 4, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+    ctx.fillStyle = 'rgba(26, 16, 64, 0.53)';
     ctx.fill();
 
-    // Thumb
+    // Thumb — radial gradient: pink center → purple edge
+    const thumbX = this.thumbX;
+    const thumbY = this.thumbY;
+    const thumbR = this.thumbRadius;
+    const grad = ctx.createRadialGradient(thumbX, thumbY, 0, thumbX, thumbY, thumbR);
+    grad.addColorStop(0, '#ff6b9d');
+    grad.addColorStop(1, '#7b2fff');
     ctx.beginPath();
-    ctx.arc(this.thumbX, this.thumbY, this.thumbRadius, 0, Math.PI * 2);
-    ctx.fillStyle = this.thumbColor;
+    ctx.arc(thumbX, thumbY, thumbR, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
     ctx.fill();
   }
 }
