@@ -170,10 +170,101 @@ These events are listened to by the HUD but not emitted by any system yet — re
 | Loading screen | 1300 |
 | Death flash | 1100 |
 
+---
+
+## Feature 4: Sound Effects / Audio Feedback
+
+The project already has a comprehensive Tone.js procedural audio system (`src/audio/`). `AudioManager` listens to EventBus events and delegates to `SFXEngine` (procedural synths) and `MusicEngine` (generative ambient). The system already handles: jump, airJump, land, footsteps, grab, throw, interact, checkpoint, objectiveComplete, respawn, menuOpen/Close, uiClick/uiHover.
+
+### New Audio for Loading Screen
+
+- **Ambient hum**: Low-frequency pad (sine, ~80Hz) with slow LFO modulation. Fades in with loading screen, fades out on exit.
+- **Progress tick**: Subtle sparkle tone on each ~10% progress increment. Reuse `SFXEngine.sparkleSynth` with pitch scaling (higher pitch as progress increases).
+- **Exit whoosh**: Quick noise sweep (high→low, 200ms) when loading screen dismisses. Signals transition to gameplay.
+
+### New Audio for Death/Respawn
+
+- **Death pop**: Short percussive burst — white noise (50ms) + sine drop (400→80Hz, 80ms). Punchy, not dramatic.
+- **Respawn chime**: Quick ascending two-note tone (C5→E5, 60ms each) to signal "you're back." Bright and brief.
+
+### Integration
+
+- `AudioManager` already listens to `player:respawned` — extend the existing `respawn` SFX or replace with the new chime.
+- Add new methods to `SFXEngine`: `deathPop()`, `respawnChime()`, `loadingTick()`, `loadingAmbient(start/stop)`, `loadingWhoosh()`
+- `AudioManager` subscribes to `loading:progress` for tick/ambient, triggers whoosh on `level:loaded`
+
+---
+
+## Feature 5: Touch Control Restyling
+
+Current touch controls use plain white-bordered circles with functional colors (green jump, blue interact, orange crouch, purple sprint). They need to match the new Playful Glow visual direction.
+
+### Visual Changes
+
+**Joysticks** (`VirtualJoystick.ts` — changes to `draw()` method):
+- Outer ring: change `this.baseColor` to `#7b2fff44` (purple, semi-transparent) instead of current white
+- Inner fill: change hardcoded `'rgba(0, 0, 0, 0.2)'` literal (line 222) to `'rgba(26, 16, 64, 0.53)'` (deep purple)
+- Thumb: replace flat `ctx.fillStyle = this.thumbColor` with `ctx.createRadialGradient()` from `#ff6b9d` (center) → `#7b2fff` (edge). This is a rendering logic change, not just a color swap.
+- Active glow: when joystick is active, set `ctx.shadowBlur = 12` and `ctx.shadowColor = '#7b2fff88'` before drawing the outer ring arc, then reset shadow after
+
+**Action buttons** (`touch-controls.css`):
+- Base: `background: rgba(26, 16, 64, 0.5)` (deep purple), `border: 2px solid #7b2fff44`
+- Jump: gradient border glow `#ff6b9d` → `#7b2fff`, keep larger size (64px)
+- Interact: cyan glow border `#00d2ff44`
+- Crouch: gold glow border `#FFD70044`
+- Sprint: pink glow border `#ff6b9d44`
+- Active state: brighter border (full opacity), subtle scale pulse, `box-shadow: 0 0 12px <color>44`
+- Font/icons: Outfit font where text labels are used
+
+**Container**: No layout changes — positions, responsive breakpoints, and z-index remain the same.
+
+### Files to Modify
+
+| File | Changes |
+|---|---|
+| `src/input/touch-controls.css` | Restyle all button variants, backgrounds, borders, active states |
+| `src/input/VirtualJoystick.ts` | Update canvas colors for rings, fill, and thumb |
+
+---
+
+## Files to Create (Updated)
+
+| File | Purpose |
+|---|---|
+| `src/ui/components/LoadingScreen.ts` | Loading screen overlay with progress |
+| `src/ui/components/DeathEffect.ts` | Death flash + CSS particle burst |
+
+## Files to Modify (Updated)
+
+| File | Changes |
+|---|---|
+| `src/core/types.ts` | Add `loading:progress`, `collectible:changed`, `health:changed` to EventMap |
+| `src/ui/components/HUD.ts` | Add collectible counter, health hearts, restyle existing elements |
+| `src/ui/UIManager.ts` | Wire LoadingScreen and DeathEffect into the UI system |
+| `src/ui/menus/menus.css` | Update palette, fonts, button styles |
+| `src/main.ts` | Call loadingScreen.show/hide in the `startGame` closure |
+| `src/level/LevelManager.ts` | Emit `loading:progress` events wrapping AssetLoader calls |
+| `src/camera/OrbitFollowCamera.ts` | Listen to `player:respawned` and call `snapToTarget()` |
+| `src/systems/ParticleSystem.ts` | Listen to `player:respawned` and emit death burst via GameParticles |
+| `src/audio/SFXEngine.ts` | Add `deathPop()`, `respawnChime()`, `loadingTick()`, `loadingAmbient()`, `loadingWhoosh()` |
+| `src/audio/AudioManager.ts` | Subscribe to `loading:progress` and `level:loaded` for new audio cues, update respawn SFX |
+| `src/input/touch-controls.css` | Restyle buttons to match Playful Glow palette |
+| `src/input/VirtualJoystick.ts` | Update canvas colors for joystick rendering |
+| `index.html` | Add Outfit weights 400 and 800 to Google Fonts link |
+
+### Z-Index Layering
+
+| Element | Z-Index |
+|---|---|
+| Game canvas | 0 |
+| `#ui-overlay` (HUD) | 10 |
+| Touch controls | 1000 |
+| Death flash | 1100 |
+| Menu overlay | 1200 |
+| Loading screen | 1300 |
+
 ## Out of Scope
 
 - Collectible gameplay system (pickup logic, scoring)
 - Health/damage gameplay system
-- Sound effects / audio feedback
-- Touch control restyling (separate effort)
 - Post-processing effects
