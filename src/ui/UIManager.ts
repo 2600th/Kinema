@@ -3,6 +3,7 @@ import type { Disposable } from '@core/types';
 import { HUD } from './components/HUD';
 import { FadeScreen } from './components/FadeScreen';
 import { DebugPanel } from './components/DebugPanel';
+import { LoadingScreen } from './components/LoadingScreen';
 
 /**
  * DOM-based UI overlay manager.
@@ -12,6 +13,7 @@ export class UIManager implements Disposable {
   public readonly hud: HUD;
   public readonly fadeScreen: FadeScreen;
   public readonly debugPanel: DebugPanel;
+  public readonly loadingScreen: LoadingScreen;
 
   private unsubscribers: (() => void)[] = [];
   private overlayEl: HTMLElement | null = null;
@@ -37,6 +39,7 @@ export class UIManager implements Disposable {
     this.hud = new HUD(overlay);
     this.fadeScreen = new FadeScreen(overlay);
     this.debugPanel = new DebugPanel(overlay, this.eventBus);
+    this.loadingScreen = new LoadingScreen();
 
     // "Click to start" hint for audio activation
     this.createInteractionHint();
@@ -98,6 +101,12 @@ export class UIManager implements Disposable {
         this.hud.showStatus(`Respawned (${reason})`);
       }),
     );
+
+    this.unsubscribers.push(
+      this.eventBus.on('loading:progress', ({ progress }) => {
+        this.loadingScreen.setProgress(progress);
+      }),
+    );
   }
 
   dispose(): void {
@@ -107,6 +116,7 @@ export class UIManager implements Disposable {
     this.hud.dispose();
     this.fadeScreen.dispose();
     this.debugPanel.dispose();
+    this.loadingScreen.dispose();
     this.hintEl?.remove();
     this.hintStyleEl?.remove();
     this.overlayEl?.remove();
