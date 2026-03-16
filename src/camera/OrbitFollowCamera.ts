@@ -85,6 +85,11 @@ export class OrbitFollowCamera implements Updatable, Disposable {
         this.landingDipVelocity -= Math.min(impactSpeed * 0.18, 1.25);
       }),
     );
+    this.unsubs.push(
+      this.eventBus.on('player:respawned', () => {
+        this.snapToTarget();
+      }),
+    );
   }
 
   /** Process mouse deltas (called externally with raw input). */

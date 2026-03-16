@@ -44,6 +44,13 @@ export class ParticleSystem implements RuntimeSystem {
         }
       }),
     );
+    this.unsubs.push(
+      this.eventBus.on("player:respawned", () => {
+        if (this.gameParticles) {
+          this.gameParticles.landingImpact(this.playerController.groundPosition, 8);
+        }
+      }),
+    );
   }
 
   fixedUpdate(dt: number): void {
