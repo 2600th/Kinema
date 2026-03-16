@@ -7,24 +7,72 @@
   --font-heading: 'Outfit', system-ui, sans-serif;
 }
 
+/* ---- Cosmic background keyframes ---- */
+
+@keyframes menuOrbFloat1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(30px, -20px) scale(1.1); }
+  66% { transform: translate(-20px, 15px) scale(0.9); }
+}
+
+@keyframes menuOrbFloat2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-25px, 20px) scale(1.15); }
+}
+
+@keyframes menuOrbFloat3 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  40% { transform: translate(20px, 25px) scale(1.05); }
+  75% { transform: translate(-15px, -10px) scale(0.95); }
+}
+
+@keyframes menuParticleFloat {
+  0%, 100% { transform: translateY(0) scale(1); opacity: var(--p-opacity); }
+  50% { transform: translateY(-15px) scale(1.2); opacity: calc(var(--p-opacity) * 1.5); }
+}
+
+/* ---- Overlay ---- */
+
 .menu-overlay {
   position: absolute;
   inset: 0;
   display: none;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(ellipse at center, rgba(45, 27, 105, 0.85), rgba(26, 16, 64, 0.95));
-  backdrop-filter: blur(24px) saturate(130%);
-  -webkit-backdrop-filter: blur(24px) saturate(130%);
+  background: radial-gradient(ellipse at 50% 50%, #1a1040 0%, #0c0524 60%, #050210 100%);
   z-index: 1200;
   font-family: var(--font-body);
   color: var(--menu-text);
   transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
 }
 
 .menu-overlay.active {
   display: flex;
 }
+
+/* ---- Cosmic orbs ---- */
+
+.menu-cosmic-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(30px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ---- Cosmic particles ---- */
+
+.menu-cosmic-particle {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+  animation: menuParticleFloat var(--p-duration, 4s) ease-in-out infinite;
+  animation-delay: var(--p-delay, 0s);
+}
+
+/* ---- Glass card ---- */
 
 .menu-screen {
   min-width: 360px;
@@ -33,13 +81,16 @@
   overflow: hidden;
   padding: 32px 36px;
   border-radius: 20px;
-  background: linear-gradient(145deg, rgba(26, 16, 64, 0.9), rgba(18, 10, 45, 0.95));
-  border: 1px solid #7b2fff22;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 60px #7b2fff11;
+  background: linear-gradient(160deg, rgba(26, 16, 64, 0.75), rgba(12, 5, 36, 0.85));
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(123, 47, 255, 0.18);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 60px rgba(123, 47, 255, 0.03);
   transform: translateY(20px) scale(0.98);
   opacity: 0;
   pointer-events: none;
   position: absolute;
+  z-index: 1;
   transition: opacity 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
@@ -50,28 +101,47 @@
   position: relative;
 }
 
+/* ---- Title with gradient underline ---- */
+
 .menu-title {
   font-family: var(--font-heading);
   font-size: 32px;
-  font-weight: 700;
+  font-weight: 800;
   margin: 0 0 24px 0;
-  letter-spacing: 0.5px;
-  background: linear-gradient(to right, var(--menu-accent), var(--menu-accent-hover));
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: #fff;
+  letter-spacing: 4px;
+  position: relative;
+  padding-bottom: 14px;
+  background: none;
+  -webkit-background-clip: unset;
+  -webkit-text-fill-color: unset;
+  color: #ffffff;
+  text-shadow: 0 0 30px rgba(123, 47, 255, 0.33), 0 0 60px rgba(123, 47, 255, 0.13);
 }
+
+.menu-title::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 50px;
+  height: 2px;
+  background: linear-gradient(90deg, #ff6b9d, #7b2fff, #00d2ff);
+  border-radius: 2px;
+  opacity: 0.8;
+}
+
+/* ---- Buttons ---- */
 
 .menu-button {
   display: block;
   width: 100%;
   margin-top: 12px;
   padding: 14px 20px;
-  border: 1px solid #7b2fff44;
+  border: 1px solid rgba(123, 47, 255, 0.15);
   border-radius: 12px;
-  background: linear-gradient(135deg, rgba(123, 47, 255, 0.3), rgba(255, 107, 157, 0.15));
-  color: var(--menu-text);
+  background: rgba(123, 47, 255, 0.08);
+  color: rgba(255, 255, 255, 0.7);
   font-size: 16px;
   font-weight: 500;
   font-family: var(--font-body);
@@ -80,9 +150,10 @@
 }
 
 .menu-button:hover {
-  background: linear-gradient(135deg, rgba(123, 47, 255, 0.5), rgba(255, 107, 157, 0.3));
-  border-color: #7b2fff88;
-  box-shadow: 0 0 20px #7b2fff33;
+  background: rgba(123, 47, 255, 0.15);
+  border-color: rgba(123, 47, 255, 0.3);
+  color: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 20px rgba(123, 47, 255, 0.1);
   transform: translateY(-2px);
 }
 
@@ -90,6 +161,26 @@
   transform: translateY(1px);
   box-shadow: 0 2px 10px rgba(123, 47, 255, 0.1);
 }
+
+/* Primary button (Play / Resume) */
+
+.menu-button-primary {
+  background: linear-gradient(135deg, rgba(123, 47, 255, 0.4), rgba(255, 107, 157, 0.2)) !important;
+  border-color: rgba(123, 47, 255, 0.5) !important;
+  color: #fff !important;
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  letter-spacing: 1px;
+  box-shadow: 0 0 20px rgba(123, 47, 255, 0.17);
+}
+
+.menu-button-primary:hover {
+  background: linear-gradient(135deg, rgba(123, 47, 255, 0.55), rgba(255, 107, 157, 0.3)) !important;
+  box-shadow: 0 0 30px rgba(123, 47, 255, 0.28);
+  border-color: rgba(123, 47, 255, 0.7) !important;
+}
+
+/* ---- Layout helpers ---- */
 
 .menu-row {
   display: flex;
@@ -99,6 +190,8 @@
 .menu-row .menu-button {
   flex: 1;
 }
+
+/* ---- Tabs ---- */
 
 .menu-tabs {
   display: flex;
@@ -130,6 +223,8 @@
   border-color: rgba(123, 47, 255, 0.4);
   box-shadow: inset 0 0 10px rgba(123, 47, 255, 0.1);
 }
+
+/* ---- Sections ---- */
 
 .menu-section {
   display: none;
@@ -185,9 +280,11 @@
   display: block;
   height: 40px;
   margin-top: -40px;
-  background: linear-gradient(to bottom, transparent, rgba(26, 16, 64, 0.9));
+  background: linear-gradient(to bottom, transparent, rgba(12, 5, 36, 0.85));
   pointer-events: none;
 }
+
+/* ---- Form fields ---- */
 
 .menu-field {
   margin: 16px 0;

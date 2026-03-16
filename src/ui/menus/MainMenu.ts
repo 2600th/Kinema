@@ -21,6 +21,7 @@ export class MainMenu {
     this.root.appendChild(title);
 
     const playBtn = this.createButton('Play', this.options.onPlay);
+    playBtn.classList.add('menu-button-primary');
     const levelSelectBtn = this.createButton('Level Select', this.options.onLevelSelect);
     const createLevelBtn = this.createButton('Create Level', this.options.onCreateLevel);
     const settingsBtn = this.createButton('Settings', this.options.onSettings);

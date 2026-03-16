@@ -19,6 +19,7 @@ export class PauseMenu {
     this.root.appendChild(title);
 
     const resumeBtn = this.createButton('Resume', this.options.onResume);
+    resumeBtn.classList.add('menu-button-primary');
     const settingsBtn = this.createButton('Settings', this.options.onSettings);
     const helpBtn = this.createButton('Help', this.options.onHelp);
     const mainMenuBtn = this.createButton('Main Menu', this.options.onMainMenu);
