@@ -130,8 +130,18 @@ export class ProceduralBuilder {
     return new Promise(r => setTimeout(r, 0));
   }
 
+  private progressCallback?: (progress: number) => void;
+
+  /** Yield + report progress (0-1) to the loading screen. */
+  private async yieldProgress(progress: number): Promise<void> {
+    this.progressCallback?.(progress);
+    await this.yield();
+  }
+
   /** Build the procedural showcase corridor and return all created resources. */
-  async build(): Promise<void> {
+  async build(onProgress?: (progress: number) => void): Promise<void> {
+    this.progressCallback = onProgress;
+    onProgress?.(0.05);
     const gridTexture = this.createGroundGridTexture();
     // ── Astro Bot-inspired bright, plastic-toy palette — all clearcoat for premium look ──
     const floorMat = new THREE.MeshPhysicalMaterial({
@@ -180,7 +190,7 @@ export class ProceduralBuilder {
     this.colliders.push(this.colliderFactory.createTrimesh(floor));
     } // end buildAll broad floor
 
-    await this.yield(); // let loading screen animate
+    await this.yieldProgress(0.1);
 
     // === Showcase corridor (inspired by Unity/Unreal sample bays) ===
     // Centered at world origin and used for *all* features (old + new).
@@ -294,7 +304,7 @@ export class ProceduralBuilder {
     (this as unknown as { _sparkles?: SparkleParticles })._sparkles = sparkles;
     } // end buildAll corridor structure
 
-    await this.yield(); // let loading screen animate
+    await this.yieldProgress(0.2);
 
     // ── Per-station Astro Bot color theme palette ──
     const stationColors: number[] = [
@@ -319,7 +329,7 @@ export class ProceduralBuilder {
     const bayZ = stationKeys.map((k) => getShowcaseStationZ(k));
     for (let i = 0; i < bayZ.length; i++) {
       const z = bayZ[i];
-      if (i > 0 && i % 2 === 0) await this.yield(); // yield every 2 stations
+      if (i > 0 && i % 2 === 0) await this.yieldProgress(0.25 + (i / bayZ.length) * 0.15);
       // Per-station colored pedestal — MeshPhysicalMaterial with clearcoat for premium plastic.
       const stationColorIdx = SHOWCASE_STATION_ORDER.indexOf(stationKeys[i] ?? stationKeys[0]);
       const stationColor = stationColors[stationColorIdx] ?? 0xe8ecf4;
@@ -439,7 +449,7 @@ export class ProceduralBuilder {
       }
     }
 
-    await this.yield();
+    await this.yieldProgress(0.4);
 
     // Open-air corridor: no ceiling panels. Use low-height lamp posts instead
     // for per-station accent lighting that doesn't float in the sky.
@@ -516,7 +526,7 @@ export class ProceduralBuilder {
     const zNavigation = getShowcaseStationZ('navigation');
     const zFutureA = getShowcaseStationZ('futureA');
 
-    await this.yield(); // let loading screen animate
+    await this.yieldProgress(0.45);
 
     // --- Per-station geometry (gated by isTarget) ---
 
@@ -598,7 +608,7 @@ export class ProceduralBuilder {
     );
     } // end slopes
 
-    await this.yield(); // let loading screen animate
+    await this.yieldProgress(0.55);
 
     if (isTarget('movement')) {
     // Combined movement bay: ladder + crouch + rope in a single platform stage.
@@ -622,7 +632,7 @@ export class ProceduralBuilder {
     );
     } // end doubleJump
 
-    await this.yield(); // let loading screen animate
+    await this.yieldProgress(0.6);
 
     if (isTarget('grab')) {
     this.createSectionLabel(
@@ -667,7 +677,7 @@ export class ProceduralBuilder {
     );
     } // end vehicles
 
-    await this.yield(); // let loading screen animate
+    await this.yieldProgress(0.7);
 
     if (isTarget('platformsMoving')) {
     // Platform stage A: kinematic moving platforms (single bay).
@@ -706,7 +716,7 @@ export class ProceduralBuilder {
     );
     } // end platformsMoving
 
-    await this.yield(); // let loading screen animate
+    await this.yieldProgress(0.75);
 
     if (isTarget('platformsPhysics')) {
     // Platform stage B: dynamic/pushable platforms + rotating drum (single bay).
@@ -760,7 +770,7 @@ export class ProceduralBuilder {
     this.createMaterialsBay(new THREE.Vector3(0, bayTopY, zMaterials), bayWidth, obstacleMat);
     } // end materials
 
-    await this.yield(); // let loading screen animate
+    await this.yieldProgress(0.85);
 
     if (isTarget('vfx')) {
     // VFX bay.
@@ -804,7 +814,7 @@ export class ProceduralBuilder {
     });
     } // end futureA
 
-    await this.yield(); // let loading screen animate
+    await this.yieldProgress(0.92);
 
     // --- Visual polish (skip in single-station mode) ---
     // Open-air design: only floor-level decorations, no wall/ceiling references.

@@ -187,23 +187,16 @@ export class LevelManager implements Disposable {
     // Always reset before each load so levels without spawnpoints are deterministic.
     this.spawnPoint = createDefaultSpawnPoint();
 
-    this.eventBus.emit('loading:progress', { progress: 0.1 });
-
     if (name === 'procedural') {
       await this.buildProcedural(null);
     } else {
+      this.eventBus.emit('loading:progress', { progress: 0.1 });
       await this.loadGLTF(name);
+      this.eventBus.emit('loading:progress', { progress: 0.8 });
     }
 
-    this.eventBus.emit('loading:progress', { progress: 0.5 });
-
     this.currentLevelName = name;
-
-    // Add ambient + directional light
     this.addLighting();
-
-    this.eventBus.emit('loading:progress', { progress: 0.8 });
-
     this.eventBus.emit('loading:progress', { progress: 1.0 });
     this.eventBus.emit('level:loaded', { name });
     console.log(`[LevelManager] Level "${name}" loaded`);
@@ -217,10 +210,8 @@ export class LevelManager implements Disposable {
     this.spawnPoint = createDefaultSpawnPoint();
     this.eventBus.emit('loading:progress', { progress: 0.1 });
     await this.buildProcedural(key);
-    this.eventBus.emit('loading:progress', { progress: 0.5 });
     this.currentLevelName = `station:${key}`;
     this.addLighting();
-    this.eventBus.emit('loading:progress', { progress: 0.8 });
     this.eventBus.emit('loading:progress', { progress: 1.0 });
     this.eventBus.emit('level:loaded', { name: `station:${key}` });
     console.log(`[LevelManager] Station "${key}" loaded`);
@@ -803,7 +794,9 @@ export class LevelManager implements Disposable {
       this._loadGeneration,
       stationFilter,
     );
-    await builder.build();
+    await builder.build((progress) => {
+      this.eventBus.emit('loading:progress', { progress });
+    });
     const result = builder.getResult();
 
     // Take ownership of the builder's arrays by reference, NOT by copying.
