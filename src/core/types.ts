@@ -187,6 +187,9 @@ export interface EventMap {
   'objective:completed': { id: string; text: string };
   'level:loaded': { name: string };
   'level:unloaded': { name: string };
+  'loading:progress': { progress: number };
+  'collectible:changed': { count: number };
+  'health:changed': { current: number; max: number };
   'vehicle:enter': { vehicle: VehicleController };
   'vehicle:exit': { position: THREE.Vector3 };
   'vehicle:engineStart': undefined;
