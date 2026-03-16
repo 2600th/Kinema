@@ -125,8 +125,13 @@ export class ProceduralBuilder {
     this.colliderFactory = new ColliderFactory(physicsWorld);
   }
 
+  /** Yield control to the browser so CSS animations can paint a frame. */
+  private yield(): Promise<void> {
+    return new Promise(r => setTimeout(r, 0));
+  }
+
   /** Build the procedural showcase corridor and return all created resources. */
-  build(): void {
+  async build(): Promise<void> {
     const gridTexture = this.createGroundGridTexture();
     // ── Astro Bot-inspired bright, plastic-toy palette — all clearcoat for premium look ──
     const floorMat = new THREE.MeshPhysicalMaterial({
@@ -174,6 +179,8 @@ export class ProceduralBuilder {
     floor.updateWorldMatrix(true, false);
     this.colliders.push(this.colliderFactory.createTrimesh(floor));
     } // end buildAll broad floor
+
+    await this.yield(); // let loading screen animate
 
     // === Showcase corridor (inspired by Unity/Unreal sample bays) ===
     // Centered at world origin and used for *all* features (old + new).
@@ -287,6 +294,8 @@ export class ProceduralBuilder {
     (this as unknown as { _sparkles?: SparkleParticles })._sparkles = sparkles;
     } // end buildAll corridor structure
 
+    await this.yield(); // let loading screen animate
+
     // ── Per-station Astro Bot color theme palette ──
     const stationColors: number[] = [
       0x00a2ff, // steps — sky blue
@@ -308,7 +317,9 @@ export class ProceduralBuilder {
     // Bay pedestals: all in normal mode, single target in station mode.
     const stationKeys = buildAll ? SHOWCASE_STATION_ORDER : [this.stationFilterKey!];
     const bayZ = stationKeys.map((k) => getShowcaseStationZ(k));
-    bayZ.forEach((z, i) => {
+    for (let i = 0; i < bayZ.length; i++) {
+      const z = bayZ[i];
+      if (i > 0 && i % 2 === 0) await this.yield(); // yield every 2 stations
       // Per-station colored pedestal — MeshPhysicalMaterial with clearcoat for premium plastic.
       const stationColorIdx = SHOWCASE_STATION_ORDER.indexOf(stationKeys[i] ?? stationKeys[0]);
       const stationColor = stationColors[stationColorIdx] ?? 0xe8ecf4;
@@ -426,11 +437,14 @@ export class ProceduralBuilder {
           this.meshes.push(rock);
         }
       }
-    });
+    }
+
+    await this.yield();
 
     // Open-air corridor: no ceiling panels. Use low-height lamp posts instead
     // for per-station accent lighting that doesn't float in the sky.
-    bayZ.forEach((z, i) => {
+    for (let i = 0; i < bayZ.length; i++) {
+      const z = bayZ[i];
       const stationColorIdx = SHOWCASE_STATION_ORDER.indexOf(stationKeys[i] ?? stationKeys[0]);
       const stationColor = stationColors[stationColorIdx] ?? 0xffffff;
 
@@ -463,7 +477,7 @@ export class ProceduralBuilder {
       light.name = `StationLampLight${i}`;
       this.scene.add(light);
       this.meshes.push(light);
-    });
+    }
 
     // Spawn point: near corridor entrance in full mode, near target station in station mode.
     if (buildAll) {
@@ -501,6 +515,8 @@ export class ProceduralBuilder {
     const zVfx = getShowcaseStationZ('vfx');
     const zNavigation = getShowcaseStationZ('navigation');
     const zFutureA = getShowcaseStationZ('futureA');
+
+    await this.yield(); // let loading screen animate
 
     // --- Per-station geometry (gated by isTarget) ---
 
@@ -582,6 +598,8 @@ export class ProceduralBuilder {
     );
     } // end slopes
 
+    await this.yield(); // let loading screen animate
+
     if (isTarget('movement')) {
     // Combined movement bay: ladder + crouch + rope in a single platform stage.
     this.createLadder('MainLadder', new THREE.Vector3(14, bayTopY, zMovement), 4.2, obstacleMat);
@@ -603,6 +621,8 @@ export class ProceduralBuilder {
       1.65,
     );
     } // end doubleJump
+
+    await this.yield(); // let loading screen animate
 
     if (isTarget('grab')) {
     this.createSectionLabel(
@@ -647,6 +667,8 @@ export class ProceduralBuilder {
     );
     } // end vehicles
 
+    await this.yield(); // let loading screen animate
+
     if (isTarget('platformsMoving')) {
     // Platform stage A: kinematic moving platforms (single bay).
     this.createKinematicPlatform(
@@ -683,6 +705,8 @@ export class ProceduralBuilder {
       1.9,
     );
     } // end platformsMoving
+
+    await this.yield(); // let loading screen animate
 
     if (isTarget('platformsPhysics')) {
     // Platform stage B: dynamic/pushable platforms + rotating drum (single bay).
@@ -736,6 +760,8 @@ export class ProceduralBuilder {
     this.createMaterialsBay(new THREE.Vector3(0, bayTopY, zMaterials), bayWidth, obstacleMat);
     } // end materials
 
+    await this.yield(); // let loading screen animate
+
     if (isTarget('vfx')) {
     // VFX bay.
     this.createSectionLabel(
@@ -777,6 +803,8 @@ export class ProceduralBuilder {
       this.meshes.push(barrier);
     });
     } // end futureA
+
+    await this.yield(); // let loading screen animate
 
     // --- Visual polish (skip in single-station mode) ---
     // Open-air design: only floor-level decorations, no wall/ceiling references.

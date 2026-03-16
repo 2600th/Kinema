@@ -190,7 +190,7 @@ export class LevelManager implements Disposable {
     this.eventBus.emit('loading:progress', { progress: 0.1 });
 
     if (name === 'procedural') {
-      this.buildProcedural(null);
+      await this.buildProcedural(null);
     } else {
       await this.loadGLTF(name);
     }
@@ -216,7 +216,7 @@ export class LevelManager implements Disposable {
     }
     this.spawnPoint = createDefaultSpawnPoint();
     this.eventBus.emit('loading:progress', { progress: 0.1 });
-    this.buildProcedural(key);
+    await this.buildProcedural(key);
     this.eventBus.emit('loading:progress', { progress: 0.5 });
     this.currentLevelName = `station:${key}`;
     this.addLighting();
@@ -795,7 +795,7 @@ export class LevelManager implements Disposable {
   /**
    * Delegate procedural level construction to ProceduralBuilder and absorb its results.
    */
-  private buildProcedural(stationFilter: ShowcaseStationKey | null): void {
+  private async buildProcedural(stationFilter: ShowcaseStationKey | null): Promise<void> {
     const builder = new ProceduralBuilder(
       this.scene,
       this.physicsWorld,
@@ -803,7 +803,7 @@ export class LevelManager implements Disposable {
       this._loadGeneration,
       stationFilter,
     );
-    builder.build();
+    await builder.build();
     const result = builder.getResult();
 
     // Take ownership of the builder's arrays by reference, NOT by copying.
