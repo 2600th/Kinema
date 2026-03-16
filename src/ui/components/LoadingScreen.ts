@@ -115,8 +115,11 @@ export class LoadingScreen implements Disposable {
   }
 
   show(): Promise<void> {
-    const overlay = document.getElementById('ui-overlay');
-    if (overlay) overlay.appendChild(this.container);
+    // Append to document.body (not #ui-overlay) so the loading screen
+    // sits above the menu overlay (z-index 1200) in the root stacking context.
+    // #ui-overlay has z-index:10 which creates a stacking context — children
+    // can never escape above siblings with higher z-index.
+    document.body.appendChild(this.container);
     void this.container.offsetHeight;
     this.container.style.opacity = '1';
     return new Promise(resolve => setTimeout(resolve, 200));

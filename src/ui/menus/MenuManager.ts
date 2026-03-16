@@ -168,24 +168,26 @@ export class MenuManager {
   }
 
   private async handlePlay(): Promise<void> {
-    void this.requestPointerLock();
-    await this.onPlay();
+    // Close menus BEFORE starting the heavy level load so the loading screen
+    // (appended to document.body) is clearly visible, not hidden behind the menu.
     while (this.stack.length) {
       this.pop();
     }
     this.resumeOnClose = false;
+    await this.onPlay();
+    void this.requestPointerLock();
     if (!this.gameLoop.isRunning()) {
       this.gameLoop.start();
     }
   }
 
   private async handlePlaySavedLevel(key: string): Promise<void> {
-    void this.requestPointerLock();
-    await this.onPlayLevel(key);
     while (this.stack.length) {
       this.pop();
     }
     this.resumeOnClose = false;
+    await this.onPlayLevel(key);
+    void this.requestPointerLock();
     if (!this.gameLoop.isRunning()) {
       this.gameLoop.start();
     }
