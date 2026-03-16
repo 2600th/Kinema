@@ -78,7 +78,7 @@ export class HUD implements Disposable {
     this.objective.id = 'hud-objective';
     this.objective.style.cssText = `
       position: absolute;
-      top: clamp(12px, 3vw, 32px);
+      top: clamp(48px, 6vh, 60px);
       left: clamp(12px, 3vw, 32px);
       max-width: min(400px, calc(100vw - 24px));
       padding: clamp(8px, 1.5vw, 12px) clamp(12px, 2vw, 20px);

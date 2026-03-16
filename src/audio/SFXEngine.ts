@@ -33,6 +33,7 @@ export class SFXEngine {
 
   // Loading ambient sound
   private loadingOsc: Tone.Oscillator | null = null;
+  private loadingLfo: Tone.LFO | null = null;
 
   // Engine sustained sound
   private engineOsc: Tone.Oscillator | null = null;
@@ -401,9 +402,9 @@ export class SFXEngine {
   loadingAmbientStart(): void {
     if (Tone.getContext().state !== 'running' || this.loadingOsc) return;
     this.loadingOsc = new Tone.Oscillator({ frequency: 80, type: 'sine' });
-    const lfo = new Tone.LFO({ frequency: 0.3, min: 60, max: 100 });
-    lfo.connect(this.loadingOsc.frequency);
-    lfo.start();
+    this.loadingLfo = new Tone.LFO({ frequency: 0.3, min: 60, max: 100 });
+    this.loadingLfo.connect(this.loadingOsc.frequency);
+    this.loadingLfo.start();
     this.loadingOsc.connect(this.effectsBus);
     this.loadingOsc.volume.value = -30;
     this.loadingOsc.start();
@@ -415,8 +416,10 @@ export class SFXEngine {
     if (!this.loadingOsc) return;
     this.loadingOsc.volume.rampTo(-60, 0.3);
     const osc = this.loadingOsc;
+    const lfo = this.loadingLfo;
     this.loadingOsc = null;
-    setTimeout(() => { osc.stop(); osc.dispose(); }, 400);
+    this.loadingLfo = null;
+    setTimeout(() => { osc.stop(); osc.dispose(); lfo?.stop(); lfo?.dispose(); }, 400);
   }
 
   /** Quick noise sweep for loading exit */
