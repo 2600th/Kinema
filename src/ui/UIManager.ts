@@ -111,6 +111,30 @@ export class UIManager implements Disposable {
         this.loadingScreen.setProgress(progress);
       }),
     );
+
+    this.unsubscribers.push(
+      this.eventBus.on('collectible:changed', ({ count }) => {
+        this.hud.updateCollectibles(count);
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('health:changed', ({ current, max }) => {
+        this.hud.updateHealth(current, max);
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('level:loaded', () => {
+        this.hud.showGameHUD();
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('level:unloaded', () => {
+        this.hud.hideGameHUD();
+      }),
+    );
   }
 
   dispose(): void {

@@ -4,6 +4,7 @@ import type { Disposable } from '@core/types';
  * HUD component — shows interaction prompts.
  */
 export class HUD implements Disposable {
+  private container: HTMLElement;
   private prompt: HTMLDivElement;
   private holdWrap: HTMLDivElement;
   private holdFill: HTMLDivElement;
@@ -11,8 +12,12 @@ export class HUD implements Disposable {
   private status: HTMLDivElement;
   private crosshair: HTMLDivElement;
   private statusTimer: ReturnType<typeof setTimeout> | null = null;
+  private collectibleEl!: HTMLDivElement;
+  private healthEl!: HTMLDivElement;
+  private hearts: HTMLSpanElement[] = [];
 
   constructor(parent: HTMLElement) {
+    this.container = parent;
     this.prompt = document.createElement('div');
     this.prompt.id = 'hud-prompt';
     this.prompt.style.cssText = `
@@ -135,6 +140,9 @@ export class HUD implements Disposable {
       z-index: 1000;
     `;
     parent.appendChild(this.crosshair);
+
+    this.createCollectibleCounter();
+    this.createHealthHearts();
   }
 
   showPrompt(text: string): void {
@@ -182,6 +190,112 @@ export class HUD implements Disposable {
     }, durationMs);
   }
 
+  private createCollectibleCounter(): void {
+    this.collectibleEl = document.createElement('div');
+    Object.assign(this.collectibleEl.style, {
+      position: 'absolute',
+      top: 'clamp(12px, 2vh, 20px)',
+      left: 'clamp(12px, 2vw, 20px)',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '8px',
+      opacity: '0',
+      transition: 'opacity 0.3s ease',
+      pointerEvents: 'none',
+    });
+
+    const icon = document.createElement('div');
+    Object.assign(icon.style, {
+      width: '28px',
+      height: '28px',
+      borderRadius: '50%',
+      background: 'linear-gradient(135deg, #FFD700, #FFA500)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontSize: '14px',
+      boxShadow: '0 0 10px #FFD70044',
+    });
+    icon.textContent = '\u2726';
+
+    const count = document.createElement('span');
+    count.className = 'collectible-count';
+    Object.assign(count.style, {
+      fontFamily: "'Outfit', sans-serif",
+      fontWeight: '700',
+      fontSize: '18px',
+      color: '#FFD700',
+      textShadow: '0 0 8px #FFD70044',
+      transition: 'transform 0.2s ease',
+    });
+    count.textContent = '0';
+
+    this.collectibleEl.appendChild(icon);
+    this.collectibleEl.appendChild(count);
+    this.container.appendChild(this.collectibleEl);
+  }
+
+  private createHealthHearts(): void {
+    this.healthEl = document.createElement('div');
+    Object.assign(this.healthEl.style, {
+      position: 'absolute',
+      top: 'clamp(12px, 2vh, 20px)',
+      right: 'clamp(12px, 2vw, 20px)',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '5px',
+      opacity: '0',
+      transition: 'opacity 0.3s ease',
+      pointerEvents: 'none',
+    });
+
+    for (let i = 0; i < 3; i++) {
+      const heart = document.createElement('span');
+      Object.assign(heart.style, {
+        color: '#ff6b9d',
+        fontSize: '22px',
+        filter: 'drop-shadow(0 0 6px #ff6b9d88)',
+        transition: 'transform 0.2s ease, opacity 0.2s ease',
+      });
+      heart.textContent = '\u2764';
+      this.hearts.push(heart);
+      this.healthEl.appendChild(heart);
+    }
+
+    this.container.appendChild(this.healthEl);
+  }
+
+  updateCollectibles(count: number): void {
+    const countEl = this.collectibleEl.querySelector('.collectible-count') as HTMLSpanElement;
+    if (countEl) {
+      countEl.textContent = String(count);
+      countEl.style.transform = 'scale(1.3)';
+      setTimeout(() => { countEl.style.transform = 'scale(1)'; }, 200);
+    }
+  }
+
+  updateHealth(current: number, _max: number): void {
+    this.hearts.forEach((heart, i) => {
+      const filled = i < current;
+      heart.style.opacity = filled ? '1' : '0.2';
+      heart.style.filter = filled ? 'drop-shadow(0 0 6px #ff6b9d88)' : 'none';
+      if (filled) {
+        heart.style.transform = 'scale(1.2)';
+        setTimeout(() => { heart.style.transform = 'scale(1)'; }, 200);
+      }
+    });
+  }
+
+  showGameHUD(): void {
+    this.collectibleEl.style.opacity = '1';
+    this.healthEl.style.opacity = '1';
+  }
+
+  hideGameHUD(): void {
+    this.collectibleEl.style.opacity = '0';
+    this.healthEl.style.opacity = '0';
+  }
+
   dispose(): void {
     if (this.statusTimer) {
       clearTimeout(this.statusTimer);
@@ -192,5 +306,7 @@ export class HUD implements Disposable {
     this.objective.remove();
     this.status.remove();
     this.crosshair.remove();
+    this.collectibleEl.remove();
+    this.healthEl.remove();
   }
 }
