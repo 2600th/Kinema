@@ -33,6 +33,7 @@ export class SFXEngine {
 
   // Loading ambient sound
   private loadingOsc: Tone.Oscillator | null = null;
+  private lastTickTime = 0;
   private loadingLfo: Tone.LFO | null = null;
 
   // Engine sustained sound
@@ -394,7 +395,9 @@ export class SFXEngine {
   loadingTick(progress: number): void {
     if (Tone.getContext().state !== 'running') return;
     const freq = 800 + progress * 600;
-    const now = Tone.now();
+    // Ensure strictly increasing start times (synchronous progress events share Tone.now())
+    const now = Math.max(Tone.now(), this.lastTickTime + 0.05);
+    this.lastTickTime = now;
     this.sparkleSynth.triggerAttackRelease(freq, '64n', now, 0.15);
   }
 
