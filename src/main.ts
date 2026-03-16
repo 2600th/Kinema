@@ -148,11 +148,13 @@ async function bootstrap(): Promise<void> {
   const startGame = async (): Promise<void> => {
     if (levelLoaded) return;
     if (editorManager?.isActive()) editorManager.toggle();
+    await uiManager.loadingScreen.show();
     await levelManager.load('procedural');
     playerController.spawn(levelManager.getSpawnPoint());
     // Warm the Rapier query pipeline so first-tick raycasts are valid.
     physicsWorld.step();
     game.setupLevel();
+    await uiManager.loadingScreen.hide();
     levelLoaded = true;
   };
 
@@ -178,10 +180,12 @@ async function bootstrap(): Promise<void> {
       console.error(`[Kinema] Failed to load saved level "${key}"`);
       return;
     }
+    await uiManager.loadingScreen.show();
     await levelManager.loadFromJSON(data);
     playerController.spawn(levelManager.getSpawnPoint());
     physicsWorld.step();
     game.setupCustomLevel();
+    await uiManager.loadingScreen.hide();
     levelLoaded = true;
   };
 
@@ -236,10 +240,12 @@ async function bootstrap(): Promise<void> {
       levelManager.unload();
       levelLoaded = false;
     }
+    await uiManager.loadingScreen.show();
     await levelManager.loadStation(key as import('@level/ShowcaseLayout').ShowcaseStationKey);
     playerController.spawn(levelManager.getSpawnPoint());
     physicsWorld.step();
     game.setupStation(key as import('@level/ShowcaseLayout').ShowcaseStationKey);
+    await uiManager.loadingScreen.hide();
     levelLoaded = true;
   };
 

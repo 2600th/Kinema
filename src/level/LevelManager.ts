@@ -187,17 +187,24 @@ export class LevelManager implements Disposable {
     // Always reset before each load so levels without spawnpoints are deterministic.
     this.spawnPoint = createDefaultSpawnPoint();
 
+    this.eventBus.emit('loading:progress', { progress: 0.1 });
+
     if (name === 'procedural') {
       this.buildProcedural(null);
     } else {
       await this.loadGLTF(name);
     }
 
+    this.eventBus.emit('loading:progress', { progress: 0.5 });
+
     this.currentLevelName = name;
 
     // Add ambient + directional light
     this.addLighting();
 
+    this.eventBus.emit('loading:progress', { progress: 0.8 });
+
+    this.eventBus.emit('loading:progress', { progress: 1.0 });
     this.eventBus.emit('level:loaded', { name });
     console.log(`[LevelManager] Level "${name}" loaded`);
   }
@@ -208,9 +215,13 @@ export class LevelManager implements Disposable {
       this.unload();
     }
     this.spawnPoint = createDefaultSpawnPoint();
+    this.eventBus.emit('loading:progress', { progress: 0.1 });
     this.buildProcedural(key);
+    this.eventBus.emit('loading:progress', { progress: 0.5 });
     this.currentLevelName = `station:${key}`;
     this.addLighting();
+    this.eventBus.emit('loading:progress', { progress: 0.8 });
+    this.eventBus.emit('loading:progress', { progress: 1.0 });
     this.eventBus.emit('level:loaded', { name: `station:${key}` });
     console.log(`[LevelManager] Station "${key}" loaded`);
   }
@@ -229,6 +240,7 @@ export class LevelManager implements Disposable {
       this.unload();
     }
     this.spawnPoint = createDefaultSpawnPoint();
+    this.eventBus.emit('loading:progress', { progress: 0.1 });
 
     // Apply spawn point from JSON — prefer tagged spawnPoints array, fall back to legacy
     const playerSpawn = data.spawnPoints?.find((s) => s.tag === 'player') ?? data.spawnPoints?.[0];
@@ -250,8 +262,12 @@ export class LevelManager implements Disposable {
       await this.spawnJSONObject(entry);
     }
 
+    this.eventBus.emit('loading:progress', { progress: 0.5 });
+
     this.currentLevelName = data.name || 'custom';
     this.addLighting();
+    this.eventBus.emit('loading:progress', { progress: 0.8 });
+    this.eventBus.emit('loading:progress', { progress: 1.0 });
     this.eventBus.emit('level:loaded', { name: this.currentLevelName });
     console.log(`[LevelManager] JSON level "${this.currentLevelName}" loaded (${data.objects.length} objects)`);
   }
