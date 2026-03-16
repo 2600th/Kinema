@@ -225,7 +225,8 @@ export class AudioManager implements FixedUpdatable, Disposable {
     );
     this.unsubscribers.push(
       this.eventBus.on('player:respawned', () => {
-        this.sfxEngine.respawn();
+        this.sfxEngine.deathPop();
+        setTimeout(() => this.sfxEngine.respawnChime(), 100);
       }),
     );
     this.unsubscribers.push(
@@ -282,6 +283,29 @@ export class AudioManager implements FixedUpdatable, Disposable {
     this.unsubscribers.push(
       this.eventBus.on('ui:hover', () => {
         this.sfxEngine.uiHover();
+      }),
+    );
+
+    let lastTickThreshold = 0;
+
+    this.unsubscribers.push(
+      this.eventBus.on('loading:progress', ({ progress }) => {
+        if (progress <= 0.15) {
+          this.sfxEngine.loadingAmbientStart();
+          lastTickThreshold = 0;
+        }
+        const threshold = Math.floor(progress * 10);
+        if (threshold > lastTickThreshold) {
+          lastTickThreshold = threshold;
+          this.sfxEngine.loadingTick(progress);
+        }
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('level:loaded', () => {
+        this.sfxEngine.loadingAmbientStop();
+        this.sfxEngine.loadingWhoosh();
       }),
     );
   }
