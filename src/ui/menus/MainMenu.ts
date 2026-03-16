@@ -34,6 +34,12 @@ export class MainMenu {
     this.root.appendChild(settingsBtn);
     this.root.appendChild(helpBtn);
     this.root.appendChild(quitBtn);
+
+    // Version text
+    const version = document.createElement('div');
+    version.className = 'menu-version';
+    version.textContent = 'v0.1 alpha';
+    this.root.appendChild(version);
   }
 
   show(): void {

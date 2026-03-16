@@ -190,6 +190,8 @@ export interface EventMap {
   'loading:progress': { progress: number };
   'collectible:changed': { count: number };
   'health:changed': { current: number; max: number };
+  'player:dying': { reason: string };
+  'player:deathMidpoint': undefined;
   'vehicle:enter': { vehicle: VehicleController };
   'vehicle:exit': { position: THREE.Vector3 };
   'vehicle:engineStart': undefined;

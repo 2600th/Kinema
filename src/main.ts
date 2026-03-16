@@ -145,10 +145,15 @@ async function bootstrap(): Promise<void> {
 
   let levelLoaded = false;
 
+  /** Yield to browser so CSS animations and paint can run */
+  const yieldToRenderer = () => new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+
   const startGame = async (): Promise<void> => {
     if (levelLoaded) return;
     if (editorManager?.isActive()) editorManager.toggle();
     await uiManager.loadingScreen.show();
+    // Double-rAF ensures the loading screen is fully painted before heavy sync work
+    await yieldToRenderer();
     await levelManager.load('procedural');
     playerController.spawn(levelManager.getSpawnPoint());
     // Warm the Rapier query pipeline so first-tick raycasts are valid.
@@ -181,6 +186,7 @@ async function bootstrap(): Promise<void> {
       return;
     }
     await uiManager.loadingScreen.show();
+    await yieldToRenderer();
     await levelManager.loadFromJSON(data);
     playerController.spawn(levelManager.getSpawnPoint());
     physicsWorld.step();
@@ -241,6 +247,7 @@ async function bootstrap(): Promise<void> {
       levelLoaded = false;
     }
     await uiManager.loadingScreen.show();
+    await yieldToRenderer();
     await levelManager.loadStation(key as import('@level/ShowcaseLayout').ShowcaseStationKey);
     playerController.spawn(levelManager.getSpawnPoint());
     physicsWorld.step();

@@ -42,7 +42,7 @@ export class UIManager implements Disposable {
     this.fadeScreen = new FadeScreen(overlay);
     this.debugPanel = new DebugPanel(overlay, this.eventBus);
     this.loadingScreen = new LoadingScreen();
-    this.deathEffect = new DeathEffect();
+    this.deathEffect = new DeathEffect(this.eventBus);
 
     // "Click to start" hint for audio activation
     this.createInteractionHint();
@@ -100,9 +100,14 @@ export class UIManager implements Disposable {
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('player:respawned', ({ reason }) => {
-        this.hud.showStatus(`Respawned (${reason})`);
-        this.deathEffect.trigger();
+      this.eventBus.on('player:dying', () => {
+        this.deathEffect.play();
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('player:respawned', () => {
+        this.hud.showStatus('Respawned');
       }),
     );
 
