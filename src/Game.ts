@@ -49,6 +49,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
   private audioManager: AudioManager;
   private editorManager: EditorManager | null = null;
   private readonly fallRespawnY = -25;
+  private isDying = false;
   private unsubs: (() => void)[] = [];
 
   // Input polling cache (populated once per frame in beginFrame)
@@ -112,6 +113,15 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
 
     const checkpointSystem = new CheckpointObjectiveSystem(renderer, physicsWorld, eventBus, playerController);
     this.registerSystem(checkpointSystem);
+
+    // Respawn at the midpoint of the iris wipe (screen is black)
+    this.unsubs.push(
+      this.eventBus.on('player:deathMidpoint', () => {
+        this.playerController.respawn();
+        this.eventBus.emit('player:respawned', { reason: 'fall' });
+        this.isDying = false;
+      }),
+    );
 
     // Listen for interact state to trigger interactions
     this.unsubs.push(
@@ -310,9 +320,9 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       this.playerController.cameraYaw = this.camera.getYaw();
       this.playerController.setLadderZones(this.levelManager.getLadderZones());
       this.playerController.fixedUpdate(dt);
-      if (this.playerController.position.y < this.fallRespawnY) {
-        this.playerController.respawn();
-        this.eventBus.emit("player:respawned", { reason: "fall" });
+      if (this.playerController.position.y < this.fallRespawnY && !this.isDying) {
+        this.isDying = true;
+        this.eventBus.emit('player:dying', { reason: 'fall' });
       }
     }
     this.audioManager.fixedUpdate(dt);

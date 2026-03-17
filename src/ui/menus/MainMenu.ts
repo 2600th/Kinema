@@ -21,6 +21,7 @@ export class MainMenu {
     this.root.appendChild(title);
 
     const playBtn = this.createButton('Play', this.options.onPlay);
+    playBtn.classList.add('menu-button-primary');
     const levelSelectBtn = this.createButton('Level Select', this.options.onLevelSelect);
     const createLevelBtn = this.createButton('Create Level', this.options.onCreateLevel);
     const settingsBtn = this.createButton('Settings', this.options.onSettings);
@@ -33,6 +34,12 @@ export class MainMenu {
     this.root.appendChild(settingsBtn);
     this.root.appendChild(helpBtn);
     this.root.appendChild(quitBtn);
+
+    // Version text
+    const version = document.createElement('div');
+    version.className = 'menu-version';
+    version.textContent = 'v0.1 alpha';
+    this.root.appendChild(version);
   }
 
   show(): void {

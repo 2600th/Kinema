@@ -31,6 +31,11 @@ export class SFXEngine {
   private sparkleSynth: Tone.Synth;
   private subSynth: Tone.Synth;
 
+  // Loading ambient sound
+  private loadingOsc: Tone.Oscillator | null = null;
+  private lastTickTime = 0;
+  private loadingLfo: Tone.LFO | null = null;
+
   // Engine sustained sound
   private engineOsc: Tone.Oscillator | null = null;
   private engineSub: Tone.Oscillator | null = null;
@@ -364,6 +369,69 @@ export class SFXEngine {
     setTimeout(() => s.dispose(), 100);
   }
 
+  // ── Death / Respawn SFX ──────────────────────────────────
+
+  /** Short percussive death burst */
+  deathPop(): void {
+    if (Tone.getContext().state !== 'running') return;
+    const now = Tone.now();
+    this.noiseSynth.triggerAttackRelease('16n', now);
+    this.toneSynth.triggerAttackRelease('C3', '16n', now);
+    this.toneSynth.frequency.setValueAtTime(400, now);
+    this.toneSynth.frequency.exponentialRampToValueAtTime(80, now + 0.08);
+  }
+
+  /** Quick ascending respawn chime */
+  respawnChime(): void {
+    if (Tone.getContext().state !== 'running') return;
+    const now = Tone.now();
+    this.sparkleSynth.triggerAttackRelease('C5', '32n', now);
+    this.sparkleSynth.triggerAttackRelease('E5', '32n', now + 0.06);
+  }
+
+  // ── Loading Screen SFX ──────────────────────────────────
+
+  /** Subtle sparkle tick for loading progress */
+  loadingTick(progress: number): void {
+    if (Tone.getContext().state !== 'running') return;
+    const freq = 800 + progress * 600;
+    // Ensure strictly increasing start times (synchronous progress events share Tone.now())
+    const now = Math.max(Tone.now(), this.lastTickTime + 0.05);
+    this.lastTickTime = now;
+    this.sparkleSynth.triggerAttackRelease(freq, '64n', now, 0.15);
+  }
+
+  /** Start ambient loading hum */
+  loadingAmbientStart(): void {
+    if (Tone.getContext().state !== 'running' || this.loadingOsc) return;
+    this.loadingOsc = new Tone.Oscillator({ frequency: 80, type: 'sine' });
+    this.loadingLfo = new Tone.LFO({ frequency: 0.3, min: 60, max: 100 });
+    this.loadingLfo.connect(this.loadingOsc.frequency);
+    this.loadingLfo.start();
+    this.loadingOsc.connect(this.effectsBus);
+    this.loadingOsc.volume.value = -30;
+    this.loadingOsc.start();
+    this.loadingOsc.volume.rampTo(-20, 1);
+  }
+
+  /** Stop ambient loading hum */
+  loadingAmbientStop(): void {
+    if (!this.loadingOsc) return;
+    this.loadingOsc.volume.rampTo(-60, 0.3);
+    const osc = this.loadingOsc;
+    const lfo = this.loadingLfo;
+    this.loadingOsc = null;
+    this.loadingLfo = null;
+    setTimeout(() => { osc.stop(); osc.dispose(); lfo?.stop(); lfo?.dispose(); }, 400);
+  }
+
+  /** Quick noise sweep for loading exit */
+  loadingWhoosh(): void {
+    if (Tone.getContext().state !== 'running') return;
+    const now = Tone.now();
+    this.noiseSynth.triggerAttackRelease('8n', now);
+  }
+
   // ── Engine (sustained) ────────────────────────────────────
 
   startEngine(): void {
@@ -396,6 +464,7 @@ export class SFXEngine {
   // ── Lifecycle ─────────────────────────────────────────────
 
   dispose(): void {
+    this.loadingAmbientStop();
     this.stopEngine();
     this.toneSynth.dispose();
     this.noiseSynth.dispose();

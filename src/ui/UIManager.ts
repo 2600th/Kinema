@@ -3,6 +3,8 @@ import type { Disposable } from '@core/types';
 import { HUD } from './components/HUD';
 import { FadeScreen } from './components/FadeScreen';
 import { DebugPanel } from './components/DebugPanel';
+import { LoadingScreen } from './components/LoadingScreen';
+import { DeathEffect } from './components/DeathEffect';
 
 /**
  * DOM-based UI overlay manager.
@@ -12,6 +14,8 @@ export class UIManager implements Disposable {
   public readonly hud: HUD;
   public readonly fadeScreen: FadeScreen;
   public readonly debugPanel: DebugPanel;
+  public readonly loadingScreen: LoadingScreen;
+  private readonly deathEffect: DeathEffect;
 
   private unsubscribers: (() => void)[] = [];
   private overlayEl: HTMLElement | null = null;
@@ -37,6 +41,8 @@ export class UIManager implements Disposable {
     this.hud = new HUD(overlay);
     this.fadeScreen = new FadeScreen(overlay);
     this.debugPanel = new DebugPanel(overlay, this.eventBus);
+    this.loadingScreen = new LoadingScreen();
+    this.deathEffect = new DeathEffect(this.eventBus);
 
     // "Click to start" hint for audio activation
     this.createInteractionHint();
@@ -94,8 +100,44 @@ export class UIManager implements Disposable {
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('player:respawned', ({ reason }) => {
-        this.hud.showStatus(`Respawned (${reason})`);
+      this.eventBus.on('player:dying', () => {
+        this.deathEffect.play();
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('player:respawned', () => {
+        this.hud.showStatus('Respawned');
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('loading:progress', ({ progress }) => {
+        this.loadingScreen.setProgress(progress);
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('collectible:changed', ({ count }) => {
+        this.hud.updateCollectibles(count);
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('health:changed', ({ current, max }) => {
+        this.hud.updateHealth(current, max);
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('level:loaded', () => {
+        this.hud.showGameHUD();
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('level:unloaded', () => {
+        this.hud.hideGameHUD();
       }),
     );
   }
@@ -107,6 +149,8 @@ export class UIManager implements Disposable {
     this.hud.dispose();
     this.fadeScreen.dispose();
     this.debugPanel.dispose();
+    this.loadingScreen.dispose();
+    this.deathEffect.dispose();
     this.hintEl?.remove();
     this.hintStyleEl?.remove();
     this.overlayEl?.remove();

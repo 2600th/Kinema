@@ -188,16 +188,16 @@ export class LevelManager implements Disposable {
     this.spawnPoint = createDefaultSpawnPoint();
 
     if (name === 'procedural') {
-      this.buildProcedural(null);
+      await this.buildProcedural(null);
     } else {
+      this.eventBus.emit('loading:progress', { progress: 0.1 });
       await this.loadGLTF(name);
+      this.eventBus.emit('loading:progress', { progress: 0.8 });
     }
 
     this.currentLevelName = name;
-
-    // Add ambient + directional light
     this.addLighting();
-
+    this.eventBus.emit('loading:progress', { progress: 1.0 });
     this.eventBus.emit('level:loaded', { name });
     console.log(`[LevelManager] Level "${name}" loaded`);
   }
@@ -208,9 +208,11 @@ export class LevelManager implements Disposable {
       this.unload();
     }
     this.spawnPoint = createDefaultSpawnPoint();
-    this.buildProcedural(key);
+    this.eventBus.emit('loading:progress', { progress: 0.1 });
+    await this.buildProcedural(key);
     this.currentLevelName = `station:${key}`;
     this.addLighting();
+    this.eventBus.emit('loading:progress', { progress: 1.0 });
     this.eventBus.emit('level:loaded', { name: `station:${key}` });
     console.log(`[LevelManager] Station "${key}" loaded`);
   }
@@ -229,6 +231,7 @@ export class LevelManager implements Disposable {
       this.unload();
     }
     this.spawnPoint = createDefaultSpawnPoint();
+    this.eventBus.emit('loading:progress', { progress: 0.1 });
 
     // Apply spawn point from JSON — prefer tagged spawnPoints array, fall back to legacy
     const playerSpawn = data.spawnPoints?.find((s) => s.tag === 'player') ?? data.spawnPoints?.[0];
@@ -250,8 +253,12 @@ export class LevelManager implements Disposable {
       await this.spawnJSONObject(entry);
     }
 
+    this.eventBus.emit('loading:progress', { progress: 0.5 });
+
     this.currentLevelName = data.name || 'custom';
     this.addLighting();
+    this.eventBus.emit('loading:progress', { progress: 0.8 });
+    this.eventBus.emit('loading:progress', { progress: 1.0 });
     this.eventBus.emit('level:loaded', { name: this.currentLevelName });
     console.log(`[LevelManager] JSON level "${this.currentLevelName}" loaded (${data.objects.length} objects)`);
   }
@@ -779,7 +786,7 @@ export class LevelManager implements Disposable {
   /**
    * Delegate procedural level construction to ProceduralBuilder and absorb its results.
    */
-  private buildProcedural(stationFilter: ShowcaseStationKey | null): void {
+  private async buildProcedural(stationFilter: ShowcaseStationKey | null): Promise<void> {
     const builder = new ProceduralBuilder(
       this.scene,
       this.physicsWorld,
@@ -787,7 +794,9 @@ export class LevelManager implements Disposable {
       this._loadGeneration,
       stationFilter,
     );
-    builder.build();
+    await builder.build((progress) => {
+      this.eventBus.emit('loading:progress', { progress });
+    });
     const result = builder.getResult();
 
     // Take ownership of the builder's arrays by reference, NOT by copying.

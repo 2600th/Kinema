@@ -145,14 +145,26 @@ async function bootstrap(): Promise<void> {
 
   let levelLoaded = false;
 
+  /** Yield to browser so CSS animations and paint can run */
+  const yieldToRenderer = () => new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+
   const startGame = async (): Promise<void> => {
     if (levelLoaded) return;
     if (editorManager?.isActive()) editorManager.toggle();
+    await uiManager.loadingScreen.show();
+    // Start render loop with simulation DISABLED so the loading screen CSS
+    // animations stay alive. Physics/game logic is skipped — only the renderer
+    // paints frames (hidden behind the loading screen at z-index 1300).
+    gameLoop.setSimulationEnabled(false);
+    if (!gameLoop.isRunning()) gameLoop.start();
+    await yieldToRenderer();
     await levelManager.load('procedural');
     playerController.spawn(levelManager.getSpawnPoint());
     // Warm the Rapier query pipeline so first-tick raycasts are valid.
     physicsWorld.step();
     game.setupLevel();
+    gameLoop.setSimulationEnabled(true);
+    await uiManager.loadingScreen.hide();
     levelLoaded = true;
   };
 
@@ -178,10 +190,16 @@ async function bootstrap(): Promise<void> {
       console.error(`[Kinema] Failed to load saved level "${key}"`);
       return;
     }
+    await uiManager.loadingScreen.show();
+    gameLoop.setSimulationEnabled(false);
+    if (!gameLoop.isRunning()) gameLoop.start();
+    await yieldToRenderer();
     await levelManager.loadFromJSON(data);
     playerController.spawn(levelManager.getSpawnPoint());
     physicsWorld.step();
     game.setupCustomLevel();
+    gameLoop.setSimulationEnabled(true);
+    await uiManager.loadingScreen.hide();
     levelLoaded = true;
   };
 
@@ -236,10 +254,16 @@ async function bootstrap(): Promise<void> {
       levelManager.unload();
       levelLoaded = false;
     }
+    await uiManager.loadingScreen.show();
+    gameLoop.setSimulationEnabled(false);
+    if (!gameLoop.isRunning()) gameLoop.start();
+    await yieldToRenderer();
     await levelManager.loadStation(key as import('@level/ShowcaseLayout').ShowcaseStationKey);
     playerController.spawn(levelManager.getSpawnPoint());
     physicsWorld.step();
     game.setupStation(key as import('@level/ShowcaseLayout').ShowcaseStationKey);
+    gameLoop.setSimulationEnabled(true);
+    await uiManager.loadingScreen.hide();
     levelLoaded = true;
   };
 
