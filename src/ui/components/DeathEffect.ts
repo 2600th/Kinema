@@ -8,9 +8,9 @@ const PARTICLE_COLORS = ['#ff6b9d', '#7b2fff', '#00d2ff', '#FFD700'];
 const PARTICLE_COUNT = 14;
 
 /**
- * Astro Bot-style iris wipe death transition using clip-path: circle().
- * 1) Black overlay with circle clip shrinks to center
- * 2) Holds on black with toonish icon while respawn happens
+ * Astro Bot-style iris wipe death transition.
+ * 1) Circle shrinks to center (iris close) with toonish icon
+ * 2) Holds on black while respawn happens
  * 3) Circle expands back open + particle burst
  */
 export class DeathEffect implements Disposable {
@@ -30,34 +30,27 @@ export class DeathEffect implements Disposable {
     const container = this.createContainer();
     this.overlay.appendChild(container);
 
+    // Phase 1: iris close
+    void container.offsetHeight; // force reflow
     const mask = container.querySelector('.iris-mask') as HTMLDivElement;
-    const icon = container.querySelector('.iris-icon') as HTMLDivElement;
-
-    // Force layout so the initial clip-path is applied
-    void container.offsetHeight;
-
-    // Phase 1: iris close — shrink circle from full screen to zero
-    mask.style.clipPath = 'circle(0% at 50% 50%)';
+    mask.style.setProperty('--iris-size', '0%');
 
     await this.wait(IRIS_CLOSE_MS);
 
     // Show icon at center during hold
+    const icon = container.querySelector('.iris-icon') as HTMLDivElement;
     icon.style.opacity = '1';
     icon.style.transform = 'translate(-50%, -50%) scale(1)';
 
-    // Signal that screen is black — Game.ts does respawn now
+    // Signal that screen is black — Game.ts listens to respawn now
     this.eventBus.emit('player:deathMidpoint', undefined);
 
     await this.wait(IRIS_HOLD_MS);
 
-    // Phase 2: iris open — expand circle back to full
+    // Phase 2: iris open
     icon.style.opacity = '0';
     icon.style.transform = 'translate(-50%, -50%) scale(0.5)';
-
-    // Switch to open transition timing
-    mask.style.transition = `clip-path ${IRIS_OPEN_MS}ms cubic-bezier(0, 0, 0.2, 1)`;
-    void mask.offsetHeight;
-    mask.style.clipPath = 'circle(150% at 50% 50%)';
+    mask.style.setProperty('--iris-size', '150%');
 
     // Burst particles as iris opens
     this.burstParticles();
@@ -88,11 +81,16 @@ export class DeathEffect implements Disposable {
         pointer-events: none;
       }
       .iris-mask {
+        --iris-size: 150%;
         position: absolute;
         inset: 0;
-        background: #0c0524;
-        clip-path: circle(150% at 50% 50%);
-        transition: clip-path ${IRIS_CLOSE_MS}ms cubic-bezier(0.4, 0, 0.8, 1);
+        background: radial-gradient(circle at 50% 50%, transparent var(--iris-size), #0c0524 var(--iris-size));
+        transition: --iris-size ${IRIS_CLOSE_MS}ms cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      @property --iris-size {
+        syntax: '<percentage>';
+        initial-value: 150%;
+        inherits: false;
       }
       .iris-icon {
         position: absolute;
@@ -125,6 +123,7 @@ export class DeathEffect implements Disposable {
 
     const mask = document.createElement('div');
     mask.className = 'iris-mask';
+    mask.style.setProperty('--iris-size', '150%');
     container.appendChild(mask);
 
     const icon = document.createElement('div');
@@ -155,7 +154,7 @@ export class DeathEffect implements Disposable {
         boxShadow: `0 0 6px ${PARTICLE_COLORS[i % PARTICLE_COLORS.length]}88`,
         zIndex: '1101',
         pointerEvents: 'none',
-        animation: 'deathParticleBurst 400ms ease-out forwards',
+        animation: `deathParticleBurst 400ms ease-out forwards`,
       });
       particle.style.setProperty('--dx', `${dx}px`);
       particle.style.setProperty('--dy', `${dy}px`);
