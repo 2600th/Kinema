@@ -28,6 +28,7 @@ export class AnimationController implements Disposable {
   private locoWeights = { walk: 0, jog: 0, sprint: 0 };
   private locoTargetWeights = { walk: 0, jog: 0, sprint: 0 };
   private locoActive = false;
+  private oneShotActive = false;
 
   private crouchIdleAction: THREE.AnimationAction | null = null;
   private crouchMoveAction: THREE.AnimationAction | null = null;
@@ -87,11 +88,13 @@ export class AnimationController implements Disposable {
   }
 
   private createLocoAction(clipName: string): THREE.AnimationAction | null {
-    const clip = this.model.clips.get(clipName);
-    if (!clip) {
+    const originalClip = this.model.clips.get(clipName);
+    if (!originalClip) {
       console.warn(`[AnimationController] Locomotion clip "${clipName}" not found`);
       return null;
     }
+    // Clone to avoid sharing AnimationAction with stateMap entries using the same clip
+    const clip = originalClip.clone();
     const action = this.mixer.clipAction(clip);
     action.enabled = true;
     action.loop = THREE.LoopRepeat;
@@ -101,6 +104,7 @@ export class AnimationController implements Disposable {
   }
 
   setState(state: StateId): void {
+    if (this.oneShotActive) return;
     if (state === this.currentState) return;
 
     const prevState = this.currentState;
@@ -202,7 +206,28 @@ export class AnimationController implements Disposable {
     if (!this.currentAction) return false;
     if (this.currentAction.loop !== THREE.LoopOnce) return false;
     const clip = this.currentAction.getClip();
-    return this.currentAction.time >= clip.duration;
+    return this.currentAction.time >= clip.duration - 1e-4;
+  }
+
+  /** Play a one-shot animation clip, overriding current FSM animation (e.g., death). */
+  playOneShot(clipName: string, fadeDuration = 0.2): void {
+    const originalClip = this.model.clips.get(clipName);
+    if (!originalClip) {
+      console.warn(`[AnimationController] OneShot clip "${clipName}" not found`);
+      return;
+    }
+    if (this.currentAction) this.currentAction.fadeOut(fadeDuration);
+    if (this.locoActive) this.deactivateLocomotion(fadeDuration);
+    this.deactivateSpeedSwitch(this.crouchIdleAction, this.crouchMoveAction, fadeDuration);
+    this.deactivateSpeedSwitch(this.carryIdleAction, this.carryMoveAction, fadeDuration);
+
+    const action = this.mixer.clipAction(originalClip.clone());
+    action.reset();
+    action.loop = THREE.LoopOnce;
+    action.clampWhenFinished = true;
+    action.fadeIn(fadeDuration).play();
+    this.currentAction = action;
+    this.oneShotActive = true;
   }
 
   update(dt: number): void {
@@ -262,13 +287,14 @@ export class AnimationController implements Disposable {
   private activateLocomotion(_fadeDuration: number): void {
     this.locoActive = true;
     this.setSpeed(this.speed);
-    this.locoWeights.walk = this.locoTargetWeights.walk;
-    this.locoWeights.jog = this.locoTargetWeights.jog;
-    this.locoWeights.sprint = this.locoTargetWeights.sprint;
+    // Start at zero — the exponential smoother in update() ramps to target
+    this.locoWeights.walk = 0;
+    this.locoWeights.jog = 0;
+    this.locoWeights.sprint = 0;
 
-    if (this.locoWalk) { this.locoWalk.reset().play(); this.locoWalk.setEffectiveWeight(this.locoWeights.walk); }
-    if (this.locoJog) { this.locoJog.reset().play(); this.locoJog.setEffectiveWeight(this.locoWeights.jog); }
-    if (this.locoSprint) { this.locoSprint.reset().play(); this.locoSprint.setEffectiveWeight(this.locoWeights.sprint); }
+    if (this.locoWalk) { this.locoWalk.reset().play(); this.locoWalk.setEffectiveWeight(0); }
+    if (this.locoJog) { this.locoJog.reset().play(); this.locoJog.setEffectiveWeight(0); }
+    if (this.locoSprint) { this.locoSprint.reset().play(); this.locoSprint.setEffectiveWeight(0); }
   }
 
   private deactivateLocomotion(fadeDuration: number): void {
@@ -309,6 +335,8 @@ export class AnimationController implements Disposable {
     this[moveWeightKey] = speed > SPEED_SWITCH_THRESHOLD ? 1 : 0;
     if (speed > SPEED_SWITCH_THRESHOLD) {
       moveAction.timeScale = Math.max(0.1, speed / WALK_AUTHORED_SPEED);
+    } else {
+      moveAction.timeScale = 1.0;
     }
   }
 }
