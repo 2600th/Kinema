@@ -29,16 +29,16 @@ export class RopeMode implements CharacterMode {
     if (wasGrounded) {
       ctx.eventBus.emit("player:grounded", false);
     }
-    if (ctx.fsm.current !== STATE.air) {
-      ctx.fsm.requestState(STATE.air);
+    if (ctx.fsm.current !== STATE.rope) {
+      ctx.fsm.requestState(STATE.rope);
     }
   }
 
   fixedUpdate(ctx: PlayerContext, _input: InputState, _dt: number): string | null {
     // While attached, keep clearing jump buffer and enforce air state
     ctx.jumpBufferRemaining = 0;
-    if (ctx.fsm.current !== STATE.air) {
-      ctx.fsm.requestState(STATE.air);
+    if (ctx.fsm.current !== STATE.rope) {
+      ctx.fsm.requestState(STATE.rope);
     }
 
     // Transition out when rope detaches

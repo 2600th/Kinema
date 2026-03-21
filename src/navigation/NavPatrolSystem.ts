@@ -12,6 +12,14 @@ import {
 import type { AssetLoader } from '@level/AssetLoader';
 import { NavAgent } from './NavAgent';
 
+const NPC_COLORS = [
+  new THREE.Color(0xcc4444),
+  new THREE.Color(0x44cc44),
+  new THREE.Color(0x4488cc),
+  new THREE.Color(0xcc8844),
+  new THREE.Color(0x8844cc),
+];
+
 /** Maximum attempts for findRandomPoint (reservoir sampling can fail). */
 const RANDOM_POINT_MAX_RETRIES = 8;
 
@@ -57,7 +65,7 @@ export class NavPatrolSystem {
       }
 
       const pos = randomResult.position;
-      const navAgent = new NavAgent(this.scene, new THREE.Vector3(pos[0], pos[1], pos[2]));
+      const navAgent = new NavAgent(this.scene, new THREE.Vector3(pos[0], pos[1], pos[2]), NPC_COLORS[i % NPC_COLORS.length]);
       if (this.assetLoader) void navAgent.init(this.assetLoader);
 
       const agentId = crowd.addAgent(this.crowdInstance, this.navMesh, pos, {

@@ -16,12 +16,14 @@ export const PLAYER_PROFILE: AnimationProfile = {
     interact: { clip: 'Interact',         loop: false },
     grab:     { clip: 'Push_Loop',        loop: true },
     airJump:  { clip: 'NinjaJump_Start', loop: false },
+    climb:    { clip: 'ClimbUp_1m_RM',       loop: true },
+    rope:     { clip: 'NinjaJump_Idle_Loop', loop: true },
   },
   locomotion: {
     walk: 'Walk_Loop',
     jog: 'Jog_Fwd_Loop',
     sprint: 'Sprint_Loop',
-    thresholds: [2.5, 5.5],
+    thresholds: [2.0, 4.0],
   },
   crouchLocomotion: {
     idle: 'Crouch_Idle_Loop',
@@ -35,6 +37,7 @@ export const PLAYER_PROFILE: AnimationProfile = {
     land: 'idle',
   },
   deathClip: 'Death01',
+  throwClip: 'OverhandThrow',
 };
 
 export const NPC_PROFILE: AnimationProfile = {

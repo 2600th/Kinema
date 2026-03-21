@@ -13,6 +13,8 @@ import { GrabState } from './states/GrabState';
 import { AirJumpState } from './states/AirJumpState';
 import { CarryState } from './states/CarryState';
 import { LandState } from './states/LandState';
+import { ClimbState } from './states/ClimbState';
+import { RopeState } from './states/RopeState';
 
 /**
  * Finite state machine runner for character states.
@@ -37,6 +39,8 @@ export class CharacterFSM {
     this.registerState(new GrabState(player));
     this.registerState(new CarryState(player));
     this.registerState(new LandState(player));
+    this.registerState(new ClimbState(player));
+    this.registerState(new RopeState(player));
 
     // Start in idle
     this.currentState = this.states.get(STATE.idle)!;

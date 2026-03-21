@@ -200,6 +200,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       );
       this.characterModel = model;
       this.animator = animator;
+      // Wire hand bone for grab/carry positioning
+      this.grabCarry.setHandBone(model.handBone);
     } catch (err) {
       console.warn('[PlayerController] Character load failed, using capsule fallback:', err);
     }
@@ -363,6 +365,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     if (this.grabCarry.isCarrying) {
       if (input.primaryPressed || input.interactPressed) {
         this.grabCarry.throwCarried(this.getCameraForward(), this.eventBus);
+        this.animator?.playOneShot(PLAYER_PROFILE.throwClip ?? 'OverhandThrow', 0.1);
         this.fsm.requestState(this.hasMovementInput(input) ? STATE.move : STATE.idle);
       } else if (input.crouchPressed) {
         this.grabCarry.dropCarried(

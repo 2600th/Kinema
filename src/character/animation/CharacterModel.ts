@@ -6,10 +6,12 @@ import type { AnimationProfile } from './AnimationProfile';
 export class CharacterModel implements Disposable {
   readonly root: THREE.Object3D;
   readonly clips: Map<string, THREE.AnimationClip>;
+  readonly handBone: THREE.Object3D | null;
 
-  private constructor(root: THREE.Object3D, clips: Map<string, THREE.AnimationClip>) {
+  private constructor(root: THREE.Object3D, clips: Map<string, THREE.AnimationClip>, handBone: THREE.Object3D | null) {
     this.root = root;
     this.clips = clips;
+    this.handBone = handBone;
   }
 
   static async load(
@@ -41,7 +43,8 @@ export class CharacterModel implements Disposable {
 
     // 4. Offset model so feet align with capsule bottom
     const scaledBox = new THREE.Box3().setFromObject(root);
-    const capsuleBottom = -0.65; // -(halfHeight + radius)
+    // Account for floating spring: capsule center is floatHeight above ground
+    const capsuleBottom = -0.95; // -(halfHeight + radius + floatHeight) = -(0.35 + 0.3 + 0.3)
     root.position.y = capsuleBottom - scaledBox.min.y;
 
     // 5. Attach to parent, hide capsule
@@ -101,7 +104,24 @@ export class CharacterModel implements Disposable {
       }
     });
 
-    return new CharacterModel(root, clips);
+    // Find right hand bone for grab/carry attachment
+    let handBone: THREE.Object3D | null = null;
+    root.traverse((n) => {
+      if (!handBone && (n as THREE.Bone).isBone && n.name === 'hand_r') {
+        handBone = n;
+      }
+    });
+
+    return new CharacterModel(root, clips, handBone);
+  }
+
+  /** Get the right hand bone's world position (for grab/carry attachment). */
+  getHandWorldPosition(target: THREE.Vector3): THREE.Vector3 {
+    if (this.handBone) {
+      this.handBone.updateWorldMatrix(true, false);
+      this.handBone.getWorldPosition(target);
+    }
+    return target;
   }
 
   /** Tint all materials by blending toward the given color. */

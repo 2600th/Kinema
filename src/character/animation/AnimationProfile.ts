@@ -44,4 +44,6 @@ export interface AnimationProfile {
   fallbacks?: Partial<Record<StateId, StateId>>;
   /** Optional clip name for one-shot death animation. */
   deathClip?: string;
+  /** Optional clip name for one-shot throw animation. */
+  throwClip?: string;
 }

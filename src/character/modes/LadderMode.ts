@@ -1,4 +1,4 @@
-import type { InputState } from "@core/types";
+import { type InputState, STATE } from "@core/types";
 import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
 import type { CharacterMode, PlayerContext } from "./CharacterMode";
@@ -21,6 +21,7 @@ export class LadderMode implements CharacterMode {
   readonly id = "ladder";
 
   enter(ctx: PlayerContext): void {
+    ctx.fsm.requestState(STATE.climb);
     ctx.onLadder = true;
     // Uncrouch on ladder
     ctx.isCrouched = false;
@@ -37,6 +38,7 @@ export class LadderMode implements CharacterMode {
   }
 
   exit(ctx: PlayerContext): void {
+    ctx.fsm.requestState(STATE.idle);
     ctx.onLadder = false;
     // Restore gravity when leaving ladder
     if (ctx.motor.gravityScale === 0) {
