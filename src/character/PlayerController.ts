@@ -71,6 +71,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
   private prevPosition = new THREE.Vector3();
   private currPosition = new THREE.Vector3();
+  private readonly _handWorldPos = new THREE.Vector3();
   private lastInput: InputState | null = null;
 
   private canJump = false;
@@ -506,6 +507,12 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.animator?.setSpeed(this.cachedHorizontalSpeed);
     this.animator?.setState(this.fsm.current);
     this.animator?.update(_dt);
+
+    // Attach carried object to hand bone during render frame
+    if (this.grabCarry.isCarrying && this.characterModel?.handBone) {
+      this.characterModel.getHandWorldPosition(this._handWorldPos);
+      this.grabCarry.updateCarryTarget(this._handWorldPos);
+    }
   }
 
   setInput(input: InputState): void {

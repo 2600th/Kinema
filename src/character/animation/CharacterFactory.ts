@@ -15,6 +15,7 @@ export async function createAnimatedCharacter(
   options?: CharacterCreateOptions,
 ): Promise<{ model: CharacterModel; animator: AnimationController }> {
   const model = await CharacterModel.load(profile, parent, loader);
+  model.neutralize(); // Reset purple joints to neutral base
   if (options?.tint) model.tint(options.tint);
   const animator = new AnimationController(model, profile);
   return { model, animator };

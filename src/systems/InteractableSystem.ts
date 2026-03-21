@@ -208,12 +208,12 @@ export class InteractableSystem implements RuntimeSystem {
     const zThrow = getShowcaseStationZ("throw");
     const bayTopY = getShowcaseBayTopY();
     const placements = [
-      { shape: "sphere", pos: new THREE.Vector3(-3, 0, zThrow + 2), size: 0.3, force: 8 },
-      { shape: "sphere", pos: new THREE.Vector3(-1, 0, zThrow), size: 0.25, force: 7 },
-      { shape: "box", pos: new THREE.Vector3(1, 0, zThrow + 2), size: 0.35, force: 8 },
-      { shape: "box", pos: new THREE.Vector3(3, 0, zThrow), size: 0.45, force: 9 },
-      { shape: "cylinder", pos: new THREE.Vector3(-3, 0, zThrow - 2), size: 0.25, force: 7.5 },
-      { shape: "cylinder", pos: new THREE.Vector3(3, 0, zThrow - 2), size: 0.28, force: 8.5 },
+      { shape: "sphere", pos: new THREE.Vector3(-3, 0, zThrow + 2), size: 0.12, force: 8 },
+      { shape: "sphere", pos: new THREE.Vector3(-1, 0, zThrow), size: 0.10, force: 7 },
+      { shape: "box", pos: new THREE.Vector3(1, 0, zThrow + 2), size: 0.12, force: 8 },
+      { shape: "box", pos: new THREE.Vector3(3, 0, zThrow), size: 0.15, force: 9 },
+      { shape: "cylinder", pos: new THREE.Vector3(-3, 0, zThrow - 2), size: 0.10, force: 7.5 },
+      { shape: "cylinder", pos: new THREE.Vector3(3, 0, zThrow - 2), size: 0.12, force: 8.5 },
     ] as const;
 
     placements.forEach((entry, index) => {

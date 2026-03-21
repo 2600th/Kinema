@@ -127,6 +127,23 @@ export class CharacterModel implements Disposable {
     return target;
   }
 
+  /** Reset all materials to a neutral mannequin color (removes purple joints). */
+  neutralize(): void {
+    const neutral = new THREE.Color(0xccbbaa);
+    this.root.traverse((node) => {
+      if (node instanceof THREE.Mesh) {
+        const materials = Array.isArray(node.material) ? node.material : [node.material];
+        for (const mat of materials) {
+          if (mat instanceof THREE.MeshStandardMaterial) {
+            mat.color.copy(neutral);
+            mat.emissive.setScalar(0);
+            mat.emissiveIntensity = 0;
+          }
+        }
+      }
+    });
+  }
+
   /** Tint all materials by blending toward the given color. */
   tint(color: THREE.Color): void {
     this.root.traverse((node) => {
@@ -136,7 +153,7 @@ export class CharacterModel implements Disposable {
           if (mat instanceof THREE.MeshStandardMaterial) {
             mat.color.copy(color);
             mat.emissive.copy(color);
-            mat.emissiveIntensity = 0.08;
+            mat.emissiveIntensity = 0.15;
           }
         }
       }

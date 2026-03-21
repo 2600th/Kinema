@@ -38,6 +38,7 @@ export class GrabCarryController {
   private grabbedGravityScale: number | null = null;
   private grabbedCollisionGroups: number | null = null;
   private grabDistance = 1.2;
+  private grabOriginalY = 0;
 
   // -- Carry state --
   private carriedObject: CarryableObject | null = null;
@@ -72,6 +73,7 @@ export class GrabCarryController {
     const sourceOffset =
       offset ?? new THREE.Vector3(bodyPos.x, bodyPos.y, bodyPos.z).sub(playerPosition);
     this.grabDistance = Math.min(2.5, Math.max(0.8, Math.sqrt(sourceOffset.x ** 2 + sourceOffset.z ** 2)));
+    this.grabOriginalY = bodyPos.y;
     body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
     body.setGravityScale(0, true);
   }
@@ -108,10 +110,9 @@ export class GrabCarryController {
     } else {
       _grabForward.normalize();
     }
-    // Arm height: roughly waist level = body center - 0.15
-    const armHeight = -0.15;
+    // Position: forward of player, keeping object at its original Y (ground level)
     _grabTarget
-      .set(playerPosition.x, playerPosition.y + armHeight, playerPosition.z)
+      .set(playerPosition.x, this.grabOriginalY, playerPosition.z)
       .addScaledVector(_grabForward, this.grabDistance);
 
     // Use only setNextKinematicTranslation so Rapier computes the correct
@@ -168,6 +169,14 @@ export class GrabCarryController {
     object.body.setTranslation(_setRV(_rv3A, _carryTarget.x, _carryTarget.y, _carryTarget.z), true);
     object.body.setLinvel(_setRV(_rv3B, 0, 0, 0), true);
     eventBus.emit('interaction:drop', undefined);
+  }
+
+  /** Update carry position to a specific world-space target (e.g., hand bone). */
+  updateCarryTarget(target: THREE.Vector3): void {
+    if (!this.carriedObject) return;
+    this.carriedObject.body.setTranslation(
+      { x: target.x, y: target.y, z: target.z }, true,
+    );
   }
 
   updateCarry(playerPosition: THREE.Vector3, _capsuleHalfHeight: number): void {
