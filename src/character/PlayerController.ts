@@ -15,7 +15,11 @@ import type { PhysicsWorld } from "@physics/PhysicsWorld";
 import * as THREE from "three";
 import { CharacterFSM } from "./CharacterFSM";
 import { CharacterMotor, type GroundInfo } from "./CharacterMotor";
-import { CharacterVisual } from "./CharacterVisual";
+import type { CharacterModel } from "./animation/CharacterModel";
+import type { AnimationController } from "./animation/AnimationController";
+import { createAnimatedCharacter } from "./animation/CharacterFactory";
+import { PLAYER_PROFILE } from "./animation/profiles";
+import type { AssetLoader } from "@level/AssetLoader";
 import { type CarryableObject, GrabCarryController } from "./GrabCarryController";
 import { AirMode } from "./modes/AirMode";
 import type { CharacterMode, PlayerContext } from "./modes/CharacterMode";
@@ -119,13 +123,15 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   }
 
   private colliderFactory: ColliderFactory;
-  private characterVisual: CharacterVisual | null = null;
+  private characterModel: CharacterModel | null = null;
+  private animator: AnimationController | null = null;
   private readonly capsuleMesh: THREE.Mesh;
 
   constructor(
     private physicsWorld: PhysicsWorld,
     private scene: THREE.Scene,
     private eventBus: EventBus,
+    private assetLoader: AssetLoader,
   ) {
     this.colliderFactory = new ColliderFactory(physicsWorld);
 
@@ -169,12 +175,23 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     ]);
     this.currentMode = groundedMode;
 
-    this.characterVisual = new CharacterVisual(this.mesh);
-    void this.characterVisual.init();
+    void this.initCharacter();
 
     const pos = this.body.translation();
     this.currPosition.set(pos.x, pos.y, pos.z);
     this.prevPosition.copy(this.currPosition);
+  }
+
+  private async initCharacter(): Promise<void> {
+    try {
+      const { model, animator } = await createAnimatedCharacter(
+        PLAYER_PROFILE, this.mesh, this.assetLoader,
+      );
+      this.characterModel = model;
+      this.animator = animator;
+    } catch (err) {
+      console.warn('[PlayerController] Character load failed, using capsule fallback:', err);
+    }
   }
 
   spawn(spawn: SpawnPointData): void {
@@ -472,9 +489,9 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     const scaleY = 1 - this.crouchVisual * 0.28;
     const scaleXZ = 1 + this.crouchVisual * 0.04;
     this.mesh.scale.set(scaleXZ, scaleY, scaleXZ);
-    this.characterVisual?.setMovementSpeed(this.cachedHorizontalSpeed);
-    this.characterVisual?.setState(this.fsm.current);
-    this.characterVisual?.update(_dt);
+    this.animator?.setSpeed(this.cachedHorizontalSpeed);
+    this.animator?.setState(this.fsm.current);
+    this.animator?.update(_dt);
   }
 
   setInput(input: InputState): void {
@@ -585,7 +602,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.scene.remove(this.mesh);
     this.capsuleMesh.geometry.dispose();
     (this.capsuleMesh.material as THREE.Material).dispose();
-    this.characterVisual?.dispose();
+    this.animator?.dispose();
+    this.characterModel?.dispose();
     this.physicsWorld.removeBody(this.body);
   }
 }

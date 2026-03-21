@@ -93,7 +93,7 @@ async function bootstrap(): Promise<void> {
   levelManager.setGraphicsProfile(settings.value.graphicsProfile);
   levelManager.setShadowsEnabled(settings.value.shadowsEnabled);
   levelManager.setShadowQualityTier(settings.value.shadowQuality);
-  const playerController = new PlayerController(physicsWorld, renderer.scene, eventBus);
+  const playerController = new PlayerController(physicsWorld, renderer.scene, eventBus, levelManager.getAssetLoader());
   const camera = new OrbitFollowCamera(renderer.camera, playerController, physicsWorld, eventBus);
   camera.setMouseSensitivity(settings.value.mouseSensitivity);
   camera.setInvertY(settings.value.invertY);
