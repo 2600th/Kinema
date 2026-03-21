@@ -241,6 +241,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.collider.setHalfHeight(this.standingCapsuleHalfHeight);
     const resetMode = this.modes.get("grounded");
     if (resetMode) this.currentMode = resetMode;
+    // Reset animation one-shot override (e.g., death) so FSM animations resume
+    this.animator?.resetOneShot();
     this.respawnPoint = {
       position: spawn.position.clone(),
       rotation: spawn.rotation?.clone(),

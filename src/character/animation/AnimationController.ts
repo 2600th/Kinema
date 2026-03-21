@@ -47,7 +47,7 @@ export class AnimationController implements Disposable {
   ) {
     this.mixer = new THREE.AnimationMixer(model.root);
     this.buildActions();
-    this.setState(STATE.idle);
+    this.playImmediate(STATE.idle);
   }
 
   private buildActions(): void {
@@ -65,8 +65,7 @@ export class AnimationController implements Disposable {
       action.loop = clipDef!.loop ? THREE.LoopRepeat : THREE.LoopOnce;
       action.clampWhenFinished = !clipDef!.loop;
       if (clipDef!.timeScale != null) action.timeScale = clipDef!.timeScale;
-      action.weight = 0;
-      action.play();
+      // Don't pre-play — actions are activated on demand via setState/activateLocomotion
       this.actions.set(stateId, action);
     }
 
@@ -98,9 +97,17 @@ export class AnimationController implements Disposable {
     const action = this.mixer.clipAction(clip);
     action.enabled = true;
     action.loop = THREE.LoopRepeat;
-    action.weight = 0;
-    action.play();
+    // Don't pre-play — activated on demand
     return action;
+  }
+
+  /** Immediately play an action at full weight (no fade, used for initialization). */
+  private playImmediate(state: StateId): void {
+    const action = this.resolveAction(state);
+    if (!action) return;
+    this.currentState = state;
+    action.reset().setEffectiveWeight(1).play();
+    this.currentAction = action;
   }
 
   setState(state: StateId): void {
@@ -230,8 +237,23 @@ export class AnimationController implements Disposable {
     this.oneShotActive = true;
   }
 
+  /** Reset the one-shot override so FSM-driven animations resume. */
+  resetOneShot(): void {
+    this.oneShotActive = false;
+  }
+
   update(dt: number): void {
     if (!Number.isFinite(dt) || dt <= 0) return;
+
+    // Auto-reset oneShot when the clip finishes
+    if (this.oneShotActive && this.currentAction) {
+      if (this.currentAction.loop === THREE.LoopOnce) {
+        const clip = this.currentAction.getClip();
+        if (this.currentAction.time >= clip.duration - 1e-4) {
+          this.oneShotActive = false;
+        }
+      }
+    }
 
     if (this.locoActive) {
       const factor = 1 - Math.exp(-WEIGHT_LAMBDA * dt);
