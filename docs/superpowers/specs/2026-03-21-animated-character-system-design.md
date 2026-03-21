@@ -1,7 +1,7 @@
 # Animated Character System Design
 
 **Date**: 2026-03-21
-**Status**: Draft
+**Status**: Reviewed
 **Scope**: Replace capsule characters with animated mannequin models using UAL animation libraries
 
 ---
@@ -15,6 +15,10 @@ The player is a blue capsule and NPCs are orange capsules. The project has downl
 3. Support speed-based locomotion blending (walk → jog → sprint)
 4. Use the same model with color tinting for NPCs
 5. Be modular enough to swap models and animations in the future
+
+## Loading Strategy
+
+The existing `CharacterVisual.ts` uses `import.meta.glob('../assets/models/*.glb')` for build-time model discovery from `src/assets/models/`. The UAL assets live in `public/assets/models/` (runtime-served). The new system loads models at **runtime** via `AssetLoader.load(url)` with explicit URLs from the profile. This is more reliable (exact paths, no glob guessing) and works with the `public/` directory where large assets belong.
 
 ## Architecture Overview
 
@@ -50,12 +54,19 @@ interface LocomotionBlend {
   thresholds: [number, number]; // [walkToJog, jogToSprint] in m/s
 }
 
+interface SpeedSwitch {
+  idle: string;    // Clip when speed ≈ 0
+  moving: string;  // Clip when speed > 0.1 m/s
+}
+
 interface AnimationProfile {
   id: string;
   modelUrl: string;                              // GLB with the character mesh
   animationUrls: string[];                       // GLBs to pull animation clips from
   stateMap: Partial<Record<StateId, ClipDef>>;   // FSM state → clip mapping
   locomotion?: LocomotionBlend;                  // Speed-based blend for 'move' state
+  crouchLocomotion?: SpeedSwitch;                // Speed-switch for 'crouch' state
+  carryLocomotion?: SpeedSwitch;                 // Speed-switch for 'carry' state
   fallbacks?: Partial<Record<StateId, StateId>>; // Fallback chain for missing clips
 }
 ```
@@ -78,13 +89,21 @@ const PLAYER_PROFILE: AnimationProfile = {
     crouch:   { clip: 'Crouch_Idle_Loop', loop: true },
     interact: { clip: 'Interact',         loop: false },
     grab:     { clip: 'Push_Loop',        loop: true },
-    carry:    { clip: 'Walk_Carry_Loop',  loop: true },
+    carry:    { clip: 'Idle_Loop',        loop: true },  // Carry uses idle; see crouchLocomotion note
   },
   locomotion: {
     walk: 'Walk_Loop',
     jog: 'Jog_Fwd_Loop',
     sprint: 'Sprint_Loop',
     thresholds: [2.5, 5.5],
+  },
+  crouchLocomotion: {
+    idle: 'Crouch_Idle_Loop',
+    moving: 'Crouch_Fwd_Loop',
+  },
+  carryLocomotion: {
+    idle: 'Idle_Loop',
+    moving: 'Walk_Carry_Loop',
   },
   fallbacks: {
     airJump: 'jump',
@@ -123,7 +142,7 @@ const NPC_PROFILE: AnimationProfile = {
 3. Strip root motion (X/Z translation) from all clips to prevent mesh drift from physics capsule
 4. Attach model under the parent `THREE.Object3D`, hide the capsule mesh
 5. Enable shadow casting/receiving on all meshes
-6. Provide `tint(color: THREE.Color)` to multiply base albedo of all `MeshStandardMaterial` — used for NPC color differentiation
+6. Provide `tint(color: THREE.Color)` for NPC color differentiation — uses `material.color.lerp(tintColor, 0.6)` to blend toward the tint rather than multiply. This avoids the darkening problem of pure multiplication while still giving a clear color identity. Complement with a subtle `material.emissive` set to the tint at 0.08 intensity for visibility in dark areas.
 7. Provide `dispose()` for GPU resource cleanup
 
 ### API
@@ -136,6 +155,7 @@ class CharacterModel implements Disposable {
   static async load(
     profile: AnimationProfile,
     parent: THREE.Object3D,
+    loader: AssetLoader,
   ): Promise<CharacterModel>;
 
   tint(color: THREE.Color): void;
@@ -147,13 +167,19 @@ class CharacterModel implements Disposable {
 
 Preserved from existing `CharacterVisual.ts` — zero X/Z translation on the root bone's position tracks, keep Y for crouches/jumps. Applied to all clips from all loaded GLBs.
 
+**Important**: Root motion stripping mutates `track.values` in-place. Since `AssetLoader` caches GLTFs and shares the `animations` array reference across clones, we must **clone clips before stripping** to avoid corrupting the cache. Use `clip.clone()` before zeroing values.
+
 ### Multi-GLB clip merging
 
 When `animationUrls` contains multiple entries:
 1. Load each GLB
-2. Extract `gltf.animations` from each
+2. Extract `gltf.animations` from each, **cloning each clip** to avoid cache mutation
 3. If clip names collide, first-loaded wins (UAL1 takes priority over UAL2)
 4. All clips stored in the shared `clips` map
+
+### AssetLoader usage
+
+`CharacterModel.load()` accepts an `AssetLoader` instance as a parameter (not creating its own). The caller provides it — `PlayerController` passes the game's shared `AssetLoader`, and `NavAgent` does the same. This ensures the GLB cache is shared across all character instances, preventing duplicate 7.8MB loads.
 
 ---
 
@@ -189,12 +215,38 @@ Weight transitions use exponential decay (~0.15s response time) for smooth blend
 - Action states (jump, interact, grab): **0.1s** fade for snappy responsiveness
 - Landing: **0.08s** fade-in for immediate ground contact feel
 
+### Crossfade implementation note
+
+**Locomotion blending must NOT use Three.js's built-in `crossFadeTo()`/`crossFadeFrom()` API.** Those APIs manage weights internally and will conflict with our manual weight control. Instead:
+- For locomotion (walk/jog/sprint): use `action.setEffectiveWeight()` directly each frame
+- For state transitions (idle→move, move→jump, etc.): use manual `fadeOut()`/`fadeIn()` on individual actions
+
+### Idempotency
+
+`setState()` is called every render frame. If the requested state has not changed since the last call, it is a **no-op** — no crossfade restart, no weight reset. The controller tracks the current state internally and early-returns on duplicate calls.
+
+### Move state without locomotion config
+
+When `setState('move')` is called and the profile has **no `locomotion` config**, the controller falls back to `stateMap.move` and plays that single clip directly. This is the NPC path — simple walk animation without blending.
+
+### Crouch and carry speed-switching
+
+For `crouch` and `carry` states, if the profile provides `crouchLocomotion` or `carryLocomotion` (a `SpeedSwitch`), the controller checks `setSpeed()` value:
+- Speed ≤ 0.1 m/s → play the `idle` clip
+- Speed > 0.1 m/s → play the `moving` clip
+
+This prevents crouch-sliding (idle animation while moving) and carry-walking-in-place (walk animation while standing still). Transitions use the same 0.15s crossfade as locomotion.
+
 ### Fallback chain
 
 When `setState(stateId)` is called and no clip exists for that state:
 1. Check `profile.fallbacks[stateId]` → try that state's clip
 2. If still missing → fall back to `idle`
 3. If idle is missing → do nothing (no-op)
+
+### Disposal
+
+`dispose()` calls `mixer.stopAllAction()` and `mixer.uncacheRoot(root)` before nulling references. This prevents Three.js from holding internal references to disposed objects.
 
 ### API
 
@@ -207,6 +259,7 @@ class AnimationController implements Disposable {
 
   setState(state: StateId): void;
   setSpeed(horizontalSpeed: number): void;
+  isClipFinished(): boolean;  // True if current one-shot clip has completed
   update(dt: number): void;
   dispose(): void;
 }
@@ -228,9 +281,10 @@ interface CharacterCreateOptions {
 async function createAnimatedCharacter(
   profile: AnimationProfile,
   parent: THREE.Object3D,
+  loader: AssetLoader,
   options?: CharacterCreateOptions,
 ): Promise<{ model: CharacterModel; animator: AnimationController }> {
-  const model = await CharacterModel.load(profile, parent);
+  const model = await CharacterModel.load(profile, parent, loader);
   if (options?.tint) model.tint(options.tint);
   const animator = new AnimationController(model, profile);
   return { model, animator };
@@ -245,9 +299,13 @@ async function createAnimatedCharacter(
 
 ### Behavior
 
-- **Enter**: Triggered when landing with impact speed > 2 m/s
-- **During**: Plays `Jump_Land` animation (one-shot, ~0.4s duration)
-- **Exit**: Auto-transitions to `idle` or `move` based on input after clip completes, OR immediately if the player jumps again (responsive feel)
+- **Enter**: Triggered when landing with impact speed > 2 m/s. Starts a fixed timer (0.4s).
+- **During**: Plays `Jump_Land` animation (one-shot). Timer counts down each `update(dt)`.
+- **Exit**: Auto-transitions when **either** the timer expires **or** `AnimationController.isClipFinished()` returns true. The timer is a safety net — if the clip is missing or fallback fires, the state still exits after 0.4s. Jump input can interrupt at any time for responsive feel.
+
+### Clip completion detection
+
+`AnimationController` exposes `isClipFinished(): boolean` which checks if the current action's `time >= clip.duration` for `LoopOnce` clips. `LandState` reads this via the player controller reference. The 0.4s timer is a hard ceiling that prevents getting stuck if the animation system fails.
 
 ### Transition rules
 
@@ -255,8 +313,8 @@ async function createAnimatedCharacter(
 AirState + isGrounded + impactSpeed > 2.0 → LandState
 AirState + isGrounded + impactSpeed ≤ 2.0 → IdleState/MoveState (skip land)
 LandState + jumpPressed → JumpState (interrupt land)
-LandState + clipFinished + hasMovementInput → MoveState
-LandState + clipFinished + noInput → IdleState
+LandState + (timer expired OR clipFinished) + hasMovementInput → MoveState
+LandState + (timer expired OR clipFinished) + noInput → IdleState
 ```
 
 ### Registration
@@ -278,8 +336,10 @@ LandState + clipFinished + noInput → IdleState
 ### Changes
 
 1. Replace capsule geometry with `CharacterModel` loaded via `createAnimatedCharacter(NPC_PROFILE, ...)`
-2. Accept a `tint` color parameter in constructor
-3. Add `AnimationController` that drives idle/walk:
+2. Constructor remains synchronous — creates a capsule placeholder mesh immediately
+3. New `async init(loader: AssetLoader)` method loads the animated model and hides the capsule once ready. Callers must `await agent.init(loader)` after construction. The agent works (moves, patrols) even before init completes — it just shows a capsule.
+4. Accept a `tint` color parameter in constructor
+5. Add `AnimationController` that drives idle/walk:
    - Agent velocity > 0.1 m/s → `setState('move')`
    - Agent velocity ≤ 0.1 m/s → `setState('idle')`
 4. Add `rotateToward()` for facing movement direction
@@ -372,15 +432,21 @@ private async initCharacter(): Promise<void> {
 
 ---
 
+## Pre-Implementation: Clip Name Verification (Task 0)
+
+Before any code is written, load both UAL GLBs and log all animation clip names. This is critical because the entire profile system depends on exact string matches. Run a quick script or add a temporary log in the existing loader to print `gltf.animations.map(c => c.name)` for both files. Update `profiles.ts` with verified names.
+
 ## Risks & Mitigations
 
 | Risk | Mitigation |
 |------|------------|
-| UAL clip names don't match expected strings | Verify exact clip names by loading GLB and logging `gltf.animations.map(c => c.name)` before hardcoding profiles |
-| Multi-GLB loading increases initial load time | Both GLBs cached by AssetLoader; NPC profile only loads UAL1 |
-| Mannequin model scale/offset doesn't match capsule | Adjust model root position/scale in CharacterModel.load() to align feet with capsule bottom |
+| UAL clip names don't match expected strings | Task 0: verify exact clip names before hardcoding profiles |
+| Multi-GLB loading increases initial load time | Both GLBs cached by shared AssetLoader; NPC profile only loads UAL1 |
+| Mannequin model scale/offset doesn't match capsule | CharacterModel.load() measures model bounding box, auto-scales so height matches capsule total height (2 × halfHeight + 2 × radius), and offsets Y so feet align with capsule bottom |
 | Root motion stripping removes needed Y motion | Only strip X/Z, preserve Y (existing proven approach) |
+| Root motion stripping corrupts AssetLoader cache | Clone clips before stripping (see CharacterModel section) |
 | Locomotion blend weights cause foot sliding | TimeScale per-clip adjusted to match authored walk speed to actual velocity |
+| NavAgent loads async but constructor is sync | Capsule placeholder shown until init() completes; agent functional either way |
 
 ---
 
