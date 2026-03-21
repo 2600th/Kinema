@@ -437,7 +437,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     if (this.grabCarry.isGrabbing) {
       this.grabCarry.updateGrab(_currentPos, this.getCameraForward());
     }
-    if (this.grabCarry.isCarrying) {
+    if (this.grabCarry.isCarrying && !this.characterModel?.handBone) {
+      // Fallback: position at body center when hand bone isn't available
       this.grabCarry.updateCarry(_currentPos, this.currentCapsuleHalfHeight);
     }
   }

@@ -72,7 +72,8 @@ export class GrabCarryController {
     const bodyPos = body.translation();
     const sourceOffset =
       offset ?? new THREE.Vector3(bodyPos.x, bodyPos.y, bodyPos.z).sub(playerPosition);
-    this.grabDistance = Math.min(2.5, Math.max(0.8, Math.sqrt(sourceOffset.x ** 2 + sourceOffset.z ** 2)));
+    // Keep grab distance short for natural push/pull feel (arm's length)
+    this.grabDistance = Math.min(1.0, Math.max(0.6, Math.sqrt(sourceOffset.x ** 2 + sourceOffset.z ** 2)));
     this.grabOriginalY = bodyPos.y;
     body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
     body.setGravityScale(0, true);

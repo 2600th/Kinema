@@ -644,9 +644,9 @@ export class ProceduralBuilder {
       2.2,
     );
     const grabbableMat = new THREE.MeshPhysicalMaterial({ color: 0x4fa8d8, roughness: 0.3, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.05 });
-    this.createDynamicBox('PushCubeS', new THREE.Vector3(0, bayTopY + 0.4, zGrab + 2), new THREE.Vector3(0.8, 0.8, 0.8), grabbableMat, { grabbable: true });
-    this.createDynamicBox('PushCubeM', new THREE.Vector3(0, bayTopY + 0.5, zGrab), new THREE.Vector3(1.0, 1.0, 1.0), grabbableMat, { grabbable: true });
-    this.createDynamicBox('PushCubeL', new THREE.Vector3(0, bayTopY + 0.6, zGrab - 3), new THREE.Vector3(1.2, 1.2, 1.2), grabbableMat, { grabbable: true });
+    this.createDynamicBox('PushCubeS', new THREE.Vector3(0, bayTopY + 0.5, zGrab + 2), new THREE.Vector3(1.0, 1.0, 1.0), grabbableMat, { grabbable: true });
+    this.createDynamicBox('PushCubeM', new THREE.Vector3(0, bayTopY + 0.65, zGrab), new THREE.Vector3(1.3, 1.3, 1.3), grabbableMat, { grabbable: true });
+    this.createDynamicBox('PushCubeL', new THREE.Vector3(0, bayTopY + 0.8, zGrab - 3), new THREE.Vector3(1.6, 1.6, 1.6), grabbableMat, { grabbable: true });
     this.createDynamicBox('PushCubeTinyA', new THREE.Vector3(3.5, bayTopY + 0.25, zGrab), new THREE.Vector3(0.5, 0.5, 0.5), obstacleMat, { grabbable: false });
     this.createDynamicBox('PushCubeTinyB', new THREE.Vector3(-3.5, bayTopY + 0.25, zGrab), new THREE.Vector3(0.5, 0.5, 0.5), obstacleMat, { grabbable: false });
     this.createSpinningToy(new THREE.Vector3(14, 2.5, zGrab - 2), obstacleMat);
@@ -659,6 +659,45 @@ export class ProceduralBuilder {
       11.0,
       2.25,
     );
+    // Target wall of small physics blocks to knock over with thrown objects
+    const targetMat = new THREE.MeshStandardMaterial({ color: 0xdd6644, roughness: 0.6 });
+    const wallZ = zThrow - 5;
+    for (let row = 0; row < 4; row++) {
+      for (let col = 0; col < 5; col++) {
+        const brickW = 0.4, brickH = 0.25, brickD = 0.2;
+        // Offset odd rows for brick pattern
+        const xOff = (row % 2 === 0) ? 0 : brickW * 0.5;
+        const x = (col - 2) * brickW + xOff;
+        const y = bayTopY + brickH * 0.5 + row * brickH;
+        this.createDynamicBox(
+          `Target_${row}_${col}`,
+          new THREE.Vector3(x, y, wallZ),
+          new THREE.Vector3(brickW, brickH, brickD),
+          targetMat,
+        );
+      }
+    }
+    // Add a pyramid of spheres as another target
+    const sphereMat = new THREE.MeshStandardMaterial({ color: 0x44bb66, roughness: 0.4, metalness: 0.2 });
+    const pyrZ = zThrow - 5;
+    for (let row = 0; row < 3; row++) {
+      for (let col = 0; col <= 2 - row; col++) {
+        const r = 0.15;
+        const x = 3 + (col - (2 - row) * 0.5) * r * 2.2;
+        const y = bayTopY + r + row * r * 2;
+        const sphereMesh = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 8), sphereMat);
+        sphereMesh.position.set(x, y, pyrZ);
+        sphereMesh.castShadow = true;
+        sphereMesh.receiveShadow = true;
+        this.scene.add(sphereMesh);
+        this.meshes.push(sphereMesh);
+        const bd = RAPIER.RigidBodyDesc.dynamic().setTranslation(x, y, pyrZ);
+        const body = this.physicsWorld.world.createRigidBody(bd);
+        const cd = RAPIER.ColliderDesc.ball(r).setFriction(0.5).setRestitution(0.3).setCollisionGroups(COLLISION_GROUP_WORLD);
+        this.physicsWorld.world.createCollider(cd, body);
+        this.bodies.push(body);
+      }
+    }
     } // end throw
 
     if (isTarget('door')) {

@@ -24,11 +24,17 @@ export class CharacterModel implements Disposable {
     const root = modelGltf.scene as THREE.Group;
     root.name = 'CharacterModel';
 
-    // 2. Enable shadows
+    // 2. Enable shadows + clone materials so each character has independent colors
     root.traverse((node) => {
       if (node instanceof THREE.Mesh) {
         node.castShadow = true;
         node.receiveShadow = true;
+        // Clone materials to avoid sharing between character instances
+        if (Array.isArray(node.material)) {
+          node.material = node.material.map((m: THREE.Material) => m.clone());
+        } else {
+          node.material = node.material.clone();
+        }
       }
     });
 
