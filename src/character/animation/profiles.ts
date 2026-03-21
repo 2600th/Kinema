@@ -15,7 +15,7 @@ export const PLAYER_PROFILE: AnimationProfile = {
     crouch:   { clip: 'Crouch_Idle_Loop', loop: true },
     interact: { clip: 'Interact',         loop: false },
     grab:     { clip: 'Push_Loop',        loop: true },
-    carry:    { clip: 'Idle_Loop',        loop: true },
+    airJump:  { clip: 'NinjaJump_Start', loop: false },
   },
   locomotion: {
     walk: 'Walk_Loop',
@@ -32,9 +32,9 @@ export const PLAYER_PROFILE: AnimationProfile = {
     moving: 'Walk_Carry_Loop',
   },
   fallbacks: {
-    airJump: 'jump',
     land: 'idle',
   },
+  deathClip: 'Death01',
 };
 
 export const NPC_PROFILE: AnimationProfile = {

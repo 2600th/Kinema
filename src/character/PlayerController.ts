@@ -182,6 +182,12 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
     void this.initCharacter();
 
+    this.eventBus.on('player:dying', () => {
+      if (this.animator) {
+        this.animator.playOneShot(PLAYER_PROFILE.deathClip ?? 'Death01');
+      }
+    });
+
     const pos = this.body.translation();
     this.currPosition.set(pos.x, pos.y, pos.z);
     this.prevPosition.copy(this.currPosition);

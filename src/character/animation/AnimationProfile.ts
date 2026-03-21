@@ -42,4 +42,6 @@ export interface AnimationProfile {
   carryLocomotion?: SpeedSwitch;
   /** Fallback chain: if state clip missing, try fallback state's clip. */
   fallbacks?: Partial<Record<StateId, StateId>>;
+  /** Optional clip name for one-shot death animation. */
+  deathClip?: string;
 }

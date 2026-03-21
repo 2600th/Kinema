@@ -20,6 +20,7 @@ export class NavAgent {
   private animator: AnimationController | null = null;
   private prevPosition = new THREE.Vector3();
   private velocity = 0;
+  private disposed = false;
 
   constructor(scene: THREE.Scene, position: THREE.Vector3, private tintColor?: THREE.Color) {
     this.mesh = new THREE.Group();
@@ -60,8 +61,8 @@ export class NavAgent {
 
     // Compute horizontal velocity from position delta
     if (dt && dt > 0) {
-      const dx = newX - this.prevPosition.x;
-      const dz = newZ - this.prevPosition.z;
+      const dx = position.x - this.prevPosition.x;
+      const dz = position.z - this.prevPosition.z;
       this.velocity = Math.sqrt(dx * dx + dz * dz) / dt;
 
       // Smooth rotation toward movement direction
@@ -73,7 +74,7 @@ export class NavAgent {
       }
     }
 
-    this.prevPosition.set(newX, newY, newZ);
+    this.prevPosition.set(position.x, position.y, position.z);
     this.mesh.position.set(newX, newY, newZ);
 
     if (this.animator) {
@@ -136,6 +137,7 @@ export class NavAgent {
             mat.emissiveIntensity = 0.6;
             mat.emissive.setHex(0x00ff88);
             setTimeout(() => {
+              if (this.disposed) return;
               mat.emissiveIntensity = origIntensity;
               mat.emissive.setHex(origEmissive);
             }, durationMs);
@@ -149,6 +151,7 @@ export class NavAgent {
       mat.emissive.setHex(0x00ff88);
       mat.emissiveIntensity = 0.6;
       setTimeout(() => {
+        if (this.disposed) return;
         mat.color.setHex(originalColor);
         mat.emissive.setHex(0x000000);
         mat.emissiveIntensity = 0;
@@ -157,6 +160,7 @@ export class NavAgent {
   }
 
   dispose(scene: THREE.Scene): void {
+    this.disposed = true;
     scene.remove(this.mesh);
     this.capsuleMesh.geometry.dispose();
     (this.capsuleMesh.material as THREE.Material).dispose();
