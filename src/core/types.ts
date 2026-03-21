@@ -66,6 +66,7 @@ export const STATE = {
   crouch: 'crouch',
   carry: 'carry',
   grab: 'grab',
+  land: 'land',
 } as const;
 
 export type StateId = typeof STATE[keyof typeof STATE];
