@@ -20,7 +20,11 @@ export class AirState extends State {
       return null;
     }
 
-    // Landed
+    // Route to land state on high-impact landings
+    const impactSpeed = Math.abs(this.player.verticalVelocity);
+    if (impactSpeed > 2.0) return STATE.land;
+
+    // Low-impact: skip land animation for snappy feel
     if (input.crouch) return STATE.crouch;
     const hasMovement = input.forward || input.backward || input.left || input.right;
     if (hasMovement) return STATE.move;
