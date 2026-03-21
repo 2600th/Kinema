@@ -13,6 +13,7 @@ function clamp(value: number, min: number, max: number): number {
 
 /**
  * Audio manager delegating to Tone.js-based SFX and Music engines.
+ * Master bus: sfx/music → gains → compressor → limiter → destination.
  */
 export class AudioManager implements FixedUpdatable, Disposable {
   private sfxEngine: SFXEngine;
@@ -20,6 +21,8 @@ export class AudioManager implements FixedUpdatable, Disposable {
   private masterGain: Tone.Gain;
   private sfxGain: Tone.Gain;
   private musicGain: Tone.Gain;
+  private masterCompressor: Tone.Compressor;
+  private masterLimiter: Tone.Limiter;
   private unsubscribers: Array<() => void> = [];
   private footstepTimer = 0;
   private toneStarted = false;
@@ -28,15 +31,31 @@ export class AudioManager implements FixedUpdatable, Disposable {
   private lastLandedFrame = -1;
   private frameCounter = 0;
 
+  // State tracking for audio triggers
+  private inVehicle = false;
+  private vehicleType: 'car' | 'drone' | null = null;
+  private holdLastThreshold = -1;
+
   constructor(
     private eventBus: EventBus,
     private player: PlayerController,
     private inputManager: InputManager,
     private settings: UserSettingsStore,
   ) {
-    this.masterGain = new Tone.Gain(1).toDestination();
-    this.sfxGain = new Tone.Gain(1).connect(this.masterGain);
-    this.musicGain = new Tone.Gain(1).connect(this.masterGain);
+    // Master bus: gains → compressor → limiter → destination
+    this.masterCompressor = new Tone.Compressor({
+      threshold: -24,
+      ratio: 3,
+      attack: 0.003,
+      release: 0.12,
+    });
+    this.masterLimiter = new Tone.Limiter(-1);
+    this.masterGain = new Tone.Gain(1);
+    this.masterGain.chain(this.masterCompressor, this.masterLimiter, Tone.getDestination());
+
+    // SFX at -2dB relative, Music at -6dB relative
+    this.sfxGain = new Tone.Gain(0.79).connect(this.masterGain); // ~-2dB
+    this.musicGain = new Tone.Gain(0.5).connect(this.masterGain);  // ~-6dB
 
     this.sfxEngine = new SFXEngine();
     this.sfxEngine.output.connect(this.sfxGain);
@@ -81,24 +100,33 @@ export class AudioManager implements FixedUpdatable, Disposable {
 
     const velocity = this.player.body.linvel();
     const planarSpeed = Math.hypot(velocity.x, velocity.z);
-    const movingOnGround = this.player.isGrounded && planarSpeed > 1.15;
 
+    // ── Music intensity ─────────────────────────────────
+    let intensity = 0;
+    // Speed contributes 0-0.5
+    intensity += clamp(planarSpeed / 12, 0, 0.5);
+    // Vehicle active
+    if (this.inVehicle) intensity += 0.3;
+    // In air
+    if (!this.player.isGrounded) intensity += 0.1;
+    this.musicEngine.setIntensity(clamp(intensity, 0, 1));
+
+    // ── Footsteps ───────────────────────────────────────
+    const movingOnGround = this.player.isGrounded && planarSpeed > 1.15;
     if (!movingOnGround) {
       this.footstepTimer = 0;
-      return;
+    } else {
+      this.footstepTimer -= dt;
+      if (this.footstepTimer <= 0) {
+        this.sfxEngine.footstep(planarSpeed);
+        const speedN = clamp((planarSpeed - 1.15) / 6.5, 0, 1);
+        this.footstepTimer = 0.42 - speedN * 0.2;
+      }
     }
-
-    this.footstepTimer -= dt;
-    if (this.footstepTimer > 0) return;
-
-    this.sfxEngine.footstep(planarSpeed);
-    const speedN = clamp((planarSpeed - 1.15) / 6.5, 0, 1);
-    this.footstepTimer = 0.42 - speedN * 0.2;
   }
 
   playMusic(fadeInSec = 2.0): void {
     if (!this.toneStarted) {
-      // Queue the request — it will be fulfilled once Tone starts
       this.pendingMusicFadeIn = fadeInSec;
       void this.ensureToneStarted();
       return;
@@ -115,26 +143,40 @@ export class AudioManager implements FixedUpdatable, Disposable {
   }
 
   setMusicVolume(value: number): void {
-    this.musicGain.gain.rampTo(clamp(value, 0, 1), 0.05);
+    // Scale on top of the -6dB base offset
+    this.musicGain.gain.rampTo(clamp(value, 0, 1) * 0.5, 0.05);
   }
 
   setSfxVolume(value: number): void {
-    this.sfxGain.gain.rampTo(clamp(value, 0, 1), 0.05);
+    // Scale on top of the -2dB base offset
+    this.sfxGain.gain.rampTo(clamp(value, 0, 1) * 0.79, 0.05);
   }
 
   startEngine(): void {
     if (!this.toneStarted) return;
-    this.sfxEngine.startEngine();
+    if (this.vehicleType === 'drone') {
+      this.sfxEngine.droneRotorStart();
+    } else {
+      this.sfxEngine.startEngine();
+    }
   }
 
   updateEngine(speedNorm: number): void {
     if (!this.toneStarted) return;
-    this.sfxEngine.updateEngine(speedNorm);
+    if (this.vehicleType === 'drone') {
+      this.sfxEngine.droneRotorUpdate(speedNorm);
+    } else {
+      this.sfxEngine.updateEngine(speedNorm);
+    }
   }
 
   stopEngine(): void {
     if (!this.toneStarted) return;
-    this.sfxEngine.stopEngine();
+    if (this.vehicleType === 'drone') {
+      this.sfxEngine.droneRotorStop();
+    } else {
+      this.sfxEngine.stopEngine();
+    }
   }
 
   dispose(): void {
@@ -147,6 +189,8 @@ export class AudioManager implements FixedUpdatable, Disposable {
     this.sfxEngine.dispose();
     this.musicGain.dispose();
     this.sfxGain.dispose();
+    this.masterCompressor.dispose();
+    this.masterLimiter.dispose();
     this.masterGain.dispose();
   }
 
@@ -161,7 +205,6 @@ export class AudioManager implements FixedUpdatable, Disposable {
     for (const evt of gestureEvents) {
       document.addEventListener(evt, handler, { capture: true, once: false });
     }
-    // Clean up listeners on dispose
     this.unsubscribers.push(() => {
       for (const evt of gestureEvents) {
         document.removeEventListener(evt, handler, true);
@@ -170,16 +213,25 @@ export class AudioManager implements FixedUpdatable, Disposable {
   }
 
   private bindEvents(): void {
+    // ── Player Movement ────────────────────────────────
     this.unsubscribers.push(
-      this.eventBus.on('player:stateChanged', ({ current }) => {
+      this.eventBus.on('player:stateChanged', ({ previous, current }) => {
         if (current === STATE.jump) {
           this.sfxEngine.jump();
         }
         if (current === STATE.airJump) {
           this.sfxEngine.airJump();
         }
+        // Crouch transitions
+        if (current === STATE.crouch && previous !== STATE.crouch) {
+          this.sfxEngine.crouchDown();
+        }
+        if (previous === STATE.crouch && current !== STATE.crouch) {
+          this.sfxEngine.crouchUp();
+        }
       }),
     );
+
     this.unsubscribers.push(
       this.eventBus.on('player:grounded', (grounded) => {
         if (grounded) {
@@ -193,61 +245,7 @@ export class AudioManager implements FixedUpdatable, Disposable {
         }
       }),
     );
-    this.unsubscribers.push(
-      this.eventBus.on('interaction:triggered', () => {
-        this.sfxEngine.interact();
-      }),
-    );
-    this.unsubscribers.push(
-      this.eventBus.on('interaction:grabStart', () => {
-        this.sfxEngine.grab();
-      }),
-    );
-    this.unsubscribers.push(
-      this.eventBus.on('interaction:pickUp', () => {
-        this.sfxEngine.interact();
-      }),
-    );
-    this.unsubscribers.push(
-      this.eventBus.on('interaction:throw', () => {
-        this.sfxEngine.throw();
-      }),
-    );
-    this.unsubscribers.push(
-      this.eventBus.on('checkpoint:activated', () => {
-        this.sfxEngine.checkpoint();
-      }),
-    );
-    this.unsubscribers.push(
-      this.eventBus.on('objective:completed', () => {
-        this.sfxEngine.objectiveComplete();
-      }),
-    );
-    this.unsubscribers.push(
-      this.eventBus.on('player:dying', () => {
-        this.sfxEngine.deathPop();
-      }),
-    );
-    this.unsubscribers.push(
-      this.eventBus.on('player:respawned', () => {
-        this.sfxEngine.respawnChime();
-      }),
-    );
-    this.unsubscribers.push(
-      this.eventBus.on('audio:masterVolume', (value) => {
-        this.setMasterVolume(value);
-      }),
-    );
-    this.unsubscribers.push(
-      this.eventBus.on('audio:musicVolume', (value) => {
-        this.setMusicVolume(value);
-      }),
-    );
-    this.unsubscribers.push(
-      this.eventBus.on('audio:sfxVolume', (value) => {
-        this.setSfxVolume(value);
-      }),
-    );
+
     this.unsubscribers.push(
       this.eventBus.on('player:landed', ({ impactSpeed }) => {
         this.lastLandedImpact = impactSpeed;
@@ -256,6 +254,133 @@ export class AudioManager implements FixedUpdatable, Disposable {
         this.sfxEngine.landHard(impactSpeed);
       }),
     );
+
+    // ── Interaction ────────────────────────────────────
+    this.unsubscribers.push(
+      this.eventBus.on('interaction:triggered', () => {
+        this.sfxEngine.interact();
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('interaction:grabStart', () => {
+        this.sfxEngine.grab();
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('interaction:pickUp', () => {
+        this.sfxEngine.interact();
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('interaction:throw', () => {
+        this.sfxEngine.throw();
+      }),
+    );
+
+    // New interaction SFX
+    this.unsubscribers.push(
+      this.eventBus.on('interaction:focusChanged', ({ id }) => {
+        if (id != null) {
+          this.sfxEngine.focusTick();
+        }
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('interaction:holdProgress', (payload) => {
+        if (!payload) {
+          this.holdLastThreshold = -1;
+          return;
+        }
+        // Fire on 10% thresholds
+        const threshold = Math.floor(payload.progress * 10);
+        if (threshold > this.holdLastThreshold) {
+          this.holdLastThreshold = threshold;
+          this.sfxEngine.holdCharge(payload.progress);
+        }
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('interaction:blocked', () => {
+        this.sfxEngine.interactBlocked();
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('interaction:drop', () => {
+        this.sfxEngine.drop();
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('interaction:grabEnd', () => {
+        this.sfxEngine.grabRelease();
+      }),
+    );
+
+    // ── Progression ────────────────────────────────────
+    this.unsubscribers.push(
+      this.eventBus.on('checkpoint:activated', () => {
+        this.sfxEngine.checkpoint();
+        // Brief music duck to let chime shine
+        this.musicEngine.duck(0.6);
+        setTimeout(() => this.musicEngine.unduck(), 500);
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('objective:completed', () => {
+        this.sfxEngine.objectiveComplete();
+        // Brief music duck
+        this.musicEngine.duck(0.6);
+        setTimeout(() => this.musicEngine.unduck(), 500);
+      }),
+    );
+
+    // ── Death / Respawn ────────────────────────────────
+    this.unsubscribers.push(
+      this.eventBus.on('player:dying', () => {
+        this.sfxEngine.deathDescend();
+        // Duck music for death sequence
+        this.musicEngine.duck(0.5);
+        setTimeout(() => this.musicEngine.unduck(), 1500);
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('player:deathMidpoint', () => {
+        this.sfxEngine.deathMidpoint();
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('player:respawned', () => {
+        this.sfxEngine.respawnChime();
+      }),
+    );
+
+    // ── Vehicle ────────────────────────────────────────
+    this.unsubscribers.push(
+      this.eventBus.on('vehicle:enter', ({ vehicle }) => {
+        this.inVehicle = true;
+        // Detect vehicle type from the controller
+        this.vehicleType = (vehicle as { type?: string }).type === 'drone' ? 'drone' : 'car';
+        this.sfxEngine.vehicleEnter();
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('vehicle:exit', () => {
+        this.sfxEngine.vehicleExit();
+        this.inVehicle = false;
+        this.vehicleType = null;
+      }),
+    );
+
     this.unsubscribers.push(
       this.eventBus.on('vehicle:engineStart', () => this.startEngine()),
     );
@@ -265,31 +390,56 @@ export class AudioManager implements FixedUpdatable, Disposable {
     this.unsubscribers.push(
       this.eventBus.on('vehicle:speedUpdate', ({ speedNorm }) => this.updateEngine(speedNorm)),
     );
+
+    // ── Menu / UI ──────────────────────────────────────
     this.unsubscribers.push(
       this.eventBus.on('menu:opened', ({ screen }) => {
         if (screen === 'pause') {
           this.sfxEngine.menuOpen();
-          this.musicEngine.duck();
+          this.musicEngine.duck(0.3);
         }
       }),
     );
+
     this.unsubscribers.push(
       this.eventBus.on('menu:closed', () => {
         this.sfxEngine.menuClose();
         this.musicEngine.unduck();
       }),
     );
+
     this.unsubscribers.push(
       this.eventBus.on('ui:click', () => {
         this.sfxEngine.uiClick();
       }),
     );
+
     this.unsubscribers.push(
       this.eventBus.on('ui:hover', () => {
         this.sfxEngine.uiHover();
       }),
     );
 
+    // ── Volume Controls ────────────────────────────────
+    this.unsubscribers.push(
+      this.eventBus.on('audio:masterVolume', (value) => {
+        this.setMasterVolume(value);
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('audio:musicVolume', (value) => {
+        this.setMusicVolume(value);
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('audio:sfxVolume', (value) => {
+        this.setSfxVolume(value);
+      }),
+    );
+
+    // ── Loading ────────────────────────────────────────
     let lastTickThreshold = 0;
 
     this.unsubscribers.push(
