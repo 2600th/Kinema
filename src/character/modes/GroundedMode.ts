@@ -44,7 +44,7 @@ function _setRV(v: RAPIER.Vector3, x: number, y: number, z: number): RAPIER.Vect
 /** Frames to suppress step assist after a successful step to prevent compounding. */
 const STEP_ASSIST_COOLDOWN_FRAMES = 6;
 /** Slope slide impulse strength (pushes player off steep surfaces). */
-const SLOPE_SLIDE_STRENGTH = 0.6;
+const SLOPE_SLIDE_STRENGTH = 2.0;
 
 export class GroundedMode implements CharacterMode {
   readonly id = 'grounded';
@@ -246,6 +246,24 @@ export class GroundedMode implements CharacterMode {
         slopeDirY = _slopeProjected.y;
         slopeDirZ = _slopeProjected.z;
 
+        // ── Slope rejection: prevent climbing surfaces steeper than maxSlopeAngle ──
+        // Check BOTH the standing probe (surface under player) AND the forward
+        // probe angle (slope being walked toward). Either being too steep blocks
+        // uphill movement — this prevents climbing from the base of a steep wall.
+        const forwardSlopeTooSteep = ctx.actualSlopeAngle >= ctx.config.slopeMaxAngle;
+        if ((forwardSlopeTooSteep || !ctx.groundInfo.standingSlopeAllowed) && slopeDirY > 0) {
+          slopeDirY = 0;
+          const flatLen = Math.hypot(slopeDirX, slopeDirZ);
+          if (flatLen > 0.0001) {
+            slopeDirX /= flatLen;
+            slopeDirZ /= flatLen;
+          } else {
+            // Moving directly uphill on a too-steep slope — kill movement
+            useSlope = false;
+            _movingDirection.set(0, 0, 0);
+          }
+        }
+
         if (slopeDirY > 0.001) {
           slopeExtraMultiplier = 1 + ctx.config.slopeUpExtraForce;
         } else if (slopeDirY < -0.001) {
@@ -443,8 +461,8 @@ export class GroundedMode implements CharacterMode {
         const clampedHeight = Math.min(stepHeight + 0.02, maxStepHeight);
         finalVy = Math.max(lv.y, clampedHeight * 60);
         finalFwdBoost = 0.06 * 60;
-      } else {
-        // Obstacle detected but step height out of range — use general boost
+      } else if (stepHeight > maxStepHeight) {
+        // Step too tall to climb — apply general boost to help with curb-like obstacles
         const upBoost = run ? 3.4 : 3.0;
         const fwdBoost = run ? 1.35 : 1.2;
         if (lv.y < upBoost) {
@@ -452,14 +470,11 @@ export class GroundedMode implements CharacterMode {
           finalFwdBoost = fwdBoost;
         }
       }
+      // else stepHeight <= 0.02: ground ahead is at/below current feet — edge, not step
     } else {
-      // No ground ahead — use general obstacle boost
-      const upBoost = run ? 3.4 : 3.0;
-      const fwdBoost = run ? 1.35 : 1.2;
-      if (lv.y < upBoost) {
-        finalVy = Math.max(lv.y, upBoost);
-        finalFwdBoost = fwdBoost;
-      }
+      // No ground ahead — this is a platform edge / drop-off, NOT a step.
+      // Do NOT boost; the player should walk off normally or stop.
+      return;
     }
 
     // Single setLinvel call — no compounding

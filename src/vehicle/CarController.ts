@@ -78,9 +78,16 @@ export class CarController implements VehicleController {
     new THREE.Vector3(-1.1, 0.32,  1.5),  // rear-left
   ];
   private readonly suspensionRestLength = 0.6;
-  private readonly suspensionStiffness = 18;
-  private readonly suspensionDamping = 3.5;
+  // Suspension K/C computed from body mass at construction time
+  private suspensionStiffness = 18;
+  private suspensionDamping = 3.5;
   private readonly wheelCompressions = [0, 0, 0, 0];
+
+  // Per-axle lateral grip rates (front maintains grip during handbrake for steering)
+  private readonly frontGripNormal = 15;
+  private readonly frontGripHandbrake = 12;
+  private readonly rearGripNormal = 13;
+  private readonly rearGripHandbrake = 2.5;
 
   constructor(
     id: string,
@@ -104,6 +111,16 @@ export class CarController implements VehicleController {
       .setRestitution(0.1)
       .setCollisionGroups(COLLISION_GROUP_VEHICLE);
     this.physicsWorld.world.createCollider(colliderDesc, this.body);
+
+    // Compute mass-normalized suspension constants from actual body mass.
+    // Each wheel carries ~25% of the vehicle mass.
+    const totalMass = this.body.mass();
+    const sprungMass = totalMass / 4;
+    const g = 9.81;
+    // k = force needed to support sprung mass at rest at mid-travel (half rest length)
+    this.suspensionStiffness = (sprungMass * g) / (this.suspensionRestLength * 0.5);
+    // c = damping ratio * critical damping: ζ * 2 * sqrt(k * m), ζ=0.9 for sporty feel
+    this.suspensionDamping = 0.9 * 2 * Math.sqrt(this.suspensionStiffness * sprungMass);
 
     this.mesh = this.createCarMesh();
     this.mesh.position.copy(position);
@@ -283,15 +300,41 @@ export class CarController implements VehicleController {
       }
     }
 
-    // --- Lateral grip (exponential correction for frame-rate independence) ---
+    // --- Per-axle lateral grip with slip-angle based reduction ---
+    const handbrake = hasInput && this.input!.jump;
     const lateralVel = currentVel.x * _carRight.x + currentVel.z * _carRight.z;
-    const gripRate = hasInput && this.input!.jump ? 3 : 15;
-    const lateralCorrection = 1 - Math.exp(-gripRate * dt);
-    const gripImpulse = -lateralVel * lateralCorrection * this.body.mass();
+    const forwardVel = currentVel.x * _forward.x + currentVel.z * _forward.z;
+
+    // Slip angle: angle between car heading and actual velocity direction.
+    // Higher slip = less grip (tire saturation).
+    const slipAngle = Math.atan2(Math.abs(lateralVel), Math.abs(forwardVel) + 0.1);
+    const slipFactor = slipAngle > 0.14
+      ? Math.max(0.3, 1 - (slipAngle - 0.14) * 2)
+      : 1;
+
+    // Front axle: maintains grip during handbrake for steering authority
+    const frontGripRate = handbrake ? this.frontGripHandbrake : this.frontGripNormal;
+    const frontCorrection = (1 - Math.exp(-frontGripRate * dt)) * slipFactor;
+    const frontGripImpulse = -lateralVel * frontCorrection * this.body.mass() * 0.5;
+
+    // Rear axle: loses significantly more grip during handbrake for drifting
+    const rearGripRate = handbrake ? this.rearGripHandbrake : this.rearGripNormal;
+    const rearCorrection = (1 - Math.exp(-rearGripRate * dt)) * slipFactor;
+    const rearGripImpulse = -lateralVel * rearCorrection * this.body.mass() * 0.5;
+
+    // Apply combined lateral grip force at center of mass
+    const totalGripImpulse = frontGripImpulse + rearGripImpulse;
     this.body.applyImpulse(
-      _setCRV(_crv3A, _carRight.x * gripImpulse, 0, _carRight.z * gripImpulse),
+      _setCRV(_crv3A, _carRight.x * totalGripImpulse, 0, _carRight.z * totalGripImpulse),
       true,
     );
+    // Apply yaw torque from differential front/rear grip (creates rotation during drift)
+    // Front axle at -1.5z, rear at +1.5z relative to center of mass
+    const axleHalfSpan = 1.5;
+    const yawTorque = frontGripImpulse * (-axleHalfSpan) + rearGripImpulse * axleHalfSpan;
+    if (Math.abs(yawTorque) > 0.001) {
+      this.body.applyTorqueImpulse(_setCRV(_crv3A, 0, yawTorque, 0), true);
+    }
 
     // --- Drive force ---
     if (anyWheelGrounded) {

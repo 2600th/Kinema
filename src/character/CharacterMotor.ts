@@ -17,6 +17,10 @@ const _rapierDown = new RAPIER.Vector3(0, -1, 0);
 const _rv3A = new RAPIER.Vector3(0, 0, 0);
 const _rv3B = new RAPIER.Vector3(0, 0, 0);
 
+// Shape cast sphere for ground detection (slightly smaller than capsule to avoid wall hits)
+const _groundSphere = new RAPIER.Ball(0.25);
+const _identityQuat = new RAPIER.Quaternion(0, 0, 0, 1);
+
 /** Set x/y/z on a pre-allocated RAPIER.Vector3 and return it. */
 function _setRV(v: RAPIER.Vector3, x: number, y: number, z: number): RAPIER.Vector3 {
   v.x = x; v.y = y; v.z = z;
@@ -44,7 +48,7 @@ export interface GroundInfo {
   slopeNormal: THREE.Vector3;
   standingSlopeAllowed: boolean;
   groundBody: RAPIER.RigidBody | null;
-  floatingRayHit: RAPIER.RayColliderHit | null;
+  floatingRayHit: RAPIER.ColliderShapeCastHit | null;
   groundedGrace: number;
   /** The standing force application point (bottom of capsule at ray hit). */
   standingForcePoint: THREE.Vector3;
@@ -89,18 +93,25 @@ export class CharacterMotor {
       pos.z,
     );
 
-    const floatingRayHit = physicsWorld.castRay(
+    // Use a sphere shape cast instead of a zero-width ray for ground detection.
+    // This prevents premature ungrounding on ledge edges where the capsule
+    // (r=0.3) is still supported but a center ray would miss.
+    const floatingShapeHit = physicsWorld.castShape(
       _setRV(_rv3A, _rayOrigin.x, _rayOrigin.y, _rayOrigin.z),
+      _identityQuat,
       _rapierDown,
+      _groundSphere,
+      0,
       config.floatingRayLength,
       undefined,
       body,
+      undefined,
       notSensorOrVehicle,
     );
 
     const closeToGround =
-      floatingRayHit !== null &&
-      floatingRayHit.timeOfImpact < floatingDistance + config.floatingRayHitForgiveness;
+      floatingShapeHit !== null &&
+      floatingShapeHit.time_of_impact < floatingDistance + config.floatingRayHitForgiveness;
 
     // Slope detection: two separate concerns.
     // 1. standingSlopeAllowed: Is the surface DIRECTLY UNDER the player walkable?
@@ -174,13 +185,13 @@ export class CharacterMotor {
     // Compute standing force point for ground reaction forces.
     _standingForcePoint.set(
       _rayOrigin.x,
-      floatingRayHit ? _rayOrigin.y - floatingRayHit.timeOfImpact : _rayOrigin.y,
+      floatingShapeHit ? _rayOrigin.y - floatingShapeHit.time_of_impact : _rayOrigin.y,
       _rayOrigin.z,
     );
 
     let groundBody: RAPIER.RigidBody | null = null;
-    if (floatingRayHit?.collider.parent() && canJump) {
-      groundBody = floatingRayHit.collider.parent()!;
+    if (floatingShapeHit?.collider.parent() && canJump) {
+      groundBody = floatingShapeHit.collider.parent()!;
     }
 
     return {
@@ -193,7 +204,7 @@ export class CharacterMotor {
       slopeNormal: _actualSlopeNormal,
       standingSlopeAllowed,
       groundBody,
-      floatingRayHit,
+      floatingRayHit: floatingShapeHit,
       groundedGrace: this.groundedGrace,
       standingForcePoint: _standingForcePoint,
     };
@@ -212,7 +223,7 @@ export class CharacterMotor {
 
     const vel = body.linvel();
     const floatingForce =
-      config.floatingSpringK * (floatingDistance - groundInfo.floatingRayHit.timeOfImpact) -
+      config.floatingSpringK * (floatingDistance - groundInfo.floatingRayHit.time_of_impact) -
       vel.y * config.floatingDampingC;
     body.applyImpulse(_setRV(_rv3A, 0, floatingForce, 0), false);
 

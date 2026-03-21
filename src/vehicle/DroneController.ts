@@ -25,6 +25,10 @@ const _yawEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 const _drv3A = new RAPIER.Vector3(0, 0, 0);
 const _drv3B = new RAPIER.Vector3(0, 0, 0);
 
+// Shape cast box for ground detection (matches drone footprint, more stable on edges)
+const _droneGroundBox = new RAPIER.Cuboid(0.5, 0.1, 0.5);
+const _droneGroundQuat = new RAPIER.Quaternion(0, 0, 0, 1);
+
 function _setDRV(v: RAPIER.Vector3, x: number, y: number, z: number): RAPIER.Vector3 {
   v.x = x; v.y = y; v.z = z;
   return v;
@@ -64,7 +68,10 @@ export class DroneController implements VehicleController {
   private readonly defaultHoverHeight = 4.2; // meters above ground (feel target)
   private readonly hoverMinHeight = 1.8;
   private readonly hoverMaxHeight = 22;
-  private readonly hoverK = 6.5; // height -> desired vertical speed
+  private readonly hoverK = 6.5; // outer P: height error -> desired vertical speed
+  private readonly hoverKi = 2.0; // inner I: integral gain for speed error
+  private readonly hoverMaxIntegral = 5; // anti-windup clamp
+  private hoverSpeedIntegral = 0;
   private readonly hoverMaxVerticalSpeed = 10;
   private readonly hoverAdjustSpeedKeyboard = 7.5; // m/s via Space/C when piloting
 
@@ -106,6 +113,7 @@ export class DroneController implements VehicleController {
   enter(_input: InputState): void {
     this.input = _input;
     this.hoverTargetY = null;
+    this.hoverSpeedIntegral = 0;
     // Great-feel flight: disable gravity while piloting and directly control velocity.
     this.body.setGravityScale(0, true);
     // Prevent mid-air sleeping from "freezing" the drone.
@@ -240,11 +248,24 @@ export class DroneController implements VehicleController {
       const maxY = groundY + this.getBodyGroundClearance() + this.hoverMaxHeight;
       this.hoverTargetY = THREE.MathUtils.clamp(this.hoverTargetY, minY, maxY);
     }
-    const desiredVelY = THREE.MathUtils.clamp(
+    // Cascaded hover controller: outer P (altitude→desired speed) + inner PI (speed→thrust)
+    const desiredSpeed = THREE.MathUtils.clamp(
       (this.hoverTargetY - p.y) * this.hoverK,
       -this.hoverMaxVerticalSpeed,
       this.hoverMaxVerticalSpeed,
     );
+    // Inner PI loop: speed error → corrected velocity
+    const currentVelY = this.body.linvel().y;
+    const speedError = desiredSpeed - currentVelY;
+    this.hoverSpeedIntegral += speedError * _dt;
+    // Anti-windup: clamp integral and partially reset on error sign flip
+    this.hoverSpeedIntegral = THREE.MathUtils.clamp(
+      this.hoverSpeedIntegral, -this.hoverMaxIntegral, this.hoverMaxIntegral,
+    );
+    if (Math.sign(speedError) !== Math.sign(this.hoverSpeedIntegral) && Math.abs(this.hoverSpeedIntegral) > 0.5) {
+      this.hoverSpeedIntegral *= 0.5;
+    }
+    const desiredVelY = desiredSpeed + this.hoverKi * this.hoverSpeedIntegral;
 
     _desiredVel.set(0, desiredVelY, 0);
     _desiredVel.addScaledVector(_forward, moveZ * targetSpeed);
@@ -378,6 +399,22 @@ export class DroneController implements VehicleController {
   }
 
   private getGroundY(x: number, y: number, z: number): number | null {
+    // Primary: shape cast with box matching drone footprint (stable on ledge edges)
+    const shapeHit = this.physicsWorld.castShape(
+      _setDRV(_drv3A, x, y, z),
+      _droneGroundQuat,
+      _setDRV(_drv3B, 0, -1, 0),
+      _droneGroundBox,
+      0,
+      this.groundRayMax,
+      undefined,
+      this.body,
+      undefined,
+      (c) => !c.isSensor(),
+    );
+    if (shapeHit) return y - shapeHit.time_of_impact;
+
+    // Fallback: long ray for large gaps where shape cast might miss
     const hit = this.physicsWorld.castRay(
       _setDRV(_drv3A, x, y, z),
       _setDRV(_drv3B, 0, -1, 0),
