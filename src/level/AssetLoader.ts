@@ -45,7 +45,8 @@ export class AssetLoader {
 
     const gltf = await this.loader.loadAsync(url);
     this.cache.set(url, gltf);
-    return gltf;
+    // Return a clone even on first load to protect the cache from mutation
+    return { ...gltf, scene: skeletonClone(gltf.scene) as THREE.Group };
   }
 
   /** Register a pre-loaded GLTF under a canonical path so it can be retrieved by load(). */

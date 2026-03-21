@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 import type { AssetLoader } from '@level/AssetLoader';
 import type { Disposable } from '@core/types';
 import type { AnimationProfile } from './AnimationProfile';
@@ -20,7 +19,7 @@ export class CharacterModel implements Disposable {
   ): Promise<CharacterModel> {
     // 1. Load model GLB
     const modelGltf = await loader.load(profile.modelUrl);
-    const root = skeletonClone(modelGltf.scene) as THREE.Group;
+    const root = modelGltf.scene as THREE.Group;
     root.name = 'CharacterModel';
 
     // 2. Enable shadows
@@ -75,6 +74,23 @@ export class CharacterModel implements Disposable {
     const rootBoneName = CharacterModel.findRootBoneName(root);
     for (const clip of clips.values()) {
       CharacterModel.stripRootMotion(clip, rootBoneName);
+    }
+
+    if (import.meta.env.DEV) {
+      const boneNames: string[] = [];
+      root.traverse((n) => { if ((n as THREE.Bone).isBone) boneNames.push(n.name); });
+      const trackBoneNames = new Set<string>();
+      for (const clip of clips.values()) {
+        for (const track of clip.tracks) {
+          trackBoneNames.add(track.name.split('.')[0]);
+        }
+      }
+      const missing = [...trackBoneNames].filter(n => !boneNames.includes(n));
+      if (missing.length > 0) {
+        console.warn('[CharacterModel] Track targets NOT found in skeleton:', missing);
+      } else {
+        console.debug(`[CharacterModel] All ${trackBoneNames.size} track targets found in skeleton. ${clips.size} clips loaded.`);
+      }
     }
 
     return new CharacterModel(root, clips);
@@ -137,7 +153,7 @@ export class CharacterModel implements Disposable {
 
   private static stripRootMotion(clip: THREE.AnimationClip, rootBoneName: string): void {
     for (const track of clip.tracks) {
-      if (track.name.endsWith('.position') && track.name.includes(rootBoneName)) {
+      if (track.name === rootBoneName + '.position') {
         const values = track.values;
         for (let i = 0; i < values.length; i += 3) {
           values[i] = 0;     // X
