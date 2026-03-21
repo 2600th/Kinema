@@ -200,8 +200,6 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       );
       this.characterModel = model;
       this.animator = animator;
-      // Wire hand bone for grab/carry positioning
-      this.grabCarry.setHandBone(model.handBone);
     } catch (err) {
       console.warn('[PlayerController] Character load failed, using capsule fallback:', err);
     }

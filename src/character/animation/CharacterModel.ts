@@ -43,8 +43,11 @@ export class CharacterModel implements Disposable {
 
     // 4. Offset model so feet align with capsule bottom
     const scaledBox = new THREE.Box3().setFromObject(root);
-    // Account for floating spring: capsule center is floatHeight above ground
-    const capsuleBottom = -0.95; // -(halfHeight + radius + floatHeight) = -(0.35 + 0.3 + 0.3)
+    // The floating spring maintains body center at floatingDistance above ground.
+    // floatingDistance = capsuleRadius + floatHeight = 0.3 + 0.3 = 0.6
+    // Mesh group is positioned at body center. Model feet should be at ground level.
+    // So offset = -floatingDistance = -0.6
+    const capsuleBottom = -0.6;
     root.position.y = capsuleBottom - scaledBox.min.y;
 
     // 5. Attach to parent, hide capsule
@@ -131,7 +134,7 @@ export class CharacterModel implements Disposable {
         const materials = Array.isArray(node.material) ? node.material : [node.material];
         for (const mat of materials) {
           if (mat instanceof THREE.MeshStandardMaterial) {
-            mat.color.lerp(color, 0.6);
+            mat.color.copy(color);
             mat.emissive.copy(color);
             mat.emissiveIntensity = 0.08;
           }

@@ -32,20 +32,12 @@ export interface CarryableObject {
  * keep the main controller focused on locomotion.
  */
 export class GrabCarryController {
-  // -- Hand bone for attachment --
-  private handBone: THREE.Object3D | null = null;
-
-  setHandBone(bone: THREE.Object3D | null): void {
-    this.handBone = bone;
-  }
-
   // -- Grab state --
   private grabbedBody: RAPIER.RigidBody | null = null;
   private grabbedBodyType: number | null = null;
   private grabbedGravityScale: number | null = null;
   private grabbedCollisionGroups: number | null = null;
   private grabDistance = 1.2;
-  private grabOffsetY = 0;
 
   // -- Carry state --
   private carriedObject: CarryableObject | null = null;
@@ -80,7 +72,6 @@ export class GrabCarryController {
     const sourceOffset =
       offset ?? new THREE.Vector3(bodyPos.x, bodyPos.y, bodyPos.z).sub(playerPosition);
     this.grabDistance = Math.min(2.5, Math.max(0.8, Math.sqrt(sourceOffset.x ** 2 + sourceOffset.z ** 2)));
-    this.grabOffsetY = sourceOffset.y;
     body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
     body.setGravityScale(0, true);
   }
@@ -109,31 +100,19 @@ export class GrabCarryController {
   updateGrab(playerPosition: THREE.Vector3, cameraForward: THREE.Vector3): void {
     if (!this.grabbedBody) return;
 
-    if (this.handBone) {
-      // Use hand bone world position for natural arm-level attachment
-      this.handBone.updateWorldMatrix(true, false);
-      this.handBone.getWorldPosition(_grabTarget);
-      // Small forward offset from hand so object doesn't clip the arm
-      _grabForward.copy(cameraForward).setY(0);
-      if (_grabForward.lengthSq() < 0.0001) {
-        _grabForward.set(0, 0, -1);
-      } else {
-        _grabForward.normalize();
-      }
-      _grabTarget.addScaledVector(_grabForward, 0.4);
+    // Position grabbed object at arm level in front of player.
+    // Use physics position (accurate during fixedUpdate) with arm-height offset.
+    _grabForward.copy(cameraForward).setY(0);
+    if (_grabForward.lengthSq() < 0.0001) {
+      _grabForward.set(0, 0, -1);
     } else {
-      // Fallback to offset-based positioning (no skeleton loaded)
-      _grabForward.copy(cameraForward).setY(0);
-      if (_grabForward.lengthSq() < 0.0001) {
-        _grabForward.set(0, 0, -1);
-      } else {
-        _grabForward.normalize();
-      }
-      _grabTarget
-        .set(playerPosition.x, playerPosition.y, playerPosition.z)
-        .addScaledVector(_grabForward, this.grabDistance);
-      _grabTarget.y += this.grabOffsetY;
+      _grabForward.normalize();
     }
+    // Arm height: roughly waist level = body center - 0.15
+    const armHeight = -0.15;
+    _grabTarget
+      .set(playerPosition.x, playerPosition.y + armHeight, playerPosition.z)
+      .addScaledVector(_grabForward, this.grabDistance);
 
     // Use only setNextKinematicTranslation so Rapier computes the correct
     // derived velocity for collision response. Mesh interpolation captures
@@ -191,9 +170,10 @@ export class GrabCarryController {
     eventBus.emit('interaction:drop', undefined);
   }
 
-  updateCarry(playerPosition: THREE.Vector3, capsuleHalfHeight: number): void {
+  updateCarry(playerPosition: THREE.Vector3, _capsuleHalfHeight: number): void {
     if (!this.carriedObject) return;
-    _carryTarget.set(playerPosition.x, playerPosition.y + capsuleHalfHeight + 0.3, playerPosition.z);
+    // Hold object at chest height (body center - small offset) not above head
+    _carryTarget.set(playerPosition.x, playerPosition.y - 0.05, playerPosition.z);
     // Use only setNextKinematicTranslation so Rapier computes the correct
     // derived velocity for collision response. Mesh interpolation captures
     // the position after world.step() via postPhysicsUpdate().

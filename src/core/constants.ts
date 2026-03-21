@@ -41,7 +41,7 @@ export const DEFAULT_PLAYER_CONFIG: PlayerConfig = {
   floatHeight: 0.3,
   // Default movement matches the old sprint speed.
   // Sprint remains a true 2x boost.
-  moveSpeed: 4.5,
+  moveSpeed: 5.2,
   turnSpeed: 20,
   sprintMultiplier: 2,
   jumpForce: 4.6,

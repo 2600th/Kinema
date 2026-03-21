@@ -644,9 +644,9 @@ export class ProceduralBuilder {
       2.2,
     );
     const grabbableMat = new THREE.MeshPhysicalMaterial({ color: 0x4fa8d8, roughness: 0.3, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.05 });
-    this.createDynamicBox('PushCubeS', new THREE.Vector3(0, bayTopY + 0.5, zGrab + 2), new THREE.Vector3(1, 1, 1), grabbableMat, { grabbable: true });
-    this.createDynamicBox('PushCubeM', new THREE.Vector3(0, bayTopY + 0.75, zGrab), new THREE.Vector3(1.5, 1.5, 1.5), grabbableMat, { grabbable: true });
-    this.createDynamicBox('PushCubeL', new THREE.Vector3(0, bayTopY + 1.0, zGrab - 3), new THREE.Vector3(2, 2, 2), grabbableMat, { grabbable: true });
+    this.createDynamicBox('PushCubeS', new THREE.Vector3(0, bayTopY + 0.2, zGrab + 2), new THREE.Vector3(0.35, 0.35, 0.35), grabbableMat, { grabbable: true });
+    this.createDynamicBox('PushCubeM', new THREE.Vector3(0, bayTopY + 0.3, zGrab), new THREE.Vector3(0.5, 0.5, 0.5), grabbableMat, { grabbable: true });
+    this.createDynamicBox('PushCubeL', new THREE.Vector3(0, bayTopY + 0.4, zGrab - 3), new THREE.Vector3(0.7, 0.7, 0.7), grabbableMat, { grabbable: true });
     this.createDynamicBox('PushCubeTinyA', new THREE.Vector3(3.5, bayTopY + 0.25, zGrab), new THREE.Vector3(0.5, 0.5, 0.5), obstacleMat, { grabbable: false });
     this.createDynamicBox('PushCubeTinyB', new THREE.Vector3(-3.5, bayTopY + 0.25, zGrab), new THREE.Vector3(0.5, 0.5, 0.5), obstacleMat, { grabbable: false });
     this.createSpinningToy(new THREE.Vector3(14, 2.5, zGrab - 2), obstacleMat);

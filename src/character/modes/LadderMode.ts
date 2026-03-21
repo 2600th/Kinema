@@ -21,7 +21,8 @@ export class LadderMode implements CharacterMode {
   readonly id = "ladder";
 
   enter(ctx: PlayerContext): void {
-    ctx.fsm.requestState(STATE.climb);
+    // Use idle animation on ladder — no suitable looping climb clip available
+    ctx.fsm.requestState(STATE.idle);
     ctx.onLadder = true;
     // Uncrouch on ladder
     ctx.isCrouched = false;
