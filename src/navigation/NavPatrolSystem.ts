@@ -9,6 +9,7 @@ import {
   createFindNearestPolyResult,
   createDefaultQueryFilter,
 } from 'navcat';
+import type { AssetLoader } from '@level/AssetLoader';
 import { NavAgent } from './NavAgent';
 
 /** Maximum attempts for findRandomPoint (reservoir sampling can fail). */
@@ -26,6 +27,7 @@ export class NavPatrolSystem {
     private navMesh: NavMesh,
     agentCount: number,
     reachableFilter?: QueryFilter | null,
+    private assetLoader?: AssetLoader,
   ) {
     // Use the reachable-only filter when available so agents never target
     // disconnected islands (obstacle tops, etc.).
@@ -56,6 +58,7 @@ export class NavPatrolSystem {
 
       const pos = randomResult.position;
       const navAgent = new NavAgent(this.scene, new THREE.Vector3(pos[0], pos[1], pos[2]));
+      if (this.assetLoader) void navAgent.init(this.assetLoader);
 
       const agentId = crowd.addAgent(this.crowdInstance, this.navMesh, pos, {
         radius: 0.25,
@@ -97,7 +100,7 @@ export class NavPatrolSystem {
       if (!agent) continue;
 
       const pos = agent.position;
-      navAgent.updatePosition({ x: pos[0], y: pos[1], z: pos[2] });
+      navAgent.updatePosition({ x: pos[0], y: pos[1], z: pos[2] }, dt);
 
       // Update path visualization from crowd corridor corners
       if (agent.corners.length > 0) {
@@ -114,6 +117,8 @@ export class NavPatrolSystem {
         }
         navAgent.updatePathVisualization(this.scene, buf);
       }
+
+      navAgent.update(dt);
 
       if (crowd.isAgentAtTarget(this.crowdInstance, crowdAgentId, 1.0)) {
         this.setRandomTarget(crowdAgentId);

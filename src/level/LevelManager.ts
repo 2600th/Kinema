@@ -802,6 +802,7 @@ export class LevelManager implements Disposable {
       this.textureAnisotropy,
       this._loadGeneration,
       stationFilter,
+      this.assetLoader,
     );
     await builder.build((progress) => {
       this.eventBus.emit('loading:progress', { progress });

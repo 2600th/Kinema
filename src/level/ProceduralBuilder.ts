@@ -19,6 +19,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { NavMeshManager } from '@navigation/NavMeshManager';
 import { NavPatrolSystem } from '@navigation/NavPatrolSystem';
 import { NavDebugOverlay } from '@navigation/NavDebugOverlay';
+import type { AssetLoader } from '@level/AssetLoader';
 
 // ---------------------------------------------------------------------------
 // Result type returned to LevelManager after a procedural build.
@@ -121,6 +122,7 @@ export class ProceduralBuilder {
     private maxAnisotropy: number,
     private loadGenerationRef: { value: number },
     private stationFilterKey: ShowcaseStationKey | null,
+    private assetLoader?: AssetLoader,
   ) {
     this.colliderFactory = new ColliderFactory(physicsWorld);
   }
@@ -1507,7 +1509,7 @@ export class ProceduralBuilder {
     }
 
     const reachableFilter = this.navMeshManagerRef.getReachableFilter();
-    this.navPatrolSystemRef = new NavPatrolSystem(this.scene, navMesh, 5, reachableFilter);
+    this.navPatrolSystemRef = new NavPatrolSystem(this.scene, navMesh, 5, reachableFilter, this.assetLoader);
     this.navDebugOverlayRef = new NavDebugOverlay(this.scene, this.navMeshManagerRef);
   }
 
