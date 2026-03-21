@@ -31,9 +31,15 @@ export class SFXEngine {
   private sparkleSynth: Tone.Synth;
   private subSynth: Tone.Synth;
 
+  // Per-synth last-trigger tracking to avoid "start time must be strictly greater" errors
+  private lastToneSynthTime = 0;
+  private lastNoiseSynthTime = 0;
+  private lastSparkleSynthTime = 0;
+  private lastSubSynthTime = 0;
+  private lastFootstepTime = 0;
+
   // Loading ambient sound
   private loadingOsc: Tone.Oscillator | null = null;
-  private lastTickTime = 0;
   private loadingLfo: Tone.LFO | null = null;
 
   // Engine sustained sound
@@ -66,10 +72,13 @@ export class SFXEngine {
     }).connect(this.effectsBus);
 
     // PolySynth for chords, arpeggios
-    this.polySynth = new Tone.PolySynth(Tone.Synth, {
-      oscillator: { type: 'sine' },
-      envelope: { attack: 0.01, decay: 0.3, sustain: 0.1, release: 0.4 },
-      volume: -14,
+    this.polySynth = new Tone.PolySynth({
+      voice: Tone.Synth,
+      options: {
+        oscillator: { type: 'sine' },
+        envelope: { attack: 0.01, decay: 0.3, sustain: 0.1, release: 0.4 },
+        volume: -14,
+      },
     }).connect(this.effectsBus);
 
     // Pre-allocated footstep synth + filter (avoids per-call allocation at ~5/sec)
@@ -95,11 +104,45 @@ export class SFXEngine {
     }).connect(this.output);
   }
 
+  // ── Helpers ────────────────────────────────────────────────
+
+  /** Ensure strictly increasing start times for a reused synth. */
+  private safeToneTime(): number {
+    const now = Math.max(Tone.now(), this.lastToneSynthTime + 0.02);
+    this.lastToneSynthTime = now;
+    return now;
+  }
+
+  private safeNoiseTime(): number {
+    const now = Math.max(Tone.now(), this.lastNoiseSynthTime + 0.02);
+    this.lastNoiseSynthTime = now;
+    return now;
+  }
+
+  private safeSparkleSynthTime(): number {
+    const now = Math.max(Tone.now(), this.lastSparkleSynthTime + 0.02);
+    this.lastSparkleSynthTime = now;
+    return now;
+  }
+
+  private safeSubSynthTime(): number {
+    const now = Math.max(Tone.now(), this.lastSubSynthTime + 0.02);
+    this.lastSubSynthTime = now;
+    return now;
+  }
+
+  private safeFootstepTime(): number {
+    const now = Math.max(Tone.now(), this.lastFootstepTime + 0.02);
+    this.lastFootstepTime = now;
+    return now;
+  }
+
   // ── Gameplay SFX ────────────────────────────────────────────
 
   jump(): void {
     // Sine sweep 250 -> 700Hz over 100ms + noise pop
-    const now = Tone.now();
+    const toneNow = this.safeToneTime();
+    const noiseNow = this.safeNoiseTime();
     const pitchVar = randRange(1.0, 0.1);
     this.toneSynth.oscillator.type = 'sine';
     this.toneSynth.envelope.attack = 0.005;
@@ -107,9 +150,9 @@ export class SFXEngine {
     this.toneSynth.envelope.sustain = 0;
     this.toneSynth.envelope.release = 0.05;
     this.toneSynth.volume.value = -10;
-    this.toneSynth.triggerAttackRelease('C4', 0.1, now);
-    this.toneSynth.frequency.setValueAtTime(250 * pitchVar, now);
-    this.toneSynth.frequency.exponentialRampToValueAtTime(700 * pitchVar, now + 0.1);
+    this.toneSynth.triggerAttackRelease('C4', 0.1, toneNow);
+    this.toneSynth.frequency.setValueAtTime(250 * pitchVar, toneNow);
+    this.toneSynth.frequency.exponentialRampToValueAtTime(700 * pitchVar, toneNow + 0.1);
 
     this.noiseSynth.noise.type = 'white';
     this.noiseSynth.envelope.attack = 0.002;
@@ -117,12 +160,13 @@ export class SFXEngine {
     this.noiseSynth.envelope.sustain = 0;
     this.noiseSynth.envelope.release = 0.01;
     this.noiseSynth.volume.value = -22;
-    this.noiseSynth.triggerAttackRelease('32n', now);
+    this.noiseSynth.triggerAttackRelease('32n', noiseNow);
   }
 
   airJump(): void {
     // Higher sweep 400 -> 1200Hz + sparkle overtone
-    const now = Tone.now();
+    const toneNow = this.safeToneTime();
+    const sparkleNow = this.safeSparkleSynthTime();
     const pitchVar = randRange(1.0, 0.1);
     this.toneSynth.oscillator.type = 'sine';
     this.toneSynth.envelope.attack = 0.005;
@@ -130,18 +174,19 @@ export class SFXEngine {
     this.toneSynth.envelope.sustain = 0;
     this.toneSynth.envelope.release = 0.05;
     this.toneSynth.volume.value = -10;
-    this.toneSynth.triggerAttackRelease('C5', 0.08, now);
-    this.toneSynth.frequency.setValueAtTime(400 * pitchVar, now);
-    this.toneSynth.frequency.exponentialRampToValueAtTime(1200 * pitchVar, now + 0.08);
+    this.toneSynth.triggerAttackRelease('C5', 0.08, toneNow);
+    this.toneSynth.frequency.setValueAtTime(400 * pitchVar, toneNow);
+    this.toneSynth.frequency.exponentialRampToValueAtTime(1200 * pitchVar, toneNow + 0.08);
 
     // Sparkle — reuse pre-allocated synth
     this.sparkleSynth.volume.value = -18;
-    this.sparkleSynth.triggerAttackRelease(2400 * pitchVar, 0.08, now + 0.02);
+    this.sparkleSynth.triggerAttackRelease(2400 * pitchVar, 0.08, sparkleNow + 0.02);
   }
 
   landSoft(): void {
     // Brown noise burst 50ms + sub sine 60Hz
-    const now = Tone.now();
+    const toneNow = this.safeToneTime();
+    const noiseNow = this.safeNoiseTime();
     const pitchVar = randRange(1.0, 0.1);
     this.noiseSynth.noise.type = 'brown';
     this.noiseSynth.envelope.attack = 0.002;
@@ -149,7 +194,7 @@ export class SFXEngine {
     this.noiseSynth.envelope.sustain = 0;
     this.noiseSynth.envelope.release = 0.01;
     this.noiseSynth.volume.value = -16;
-    this.noiseSynth.triggerAttackRelease('32n', now);
+    this.noiseSynth.triggerAttackRelease('32n', noiseNow);
 
     this.toneSynth.oscillator.type = 'sine';
     this.toneSynth.envelope.attack = 0.005;
@@ -157,7 +202,7 @@ export class SFXEngine {
     this.toneSynth.envelope.sustain = 0;
     this.toneSynth.envelope.release = 0.05;
     this.toneSynth.volume.value = -14;
-    this.toneSynth.triggerAttackRelease(60 * pitchVar, 0.08, now);
+    this.toneSynth.triggerAttackRelease(60 * pitchVar, 0.08, toneNow);
 
     // Reset noise type
     this.noiseSynth.noise.type = 'white';
@@ -165,7 +210,9 @@ export class SFXEngine {
 
   landHard(impactSpeed: number): void {
     // Bigger noise 120ms + sub 40Hz + distortion intensity scaled by impact
-    const now = Tone.now();
+    const toneNow = this.safeToneTime();
+    const noiseNow = this.safeNoiseTime();
+    const subNow = this.safeSubSynthTime();
     const vol = clamp(-14 + impactSpeed * 0.5, -14, -6);
     const pitchVar = randRange(1.0, 0.1);
 
@@ -175,7 +222,7 @@ export class SFXEngine {
     this.noiseSynth.envelope.sustain = 0;
     this.noiseSynth.envelope.release = 0.01;
     this.noiseSynth.volume.value = vol;
-    this.noiseSynth.triggerAttackRelease('16n', now);
+    this.noiseSynth.triggerAttackRelease('16n', noiseNow);
 
     this.toneSynth.oscillator.type = 'sine';
     this.toneSynth.envelope.attack = 0.005;
@@ -183,18 +230,18 @@ export class SFXEngine {
     this.toneSynth.envelope.sustain = 0;
     this.toneSynth.envelope.release = 0.05;
     this.toneSynth.volume.value = vol - 2;
-    this.toneSynth.triggerAttackRelease(40 * pitchVar, 0.15, now);
+    this.toneSynth.triggerAttackRelease(40 * pitchVar, 0.15, toneNow);
 
     // Second sub layer — reuse pre-allocated synth
     this.subSynth.volume.value = vol - 4;
-    this.subSynth.triggerAttackRelease(30 * pitchVar, 0.12, now + 0.02);
+    this.subSynth.triggerAttackRelease(30 * pitchVar, 0.12, subNow + 0.02);
 
     this.noiseSynth.noise.type = 'white';
   }
 
   footstep(planarSpeed: number): void {
     // Bandpass noise click 2-4kHz, 30ms, pitch varies — reuse pre-allocated synth
-    const now = Tone.now();
+    const now = this.safeFootstepTime();
     const freqBase = randRange(3000, 1000);
     this.footstepFilter.frequency.setValueAtTime(freqBase, now);
     this.footstepNoise.volume.value = -20 + clamp(planarSpeed * 0.5, 0, 4);
@@ -275,7 +322,8 @@ export class SFXEngine {
 
   grab(): void {
     // Short sine 800Hz + noise click
-    const now = Tone.now();
+    const toneNow = this.safeToneTime();
+    const noiseNow = this.safeNoiseTime();
     const pitchVar = randRange(1.0, 0.1);
     this.toneSynth.oscillator.type = 'sine';
     this.toneSynth.envelope.attack = 0.005;
@@ -283,7 +331,7 @@ export class SFXEngine {
     this.toneSynth.envelope.sustain = 0;
     this.toneSynth.envelope.release = 0.05;
     this.toneSynth.volume.value = -14;
-    this.toneSynth.triggerAttackRelease(800 * pitchVar, 0.04, now);
+    this.toneSynth.triggerAttackRelease(800 * pitchVar, 0.04, toneNow);
 
     this.noiseSynth.noise.type = 'white';
     this.noiseSynth.envelope.attack = 0.002;
@@ -291,12 +339,12 @@ export class SFXEngine {
     this.noiseSynth.envelope.sustain = 0;
     this.noiseSynth.envelope.release = 0.01;
     this.noiseSynth.volume.value = -22;
-    this.noiseSynth.triggerAttackRelease('64n', now);
+    this.noiseSynth.triggerAttackRelease('64n', noiseNow);
   }
 
   throw(): void {
     // Sawtooth sweep down 800 -> 200Hz over 150ms
-    const now = Tone.now();
+    const toneNow = this.safeToneTime();
     const pitchVar = randRange(1.0, 0.1);
     this.toneSynth.oscillator.type = 'sawtooth';
     this.toneSynth.envelope.attack = 0.005;
@@ -304,9 +352,9 @@ export class SFXEngine {
     this.toneSynth.envelope.sustain = 0;
     this.toneSynth.envelope.release = 0.05;
     this.toneSynth.volume.value = -14;
-    this.toneSynth.triggerAttackRelease(800 * pitchVar, 0.15, now);
-    this.toneSynth.frequency.setValueAtTime(800 * pitchVar, now);
-    this.toneSynth.frequency.exponentialRampToValueAtTime(200 * pitchVar, now + 0.15);
+    this.toneSynth.triggerAttackRelease(800 * pitchVar, 0.15, toneNow);
+    this.toneSynth.frequency.setValueAtTime(800 * pitchVar, toneNow);
+    this.toneSynth.frequency.exponentialRampToValueAtTime(200 * pitchVar, toneNow + 0.15);
   }
 
   // ── Menu / UI SFX ──────────────────────────────────────────
@@ -374,19 +422,22 @@ export class SFXEngine {
   /** Short percussive death burst */
   deathPop(): void {
     if (Tone.getContext().state !== 'running') return;
-    const now = Tone.now();
-    this.noiseSynth.triggerAttackRelease('16n', now);
-    this.toneSynth.triggerAttackRelease('C3', '16n', now);
-    this.toneSynth.frequency.setValueAtTime(400, now);
-    this.toneSynth.frequency.exponentialRampToValueAtTime(80, now + 0.08);
+    const noiseNow = this.safeNoiseTime();
+    const toneNow = this.safeToneTime();
+    this.noiseSynth.triggerAttackRelease('16n', noiseNow);
+    this.toneSynth.triggerAttackRelease('C3', '16n', toneNow);
+    this.toneSynth.frequency.setValueAtTime(400, toneNow);
+    this.toneSynth.frequency.exponentialRampToValueAtTime(80, toneNow + 0.08);
   }
 
   /** Quick ascending respawn chime */
   respawnChime(): void {
     if (Tone.getContext().state !== 'running') return;
-    const now = Tone.now();
+    const now = this.safeSparkleSynthTime();
     this.sparkleSynth.triggerAttackRelease('C5', '32n', now);
-    this.sparkleSynth.triggerAttackRelease('E5', '32n', now + 0.06);
+    // Second note needs its own safe time
+    const now2 = this.safeSparkleSynthTime();
+    this.sparkleSynth.triggerAttackRelease('E5', '32n', Math.max(now + 0.06, now2));
   }
 
   // ── Loading Screen SFX ──────────────────────────────────
@@ -395,9 +446,7 @@ export class SFXEngine {
   loadingTick(progress: number): void {
     if (Tone.getContext().state !== 'running') return;
     const freq = 800 + progress * 600;
-    // Ensure strictly increasing start times (synchronous progress events share Tone.now())
-    const now = Math.max(Tone.now(), this.lastTickTime + 0.05);
-    this.lastTickTime = now;
+    const now = this.safeSparkleSynthTime();
     this.sparkleSynth.triggerAttackRelease(freq, '64n', now, 0.15);
   }
 
@@ -428,7 +477,7 @@ export class SFXEngine {
   /** Quick noise sweep for loading exit */
   loadingWhoosh(): void {
     if (Tone.getContext().state !== 'running') return;
-    const now = Tone.now();
+    const now = this.safeNoiseTime();
     this.noiseSynth.triggerAttackRelease('8n', now);
   }
 

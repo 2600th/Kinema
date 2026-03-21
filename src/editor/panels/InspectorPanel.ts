@@ -111,6 +111,9 @@ export class InspectorPanel extends EditorPanel {
     header.textContent = 'Inspector';
     el.appendChild(header);
 
+    /* Enable drag-to-move via header */
+    this.enableDrag(header);
+
     /* -- Body -- */
     const body = document.createElement('div');
     body.className = 'ke-panel-body';

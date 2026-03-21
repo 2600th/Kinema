@@ -25,7 +25,7 @@ export class SelectionTool implements EditorTool {
     ctx.raycaster.setFromCamera(ctx.mouse, ctx.camera);
 
     const meshes = ctx.editorObjects
-      .filter((obj) => !obj.locked)
+      .filter((obj) => !obj.locked && obj.visible !== false)
       .map((obj) => obj.mesh);
     const hits = ctx.raycaster.intersectObjects(meshes, true);
 

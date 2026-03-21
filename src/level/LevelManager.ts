@@ -139,6 +139,15 @@ export class LevelManager implements Disposable {
     return this.levelObjects;
   }
 
+  /** Remove a single level object from tracking arrays.
+   *  Physics body/collider should be cleaned up by the caller (EditorDocument). */
+  removeLevelObject(mesh: THREE.Object3D): void {
+    this.levelObjects = this.levelObjects.filter((o) => o !== mesh);
+    this.dynamicBodies = this.dynamicBodies.filter(
+      (d) => (d as { mesh: THREE.Object3D }).mesh !== mesh,
+    );
+  }
+
   /** Navigation patrol system (for game loop wiring). */
   getNavPatrolSystem(): NavPatrolSystem | null {
     return this.navPatrolSystem;

@@ -48,6 +48,11 @@ export class AssetLoader {
     return gltf;
   }
 
+  /** Register a pre-loaded GLTF under a canonical path so it can be retrieved by load(). */
+  put(url: string, gltf: GLTF): void {
+    this.cache.set(url, gltf);
+  }
+
   /** Clear a specific entry from the cache, disposing GPU resources. */
   evict(url: string): void {
     const gltf = this.cache.get(url);

@@ -36,15 +36,19 @@ Kinema is a modular third-person gameplay framework built with **TypeScript**, *
 - **ACESFilmic tone mapping** with configurable exposure.
 
 ### Editor
-- **Brush-based placement** — 8 preset types with player-scaled defaults (block, floor, pillar, stairs, ramp, door frame, spawn, trigger).
-- **Spawn tag system** — tagged spawn points (player/ai/item) with backwards-compatible serialization.
-- **GLB import** via file picker or drag-and-drop.
+- **Brush-based placement** — 8 preset types with player-scaled defaults (block, floor, pillar, stairs, ramp, door frame, spawn, trigger). Objects auto-placed sitting on ground.
+- **Shape-appropriate colliders** — cuboid for blocks/floors, cylinder for pillars, trimesh for ramps/stairs/door frames. Colliders rebuilt on scale changes.
+- **Spawn tag system** — tagged spawn points (player/ai/item) with backwards-compatible serialization. Spawn cones hidden during play-test.
+- **GLB import** via file picker or drag-and-drop. Supports skinned meshes (SkeletonUtils.clone) and animation clip preservation. Session-cached for play-test restore.
 - **Transform gizmo** with translate/rotate/scale modes and grid snapping.
-- **Hierarchy panel** — tree view with drag-drop reparenting, rename, visibility/lock toggles, grouping, search filter.
+- **Draggable panels** — hierarchy and inspector panels can be repositioned by dragging headers. Re-clamp on window resize.
+- **Hierarchy panel** — tree view with drag-drop reparenting, rename, visibility/lock toggles (always visible when non-default state), grouping, search filter.
 - **Inspector panel** — transform, material (color/roughness/metalness/emissive/opacity), physics type editing.
-- **Play-test mode** — Start/Stop like Unity/Unreal with snapshot save/restore (Ctrl+P).
-- **Undo/redo** — command-based history (50 items).
+- **Focus selection** — press F to frame the camera on the selected object.
+- **Play-test mode** — Start/Stop like Unity/Unreal with snapshot save/restore (Ctrl+P). Full async restore with hierarchy reconstruction.
+- **Undo/redo** — command-based history (50 items). Duplicates get fresh physics bodies.
 - **Save/load** — localStorage persistence + JSON download, V1→V2 migration.
+- **Escape flow** — deselects current object first, opens pause menu only when nothing selected.
 
 ### Physics
 - **Slope handling** — 45° max climb angle (industry standard), slope sliding force on steep surfaces.
@@ -68,7 +72,7 @@ Kinema is a modular third-person gameplay framework built with **TypeScript**, *
 
 ### Audio
 - **Procedural music** — generative ambient soundtrack via Tone.js (no audio files).
-- **Synth-based SFX** — footsteps, jump, land, interact, throw, vehicle engine sounds.
+- **Synth-based SFX** — footsteps, jump, land, interact, throw, vehicle engine sounds. Per-synth safe timing prevents Tone.js scheduling errors.
 - **Spatial awareness** — volume scaling based on movement and interaction.
 
 ### Juice & Game Feel
@@ -222,8 +226,10 @@ When running via `?station=`, a `window.__KINEMA__` debug API is available:
 | `Q/E` | Up/down |
 | `Shift` / `Ctrl` | Fast/slow camera |
 | `W/E/R` | Translate/rotate/scale gizmo |
+| `F` | Focus on selected object |
 | `G` | Toggle grid |
 | `1`-`8` | Select brush |
+| `Escape` | Deselect / pause menu |
 | `Ctrl+Z` / `Ctrl+Y` / `Cmd+Shift+Z` | Undo/redo |
 | `Delete` / `Backspace` | Delete selection |
 | `Ctrl+P` / `Cmd+P` | Play-test toggle |
@@ -325,7 +331,8 @@ Path aliases: `@core`, `@physics`, `@character`, `@camera`, `@level`, `@input`, 
 | ProceduralBuilder | Open-air showcase walkway generation with Astro Bot theming |
 | VfxShowcase | 4 TSL-based VFX demos (dissolve, campfire, storm, ring) |
 | RendererManager | WebGPU renderer, TSL post-FX, graphics profiles |
-| EditorManager | Editor shell — routes input to EditorTools |
+| EditorManager | Editor shell — routes input to EditorTools, play-test lifecycle |
+| SnapGrid | Dual-layer grid (minor 1-unit + major 10-unit) with depth testing |
 
 ### Rendering Pipeline (r183-aligned)
 

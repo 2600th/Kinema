@@ -16,6 +16,67 @@ function buildDefaultParams(brush: BrushDefinition): BrushParams {
   };
 }
 
+/**
+ * Build a shape-appropriate Rapier ColliderDesc for a brush.
+ * - block/floor: cuboid
+ * - pillar: cylinder
+ * - ramp/stairs/doorframe: trimesh (exact triangle collision)
+ */
+export function buildColliderDesc(
+  brushId: string,
+  geometry: THREE.BufferGeometry,
+  mesh: THREE.Mesh,
+): RAPIER.ColliderDesc {
+  mesh.updateMatrixWorld(true);
+
+  if (brushId === 'pillar') {
+    // Cylinder collider from bounding box
+    geometry.computeBoundingBox();
+    const bb = geometry.boundingBox!;
+    const sx = Math.abs(mesh.scale.x);
+    const sy = Math.abs(mesh.scale.y);
+    const sz = Math.abs(mesh.scale.z);
+    const halfH = ((bb.max.y - bb.min.y) / 2) * sy;
+    const radius = Math.max(
+      ((bb.max.x - bb.min.x) / 2) * sx,
+      ((bb.max.z - bb.min.z) / 2) * sz,
+    );
+    return RAPIER.ColliderDesc.cylinder(Math.max(halfH, 0.01), Math.max(radius, 0.01));
+  }
+
+  if (brushId === 'ramp' || brushId === 'stairs' || brushId === 'doorframe') {
+    // Trimesh collider for exact triangle-level collision
+    const posAttr = geometry.getAttribute('position');
+    const vertices = new Float32Array(posAttr.count * 3);
+    const sx = mesh.scale.x;
+    const sy = mesh.scale.y;
+    const sz = mesh.scale.z;
+    for (let i = 0; i < posAttr.count; i++) {
+      vertices[i * 3] = posAttr.getX(i) * sx;
+      vertices[i * 3 + 1] = posAttr.getY(i) * sy;
+      vertices[i * 3 + 2] = posAttr.getZ(i) * sz;
+    }
+    let indices: Uint32Array;
+    if (geometry.index) {
+      indices = new Uint32Array(geometry.index.array);
+    } else {
+      // Unindexed geometry: generate sequential indices
+      indices = new Uint32Array(posAttr.count);
+      for (let i = 0; i < posAttr.count; i++) indices[i] = i;
+    }
+    return RAPIER.ColliderDesc.trimesh(vertices, indices);
+  }
+
+  // Default: cuboid from world-space AABB (block, floor, etc.)
+  const worldBox = new THREE.Box3().setFromObject(mesh);
+  const size = worldBox.getSize(new THREE.Vector3());
+  return RAPIER.ColliderDesc.cuboid(
+    Math.max(size.x / 2, 0.01),
+    Math.max(size.y / 2, 0.01),
+    Math.max(size.z / 2, 0.01),
+  );
+}
+
 type PlacementPhase = 'idle' | 'position';
 
 let brushNameCounter = 0;
@@ -120,16 +181,30 @@ export class BrushPlacementTool implements EditorTool {
     if (ctx.snapGrid.enabled) {
       const snap = ctx.snapGrid.positionSnap;
       point.x = Math.round(point.x / snap) * snap;
-      point.y = Math.round(point.y / snap) * snap;
       point.z = Math.round(point.z / snap) * snap;
     }
+
+    // Offset Y so the object's bottom sits ON the ground plane.
+    // Uses -bb.min.y (distance from local origin to bottom of bounds) which
+    // handles meshes with non-centered pivots correctly.
+    point.y += this.getGroundOffset(this.previewMesh);
     this.previewMesh.position.copy(point);
+  }
+
+  /** Returns the Y offset needed to place the mesh so its bottom touches Y=0. */
+  private getGroundOffset(mesh: THREE.Mesh): number {
+    if (!mesh.geometry) return 0;
+    mesh.geometry.computeBoundingBox();
+    const bb = mesh.geometry.boundingBox;
+    if (!bb) return 0;
+    return -bb.min.y * mesh.scale.y;
   }
 
   private confirmPlacement(ctx: EditorToolContext): void {
     if (!this.activeBrush || !this.previewMesh) return;
 
     const brush = this.activeBrush;
+    // Use the preview mesh position (already offset to sit on ground)
     const position = this.previewMesh.position.clone();
 
     // Create final mesh with brush-specific or generic defaults
@@ -167,7 +242,11 @@ export class BrushPlacementTool implements EditorTool {
       visible: true,
       locked: false,
       material: matProps,
-      brushParams: { width: 1, height: 1, depth: 1 },
+      brushParams: {
+        width: defaultParams.current.x - defaultParams.anchor.x || 1,
+        height: defaultParams.height ?? 1,
+        depth: defaultParams.current.z - defaultParams.anchor.z || 1,
+      },
       physicsType: 'static',
       spawnTag: brush.id === 'spawn' ? 'player' : undefined,
     };
@@ -178,12 +257,7 @@ export class BrushPlacementTool implements EditorTool {
     if (brush.id !== 'spawn' && brush.id !== 'trigger') {
       const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(position.x, position.y, position.z);
       const body = ctx.physicsWorld.world.createRigidBody(bodyDesc);
-      geometry.computeBoundingBox();
-      const bb = geometry.boundingBox!;
-      const halfW = (bb.max.x - bb.min.x) / 2;
-      const halfH = (bb.max.y - bb.min.y) / 2;
-      const halfD = (bb.max.z - bb.min.z) / 2;
-      const colliderDesc = RAPIER.ColliderDesc.cuboid(halfW, halfH, halfD);
+      const colliderDesc = buildColliderDesc(brush.id, geometry, mesh);
       const collider = ctx.physicsWorld.world.createCollider(colliderDesc, body);
       editorObj.body = body;
       editorObj.collider = collider;
@@ -203,11 +277,13 @@ export class BrushPlacementTool implements EditorTool {
       },
     });
 
-    // Select the new object, clean up preview
+    // Select the new object, switch back to selection tool
     ctx.setSelection(editorObj);
     this.cleanupPreview(ctx);
-    // Stay in placement mode for rapid placement of the same brush
-    this.startBrush(ctx, brush.id);
+    this.placementPhase = 'idle';
+    this.activeBrush = null;
+    this.onBrushChanged(null);
+    this.onFinished();
   }
 
   cancelPlacement(ctx: EditorToolContext): void {

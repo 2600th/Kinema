@@ -46,6 +46,7 @@ export class EditorDocument {
     if (parent) {
       parent.remove(obj.mesh);
     }
+    // Disable (not remove) physics so undo can re-enable them
     obj.body?.setEnabled(false);
     obj.collider?.setEnabled(false);
     this.objects = this.objects.filter((entry) => entry !== obj);

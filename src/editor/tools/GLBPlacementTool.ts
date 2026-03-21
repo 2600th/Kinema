@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
+import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 import type { EditorTool, EditorToolContext } from './EditorTool';
 import type { EditorObject } from '../EditorObject';
 import type { LevelManager } from '@level/LevelManager';
@@ -58,12 +59,23 @@ export class GLBPlacementTool implements EditorTool {
     try {
       const gltf = await this.levelManager.getAssetLoader().load(objectUrl);
       const assetPath = `/assets/models/${file.name}`;
-      const clone = gltf.scene.clone();
+
+      // Register the loaded GLTF under the canonical asset path so it survives
+      // play-test restore (spawnSerializedObject calls load(assetPath)).
+      this.levelManager.getAssetLoader().put(assetPath, gltf);
+
+      // Use SkeletonUtils.clone to preserve SkinnedMesh skeleton bindings
+      const clone = skeletonClone(gltf.scene);
+      // Store animation clips on the cloned scene for later use
+      if (gltf.animations?.length) {
+        clone.userData.animations = gltf.animations;
+      }
       this.startPlacement(ctx, clone, assetPath);
     } catch (err) {
       console.error('[Editor] Failed to import GLB:', err);
     } finally {
-      this.levelManager.getAssetLoader().evict(objectUrl);
+      // Revoke the blob URL (the GLTF data is now cached under assetPath via put())
+      // Don't call evict() — that would dispose the shared scene/materials.
       URL.revokeObjectURL(objectUrl);
     }
     console.warn(
@@ -138,8 +150,8 @@ export class GLBPlacementTool implements EditorTool {
     // Remove the transparent preview
     ctx.scene.remove(this.glbPreview);
 
-    // Create final opaque clone
-    const finalObj = this.glbPreview.clone();
+    // Create final opaque clone (SkeletonUtils preserves skinned mesh bindings)
+    const finalObj = skeletonClone(this.glbPreview);
     finalObj.traverse((child) => {
       if (child instanceof THREE.Mesh && child.material) {
         const mat = (child.material as THREE.Material).clone();

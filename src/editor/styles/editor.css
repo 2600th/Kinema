@@ -1,31 +1,32 @@
 /* ============================================================
    Kinema Editor — Dark Floating-Panel Theme
+   Unified with game menu aesthetic (purple accent, Outfit font)
    ============================================================ */
 
 /* ----- Design Tokens ----- */
 :root {
-  --ke-bg:          rgba(12, 16, 24, 0.88);
-  --ke-bg-solid:    #0c1018;
-  --ke-border:      rgba(255, 255, 255, 0.10);
-  --ke-border-hover:rgba(255, 255, 255, 0.18);
-  --ke-text:        #c8d0dc;
-  --ke-text-dim:    #7b8698;
-  --ke-text-bright: #eaf0f8;
-  --ke-accent:      #00bcd4;
-  --ke-accent-dim:  rgba(0, 188, 212, 0.25);
-  --ke-accent-glow: rgba(0, 188, 212, 0.45);
+  --ke-bg:          rgba(26, 16, 64, 0.92);
+  --ke-bg-solid:    #1a1040;
+  --ke-border:      rgba(255, 255, 255, 0.12);
+  --ke-border-hover:rgba(255, 255, 255, 0.22);
+  --ke-text:        #e0e0f0;
+  --ke-text-dim:    #9090b0;
+  --ke-text-bright: #ffffff;
+  --ke-accent:      #7b2fff;
+  --ke-accent-dim:  rgba(123, 47, 255, 0.25);
+  --ke-accent-glow: rgba(123, 47, 255, 0.45);
   --ke-input-bg:    rgba(255, 255, 255, 0.08);
-  --ke-input-bg-hover: rgba(255, 255, 255, 0.12);
-  --ke-danger:      #f44336;
+  --ke-input-bg-hover: rgba(255, 255, 255, 0.14);
+  --ke-danger:      #ff6b9d;
   --ke-success:     #4caf50;
   --ke-warning:     #ff9800;
-  --ke-radius:      8px;
-  --ke-radius-sm:   4px;
+  --ke-radius:      12px;
+  --ke-radius-sm:   6px;
   --ke-radius-pill: 100px;
   --ke-blur:        12px;
-  --ke-shadow:      0 8px 32px rgba(0, 0, 0, 0.45);
+  --ke-shadow:      0 8px 32px rgba(0, 0, 0, 0.45), 0 0 20px rgba(123, 47, 255, 0.08);
   --ke-transition:  150ms ease;
-  --ke-font:        'Inter', 'Segoe UI', system-ui, sans-serif;
+  --ke-font:        'Outfit', system-ui, sans-serif;
   --ke-font-mono:   'JetBrains Mono', 'Fira Code', monospace;
   --ke-font-size:   13px;
   --ke-font-size-sm:11px;
@@ -60,6 +61,7 @@
   font-weight: 600;
   font-size: var(--ke-font-size);
   color: var(--ke-text-bright);
+  letter-spacing: 0.02em;
 }
 
 .ke-panel-header:active {
@@ -82,7 +84,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 6px 10px;
+  padding: 5px 8px;
   background: var(--ke-bg);
   backdrop-filter: blur(var(--ke-blur));
   -webkit-backdrop-filter: blur(var(--ke-blur));
@@ -91,11 +93,119 @@
   box-shadow: var(--ke-shadow);
 }
 
+.ke-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
 .ke-toolbar-divider {
   width: 1px;
-  height: 20px;
+  height: 22px;
   background: var(--ke-border);
-  margin: 0 4px;
+  margin: 0 6px;
+  flex-shrink: 0;
+}
+
+.ke-toolbar-sep {
+  width: 4px;
+  flex-shrink: 0;
+}
+
+/* Transport controls (center group) */
+.ke-toolbar-transport {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+}
+
+/* Play button */
+.ke-btn-play {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 16px;
+  height: 32px;
+  border-radius: var(--ke-radius-sm);
+  border: 1px solid rgba(76, 175, 80, 0.5);
+  background: rgba(76, 175, 80, 0.18);
+  color: #4caf50;
+  font-family: var(--ke-font);
+  cursor: pointer;
+  transition: all var(--ke-transition);
+}
+
+.ke-btn-play:hover {
+  background: rgba(76, 175, 80, 0.35);
+  border-color: rgba(76, 175, 80, 0.8);
+  box-shadow: 0 0 14px rgba(76, 175, 80, 0.35);
+  color: #66bb6a;
+}
+
+.ke-btn-play:active {
+  transform: scale(0.95);
+}
+
+/* Stop button (play-test bar) */
+.ke-btn-stop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 5px 14px;
+  border-radius: var(--ke-radius-sm);
+  border: 1px solid rgba(255, 107, 157, 0.5);
+  background: rgba(255, 107, 157, 0.2);
+  color: var(--ke-danger);
+  cursor: pointer;
+  font-family: var(--ke-font);
+  transition: all var(--ke-transition);
+}
+
+.ke-btn-stop:hover {
+  background: rgba(255, 107, 157, 0.35);
+  border-color: var(--ke-danger);
+  box-shadow: 0 0 12px rgba(255, 107, 157, 0.3);
+}
+
+.ke-btn-stop:active {
+  transform: scale(0.95);
+}
+
+/* Play-test bar animation */
+.ke-playtest-bar {
+  animation: ke-playtest-pulse 2s ease-in-out infinite;
+}
+
+@keyframes ke-playtest-pulse {
+  0%, 100% { box-shadow: var(--ke-shadow); }
+  50% { box-shadow: var(--ke-shadow), 0 0 16px rgba(255, 107, 157, 0.2); }
+}
+
+/* Mode buttons */
+.ke-btn-mode {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--ke-border);
+  border-radius: var(--ke-radius-sm);
+  background: var(--ke-input-bg);
+  color: var(--ke-text);
+  font-family: var(--ke-font);
+  font-size: var(--ke-font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--ke-transition);
+  padding: 0;
+}
+
+.ke-btn-mode:hover {
+  background: var(--ke-input-bg-hover);
+  border-color: var(--ke-border-hover);
 }
 
 /* ----- Hierarchy ----- */
@@ -200,16 +310,100 @@
 /* ----- Brush Bar ----- */
 .ke-brush-bar {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
+  align-items: stretch;
+  gap: 4px;
+  padding: 6px 10px;
   background: var(--ke-bg);
   backdrop-filter: blur(var(--ke-blur));
   -webkit-backdrop-filter: blur(var(--ke-blur));
   border: 1px solid var(--ke-border);
   border-radius: var(--ke-radius);
   box-shadow: var(--ke-shadow);
-  flex-wrap: wrap;
+}
+
+.ke-brush-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 56px;
+  padding: 8px 4px 6px;
+  border-radius: var(--ke-radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  transition: all var(--ke-transition);
+}
+
+.ke-brush-item:hover {
+  background: var(--ke-input-bg);
+  border-color: var(--ke-border);
+}
+
+.ke-brush-item.ke-brush-active {
+  background: var(--ke-accent-dim);
+  border-color: var(--ke-accent);
+  box-shadow: 0 0 8px var(--ke-accent-glow);
+}
+
+.ke-brush-icon {
+  color: var(--ke-text);
+  transition: color var(--ke-transition);
+  flex-shrink: 0;
+}
+
+.ke-brush-item:hover .ke-brush-icon {
+  color: var(--ke-text-bright);
+}
+
+.ke-brush-active .ke-brush-icon {
+  color: var(--ke-accent);
+}
+
+.ke-brush-label {
+  font-family: var(--ke-font);
+  font-size: 10px;
+  line-height: 1;
+  color: var(--ke-text-dim);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.ke-brush-item:hover .ke-brush-label {
+  color: var(--ke-text);
+}
+
+.ke-brush-active .ke-brush-label {
+  color: var(--ke-text-bright);
+}
+
+.ke-brush-badge {
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  min-width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--ke-font-mono);
+  font-size: 9px;
+  line-height: 1;
+  color: var(--ke-text-dim);
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+  padding: 0 3px;
+  pointer-events: none;
+}
+
+.ke-brush-active .ke-brush-badge {
+  color: var(--ke-accent);
+  background: var(--ke-accent-dim);
 }
 
 /* ----- Section Header ----- */
@@ -251,7 +445,7 @@
   gap: 4px;
   padding: 5px 14px;
   border: 1px solid var(--ke-border);
-  border-radius: var(--ke-radius-pill);
+  border-radius: var(--ke-radius-sm);
   background: var(--ke-input-bg);
   color: var(--ke-text);
   font-family: var(--ke-font);
@@ -288,19 +482,30 @@
 }
 
 .ke-btn-icon {
-  width: 28px;
+  width: 30px;
   height: 28px;
   padding: 0;
   border-radius: var(--ke-radius-sm);
+  color: var(--ke-text);
+}
+
+.ke-btn-icon:hover {
+  color: var(--ke-text-bright);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.ke-btn-icon svg {
+  width: 16px;
+  height: 16px;
 }
 
 .ke-btn-danger {
-  border-color: rgba(244, 67, 54, 0.3);
+  border-color: rgba(255, 107, 157, 0.3);
   color: var(--ke-danger);
 }
 
 .ke-btn-danger:hover {
-  background: rgba(244, 67, 54, 0.15);
+  background: rgba(255, 107, 157, 0.15);
   border-color: var(--ke-danger);
 }
 

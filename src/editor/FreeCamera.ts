@@ -70,7 +70,8 @@ export class FreeCamera {
 
   private onWheel = (e: WheelEvent): void => {
     _fcForward.set(0, 0, -1).applyQuaternion(this.camera.quaternion);
-    this.camera.position.addScaledVector(_fcForward, e.deltaY * 0.01);
+    // Negative multiplier: scroll down (positive deltaY) = zoom out (move backward)
+    this.camera.position.addScaledVector(_fcForward, -e.deltaY * 0.01);
   };
 
   private onContextMenu = (e: Event): void => {

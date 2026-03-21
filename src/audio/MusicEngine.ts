@@ -42,10 +42,13 @@ export class MusicEngine {
     this.limiter = new Tone.Limiter(-1);
 
     // Pad synth — warm sine pads with long envelopes
-    this.padSynth = new Tone.PolySynth(Tone.Synth, {
-      oscillator: { type: 'sine' },
-      envelope: { attack: 2, decay: 3, sustain: 0.4, release: 4 },
-      volume: -14,
+    this.padSynth = new Tone.PolySynth({
+      voice: Tone.Synth,
+      options: {
+        oscillator: { type: 'sine' },
+        envelope: { attack: 2, decay: 3, sustain: 0.4, release: 4 },
+        volume: -14,
+      },
     });
 
     // Melody synth — gentle high register

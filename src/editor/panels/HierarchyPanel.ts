@@ -136,6 +136,9 @@ export class HierarchyPanel extends EditorPanel {
 
     el.appendChild(header);
 
+    /* Enable drag-to-move via header */
+    this.enableDrag(header);
+
     /* -- Body wrapper -- */
     const body = document.createElement('div');
     body.className = 'ke-panel-body';
@@ -331,11 +334,14 @@ export class HierarchyPanel extends EditorPanel {
     /* hover actions */
     const actions = document.createElement('span');
     actions.className = 'ke-tree-row-actions';
+    // Always show actions when state is non-default (hidden or locked);
+    // otherwise show only on hover.
+    const hasNonDefaultState = !isVisible || isLocked;
     Object.assign(actions.style, {
       display: 'flex',
       gap: '2px',
       marginLeft: 'auto',
-      opacity: '0',
+      opacity: hasNonDefaultState ? '1' : '0',
       transition: 'opacity var(--ke-transition)',
     });
 
@@ -365,12 +371,18 @@ export class HierarchyPanel extends EditorPanel {
 
     row.appendChild(actions);
 
+    // Dim the entire row label when hidden
+    if (!isVisible) {
+      label.style.opacity = '0.4';
+      label.style.textDecoration = 'line-through';
+    }
+
     /* Show actions on hover */
     row.addEventListener('mouseenter', () => {
       actions.style.opacity = '1';
     });
     row.addEventListener('mouseleave', () => {
-      actions.style.opacity = '0';
+      if (!hasNonDefaultState) actions.style.opacity = '0';
     });
 
     /* Click → select */

@@ -19,10 +19,11 @@ import { ToolbarPanel } from './panels/ToolbarPanel';
 import { BrushPanel } from './panels/BrushPanel';
 import { HierarchyPanel } from './panels/HierarchyPanel';
 import { InspectorPanel } from './panels/InspectorPanel';
+import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 import { getBrushById, BRUSH_REGISTRY } from './brushes/index';
 import type { EditorTool, EditorToolContext } from './tools/EditorTool';
 import { SelectionTool } from './tools/SelectionTool';
-import { BrushPlacementTool } from './tools/BrushPlacementTool';
+import { BrushPlacementTool, buildColliderDesc } from './tools/BrushPlacementTool';
 import { GLBPlacementTool } from './tools/GLBPlacementTool';
 
 export class EditorManager {
@@ -43,7 +44,7 @@ export class EditorManager {
   private playTestActive = false;
   private playTestSnapshot: string | null = null;
   private playTestCameraState: { position: THREE.Vector3; quaternion: THREE.Quaternion } | null = null;
-  private playTestStopButton: HTMLButtonElement | null = null;
+  private playTestStopButton: HTMLElement | null = null;
 
   /* ---- Subsystems ---- */
   private gizmo: TransformGizmo;
@@ -109,11 +110,24 @@ export class EditorManager {
         this.syncHierarchy();
       },
       onToggleVisible: (id) => {
+        const wasSelected = this.document.selected?.id === id;
         this.document.toggleVisibleById(id);
+        // If hiding the selected object, deselect to detach gizmo/inspector
+        if (wasSelected) {
+          const obj = this.document.findById(id);
+          if (obj && !obj.visible) {
+            this.setSelection(null);
+          }
+        }
         this.syncHierarchy();
       },
       onToggleLock: (id) => {
+        const wasSelected = this.document.selected?.id === id;
         this.document.toggleLockById(id);
+        // toggleLockById clears document.selected directly; sync gizmo/inspector
+        if (wasSelected && !this.document.selected) {
+          this.setSelection(null);
+        }
         this.syncHierarchy();
       },
       onReparent: (childId, newParentId) => {
@@ -178,13 +192,35 @@ export class EditorManager {
       this.eventBus.on('editor:toggle', () => this.toggle()),
     );
 
+    // Hide editor panels + play-test stop button when menu overlay opens
+    this.unsubs.push(
+      this.eventBus.on('menu:opened', () => {
+        if (this.active) {
+          for (const panel of this.panels) panel.hide();
+        }
+        if (this.playTestStopButton) {
+          this.playTestStopButton.style.display = 'none';
+        }
+      }),
+    );
+    this.unsubs.push(
+      this.eventBus.on('menu:closed', () => {
+        if (this.active) {
+          for (const panel of this.panels) panel.show();
+        }
+        if (this.playTestStopButton) {
+          this.playTestStopButton.style.display = '';
+        }
+      }),
+    );
+
     // Global Ctrl+P handler to stop play-test (persists while play-testing)
     const onGlobalKeyDown = (e: KeyboardEvent): void => {
       if (!this.playTestActive) return;
       const cmdKey = navigator.platform.toUpperCase().includes('MAC') ? e.metaKey : e.ctrlKey;
       if (e.code === 'KeyP' && cmdKey) {
         e.preventDefault();
-        this.stopPlayTest();
+        void this.stopPlayTest();
       }
     };
     window.addEventListener('keydown', onGlobalKeyDown);
@@ -282,17 +318,27 @@ export class EditorManager {
    *  Enter / Exit
    * ================================================================== */
 
-  private enter(): void {
+  /**
+   * @param rebuildObjects - When true (default), scans levelManager for objects.
+   *   Set to false when restoring from play-test snapshot (applyLoadedLevel
+   *   handles object population instead).
+   */
+  private enter(rebuildObjects = true): void {
     this.active = true;
     this.gameLoop.setSimulationEnabled(false);
     this.interactionManager.setEnabled(false);
     this.player.setActive(false);
+    this.player.setEnabled(false); // Hide player mesh + disable physics
+    // Ensure cursor is free and visible in editor mode
     document.exitPointerLock();
+    this.renderer.canvas.style.cursor = 'default';
     this.eventBus.emit('editor:opened', undefined);
     this.freeCamera.enable();
     this.grid.setVisible(this.gridWasVisible);
     for (const panel of this.panels) panel.show();
-    this.buildEditorObjects();
+    if (rebuildObjects) {
+      this.buildEditorObjects();
+    }
     this.syncHierarchy();
     this.syncToolbarState();
     this.bindEditorInput();
@@ -305,6 +351,8 @@ export class EditorManager {
     this.gameLoop.setSimulationEnabled(true);
     this.interactionManager.setEnabled(true);
     this.player.setActive(true);
+    this.player.setEnabled(true); // Show player mesh + enable physics
+    this.renderer.canvas.style.cursor = '';
     this.gridWasVisible = this.grid.isVisible();
     this.grid.setVisible(false);
     this.eventBus.emit('editor:closed', undefined);
@@ -325,6 +373,12 @@ export class EditorManager {
 
   private startPlayTest(): void {
     if (this.playTestActive) return;
+
+    // Sync all EditorObject transforms from live mesh state before serializing,
+    // so the snapshot captures the actual current transforms (not stale data).
+    for (const obj of this.document.objects) {
+      this.updateEditorObjectTransform(obj);
+    }
 
     // Serialize current level state
     const data = LevelSerializer.serialize('__playtest__', this.document.objects);
@@ -351,35 +405,58 @@ export class EditorManager {
       ? new THREE.Euler(data.spawnPoint.rotation[0], data.spawnPoint.rotation[1], data.spawnPoint.rotation[2])
       : undefined;
 
+    // Hide editor-only gizmos (spawn/trigger cones) during play-test
+    for (const obj of this.document.objects) {
+      if (obj.source.type === 'brush' && (obj.source.brush === 'spawn' || obj.source.brush === 'trigger')) {
+        obj.mesh.visible = false;
+      }
+    }
+
     // Spawn the player at the spawn point
     this.player.spawn({ position: spawnPos, rotation: spawnRot });
 
-    // Create floating "Stop" button
-    const stopBtn = document.createElement('button');
-    stopBtn.className = 'ke-btn';
-    stopBtn.textContent = '\u25A0';
-    stopBtn.title = 'Stop Play Test (Ctrl+P)';
-    Object.assign(stopBtn.style, {
+    // Create floating transport bar with stop button (Unity-style)
+    const stopBar = document.createElement('div');
+    stopBar.className = 'ke-toolbar ke-playtest-bar';
+    Object.assign(stopBar.style, {
       position: 'fixed',
       top: '12px',
       left: '50%',
       transform: 'translateX(-50%)',
       zIndex: '10001',
-      background: '#c62828',
-      color: '#fff',
-      border: 'none',
-      borderRadius: '6px',
-      padding: '6px 16px',
-      fontSize: '18px',
-      cursor: 'pointer',
-      boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
     });
-    stopBtn.addEventListener('click', () => this.stopPlayTest());
-    document.body.appendChild(stopBtn);
-    this.playTestStopButton = stopBtn;
+
+    const stopBtn = document.createElement('button');
+    stopBtn.className = 'ke-btn ke-btn-stop';
+    stopBtn.title = 'Stop Play Test (Ctrl+P)';
+    // Square stop icon
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', '16');
+    svg.setAttribute('height', '16');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'currentColor');
+    svg.setAttribute('stroke', 'none');
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('x', '4');
+    rect.setAttribute('y', '4');
+    rect.setAttribute('width', '16');
+    rect.setAttribute('height', '16');
+    rect.setAttribute('rx', '2');
+    svg.appendChild(rect);
+    stopBtn.appendChild(svg);
+
+    const label = document.createElement('span');
+    label.textContent = 'Stop';
+    label.style.fontSize = '12px';
+    stopBtn.appendChild(label);
+
+    stopBtn.addEventListener('click', () => { void this.stopPlayTest(); });
+    stopBar.appendChild(stopBtn);
+    document.body.appendChild(stopBar);
+    this.playTestStopButton = stopBar;
   }
 
-  private stopPlayTest(): void {
+  private async stopPlayTest(): Promise<void> {
     if (!this.playTestActive) return;
 
     // Remove stop button
@@ -390,33 +467,32 @@ export class EditorManager {
 
     this.playTestActive = false;
 
-    // Re-enter editor mode
-    this.enter();
-
-    // Clear editor-spawned objects
-    this.document.removeEditorSpawnedObjects();
-
-    // Restore snapshot
+    // ── Step 1: Restore scene from snapshot BEFORE re-entering editor ──
+    // Await to ensure all objects are fully spawned before entering editor.
     if (this.playTestSnapshot) {
       const data = JSON.parse(this.playTestSnapshot) as LevelData;
-      void this.applyLoadedLevel(data).catch((err: unknown) => {
+      try {
+        await this.applyLoadedLevel(data);
+      } catch (err) {
         console.error('[Editor] Failed to restore play-test snapshot:', err);
-      });
+      }
       this.playTestSnapshot = null;
     }
 
-    // Restore camera state
+    // ── Step 2: Re-enter editor mode (skip buildEditorObjects — objects
+    //    are already populated by applyLoadedLevel) ──
+    this.enter(false);
+
+    // ── Step 3: Restore camera state ──
     if (this.playTestCameraState) {
       this.renderer.camera.position.copy(this.playTestCameraState.position);
       this.renderer.camera.quaternion.copy(this.playTestCameraState.quaternion);
       this.playTestCameraState = null;
-      // FreeCamera.enable() (called by enter()) re-derives yaw/pitch from quaternion,
-      // but we need to re-enable after restoring the quaternion. Disable and re-enable.
       this.freeCamera.disable();
       this.freeCamera.enable();
     }
 
-    // Clear selection
+    // Clear selection and sync UI
     this.setSelection(null);
     this.syncHierarchy();
   }
@@ -428,13 +504,15 @@ export class EditorManager {
   private bindEditorInput(): void {
     this.renderer.canvas.addEventListener('mousedown', this.onMouseDown);
     this.renderer.canvas.addEventListener('mousemove', this.onMouseMove);
-    window.addEventListener('keydown', this.onKeyDown);
+    // Use capture phase so editor Escape handling fires BEFORE InputManager's
+    // bubble-phase handler (which unconditionally fires menu:toggle on Escape).
+    window.addEventListener('keydown', this.onKeyDown, true);
   }
 
   private unbindEditorInput(): void {
     this.renderer.canvas.removeEventListener('mousedown', this.onMouseDown);
     this.renderer.canvas.removeEventListener('mousemove', this.onMouseMove);
-    window.removeEventListener('keydown', this.onKeyDown);
+    window.removeEventListener('keydown', this.onKeyDown, true);
   }
 
   private onMouseDown = (e: MouseEvent): void => {
@@ -473,6 +551,25 @@ export class EditorManager {
       return;
     }
 
+    // Escape: deselect object first, or cancel brush tool. Only let it through
+    // to InputManager (which fires menu:toggle → pause) if nothing to deselect.
+    if (e.code === 'Escape') {
+      const ctx = this.buildToolContext();
+      // If brush tool is active, let it handle Escape (cancel placement)
+      if (this.activeTool.onKeyDown?.(ctx, e)) {
+        e.stopImmediatePropagation();
+        return;
+      }
+      // If an object is selected, deselect it
+      if (this.document.selected) {
+        this.setSelection(null);
+        e.stopImmediatePropagation();
+        return;
+      }
+      // Nothing selected — let Escape propagate to InputManager → pause menu
+      return;
+    }
+
     // Delegate to active tool first
     const ctx = this.buildToolContext();
     if (this.activeTool.onKeyDown?.(ctx, e)) return;
@@ -495,6 +592,9 @@ export class EditorManager {
     if (e.code === 'Delete' || e.code === 'Backspace') {
       this.deleteSelection();
       e.preventDefault();
+    }
+    if (e.code === 'KeyF' && !cmd && this.document.selected) {
+      this.focusSelection();
     }
 
     // Brush shortcuts 1-8
@@ -585,31 +685,50 @@ export class EditorManager {
     this.eventBus.emit('editor:objectSelected', obj ? { id: obj.id } : null);
   }
 
+  /** Frame the camera to look at and focus on the selected object (F key). */
+  private focusSelection(): void {
+    const obj = this.document.selected;
+    if (!obj) return;
+
+    // Compute bounding sphere for the object
+    const box = new THREE.Box3().setFromObject(obj.mesh);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+    const size = box.getSize(new THREE.Vector3());
+    const radius = Math.max(size.x, size.y, size.z) * 0.5;
+
+    // Position camera at a comfortable distance looking at the object
+    const dist = Math.max(radius * 3, 2);
+    const cam = this.renderer.camera;
+    const dir = new THREE.Vector3()
+      .subVectors(cam.position, center)
+      .normalize();
+    // If camera is exactly at center, use a default direction
+    if (dir.lengthSq() < 0.001) dir.set(0, 0.5, 1).normalize();
+
+    cam.position.copy(center).addScaledVector(dir, dist);
+
+    // Update camera to look at the target
+    cam.lookAt(center);
+
+    // Re-sync FreeCamera yaw/pitch from the new quaternion
+    this.freeCamera.disable();
+    this.freeCamera.enable();
+  }
+
   private setSelectionHelper(target: THREE.Object3D | null): void {
     this.clearSelectionHelper();
     if (!target) return;
+
+    // Use BoxHelper which auto-updates to track the object's world-space AABB.
+    // This is simpler and avoids parenting issues during play-test serialization.
     const helper = new THREE.BoxHelper(target, 0x4fc3f7);
     const material = helper.material as THREE.LineBasicMaterial;
     material.depthTest = false;
     material.transparent = true;
     material.opacity = 0.85;
-    this.ensureHelperNormals(helper);
     this.renderer.scene.add(helper);
     this.selectionHelper = helper;
-  }
-
-  private ensureHelperNormals(root: THREE.Object3D): void {
-    root.traverse((node) => {
-      const mesh = node as THREE.Mesh;
-      if (!mesh.geometry || !('attributes' in mesh.geometry)) return;
-      const geometry = mesh.geometry as THREE.BufferGeometry;
-      if (geometry.attributes.normal) return;
-      const position = geometry.attributes.position;
-      if (!position) return;
-      const count = position.count;
-      const normals = new Float32Array(count * 3);
-      geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
-    });
   }
 
   private clearSelectionHelper(): void {
@@ -627,7 +746,9 @@ export class EditorManager {
   private buildEditorObjects(): void {
     const map = new Map<string, EditorObject>();
     for (const obj of this.levelManager.getLevelObjects()) {
-      if (obj instanceof THREE.Mesh) {
+      // Accept Meshes and any Object3D tagged with editorSource (GLB Groups, etc.)
+      // Skip lights and other internal objects.
+      if (obj instanceof THREE.Mesh || obj.userData?.editorSource) {
         const entry = this.buildEditorObject(obj);
         map.set(obj.uuid, entry);
       }
@@ -655,21 +776,33 @@ export class EditorManager {
       scale: [mesh.scale.x, mesh.scale.y, mesh.scale.z] as [number, number, number],
     };
 
-    // Extract material properties if it's a standard material
+    // Extract material properties — for Mesh directly, for Groups find first child mesh
     let material: EditorObject['material'];
+    let matSource: THREE.MeshStandardMaterial | null = null;
     const meshObj = mesh as THREE.Mesh;
     if (meshObj.isMesh && meshObj.material) {
       const mat = meshObj.material as THREE.MeshStandardMaterial;
-      if (mat.isMeshStandardMaterial) {
-        material = {
-          color: '#' + mat.color.getHexString(),
-          roughness: mat.roughness,
-          metalness: mat.metalness,
-          emissive: '#' + mat.emissive.getHexString(),
-          emissiveIntensity: mat.emissiveIntensity,
-          opacity: mat.opacity,
-        };
-      }
+      if (mat.isMeshStandardMaterial) matSource = mat;
+    }
+    if (!matSource) {
+      mesh.traverse((child) => {
+        if (matSource) return;
+        const cm = child as THREE.Mesh;
+        if (cm.isMesh && cm.material) {
+          const mat = cm.material as THREE.MeshStandardMaterial;
+          if (mat.isMeshStandardMaterial) matSource = mat;
+        }
+      });
+    }
+    if (matSource) {
+      material = {
+        color: '#' + matSource.color.getHexString(),
+        roughness: matSource.roughness,
+        metalness: matSource.metalness,
+        emissive: '#' + matSource.emissive.getHexString(),
+        emissiveIntensity: matSource.emissiveIntensity,
+        opacity: matSource.opacity,
+      };
     }
 
     return {
@@ -728,6 +861,42 @@ export class EditorManager {
     const newObj = this.document.duplicateById(id);
     if (!newObj) return;
 
+    // Create fresh physics body/collider for the duplicate (structuredClone
+    // cannot clone live Rapier handles — the duplicated EditorObject has none).
+    const meshObj = newObj.mesh as THREE.Mesh;
+    if (newObj.physicsType && newObj.physicsType !== 'static' || meshObj.isMesh) {
+      const pos = newObj.mesh.position;
+      const q = newObj.mesh.quaternion;
+      let bodyDesc: RAPIER.RigidBodyDesc;
+      if (newObj.physicsType === 'dynamic') {
+        bodyDesc = RAPIER.RigidBodyDesc.dynamic();
+      } else if (newObj.physicsType === 'kinematic') {
+        bodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased();
+      } else {
+        bodyDesc = RAPIER.RigidBodyDesc.fixed();
+      }
+      bodyDesc.setTranslation(pos.x, pos.y, pos.z);
+      bodyDesc.setRotation(new RAPIER.Quaternion(q.x, q.y, q.z, q.w));
+      const body = this.physicsWorld.world.createRigidBody(bodyDesc);
+
+      newObj.mesh.updateMatrixWorld(true);
+      let colliderDesc: RAPIER.ColliderDesc;
+      if (newObj.source?.type === 'brush' && newObj.source.brush && meshObj.isMesh && meshObj.geometry) {
+        colliderDesc = buildColliderDesc(newObj.source.brush, meshObj.geometry, meshObj);
+      } else {
+        const box = new THREE.Box3().setFromObject(newObj.mesh);
+        const size = box.getSize(new THREE.Vector3());
+        colliderDesc = RAPIER.ColliderDesc.cuboid(
+          Math.max(size.x / 2, 0.01),
+          Math.max(size.y / 2, 0.01),
+          Math.max(size.z / 2, 0.01),
+        );
+      }
+      const collider = this.physicsWorld.world.createCollider(colliderDesc, body);
+      newObj.body = body;
+      newObj.collider = collider;
+    }
+
     this.history.push({
       execute: () => {
         this.document.addObject(newObj, this.renderer.scene);
@@ -766,8 +935,13 @@ export class EditorManager {
     mat.emissive.set(material.emissive);
     mat.emissiveIntensity = material.emissiveIntensity;
     mat.opacity = material.opacity;
-    mat.transparent = material.opacity < 1;
-    mat.needsUpdate = true;
+    // Only trigger shader recompile when transparent flag actually changes
+    // (uniform-only changes like color/roughness auto-sync without needsUpdate)
+    const needsTransparent = material.opacity < 1;
+    if (mat.transparent !== needsTransparent) {
+      mat.transparent = needsTransparent;
+      mat.needsUpdate = true;
+    }
 
     // Update editor object material record
     this.document.selected.material = { ...material };
@@ -841,6 +1015,7 @@ export class EditorManager {
     this.document.selected.mesh.position.set(transform.position[0], transform.position[1], transform.position[2]);
     this.document.selected.mesh.rotation.set(transform.rotation[0], transform.rotation[1], transform.rotation[2]);
     this.document.selected.mesh.scale.set(transform.scale[0], transform.scale[1], transform.scale[2]);
+    this.document.selected.mesh.updateMatrixWorld(true);
     this.updateEditorObjectTransform(this.document.selected);
     this.applyPhysicsTransform(this.document.selected);
   }
@@ -880,6 +1055,8 @@ export class EditorManager {
     }
     this.applyPhysicsTransform(this.document.selected);
     this.inspectorPanel.setSelection(this.document.selected);
+    // Force world matrix update so BoxHelper.update() reads correct bounds
+    this.document.selected.mesh.updateMatrixWorld(true);
   }
 
   /* ==================================================================
@@ -941,6 +1118,46 @@ export class EditorManager {
     obj.body.setTranslation(new RAPIER.Vector3(pos.x, pos.y, pos.z), true);
     const q = obj.mesh.quaternion;
     obj.body.setRotation(new RAPIER.Quaternion(q.x, q.y, q.z, q.w), true);
+
+    // Rebuild collider when scale changes (collider shape cannot be rescaled in-place).
+    // Must handle different shape types: cuboid, cylinder, trimesh.
+    if (obj.collider && obj.body) {
+      obj.mesh.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(obj.mesh);
+      const size = box.getSize(new THREE.Vector3());
+
+      // Determine if rebuild is needed by comparing against current AABB size
+      const shapeType = obj.collider.shapeType();
+      let needsRebuild = false;
+
+      if (shapeType === RAPIER.ShapeType.Cuboid) {
+        const cur = (obj.collider.shape as RAPIER.Cuboid).halfExtents;
+        needsRebuild = Math.abs(cur.x - size.x / 2) > 0.001 ||
+                        Math.abs(cur.y - size.y / 2) > 0.001 ||
+                        Math.abs(cur.z - size.z / 2) > 0.001;
+      } else {
+        // For trimesh/cylinder: always rebuild on any scale change since
+        // we can't easily compare the current shape's dimensions
+        needsRebuild = true;
+      }
+
+      if (needsRebuild) {
+        this.physicsWorld.world.removeCollider(obj.collider, true);
+        // Use shape-appropriate collider if this is a brush object
+        const meshObj = obj.mesh as THREE.Mesh;
+        let colliderDesc: RAPIER.ColliderDesc;
+        if (obj.source?.type === 'brush' && obj.source.brush && meshObj.isMesh && meshObj.geometry) {
+          colliderDesc = buildColliderDesc(obj.source.brush, meshObj.geometry, meshObj);
+        } else {
+          colliderDesc = RAPIER.ColliderDesc.cuboid(
+            Math.max(size.x / 2, 0.01),
+            Math.max(size.y / 2, 0.01),
+            Math.max(size.z / 2, 0.01),
+          );
+        }
+        obj.collider = this.physicsWorld.world.createCollider(colliderDesc, obj.body);
+      }
+    }
   }
 
   private applyTransform(
@@ -966,6 +1183,7 @@ export class EditorManager {
     this.history.push({
       execute: () => {
         this.document.removeObject(target);
+        this.levelManager.removeLevelObject(target.mesh);
         this.setSelection(null);
         this.syncHierarchy();
         this.eventBus.emit('editor:objectRemoved', { id: target.id });
@@ -1002,7 +1220,7 @@ export class EditorManager {
       const n = this.physicsWorld.castRayAndGetNormal(origin, dir, hit.timeOfImpact + 0.001, exclude);
       if (n?.normal?.y != null && n.normal.y > 0.25) {
         const groundY = originY - hit.timeOfImpact;
-        this.grid.grid.position.y = groundY + 0.01;
+        this.grid.setHeight(groundY);
         return;
       }
       exclude = hit.collider;
@@ -1053,12 +1271,64 @@ export class EditorManager {
   }
 
   private async applyLoadedLevel(data: LevelData): Promise<void> {
-    // Remove editor-spawned objects
-    this.document.removeEditorSpawnedObjects();
+    // ── Phase 1: Remove ALL tracked editor objects ──
+    for (const obj of this.document.objects) {
+      if (obj.mesh.parent) {
+        obj.mesh.parent.remove(obj.mesh);
+      }
+      if (obj.body) {
+        this.physicsWorld.removeBody(obj.body);
+        obj.body = undefined;
+        obj.collider = undefined;
+      } else if (obj.collider) {
+        this.physicsWorld.removeCollider(obj.collider);
+        obj.collider = undefined;
+      }
+    }
+    this.document.objects = [];
 
-    // Spawn loaded objects
+    // ── Phase 2: Remove any remaining level-loaded objects from the scene ──
+    // These are meshes that were loaded by LevelManager.loadFromJSON but are
+    // NOT tracked in document.objects (e.g., after levelManager arrays were
+    // already cleared by a previous restore).
+    for (const mesh of [...this.levelManager.getLevelObjects()]) {
+      this.renderer.scene.remove(mesh);
+      this.levelManager.removeLevelObject(mesh);
+    }
+
+    // ── Phase 3: Remove any orphaned editor objects from scene ──
+    // Safety sweep: catches GLB Groups, Meshes, or any Object3D tagged with
+    // editorSource that survived previous restores. Only collect roots (objects
+    // whose parent is NOT also tagged) to avoid removing children twice.
+    const orphanedRoots: THREE.Object3D[] = [];
+    this.renderer.scene.traverse((child) => {
+      if (child.userData?.editorSource && !child.parent?.userData?.editorSource) {
+        orphanedRoots.push(child);
+      }
+    });
+    for (const node of orphanedRoots) {
+      node.parent?.remove(node);
+    }
+
+    // ── Phase 4: Spawn fresh objects from the snapshot ──
     for (const entry of data.objects) {
       await this.spawnSerializedObject(entry);
+    }
+
+    // ── Phase 5: Reconstruct parent-child hierarchy ──
+    // spawnSerializedObject adds all objects as direct scene children.
+    // Resolve parentId references and re-attach children to their parents.
+    for (const obj of this.document.objects) {
+      if (obj.parentId) {
+        const parent = this.document.findById(obj.parentId);
+        if (parent) {
+          parent.mesh.add(obj.mesh);
+          if (!parent.children) parent.children = [];
+          if (!parent.children.includes(obj.id)) {
+            parent.children.push(obj.id);
+          }
+        }
+      }
     }
 
     this.syncHierarchy();
@@ -1079,20 +1349,26 @@ export class EditorManager {
     } else if (entry.source.type === 'brush' && entry.source.brush) {
       const brush = getBrushById(entry.source.brush);
       if (brush) {
-        const defaultParams = {
-          anchor: new THREE.Vector3(0, 0, 0),
-          current: new THREE.Vector3(1, 0, 1),
-          normal: new THREE.Vector3(0, 1, 0),
-          height: 1,
+        // Use the brush's own default params — NOT hardcoded (1,0,1)/height:1
+        const bp = brush.defaultParams;
+        const params = {
+          anchor: bp?.anchor?.clone() ?? new THREE.Vector3(0, 0, 0),
+          current: bp?.current?.clone() ?? new THREE.Vector3(1, 0, 1),
+          normal: bp?.normal?.clone() ?? new THREE.Vector3(0, 1, 0),
+          height: bp?.height ?? 1,
         };
-        const geometry = brush.buildPreviewGeometry(defaultParams);
+        const geometry = brush.buildPreviewGeometry(params);
         const material = brush.getDefaultMaterial();
         obj = new THREE.Mesh(geometry, material);
       }
     } else if (entry.source.type === 'glb' && entry.source.asset) {
       try {
         const gltf = await this.levelManager.getAssetLoader().load(entry.source.asset);
-        obj = gltf.scene.clone();
+        obj = skeletonClone(gltf.scene);
+        // Preserve animation clips
+        if (gltf.animations?.length) {
+          obj.userData.animations = gltf.animations;
+        }
       } catch (err) {
         console.warn(`[Editor] Failed to load GLB "${entry.source.asset}", using placeholder`, err);
         obj = new THREE.Mesh(
@@ -1111,18 +1387,29 @@ export class EditorManager {
     const editorObj = this.buildEditorObject(obj);
     editorObj.name = entry.name;
     editorObj.source = entry.source;
+    editorObj.parentId = entry.parentId ?? null;
 
-    // Apply material properties from serialized data
-    if (entry.material && obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshStandardMaterial) {
-      const mat = obj.material;
-      mat.color.set(entry.material.color);
-      mat.roughness = entry.material.roughness;
-      mat.metalness = entry.material.metalness;
-      mat.emissive.set(entry.material.emissive);
-      mat.emissiveIntensity = entry.material.emissiveIntensity;
-      if (entry.material.opacity < 1) {
-        mat.transparent = true;
-        mat.opacity = entry.material.opacity;
+    // Apply material properties from serialized data.
+    // For GLBs (Groups), traverse children to find the first MeshStandardMaterial.
+    if (entry.material) {
+      const applyMat = (target: THREE.Object3D): void => {
+        if (target instanceof THREE.Mesh && target.material instanceof THREE.MeshStandardMaterial) {
+          const mat = target.material;
+          mat.color.set(entry.material!.color);
+          mat.roughness = entry.material!.roughness;
+          mat.metalness = entry.material!.metalness;
+          mat.emissive.set(entry.material!.emissive);
+          mat.emissiveIntensity = entry.material!.emissiveIntensity;
+          if (entry.material!.opacity < 1) {
+            mat.transparent = true;
+            mat.opacity = entry.material!.opacity;
+          }
+        }
+      };
+      if (obj instanceof THREE.Mesh) {
+        applyMat(obj);
+      } else {
+        obj.traverse(applyMat);
       }
       editorObj.material = entry.material;
     }
@@ -1141,18 +1428,26 @@ export class EditorManager {
       } else {
         bodyDesc = RAPIER.RigidBodyDesc.dynamic();
       }
-      // Compute collider from actual object bounds
       obj.updateMatrixWorld(true);
       const box = new THREE.Box3().setFromObject(obj);
-      const size = box.getSize(new THREE.Vector3());
       const center = box.getCenter(new THREE.Vector3());
       bodyDesc.setTranslation(center.x, center.y, center.z);
       const body = this.physicsWorld.world.createRigidBody(bodyDesc);
-      const colliderDesc = RAPIER.ColliderDesc.cuboid(
-        Math.max(size.x / 2, 0.01),
-        Math.max(size.y / 2, 0.01),
-        Math.max(size.z / 2, 0.01),
-      );
+
+      // Use shape-appropriate collider for brushes, AABB cuboid for others
+      let colliderDesc: RAPIER.ColliderDesc;
+      const meshObj = obj as THREE.Mesh;
+      if (entry.source.type === 'brush' && entry.source.brush && meshObj.isMesh && meshObj.geometry) {
+        colliderDesc = buildColliderDesc(entry.source.brush, meshObj.geometry, meshObj);
+      } else {
+        const size = box.getSize(new THREE.Vector3());
+        colliderDesc = RAPIER.ColliderDesc.cuboid(
+          Math.max(size.x / 2, 0.01),
+          Math.max(size.y / 2, 0.01),
+          Math.max(size.z / 2, 0.01),
+        );
+      }
+
       const collider = this.physicsWorld.world.createCollider(colliderDesc, body);
       editorObj.body = body;
       editorObj.collider = collider;
