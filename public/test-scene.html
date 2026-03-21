@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Kinema Animation Test Scene</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: #1a1a2e; font-family: 'Segoe UI', sans-serif; }
+    canvas { display: block; }
+    #hud { position: absolute; top: 0; left: 0; right: 0; pointer-events: none; }
+    #info { position: absolute; top: 10px; left: 10px; color: #0f0; font: 13px monospace; white-space: pre; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 6px; max-height: 40vh; overflow-y: auto; pointer-events: auto; }
+    #controls { position: absolute; bottom: 10px; left: 10px; right: 10px; display: flex; flex-wrap: wrap; gap: 4px; pointer-events: auto; }
+    #controls button { padding: 6px 10px; font: 12px monospace; border: 1px solid #555; background: #222; color: #ccc; cursor: pointer; border-radius: 4px; }
+    #controls button:hover { background: #444; }
+    #controls button.active { background: #0a5; color: #fff; border-color: #0f8; }
+    #bones { position: absolute; top: 10px; right: 10px; color: #ff0; font: 11px monospace; background: rgba(0,0,0,0.7); padding: 8px; border-radius: 6px; max-height: 50vh; overflow-y: auto; pointer-events: auto; }
+    .section-label { color: #888; font-size: 11px; padding: 4px 0; border-bottom: 1px solid #333; margin: 4px 0; display: block; pointer-events: none; }
+  </style>
+</head>
+<body>
+<div id="hud">
+  <div id="info">Loading...</div>
+  <div id="bones"></div>
+  <div id="controls"></div>
+</div>
+<script type="importmap">
+{
+  "imports": {
+    "three": "/node_modules/three/build/three.module.js",
+    "three/addons/": "/node_modules/three/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
+
+const info = document.getElementById('info');
+const bonesDiv = document.getElementById('bones');
+const controlsDiv = document.getElementById('controls');
+const log = (msg) => { info.textContent += '\n' + msg; };
+
+// --- Scene setup ---
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1a2e);
+scene.fog = new THREE.Fog(0x1a1a2e, 15, 30);
+
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 100);
+camera.position.set(0, 1.5, 4);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+document.body.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.7, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.update();
+
+// Lights
+const ambient = new THREE.AmbientLight(0x6688cc, 0.4);
+scene.add(ambient);
+const dirLight = new THREE.DirectionalLight(0xffeedd, 1.5);
+dirLight.position.set(5, 8, 5);
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.set(2048, 2048);
+dirLight.shadow.camera.near = 0.5;
+dirLight.shadow.camera.far = 25;
+dirLight.shadow.camera.left = -5;
+dirLight.shadow.camera.right = 5;
+dirLight.shadow.camera.top = 5;
+dirLight.shadow.camera.bottom = -5;
+scene.add(dirLight);
+const hemi = new THREE.HemisphereLight(0x88aacc, 0x443322, 0.3);
+scene.add(hemi);
+
+// Ground
+const groundGeo = new THREE.PlaneGeometry(20, 20);
+const groundMat = new THREE.MeshStandardMaterial({ color: 0x334455, roughness: 0.9 });
+const ground = new THREE.Mesh(groundGeo, groundMat);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// Grid
+const grid = new THREE.GridHelper(20, 40, 0x445566, 0x334455);
+grid.position.y = 0.001;
+scene.add(grid);
+
+// --- Load model ---
+const loader = new GLTFLoader();
+const dracoLoader = new DRACOLoader();
+dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/');
+loader.setDRACOLoader(dracoLoader);
+
+const UAL1 = './assets/models/Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb';
+const UAL2 = './assets/models/Universal Animation Library 2[Standard]/Unreal-Godot/UAL2_Standard.glb';
+
+log('Loading assets...');
+const [gltf1, gltf2] = await Promise.all([loader.loadAsync(UAL1), loader.loadAsync(UAL2)]);
+log(`UAL1: ${gltf1.animations.length} anims | UAL2: ${gltf2.animations.length} anims`);
+
+const model = skeletonClone(gltf1.scene);
+model.traverse(n => { if (n.isMesh) { n.castShadow = true; n.receiveShadow = true; } });
+
+// Scale to ~1.3m
+const box = new THREE.Box3().setFromObject(model);
+const h = box.max.y - box.min.y;
+const sc = 1.3 / h;
+model.scale.setScalar(sc);
+const sbox = new THREE.Box3().setFromObject(model);
+model.position.y = -sbox.min.y;
+scene.add(model);
+
+// Collect clips
+const clips = new Map();
+for (const c of gltf1.animations) if (!clips.has(c.name)) clips.set(c.name, c.clone());
+for (const c of gltf2.animations) if (!clips.has(c.name)) clips.set(c.name, c.clone());
+
+// Collect bone names
+const bones = [];
+let handR = null;
+model.traverse(n => {
+  if (n.isBone) { bones.push(n); if (n.name === 'hand_r') handR = n; }
+});
+
+log(`Model: ${h.toFixed(2)}m → ${(h*sc).toFixed(2)}m | ${bones.length} bones | ${clips.size} clips`);
+
+// --- Hand bone marker ---
+const handMarker = new THREE.Mesh(
+  new THREE.SphereGeometry(0.015),
+  new THREE.MeshBasicMaterial({ color: 0xff0000 })
+);
+scene.add(handMarker);
+
+// --- Test cube (for grab testing) ---
+const testCube = new THREE.Mesh(
+  new THREE.BoxGeometry(0.15, 0.15, 0.15),
+  new THREE.MeshStandardMaterial({ color: 0xff8800, roughness: 0.3 })
+);
+testCube.castShadow = true;
+testCube.position.set(0.5, 0.075, 0);
+scene.add(testCube);
+let cubeFollowHand = false;
+
+// --- NPC tint test (3 tinted copies) ---
+const tintColors = [
+  new THREE.Color(0xcc4444),
+  new THREE.Color(0x44cc44),
+  new THREE.Color(0x4488cc),
+];
+for (let i = 0; i < 3; i++) {
+  const npc = skeletonClone(gltf1.scene);
+  npc.traverse(n => {
+    if (n.isMesh) {
+      n.castShadow = true;
+      const mats = Array.isArray(n.material) ? n.material : [n.material];
+      for (const m of mats) {
+        if (m.isMeshStandardMaterial) {
+          m.color.lerp(tintColors[i], 0.6);
+          m.emissive.copy(tintColors[i]);
+          m.emissiveIntensity = 0.08;
+        }
+      }
+    }
+  });
+  npc.scale.setScalar(sc);
+  const nbox = new THREE.Box3().setFromObject(npc);
+  npc.position.set((i - 1) * 1.5 + 3, -nbox.min.y, 0);
+  scene.add(npc);
+
+  // Animate NPC with idle
+  const npcMixer = new THREE.AnimationMixer(npc);
+  const idleClip = clips.get('Idle_Loop');
+  if (idleClip) {
+    const a = npcMixer.clipAction(idleClip.clone());
+    a.play();
+  }
+  window['__npcMixer' + i] = npcMixer;
+}
+
+// --- Mixer + Animation system ---
+const mixer = new THREE.AnimationMixer(model);
+let currentAction = null;
+let currentClipName = '';
+
+function playAnim(name) {
+  const clip = clips.get(name);
+  if (!clip) { log('Clip not found: ' + name); return; }
+  if (currentAction) currentAction.fadeOut(0.15);
+  const action = mixer.clipAction(clip);
+  action.reset().fadeIn(0.15).play();
+  currentAction = action;
+  currentClipName = name;
+  // Update button highlights
+  controlsDiv.querySelectorAll('button').forEach(b => {
+    b.classList.toggle('active', b.dataset.clip === name);
+  });
+}
+
+// --- Animation categories ---
+const categories = {
+  'Locomotion': ['Idle_Loop', 'Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Walk_Formal_Loop', 'Crouch_Idle_Loop', 'Crouch_Fwd_Loop'],
+  'Jump/Air': ['Jump_Start', 'Jump_Loop', 'Jump_Land', 'NinjaJump_Start', 'NinjaJump_Land', 'NinjaJump_Idle_Loop', 'Roll', 'Slide_Start', 'Slide_Loop', 'Slide_Exit'],
+  'Combat': ['Punch_Jab', 'Punch_Cross', 'Sword_Attack', 'Sword_Idle', 'Sword_Block', 'Sword_Regular_Combo', 'Melee_Hook'],
+  'Ranged': ['Pistol_Idle_Loop', 'Pistol_Aim_Neutral', 'Pistol_Shoot', 'Pistol_Reload'],
+  'Interact': ['Interact', 'Push_Loop', 'PickUp_Table', 'Walk_Carry_Loop', 'OverhandThrow', 'Chest_Open', 'Consume'],
+  'Status': ['Death01', 'Hit_Chest', 'Hit_Head', 'Hit_Knockback', 'Sitting_Idle_Loop', 'Idle_Talking_Loop'],
+  'Special': ['Swim_Idle_Loop', 'Swim_Fwd_Loop', 'Dance_Loop', 'ClimbUp_1m_RM', 'Spell_Simple_Shoot', 'TreeChopping_Loop', 'Driving_Loop'],
+};
+
+for (const [cat, anims] of Object.entries(categories)) {
+  const label = document.createElement('span');
+  label.className = 'section-label';
+  label.textContent = cat;
+  controlsDiv.appendChild(label);
+  for (const name of anims) {
+    if (!clips.has(name)) continue;
+    const btn = document.createElement('button');
+    btn.textContent = name.replace(/_/g, ' ');
+    btn.dataset.clip = name;
+    btn.onclick = () => playAnim(name);
+    controlsDiv.appendChild(btn);
+  }
+}
+
+// Extra button: toggle cube-follow-hand
+const cubeBtn = document.createElement('button');
+cubeBtn.textContent = '🟧 Cube→Hand';
+cubeBtn.style.background = '#553300';
+cubeBtn.onclick = () => { cubeFollowHand = !cubeFollowHand; cubeBtn.classList.toggle('active', cubeFollowHand); };
+controlsDiv.appendChild(cubeBtn);
+
+// Start with idle
+playAnim('Idle_Loop');
+
+// --- Animate ---
+const clock = new THREE.Clock();
+const _handPos = new THREE.Vector3();
+let frame = 0;
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = clock.getDelta();
+  mixer.update(dt);
+
+  // Update NPC mixers
+  for (let i = 0; i < 3; i++) {
+    const m = window['__npcMixer' + i];
+    if (m) m.update(dt);
+  }
+
+  controls.update();
+
+  // Track hand bone
+  if (handR) {
+    handR.updateWorldMatrix(true, false);
+    handR.getWorldPosition(_handPos);
+    handMarker.position.copy(_handPos);
+    if (cubeFollowHand) {
+      testCube.position.copy(_handPos);
+      testCube.position.x += 0.1;
+    }
+  }
+
+  // Update bone info every 10 frames
+  if (frame % 10 === 0 && currentAction) {
+    const clip = currentAction.getClip();
+    let boneInfo = `Animation: ${currentClipName}\n`;
+    boneInfo += `Time: ${currentAction.time.toFixed(2)} / ${clip.duration.toFixed(2)}s\n`;
+    boneInfo += `Weight: ${currentAction.getEffectiveWeight().toFixed(3)}\n`;
+    boneInfo += `Mixer: ${mixer.time.toFixed(2)}s\n`;
+    boneInfo += `─────────────────\n`;
+    if (handR) {
+      boneInfo += `Hand_R: ${_handPos.x.toFixed(3)}, ${_handPos.y.toFixed(3)}, ${_handPos.z.toFixed(3)}\n`;
+    }
+    bonesDiv.textContent = boneInfo;
+  }
+
+  renderer.render(scene, camera);
+  frame++;
+}
+
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+log('\nReady! Click buttons below to test animations.');
+log('Red sphere = hand_r bone position');
+log('Orange cube = test grab object');
+animate();
+</script>
+</body>
+</html>
