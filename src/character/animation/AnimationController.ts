@@ -34,6 +34,12 @@ export class AnimationController implements Disposable {
   private carryIdleAction: THREE.AnimationAction | null = null;
   private carryMoveAction: THREE.AnimationAction | null = null;
 
+  // Speed-switch smooth weight tracking
+  private crouchIdleWeight = 1;
+  private crouchMoveWeight = 0;
+  private carryIdleWeight = 1;
+  private carryMoveWeight = 0;
+
   constructor(
     private model: CharacterModel,
     private profile: AnimationProfile,
@@ -156,15 +162,22 @@ export class AnimationController implements Disposable {
 
     if (this.locoActive && this.profile.locomotion) {
       const [t0, t1] = this.profile.locomotion.thresholds;
+      // Three-zone blend: walk↔jog in lower half, jog↔sprint in upper half
+      const mid = (t0 + t1) * 0.5;
       if (horizontalSpeed <= t0) {
         this.locoTargetWeights.walk = 1;
         this.locoTargetWeights.jog = 0;
         this.locoTargetWeights.sprint = 0;
-      } else if (horizontalSpeed <= t1) {
-        const t = (horizontalSpeed - t0) / (t1 - t0);
+      } else if (horizontalSpeed <= mid) {
+        const t = (horizontalSpeed - t0) / (mid - t0);
         this.locoTargetWeights.walk = 1 - t;
         this.locoTargetWeights.jog = t;
         this.locoTargetWeights.sprint = 0;
+      } else if (horizontalSpeed <= t1) {
+        const t = (horizontalSpeed - mid) / (t1 - mid);
+        this.locoTargetWeights.walk = 0;
+        this.locoTargetWeights.jog = 1 - t;
+        this.locoTargetWeights.sprint = t;
       } else {
         this.locoTargetWeights.walk = 0;
         this.locoTargetWeights.jog = 0;
@@ -177,11 +190,11 @@ export class AnimationController implements Disposable {
     }
 
     if (this.currentState === STATE.crouch && this.crouchIdleAction && this.crouchMoveAction) {
-      this.updateSpeedSwitch(this.crouchIdleAction, this.crouchMoveAction, horizontalSpeed);
+      this.updateSpeedSwitch(this.crouchIdleAction, this.crouchMoveAction, horizontalSpeed, 'crouchIdleWeight', 'crouchMoveWeight');
     }
 
     if (this.currentState === STATE.carry && this.carryIdleAction && this.carryMoveAction) {
-      this.updateSpeedSwitch(this.carryIdleAction, this.carryMoveAction, horizontalSpeed);
+      this.updateSpeedSwitch(this.carryIdleAction, this.carryMoveAction, horizontalSpeed, 'carryIdleWeight', 'carryMoveWeight');
     }
   }
 
@@ -204,6 +217,22 @@ export class AnimationController implements Disposable {
       if (this.locoWalk) this.locoWalk.setEffectiveWeight(this.locoWeights.walk);
       if (this.locoJog) this.locoJog.setEffectiveWeight(this.locoWeights.jog);
       if (this.locoSprint) this.locoSprint.setEffectiveWeight(this.locoWeights.sprint);
+    }
+
+    // Smooth speed-switch weight interpolation for crouch/carry
+    if (this.currentState === STATE.crouch && this.crouchIdleAction && this.crouchMoveAction) {
+      const f = 1 - Math.exp(-WEIGHT_LAMBDA * dt);
+      const curIdle = this.crouchIdleAction.getEffectiveWeight();
+      const curMove = this.crouchMoveAction.getEffectiveWeight();
+      this.crouchIdleAction.setEffectiveWeight(curIdle + (this.crouchIdleWeight - curIdle) * f);
+      this.crouchMoveAction.setEffectiveWeight(curMove + (this.crouchMoveWeight - curMove) * f);
+    }
+    if (this.currentState === STATE.carry && this.carryIdleAction && this.carryMoveAction) {
+      const f = 1 - Math.exp(-WEIGHT_LAMBDA * dt);
+      const curIdle = this.carryIdleAction.getEffectiveWeight();
+      const curMove = this.carryMoveAction.getEffectiveWeight();
+      this.carryIdleAction.setEffectiveWeight(curIdle + (this.carryIdleWeight - curIdle) * f);
+      this.carryMoveAction.setEffectiveWeight(curMove + (this.carryMoveWeight - curMove) * f);
     }
 
     this.mixer.update(dt);
@@ -269,14 +298,16 @@ export class AnimationController implements Disposable {
   }
 
   private updateSpeedSwitch(
-    idleAction: THREE.AnimationAction,
+    _idleAction: THREE.AnimationAction,
     moveAction: THREE.AnimationAction,
     speed: number,
+    idleWeightKey: 'crouchIdleWeight' | 'carryIdleWeight',
+    moveWeightKey: 'crouchMoveWeight' | 'carryMoveWeight',
   ): void {
-    const moving = speed > SPEED_SWITCH_THRESHOLD;
-    idleAction.setEffectiveWeight(moving ? 0 : 1);
-    moveAction.setEffectiveWeight(moving ? 1 : 0);
-    if (moving) {
+    // Store target weights — actual interpolation happens in update()
+    this[idleWeightKey] = speed > SPEED_SWITCH_THRESHOLD ? 0 : 1;
+    this[moveWeightKey] = speed > SPEED_SWITCH_THRESHOLD ? 1 : 0;
+    if (speed > SPEED_SWITCH_THRESHOLD) {
       moveAction.timeScale = Math.max(0.1, speed / WALK_AUTHORED_SPEED);
     }
   }

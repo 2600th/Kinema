@@ -21,7 +21,8 @@ export class LandState extends State {
     if (!isGrounded) return STATE.air;
     if (input.jumpPressed) return STATE.jump;
 
-    if (this.timer <= 0) {
+    // Exit when timer expires OR animation clip finishes (whichever comes first)
+    if (this.timer <= 0 || this.player.isAnimationFinished()) {
       const hasMovement = input.forward || input.backward || input.left || input.right;
       return hasMovement ? STATE.move : STATE.idle;
     }

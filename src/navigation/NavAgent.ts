@@ -58,16 +58,18 @@ export class NavAgent {
     const newY = position.y + 0.5;
     const newZ = position.z;
 
-    // Compute velocity from position delta
+    // Compute horizontal velocity from position delta
     if (dt && dt > 0) {
       const dx = newX - this.prevPosition.x;
-      const dy = newY - this.prevPosition.y;
       const dz = newZ - this.prevPosition.z;
-      this.velocity = Math.sqrt(dx * dx + dy * dy + dz * dz) / dt;
+      this.velocity = Math.sqrt(dx * dx + dz * dz) / dt;
 
-      // Rotate toward movement direction
+      // Smooth rotation toward movement direction
       if (dx * dx + dz * dz > 0.0001) {
-        this.mesh.rotation.y = Math.atan2(dx, dz);
+        const targetAngle = Math.atan2(dx, dz);
+        const currentAngle = this.mesh.rotation.y;
+        const diff = ((targetAngle - currentAngle + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+        this.mesh.rotation.y += diff * (1 - Math.exp(-10 * dt));
       }
     }
 

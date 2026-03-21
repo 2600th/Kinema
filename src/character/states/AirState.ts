@@ -21,7 +21,7 @@ export class AirState extends State {
     }
 
     // Route to land state on high-impact landings
-    const impactSpeed = Math.abs(this.player.verticalVelocity);
+    const impactSpeed = Math.abs(this.player.prevVerticalVelocity);
     if (impactSpeed > 2.0) return STATE.land;
 
     // Low-impact: skip land animation for snappy feel

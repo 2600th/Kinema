@@ -75,7 +75,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
   private canJump = false;
   private jumpActive = false;
-  private prevVerticalVelocity = 0;
+  public prevVerticalVelocity = 0;
   private jumpBufferRemaining = 0;
   private remainingAirJumps = this.config.maxAirJumps;
   private isOnMovingObject = false;
@@ -120,6 +120,11 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
   getCameraHeightOffset(): number {
     return 0.55 * this.crouchVisual;
+  }
+
+  /** Check if the current one-shot animation clip has finished playing. */
+  isAnimationFinished(): boolean {
+    return this.animator?.isClipFinished() ?? false;
   }
 
   private colliderFactory: ColliderFactory;

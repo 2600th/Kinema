@@ -97,7 +97,13 @@ export class CharacterModel implements Disposable {
   }
 
   dispose(): void {
-    this.root.parent?.remove(this.root);
+    // Capture parent before removal so we can restore capsule visibility
+    const parent = this.root.parent;
+    if (parent) {
+      parent.remove(this.root);
+      const capsule = parent.getObjectByName('PlayerCapsule');
+      if (capsule) capsule.visible = true;
+    }
     this.root.traverse((node) => {
       if (node instanceof THREE.Mesh) {
         node.geometry.dispose();
@@ -117,11 +123,6 @@ export class CharacterModel implements Disposable {
         }
       }
     });
-    const parent = this.root.parent;
-    if (parent) {
-      const capsule = parent.getObjectByName('PlayerCapsule');
-      if (capsule) capsule.visible = true;
-    }
   }
 
   private static findRootBoneName(root: THREE.Object3D): string {
