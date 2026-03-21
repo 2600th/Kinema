@@ -76,22 +76,30 @@ export class CharacterModel implements Disposable {
       CharacterModel.stripRootMotion(clip, rootBoneName);
     }
 
-    if (import.meta.env.DEV) {
-      const boneNames: string[] = [];
-      root.traverse((n) => { if ((n as THREE.Bone).isBone) boneNames.push(n.name); });
-      const trackBoneNames = new Set<string>();
-      for (const clip of clips.values()) {
-        for (const track of clip.tracks) {
-          trackBoneNames.add(track.name.split('.')[0]);
-        }
-      }
-      const missing = [...trackBoneNames].filter(n => !boneNames.includes(n));
-      if (missing.length > 0) {
-        console.warn('[CharacterModel] Track targets NOT found in skeleton:', missing);
-      } else {
-        console.debug(`[CharacterModel] All ${trackBoneNames.size} track targets found in skeleton. ${clips.size} clips loaded.`);
+    // Diagnostic: verify track targets match skeleton bones
+    const boneNames: string[] = [];
+    root.traverse((n) => { if ((n as THREE.Bone).isBone) boneNames.push(n.name); });
+    const trackBoneNames = new Set<string>();
+    for (const clip of clips.values()) {
+      for (const track of clip.tracks) {
+        trackBoneNames.add(track.name.split('.')[0]);
       }
     }
+    const missing = [...trackBoneNames].filter(n => !boneNames.includes(n));
+    if (missing.length > 0) {
+      console.warn('[CharacterModel] Track targets NOT found in skeleton:', missing);
+    }
+    console.debug(`[CharacterModel] Loaded: ${clips.size} clips, ${boneNames.length} bones, ${trackBoneNames.size} track targets, ${missing.length} missing`);
+
+    // Verify SkinnedMesh is properly bound to skeleton
+    let skinnedMeshCount = 0;
+    root.traverse((n) => {
+      if ((n as THREE.SkinnedMesh).isSkinnedMesh) {
+        skinnedMeshCount++;
+        const sm = n as THREE.SkinnedMesh;
+        console.debug(`[CharacterModel] SkinnedMesh "${sm.name}": skeleton has ${sm.skeleton?.bones?.length ?? 0} bones, bound=${sm.skeleton?.bones?.[0]?.parent ? 'yes' : 'no'}`);
+      }
+    });
 
     return new CharacterModel(root, clips);
   }
