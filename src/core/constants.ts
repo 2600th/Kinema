@@ -114,6 +114,13 @@ export const GRAB_CAMERA_CONFIG: Partial<CameraConfig> = {
   rotationDamping: 8,
 };
 
+/** Camera overrides for throwable carry — slightly closer and higher to frame chest-level carry. */
+export const CARRY_CAMERA_CONFIG: Partial<CameraConfig> = {
+  distance: 3.8,
+  heightOffset: 1.6,
+  lateralDriftScale: 0.1,
+};
+
 /** Interaction sensor dimensions */
 export const INTERACTION_SENSOR_RADIUS = 2.5;
 export const INTERACTION_SENSOR_HALF_HEIGHT = 1.0;
