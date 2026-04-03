@@ -1769,7 +1769,7 @@ export class ProceduralBuilder {
     // --- Materials ---
     const glass = new THREE.MeshPhysicalMaterial({
       color: 0xbfe9ff, roughness: 0.05, metalness: 0,
-      transmission: 1, thickness: 0.35, ior: 1.45, transparent: true, opacity: 0.7,
+      transmission: 1, thickness: 0.35, ior: 1.45,
     });
     const mirror = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.02, metalness: 1 });
     const copper = new THREE.MeshStandardMaterial({ color: 0xb87333, roughness: 0.35, metalness: 1 });
@@ -1997,6 +1997,7 @@ export class ProceduralBuilder {
       tornadoEmissiveMat.side = THREE.DoubleSide;
       tornadoEmissiveMat.blending = THREE.AdditiveBlending;
       tornadoEmissiveMat.depthWrite = false;
+      tornadoEmissiveMat.forceSinglePass = true;
 
       tornadoEmissiveMat.positionNode = twistedCylinder(
         positionLocal, float(1), float(0.3), float(0.2), tornadoTime,
@@ -2122,6 +2123,7 @@ export class ProceduralBuilder {
       fireInnerMat.side = THREE.DoubleSide;
       fireInnerMat.blending = THREE.AdditiveBlending;
       fireInnerMat.depthWrite = false;
+      fireInnerMat.forceSinglePass = true;
 
       fireInnerMat.positionNode = twistedCylinder(positionLocal, float(0.5), float(0.0), float(0.6), fireTime);
 
@@ -2535,6 +2537,7 @@ export class ProceduralBuilder {
     const scanMat = new THREE.MeshStandardMaterial({
       color: 0x00ffff, emissive: 0x00ffff, emissiveIntensity: 1.5, transparent: true, opacity: 0.8,
       side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false,
+      forceSinglePass: true,
     });
     const scanRing = new THREE.Mesh(new THREE.RingGeometry(1.6, 1.85, 48), scanMat);
     scanRing.rotation.x = -Math.PI / 2;
