@@ -230,6 +230,7 @@ export async function createVfxShowcase(
         flameMat.side = THREE.DoubleSide;
         flameMat.depthWrite = false;
         flameMat.blending = THREE.AdditiveBlending;
+        flameMat.forceSinglePass = true;
 
         // --- Fire alpha computation ---
         const v = uv();
