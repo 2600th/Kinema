@@ -353,6 +353,7 @@ export class OrbitFollowCamera implements Updatable, Disposable {
         this._rv3Dir.x = _idealDir.x;
         this._rv3Dir.y = _idealDir.y;
         this._rv3Dir.z = _idealDir.z;
+        const carriedBody = this.target ? null : this.player.carriedBody;
         const rayHit = this.physicsWorld.castShape(
           this._rv3Origin,
           this._rQuatIdentity,
@@ -363,7 +364,11 @@ export class OrbitFollowCamera implements Updatable, Disposable {
           undefined,
           this.targetBody ?? this.player.body,
           COLLISION_GROUP_PLAYER,
-          (c) => !c.isSensor(),
+          (c) => {
+            if (c.isSensor()) return false;
+            if (carriedBody && c.parent() === carriedBody) return false;
+            return true;
+          },
         );
         this.cachedCollisionToi = rayHit ? rayHit.time_of_impact : Number.POSITIVE_INFINITY;
       }

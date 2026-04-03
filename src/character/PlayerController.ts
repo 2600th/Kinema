@@ -1,4 +1,4 @@
-import { DEFAULT_PLAYER_CONFIG, GRAB_CAMERA_CONFIG } from "@core/constants";
+import { DEFAULT_PLAYER_CONFIG, GRAB_CAMERA_CONFIG, CARRY_CAMERA_CONFIG } from "@core/constants";
 import type { EventBus } from "@core/EventBus";
 import {
   type Disposable,
@@ -386,6 +386,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
         } else {
           this.grabCarry.throwCarried(this.getCameraForward(), this.eventBus);
         }
+        this.eventBus.emit('camera:resetConfig', undefined);
         this.fsm.requestState(this.hasMovementInput(input) ? STATE.move : STATE.idle);
       } else if (input.crouchPressed) {
         this.grabCarry.dropCarried(
@@ -394,6 +395,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
           this.getCameraForward(),
           this.eventBus,
         );
+        this.eventBus.emit('camera:resetConfig', undefined);
         this.fsm.requestState(this.hasMovementInput(input) ? STATE.move : STATE.idle);
       }
     }
@@ -599,6 +601,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.grabCarry.startCarry(object);
     if (this.grabCarry.isCarrying) {
       this.fsm.requestState(STATE.carry);
+      this.eventBus.emit('camera:applyConfig', CARRY_CAMERA_CONFIG);
     }
   }
 
@@ -690,6 +693,11 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   /** Interpolated mesh position for render-frame consumers (camera, lighting). */
   get renderPosition(): THREE.Vector3 {
     return this.mesh.position;
+  }
+
+  /** The rigidbody of the currently carried throwable, if any. */
+  get carriedBody(): RAPIER.RigidBody | null {
+    return this.grabCarry.carriedBody;
   }
 
   /** Position at ground contact (bottom of capsule + float offset). */

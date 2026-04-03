@@ -60,6 +60,11 @@ export class GrabCarryController {
     return this.carriedObject !== null;
   }
 
+  /** The rigidbody of the currently carried object, if any. */
+  get carriedBody(): RAPIER.RigidBody | null {
+    return this.carriedObject?.body ?? null;
+  }
+
   /** Face normal of the grabbed box face (push direction). Null if no axis lock. */
   get grabAxis(): THREE.Vector3 | null {
     return this.grabFaceNormal;
