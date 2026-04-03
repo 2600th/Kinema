@@ -626,14 +626,9 @@ export async function createVfxShowcase(
       created.push(ringLight);
     }
   } catch (err) {
-    console.warn('[VfxShowcase] Failed to create VFX demos:', err);
-    return {
-      objects: created,
-      dispose: () => {
-        for (const obj of created) obj.removeFromParent();
-      },
-      update: () => {},
-    };
+    console.warn('[VfxShowcase] Failed to create VFX demos, cleaning up:', err);
+    for (const obj of created) obj.removeFromParent();
+    throw err;
   }
 
   return {
