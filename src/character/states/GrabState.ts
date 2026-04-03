@@ -38,6 +38,12 @@ export class GrabState extends State {
 
   getDesiredMovement(dt: number, input: InputState): THREE.Vector3 {
     const dir = this.player.computeMovementDirection(input);
+    const axis = this.player.grabCarry.grabAxis;
+    if (axis) {
+      // Project movement onto the grab axis (push/pull only)
+      const dot = dir.x * axis.x + dir.z * axis.z;
+      dir.set(axis.x * dot, 0, axis.z * dot);
+    }
     const speed = this.player.config.moveSpeed * this.player.config.crouchSpeedMultiplier;
     _movement.copy(dir).multiplyScalar(speed * dt);
     return _movement;

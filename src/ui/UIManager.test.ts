@@ -28,6 +28,23 @@ vi.mock('./components/DebugPanel', () => ({
   },
 }));
 
+vi.mock('./components/LoadingScreen', () => ({
+  LoadingScreen: class {
+    setProgress = vi.fn();
+    show = vi.fn();
+    hide = vi.fn(() => Promise.resolve());
+    dispose = vi.fn();
+  },
+}));
+
+vi.mock('./components/DeathEffect', () => ({
+  DeathEffect: class {
+    play = vi.fn();
+    dispose = vi.fn();
+    constructor(_eventBus: any) {}
+  },
+}));
+
 import { UIManager } from './UIManager';
 
 describe('UIManager', () => {

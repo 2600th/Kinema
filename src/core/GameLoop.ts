@@ -107,9 +107,10 @@ export class GameLoop {
     // Interpolation alpha — clamped to [0, 1]
     const alpha = Math.min(1, this.accumulator / PHYSICS_TIMESTEP);
 
-    // Variable render step
+    // Variable render step — pass dt=0 when frozen to freeze presentation
+    const renderDt = frozen ? 0 : dt;
     for (const obj of this.updatables) {
-      obj.update(dt, alpha);
+      obj.update(renderDt, alpha);
     }
 
     this.renderer.render();

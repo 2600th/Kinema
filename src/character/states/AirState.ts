@@ -16,6 +16,9 @@ export class AirState extends State {
   }
 
   handleInput(input: InputState, isGrounded: boolean): StateId | null {
+    // Allow interactions while airborne (e.g., rope grab, lever pull)
+    if (input.interactPressed) return STATE.interact;
+
     if (!isGrounded) {
       return null;
     }

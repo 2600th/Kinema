@@ -9,7 +9,6 @@ export class ParticleSystem implements RuntimeSystem {
   readonly id = "particles";
 
   private gameParticles: GameParticles | null = null;
-  private particleFootstepTimer = 0;
   private unsubs: (() => void)[] = [];
 
   constructor(
@@ -51,30 +50,27 @@ export class ParticleSystem implements RuntimeSystem {
         }
       }),
     );
+    // Animation-driven footstep dust
+    this.unsubs.push(
+      this.eventBus.on("animation:footstep", () => {
+        if (this.vehicleManager.isActive() || !this.playerController.body) return;
+        if (!this.playerController.isGrounded) return;
+        const vel = this.playerController.body.linvel();
+        const planarSpeed = Math.hypot(vel.x, vel.z);
+        if (planarSpeed <= 0.8) return;
+        if (this.gameParticles) {
+          this.gameParticles.footstepDust(this.playerController.groundPosition, planarSpeed);
+        } else {
+          void this.ensureGameParticles().then((p) =>
+            p.footstepDust(this.playerController.groundPosition, planarSpeed),
+          );
+        }
+      }),
+    );
   }
 
-  fixedUpdate(dt: number): void {
-    if (!this.vehicleManager.isActive() && this.playerController.body) {
-      const vel = this.playerController.body.linvel();
-      const planarSpeed = Math.hypot(vel.x, vel.z);
-      const movingOnGround = this.playerController.isGrounded && planarSpeed > 1.15;
-      if (!movingOnGround) {
-        this.particleFootstepTimer = 0;
-      } else {
-        this.particleFootstepTimer -= dt;
-        if (this.particleFootstepTimer <= 0) {
-          if (this.gameParticles) {
-            this.gameParticles.footstepDust(this.playerController.groundPosition, planarSpeed);
-          } else {
-            void this.ensureGameParticles().then((p) =>
-              p.footstepDust(this.playerController.groundPosition, planarSpeed),
-            );
-          }
-          const speedN = Math.min((planarSpeed - 1.15) / 6.5, 1);
-          this.particleFootstepTimer = 0.42 - speedN * 0.2;
-        }
-      }
-    }
+  fixedUpdate(_dt: number): void {
+    // Footsteps now driven by animation:footstep events
   }
 
   update(dt: number, _alpha: number): void {

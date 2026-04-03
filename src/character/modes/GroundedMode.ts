@@ -157,6 +157,12 @@ export class GroundedMode implements CharacterMode {
     const movementLocked = ctx.fsm.current === STATE.interact;
     const hasMovement = !movementLocked && (input.moveX !== 0 || input.moveY !== 0);
     const desiredInputDir = ctx.computeMovementDirection(input);
+    // Axis-lock movement during grab: project onto the box face normal
+    const grabAxis = ctx.grabCarry.grabAxis;
+    if (ctx.fsm.current === STATE.grab && grabAxis && desiredInputDir.lengthSq() > 0.0001) {
+      const dot = desiredInputDir.x * grabAxis.x + desiredInputDir.z * grabAxis.z;
+      desiredInputDir.set(grabAxis.x * dot, 0, grabAxis.z * dot);
+    }
     const run = ctx.fsm.current !== STATE.grab && input.sprint && !ctx.isCrouched;
 
     this.applyMoveVelocity(ctx, desiredInputDir, run, hasMovement, dt, input);
@@ -204,7 +210,7 @@ export class GroundedMode implements CharacterMode {
     input: InputState,
   ): void {
     const crouchMult = ctx.isCrouched ? ctx.config.crouchSpeedMultiplier : 1;
-    const grabMult = ctx.fsm.current === STATE.grab ? ctx.config.crouchSpeedMultiplier : 1;
+    const grabMult = ctx.fsm.current === STATE.grab ? ctx.config.crouchSpeedMultiplier * ctx.grabCarry.weightMultiplier : 1;
     const stickMag = Math.min(1, Math.hypot(input.moveX, input.moveY));
     const targetSpeed =
       ctx.config.moveSpeed * crouchMult * grabMult * (run ? ctx.config.sprintMultiplier : 1) * stickMag;

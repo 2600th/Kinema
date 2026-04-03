@@ -46,4 +46,8 @@ export interface AnimationProfile {
   deathClip?: string;
   /** Optional clip name for one-shot throw animation. */
   throwClip?: string;
+  /** Clip names that should play as additive overlays (upper body over locomotion). */
+  additiveOneShots?: string[];
+  /** Animation time markers for gameplay events (e.g. throw release, footstep). */
+  animationEvents?: Record<string, { time: number; event: string }[]>;
 }

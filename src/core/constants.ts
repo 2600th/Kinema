@@ -105,6 +105,15 @@ export const DEFAULT_CAMERA_CONFIG: CameraConfig = {
   lateralDriftScale: 0.22,
 };
 
+/** Camera overrides for box grab — calmer framing, reduced drift. */
+export const GRAB_CAMERA_CONFIG: Partial<CameraConfig> = {
+  distance: 6.5,
+  lookAhead: 0.6,
+  lateralDriftScale: 0.06,
+  positionDamping: 18,
+  rotationDamping: 8,
+};
+
 /** Interaction sensor dimensions */
 export const INTERACTION_SENSOR_RADIUS = 2.5;
 export const INTERACTION_SENSOR_HALF_HEIGHT = 1.0;

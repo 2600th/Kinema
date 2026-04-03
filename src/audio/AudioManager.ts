@@ -24,7 +24,6 @@ export class AudioManager implements FixedUpdatable, Disposable {
   private masterCompressor: Tone.Compressor;
   private masterLimiter: Tone.Limiter;
   private unsubscribers: Array<() => void> = [];
-  private footstepTimer = 0;
   private toneStarted = false;
   private pendingMusicFadeIn: number | null = null;
   private lastLandedImpact = 0;
@@ -89,7 +88,7 @@ export class AudioManager implements FixedUpdatable, Disposable {
     }
   }
 
-  fixedUpdate(dt: number): void {
+  fixedUpdate(_dt: number): void {
     this.frameCounter++;
     // Resume audio context on first pointer lock (user gesture)
     if (!this.toneStarted && this.inputManager.isLocked) {
@@ -111,18 +110,7 @@ export class AudioManager implements FixedUpdatable, Disposable {
     if (!this.player.isGrounded) intensity += 0.1;
     this.musicEngine.setIntensity(clamp(intensity, 0, 1));
 
-    // ── Footsteps ───────────────────────────────────────
-    const movingOnGround = this.player.isGrounded && planarSpeed > 1.15;
-    if (!movingOnGround) {
-      this.footstepTimer = 0;
-    } else {
-      this.footstepTimer -= dt;
-      if (this.footstepTimer <= 0) {
-        this.sfxEngine.footstep(planarSpeed);
-        const speedN = clamp((planarSpeed - 1.15) / 6.5, 0, 1);
-        this.footstepTimer = 0.42 - speedN * 0.2;
-      }
-    }
+    // Footsteps are driven by animation:footstep event (see subscribeEvents)
   }
 
   playMusic(fadeInSec = 2.0): void {
@@ -213,6 +201,19 @@ export class AudioManager implements FixedUpdatable, Disposable {
   }
 
   private bindEvents(): void {
+    // ── Animation-driven footsteps ─────────────────────
+    this.unsubscribers.push(
+      this.eventBus.on('animation:footstep', () => {
+        if (!this.toneStarted || !this.player.body) return;
+        if (!this.player.isGrounded) return;
+        const vel = this.player.body.linvel();
+        const planarSpeed = Math.hypot(vel.x, vel.z);
+        if (planarSpeed > 0.8) {
+          this.sfxEngine.footstep(planarSpeed);
+        }
+      }),
+    );
+
     // ── Player Movement ────────────────────────────────
     this.unsubscribers.push(
       this.eventBus.on('player:stateChanged', ({ previous, current }) => {

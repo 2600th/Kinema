@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { AnimationUtils } from 'three';
 import type { Disposable, StateId } from '@core/types';
 import { STATE } from '@core/types';
 import type { AnimationProfile } from './AnimationProfile';
@@ -15,6 +16,12 @@ const SPRINT_AUTHORED_SPEED = 6.5;
 const WEIGHT_LAMBDA = 8;
 const SPEED_SWITCH_THRESHOLD = 0.1;
 
+/** Callback interface for animation-driven gameplay events. */
+export interface AnimationEventListener {
+  onFootstep?: () => void;
+  onActionEvent?: (clipName: string, event: string) => void;
+}
+
 export class AnimationController implements Disposable {
   private mixer: THREE.AnimationMixer;
   private actions = new Map<string, THREE.AnimationAction>();
@@ -29,6 +36,14 @@ export class AnimationController implements Disposable {
   private locoTargetWeights = { walk: 0, jog: 0, sprint: 0 };
   private locoActive = false;
   private oneShotActive = false;
+  private oneShotActions = new Map<string, THREE.AnimationAction>();
+  private clipFinished = false;
+  private additiveClipNames: Set<string>;
+  private forwardAlignment = 1;
+  private eventListener: AnimationEventListener | null = null;
+  private firedEvents = new Set<string>();
+  private currentOneShotClipName: string | null = null;
+  private additiveAction: THREE.AnimationAction | null = null;
 
   private crouchIdleAction: THREE.AnimationAction | null = null;
   private crouchMoveAction: THREE.AnimationAction | null = null;
@@ -41,13 +56,60 @@ export class AnimationController implements Disposable {
   private carryIdleWeight = 1;
   private carryMoveWeight = 0;
 
+  private onMixerFinished = (e: { type: string; action: THREE.AnimationAction }) => {
+    if (e.action === this.additiveAction) {
+      this.additiveAction.fadeOut(FADE_ACTION);
+      this.additiveAction = null;
+      this.currentOneShotClipName = null;
+    }
+    if (e.action === this.currentAction) {
+      this.clipFinished = true;
+      if (this.oneShotActive) {
+        this.oneShotActive = false;
+      }
+    }
+  };
+
+  private onMixerLoop = (e: { type: string; action: THREE.AnimationAction }) => {
+    const a = e.action;
+
+    // Main locomotion blend: only fire for the dominant (highest weight) action
+    if (this.locoActive && (a === this.locoWalk || a === this.locoJog || a === this.locoSprint)) {
+      const w = a.getEffectiveWeight();
+      const maxW = Math.max(
+        this.locoWalk?.getEffectiveWeight() ?? 0,
+        this.locoJog?.getEffectiveWeight() ?? 0,
+        this.locoSprint?.getEffectiveWeight() ?? 0,
+      );
+      if (w >= maxW - 0.01) {
+        this.eventListener?.onFootstep?.();
+      }
+      return;
+    }
+
+    // Crouch/carry speed-switch: fire when the moving clip loops (not idle)
+    if (a === this.crouchMoveAction || a === this.carryMoveAction) {
+      if (a.getEffectiveWeight() > 0.3) {
+        this.eventListener?.onFootstep?.();
+      }
+    }
+  };
+
   constructor(
     private model: CharacterModel,
     private profile: AnimationProfile,
   ) {
+    this.additiveClipNames = new Set(profile.additiveOneShots ?? []);
     this.mixer = new THREE.AnimationMixer(model.root);
+    this.mixer.addEventListener('finished', this.onMixerFinished as any);
+    this.mixer.addEventListener('loop', this.onMixerLoop as any);
     this.buildActions();
+    this.buildAdditiveOneShots();
     this.playImmediate(STATE.idle);
+  }
+
+  setEventListener(listener: AnimationEventListener): void {
+    this.eventListener = listener;
   }
 
   private buildActions(): void {
@@ -86,6 +148,21 @@ export class AnimationController implements Disposable {
     }
   }
 
+  /** Pre-build additive one-shot actions so they blend over the base layer. */
+  private buildAdditiveOneShots(): void {
+    for (const clipName of this.additiveClipNames) {
+      const originalClip = this.model.clips.get(clipName);
+      if (!originalClip) continue;
+      const clip = originalClip.clone();
+      AnimationUtils.makeClipAdditive(clip);
+      clip.blendMode = THREE.AdditiveAnimationBlendMode;
+      const action = this.mixer.clipAction(clip);
+      action.loop = THREE.LoopOnce;
+      action.clampWhenFinished = true;
+      this.oneShotActions.set(clipName, action);
+    }
+  }
+
   private createLocoAction(clipName: string): THREE.AnimationAction | null {
     const originalClip = this.model.clips.get(clipName);
     if (!originalClip) {
@@ -113,6 +190,7 @@ export class AnimationController implements Disposable {
   setState(state: StateId): void {
     if (this.oneShotActive) return;
     if (state === this.currentState) return;
+    this.clipFinished = false;
 
     const prevState = this.currentState;
     this.currentState = state;
@@ -195,9 +273,10 @@ export class AnimationController implements Disposable {
         this.locoTargetWeights.sprint = 1;
       }
 
-      if (this.locoWalk) this.locoWalk.timeScale = Math.max(0.1, horizontalSpeed / WALK_AUTHORED_SPEED);
-      if (this.locoJog) this.locoJog.timeScale = Math.max(0.1, horizontalSpeed / JOG_AUTHORED_SPEED);
-      if (this.locoSprint) this.locoSprint.timeScale = Math.max(0.1, horizontalSpeed / SPRINT_AUTHORED_SPEED);
+      const a = this.forwardAlignment;
+      if (this.locoWalk) this.locoWalk.timeScale = Math.max(0.1, a * horizontalSpeed / WALK_AUTHORED_SPEED);
+      if (this.locoJog) this.locoJog.timeScale = Math.max(0.1, a * horizontalSpeed / JOG_AUTHORED_SPEED);
+      if (this.locoSprint) this.locoSprint.timeScale = Math.max(0.1, a * horizontalSpeed / SPRINT_AUTHORED_SPEED);
     }
 
     if (this.currentState === STATE.crouch && this.crouchIdleAction && this.crouchMoveAction) {
@@ -210,31 +289,72 @@ export class AnimationController implements Disposable {
   }
 
   isClipFinished(): boolean {
-    if (!this.currentAction) return false;
-    if (this.currentAction.loop !== THREE.LoopOnce) return false;
-    const clip = this.currentAction.getClip();
-    return this.currentAction.time >= clip.duration - 1e-4;
+    return this.clipFinished;
   }
 
-  /** Play a one-shot animation clip, overriding current FSM animation (e.g., death). */
+  /**
+   * Set the forward alignment factor [0..1] for locomotion timeScale correction.
+   * 0 = moving perpendicular to facing, 1 = moving forward (no correction).
+   * Reduces foot-skate when the character is turning to face movement direction.
+   */
+  setForwardAlignment(alignment: number): void {
+    this.forwardAlignment = Math.max(0.3, alignment); // floor at 0.3 to avoid frozen feet
+  }
+
+  /**
+   * Set signed grab speed for push/pull animation.
+   * Positive = push (forward playback), negative = pull (reverse), near-zero = braced idle.
+   */
+  setGrabSpeed(signedSpeed: number): void {
+    if (this.currentState !== STATE.grab || !this.currentAction) return;
+    const PUSH_AUTHORED_SPEED = 1.5;
+    if (Math.abs(signedSpeed) < 0.1) {
+      this.currentAction.timeScale = 0; // Freeze on brace pose
+    } else {
+      this.currentAction.timeScale = signedSpeed / PUSH_AUTHORED_SPEED;
+    }
+  }
+
+  /** Play a one-shot animation clip. Additive clips overlay locomotion; others override it. */
   playOneShot(clipName: string, fadeDuration = 0.2): void {
     const originalClip = this.model.clips.get(clipName);
     if (!originalClip) {
       console.warn(`[AnimationController] OneShot clip "${clipName}" not found`);
       return;
     }
-    if (this.currentAction) this.currentAction.fadeOut(fadeDuration);
-    if (this.locoActive) this.deactivateLocomotion(fadeDuration);
-    this.deactivateSpeedSwitch(this.crouchIdleAction, this.crouchMoveAction, fadeDuration);
-    this.deactivateSpeedSwitch(this.carryIdleAction, this.carryMoveAction, fadeDuration);
 
-    const action = this.mixer.clipAction(originalClip.clone());
+    const isAdditive = this.additiveClipNames.has(clipName);
+
+    if (!isAdditive) {
+      // Full override — shut down all layers (e.g. Death01)
+      if (this.currentAction) this.currentAction.fadeOut(fadeDuration);
+      if (this.locoActive) this.deactivateLocomotion(fadeDuration);
+      this.deactivateSpeedSwitch(this.crouchIdleAction, this.crouchMoveAction, fadeDuration);
+      this.deactivateSpeedSwitch(this.carryIdleAction, this.carryMoveAction, fadeDuration);
+    }
+    // Additive: locomotion/crouch/carry layers keep running
+
+    let action = this.oneShotActions.get(clipName);
+    if (!action) {
+      action = this.mixer.clipAction(originalClip.clone());
+      this.oneShotActions.set(clipName, action);
+    }
     action.reset();
     action.loop = THREE.LoopOnce;
     action.clampWhenFinished = true;
     action.fadeIn(fadeDuration).play();
-    this.currentAction = action;
-    this.oneShotActive = true;
+    this.currentOneShotClipName = clipName;
+    this.firedEvents.clear();
+
+    if (isAdditive) {
+      // Additive overlay — don't touch currentAction or oneShotActive
+      this.additiveAction = action;
+    } else {
+      // Full override — replaces base layer
+      this.currentAction = action;
+      this.oneShotActive = true;
+      this.clipFinished = false;
+    }
   }
 
   /** Reset the one-shot override so FSM-driven animations resume. */
@@ -244,16 +364,6 @@ export class AnimationController implements Disposable {
 
   update(dt: number): void {
     if (!Number.isFinite(dt) || dt <= 0) return;
-
-    // Auto-reset oneShot when the clip finishes
-    if (this.oneShotActive && this.currentAction) {
-      if (this.currentAction.loop === THREE.LoopOnce) {
-        const clip = this.currentAction.getClip();
-        if (this.currentAction.time >= clip.duration - 1e-4) {
-          this.oneShotActive = false;
-        }
-      }
-    }
 
     if (this.locoActive) {
       const factor = 1 - Math.exp(-WEIGHT_LAMBDA * dt);
@@ -283,13 +393,33 @@ export class AnimationController implements Disposable {
     }
 
     this.mixer.update(dt);
+
+    // Check animation event markers on one-shot clips (after mixer.update so time is current)
+    const oneShotAction = this.additiveAction ?? (this.oneShotActive ? this.currentAction : null);
+    if (this.currentOneShotClipName && oneShotAction && this.profile.animationEvents) {
+      const markers = this.profile.animationEvents[this.currentOneShotClipName];
+      if (markers) {
+        const time = oneShotAction.time;
+        for (const marker of markers) {
+          const key = `${this.currentOneShotClipName}:${marker.event}`;
+          if (time >= marker.time && !this.firedEvents.has(key)) {
+            this.firedEvents.add(key);
+            this.eventListener?.onActionEvent?.(this.currentOneShotClipName, marker.event);
+          }
+        }
+      }
+    }
   }
 
   dispose(): void {
+    this.mixer.removeEventListener('finished', this.onMixerFinished as any);
+    this.mixer.removeEventListener('loop', this.onMixerLoop as any);
     this.mixer.stopAllAction();
     this.mixer.uncacheRoot(this.model.root);
     this.actions.clear();
+    this.oneShotActions.clear();
     this.currentAction = null;
+    this.additiveAction = null;
     this.locoWalk = null;
     this.locoJog = null;
     this.locoSprint = null;

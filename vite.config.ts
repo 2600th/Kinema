@@ -1,5 +1,4 @@
 import { defineConfig } from 'vitest/config';
-import wasm from 'vite-plugin-wasm';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
@@ -14,7 +13,10 @@ const rapierPkg = JSON.parse(readFileSync(resolve(rapierPkgDir, 'package.json'),
 const rapierESM = resolve(rapierPkgDir, rapierPkg.module ?? rapierPkg.main);
 
 export default defineConfig({
-  plugins: [wasm()],
+  plugins: [],
+  server: {
+    strictPort: true,
+  },
   test: {
     environment: 'node',
     // Playwright tests live in tests/ and run via npx playwright test

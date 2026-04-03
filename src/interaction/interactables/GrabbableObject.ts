@@ -42,7 +42,8 @@ export class GrabbableObject implements IInteractable {
   interact(player: PlayerController): void {
     const bodyPos = this.body.translation();
     _grabOffset.set(bodyPos.x, bodyPos.y, bodyPos.z).sub(player.position);
-    this.eventBus.emit('interaction:grabStart', { body: this.body, offset: _grabOffset });
+    const grabWeight = this.mesh?.userData?.grabWeight as number | undefined;
+    this.eventBus.emit('interaction:grabStart', { body: this.body, offset: _grabOffset, grabWeight });
   }
 
   dispose(): void {

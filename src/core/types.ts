@@ -179,7 +179,7 @@ export interface EventMap {
   'interaction:focusChanged': { id: string | null; label: string | null };
   'interaction:triggered': { id: string };
   'interaction:blocked': { id: string; reason: string };
-  'interaction:grabStart': { body: RAPIER.RigidBody; offset: THREE.Vector3 };
+  'interaction:grabStart': { body: RAPIER.RigidBody; offset: THREE.Vector3; grabWeight?: number };
   'interaction:grabEnd': undefined;
   'interaction:pickUp': { object: ThrowableObject };
   'interaction:throw': { direction: THREE.Vector3; force: number };
@@ -245,4 +245,8 @@ export interface EventMap {
   'audio:masterVolume': number;
   'ui:click': undefined;
   'ui:hover': undefined;
+  'animation:footstep': undefined;
+  'animation:event': { clip: string; event: string };
+  'camera:applyConfig': Partial<CameraConfig>;
+  'camera:resetConfig': undefined;
 }

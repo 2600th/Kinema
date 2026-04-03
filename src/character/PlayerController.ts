@@ -1,4 +1,4 @@
-import { DEFAULT_PLAYER_CONFIG } from "@core/constants";
+import { DEFAULT_PLAYER_CONFIG, GRAB_CAMERA_CONFIG } from "@core/constants";
 import type { EventBus } from "@core/EventBus";
 import {
   type Disposable,
@@ -132,6 +132,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   private characterModel: CharacterModel | null = null;
   private animator: AnimationController | null = null;
   private readonly capsuleMesh: THREE.Mesh;
+  private pendingThrow = false;
 
   constructor(
     private physicsWorld: PhysicsWorld,
@@ -201,6 +202,15 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       );
       this.characterModel = model;
       this.animator = animator;
+      this.animator.setEventListener({
+        onFootstep: () => this.eventBus.emit('animation:footstep', undefined),
+        onActionEvent: (clip, event) => {
+          this.eventBus.emit('animation:event', { clip, event });
+          if (clip === 'OverhandThrow' && event === 'release') {
+            this.executePendingThrow();
+          }
+        },
+      });
     } catch (err) {
       console.warn('[PlayerController] Character load failed, using capsule fallback:', err);
     }
@@ -242,6 +252,11 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.collider.setHalfHeight(this.standingCapsuleHalfHeight);
     const resetMode = this.modes.get("grounded");
     if (resetMode) this.currentMode = resetMode;
+    // Reset carry/grab state and pending throw
+    this.grabCarry.forceRelease();
+    this.pendingThrow = false;
+    this.fsm.requestState(STATE.idle);
+    this.eventBus.emit('camera:resetConfig', undefined);
     // Reset animation one-shot override (e.g., death) so FSM animations resume
     this.animator?.resetOneShot();
     this.respawnPoint = {
@@ -363,8 +378,14 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
     if (this.grabCarry.isCarrying) {
       if (input.primaryPressed || input.interactPressed) {
-        this.grabCarry.throwCarried(this.getCameraForward(), this.eventBus);
-        this.animator?.playOneShot(PLAYER_PROFILE.throwClip ?? 'OverhandThrow', 0.1);
+        // Defer throw physics to animation release marker (OverhandThrow.release).
+        // Direction is recomputed at release time so the throw follows current aim.
+        if (this.animator) {
+          this.pendingThrow = true;
+          this.animator.playOneShot(PLAYER_PROFILE.throwClip ?? 'OverhandThrow', 0.1);
+        } else {
+          this.grabCarry.throwCarried(this.getCameraForward(), this.eventBus);
+        }
         this.fsm.requestState(this.hasMovementInput(input) ? STATE.move : STATE.idle);
       } else if (input.crouchPressed) {
         this.grabCarry.dropCarried(
@@ -418,9 +439,16 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
     // -- Rotation (skip for rope/ladder — no player-driven movement) --
     if (this.currentMode.id !== "rope" && this.currentMode.id !== "ladder") {
-      const desiredInputDir = this.computeMovementDirection(inputForFsm);
-      if (desiredInputDir.lengthSq() > 0.0001) {
-        this.rotateToward(desiredInputDir, dt);
+      const grabAxis = this.grabCarry.grabAxis;
+      if (this.fsm.current === STATE.grab && grabAxis) {
+        // Face the box: rotate toward -grabAxis (face normal points away from player)
+        _desiredMove.set(-grabAxis.x, 0, -grabAxis.z);
+        this.rotateToward(_desiredMove, dt);
+      } else {
+        const desiredInputDir = this.computeMovementDirection(inputForFsm);
+        if (desiredInputDir.lengthSq() > 0.0001) {
+          this.rotateToward(desiredInputDir, dt);
+        }
       }
     }
 
@@ -437,9 +465,15 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     if (this.grabCarry.isGrabbing) {
       this.grabCarry.updateGrab(_currentPos, this.getCameraForward());
     }
-    if (this.grabCarry.isCarrying && !this.characterModel?.handBone) {
-      // Fallback: position at body center when hand bone isn't available
-      this.grabCarry.updateCarry(_currentPos, this.currentCapsuleHalfHeight);
+    if (this.grabCarry.isCarrying) {
+      if (this.characterModel?.handBone) {
+        // Hand bone: use cached hand position from last render frame
+        this.characterModel.getHandWorldPosition(this._handWorldPos);
+        this.grabCarry.updateCarryTarget(this._handWorldPos);
+      } else {
+        // Fallback: position at body center when hand bone isn't available
+        this.grabCarry.updateCarry(_currentPos, this.currentCapsuleHalfHeight);
+      }
     }
   }
 
@@ -460,12 +494,16 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
     // When leaving ladder zone, restore gravity
     if (this.currentMode.id === "ladder" && !inLadderZone) {
-      return "grounded";
+      return this.isGrounded ? "grounded" : "air";
     }
 
     // If currently in grounded or air mode, let the mode itself decide transitions
     // via its fixedUpdate return value.
-    return this.currentMode.id === "ladder" ? "grounded" : this.currentMode.id;
+    // When leaving ladder (e.g. jump dismount), route to air if not grounded.
+    if (this.currentMode.id === "ladder") {
+      return this.isGrounded ? "grounded" : "air";
+    }
+    return this.currentMode.id;
   }
 
   private switchMode(modeId: string): void {
@@ -505,15 +543,26 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     const scaleY = 1 - this.crouchVisual * 0.28;
     const scaleXZ = 1 + this.crouchVisual * 0.04;
     this.mesh.scale.set(scaleXZ, scaleY, scaleXZ);
-    this.animator?.setSpeed(this.cachedHorizontalSpeed);
+    const animSpeed = this.currentMode.id === 'ladder'
+      ? Math.abs(this.body.linvel().y)
+      : this.cachedHorizontalSpeed;
+    this.animator?.setSpeed(animSpeed);
+    this.animator?.setForwardAlignment(this.computeForwardAlignment());
     this.animator?.setState(this.fsm.current);
+    // Drive grab animation speed by box displacement (not player velocity)
+    if (this.fsm.current === STATE.grab && this.grabCarry.grabAxis) {
+      const boxBody = this.grabCarry.grabbedRigidBody;
+      if (boxBody) {
+        const bv = boxBody.linvel();
+        const axis = this.grabCarry.grabAxis;
+        const signedSpeed = bv.x * axis.x + bv.z * axis.z;
+        this.animator?.setGrabSpeed(signedSpeed);
+      }
+    }
     this.animator?.update(_dt);
 
-    // Attach carried object to hand bone during render frame
-    if (this.grabCarry.isCarrying && this.characterModel?.handBone) {
-      this.characterModel.getHandWorldPosition(this._handWorldPos);
-      this.grabCarry.updateCarryTarget(this._handWorldPos);
-    }
+    // Carried object positioning is now handled in fixedUpdate for proper
+    // kinematic velocity computation via setNextKinematicTranslation.
   }
 
   setInput(input: InputState): void {
@@ -533,15 +582,17 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.mesh.visible = enabled;
   }
 
-  startGrab(body: RAPIER.RigidBody, offset?: THREE.Vector3): void {
-    this.grabCarry.startGrab(body, this.currPosition, offset);
+  startGrab(body: RAPIER.RigidBody, offset?: THREE.Vector3, grabWeight?: number): void {
+    this.grabCarry.startGrab(body, this.currPosition, offset, grabWeight);
     if (this.grabCarry.isGrabbing) {
       this.fsm.requestState(STATE.grab);
+      this.eventBus.emit('camera:applyConfig', GRAB_CAMERA_CONFIG);
     }
   }
 
   endGrab(): void {
     this.grabCarry.endGrab(this.getCameraForward(), this.eventBus);
+    this.eventBus.emit('camera:resetConfig', undefined);
   }
 
   startCarry(object: CarryableObject): void {
@@ -599,6 +650,29 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     _desiredMove.addScaledVector(rgt, input.moveX);
     if (_desiredMove.lengthSq() > 1) _desiredMove.normalize();
     return _desiredMove;
+  }
+
+  /** Dot product of facing direction and velocity direction [0..1]. */
+  /** Execute the deferred throw when the animation release marker fires. */
+  private executePendingThrow(): void {
+    if (!this.pendingThrow || !this.grabCarry.isCarrying) {
+      this.pendingThrow = false;
+      return;
+    }
+    this.pendingThrow = false;
+    this.grabCarry.throwCarried(this.getCameraForward(), this.eventBus);
+  }
+
+  private computeForwardAlignment(): number {
+    const lv = this.body.linvel();
+    const hSpeedSq = lv.x * lv.x + lv.z * lv.z;
+    if (hSpeedSq < 0.01) return 1;
+    const yaw = this.mesh.rotation.y;
+    const facingX = Math.sin(yaw);
+    const facingZ = Math.cos(yaw);
+    const hSpeed = Math.sqrt(hSpeedSq);
+    const dot = (facingX * lv.x + facingZ * lv.z) / hSpeed;
+    return Math.max(0, dot); // clamp negative (moving backward) to 0
   }
 
   rotateToward(direction: THREE.Vector3, dt: number): void {

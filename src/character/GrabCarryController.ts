@@ -7,6 +7,7 @@ import { COLLISION_GROUP_WORLD_ONLY } from '@core/constants';
 const _grabTarget = new THREE.Vector3();
 const _grabForward = new THREE.Vector3();
 const _carryTarget = new THREE.Vector3();
+const _toPlayer = new THREE.Vector3();
 
 // Pre-allocated Rapier vectors for grab/carry operations.
 const _rv3A = new RAPIER.Vector3(0, 0, 0);
@@ -37,12 +38,17 @@ export class GrabCarryController {
   private grabbedBodyType: number | null = null;
   private grabbedGravityScale: number | null = null;
   private grabbedCollisionGroups: number | null = null;
+  private grabbedActiveCollisionTypes: number | null = null;
   private grabDistance = 1.2;
   private grabOriginalY = 0;
+  private grabFaceNormal: THREE.Vector3 | null = null;
+  private grabAnchorPerp = 0; // perpendicular position component at grab time
+  private grabWeightMult = 1.0;
 
   // -- Carry state --
   private carriedObject: CarryableObject | null = null;
   private carriedBodyType: number | null = null;
+  private carriedActiveCollisionTypes: number | null = null;
   private carriedGravityScale: number | null = null;
   private carriedCollisionGroups: number | null = null;
 
@@ -54,20 +60,40 @@ export class GrabCarryController {
     return this.carriedObject !== null;
   }
 
+  /** Face normal of the grabbed box face (push direction). Null if no axis lock. */
+  get grabAxis(): THREE.Vector3 | null {
+    return this.grabFaceNormal;
+  }
+
+  /** Weight multiplier for grab movement speed (1.0 = no slowdown). */
+  get weightMultiplier(): number {
+    return this.grabWeightMult;
+  }
+
+  /** The currently grabbed physics body (for reading velocity). */
+  get grabbedRigidBody(): RAPIER.RigidBody | null {
+    return this.grabbedBody;
+  }
+
   // ── Grab ────────────────────────────────────────────────────────────
 
-  startGrab(body: RAPIER.RigidBody, playerPosition: THREE.Vector3, offset?: THREE.Vector3): void {
+  startGrab(body: RAPIER.RigidBody, playerPosition: THREE.Vector3, offset?: THREE.Vector3, grabWeight?: number): void {
     if (this.grabbedBody || this.carriedObject) return;
     this.grabbedBody = body;
     this.grabbedBodyType = body.bodyType();
     this.grabbedGravityScale = body.gravityScale();
+    this.grabWeightMult = grabWeight ?? 1.0;
     const collider = body.collider(0);
     if (collider) {
       const cg = collider as unknown as { collisionGroups?: () => number };
       this.grabbedCollisionGroups = cg.collisionGroups ? cg.collisionGroups() : null;
+      this.grabbedActiveCollisionTypes = collider.activeCollisionTypes();
       collider.setCollisionGroups(COLLISION_GROUP_WORLD_ONLY);
+      // Enable kinematic-vs-fixed collisions so the held object doesn't ghost through walls
+      collider.setActiveCollisionTypes(RAPIER.ActiveCollisionTypes.DEFAULT | RAPIER.ActiveCollisionTypes.KINEMATIC_FIXED);
     } else {
       this.grabbedCollisionGroups = null;
+      this.grabbedActiveCollisionTypes = null;
     }
     const bodyPos = body.translation();
     const sourceOffset =
@@ -77,14 +103,58 @@ export class GrabCarryController {
     this.grabOriginalY = bodyPos.y;
     body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
     body.setGravityScale(0, true);
+
+    // Compute nearest horizontal box face for axis-locked grab
+    this.computeGrabFace(body, playerPosition);
+  }
+
+  /** Find which horizontal box face the player is closest to and lock the grab axis. */
+  private computeGrabFace(body: RAPIER.RigidBody, playerPosition: THREE.Vector3): void {
+    const collider = body.collider(0);
+    if (!collider) { this.grabFaceNormal = null; return; }
+
+    const bodyPos = body.translation();
+    const bodyRot = body.rotation();
+    const q = new THREE.Quaternion(bodyRot.x, bodyRot.y, bodyRot.z, bodyRot.w);
+
+    // Get half-extents for a cuboid collider
+    const he = (collider as any).halfExtents?.();
+    if (!he) { this.grabFaceNormal = null; return; }
+
+    // Test 4 horizontal face normals rotated by body orientation
+    const normals: THREE.Vector3[] = [
+      new THREE.Vector3(1, 0, 0).applyQuaternion(q),
+      new THREE.Vector3(-1, 0, 0).applyQuaternion(q),
+      new THREE.Vector3(0, 0, 1).applyQuaternion(q),
+      new THREE.Vector3(0, 0, -1).applyQuaternion(q),
+    ];
+    _toPlayer.set(playerPosition.x - bodyPos.x, 0, playerPosition.z - bodyPos.z).normalize();
+
+    let bestDot = -Infinity;
+    let bestIdx = 0;
+    for (let i = 0; i < 4; i++) {
+      // Pick the face whose outward normal points most toward the player
+      const dot = normals[i].x * _toPlayer.x + normals[i].z * _toPlayer.z;
+      if (dot > bestDot) {
+        bestDot = dot;
+        bestIdx = i;
+      }
+    }
+
+    this.grabFaceNormal = normals[bestIdx].clone();
+    // Store the perpendicular component of the box position at grab time
+    // (perpendicular to the face normal in the XZ plane)
+    const perp = this.grabFaceNormal.z * bodyPos.x - this.grabFaceNormal.x * bodyPos.z;
+    this.grabAnchorPerp = perp;
   }
 
   endGrab(cameraForward: THREE.Vector3, eventBus: EventBus): void {
     if (!this.grabbedBody) return;
     const body = this.grabbedBody;
     const collider = body.collider(0);
-    if (collider && this.grabbedCollisionGroups != null) {
-      collider.setCollisionGroups(this.grabbedCollisionGroups);
+    if (collider) {
+      if (this.grabbedCollisionGroups != null) collider.setCollisionGroups(this.grabbedCollisionGroups);
+      if (this.grabbedActiveCollisionTypes != null) collider.setActiveCollisionTypes(this.grabbedActiveCollisionTypes);
     }
     const bodyType = this.grabbedBodyType ?? RAPIER.RigidBodyType.Dynamic;
     body.setBodyType(bodyType, true);
@@ -96,29 +166,42 @@ export class GrabCarryController {
     this.grabbedBody = null;
     this.grabbedBodyType = null;
     this.grabbedGravityScale = null;
+    this.grabbedActiveCollisionTypes = null;
     this.grabbedCollisionGroups = null;
+    this.grabFaceNormal = null;
+    this.grabWeightMult = 1.0;
     eventBus.emit('interaction:grabEnd', undefined);
   }
 
   updateGrab(playerPosition: THREE.Vector3, cameraForward: THREE.Vector3): void {
     if (!this.grabbedBody) return;
 
-    // Position grabbed object at arm level in front of player.
-    // Use physics position (accurate during fixedUpdate) with arm-height offset.
-    _grabForward.copy(cameraForward).setY(0);
-    if (_grabForward.lengthSq() < 0.0001) {
-      _grabForward.set(0, 0, -1);
+    if (this.grabFaceNormal) {
+      // Axis-locked grab: constrain box to move only along the face normal axis.
+      // Project player position onto the grab axis to get the push/pull component.
+      const n = this.grabFaceNormal;
+      const axisPos = n.x * playerPosition.x + n.z * playerPosition.z - this.grabDistance;
+      // Reconstruct position: axis component from player, perpendicular from anchor
+      // Given n = (nx, 0, nz), perp = (nz, 0, -nx)
+      // pos = axisPos * n + anchorPerp * perp
+      _grabTarget.set(
+        axisPos * n.x + this.grabAnchorPerp * n.z,
+        this.grabOriginalY,
+        axisPos * n.z - this.grabAnchorPerp * n.x,
+      );
     } else {
-      _grabForward.normalize();
+      // Fallback: camera-forward positioning (original behavior)
+      _grabForward.copy(cameraForward).setY(0);
+      if (_grabForward.lengthSq() < 0.0001) {
+        _grabForward.set(0, 0, -1);
+      } else {
+        _grabForward.normalize();
+      }
+      _grabTarget
+        .set(playerPosition.x, this.grabOriginalY, playerPosition.z)
+        .addScaledVector(_grabForward, this.grabDistance);
     }
-    // Position: forward of player, keeping object at its original Y (ground level)
-    _grabTarget
-      .set(playerPosition.x, this.grabOriginalY, playerPosition.z)
-      .addScaledVector(_grabForward, this.grabDistance);
 
-    // Use only setNextKinematicTranslation so Rapier computes the correct
-    // derived velocity for collision response. Mesh interpolation captures
-    // the position after world.step() via postPhysicsUpdate().
     this.grabbedBody.setNextKinematicTranslation(_setRV(_rv3A, _grabTarget.x, _grabTarget.y, _grabTarget.z));
   }
 
@@ -131,9 +214,11 @@ export class GrabCarryController {
     this.carriedGravityScale = object.body.gravityScale();
     const collider = object.collider as unknown as { collisionGroups?: () => number };
     this.carriedCollisionGroups = collider.collisionGroups ? collider.collisionGroups() : null;
+    this.carriedActiveCollisionTypes = object.collider.activeCollisionTypes();
     object.body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
     object.body.setGravityScale(0, true);
     object.collider.setCollisionGroups(COLLISION_GROUP_WORLD_ONLY);
+    object.collider.setActiveCollisionTypes(RAPIER.ActiveCollisionTypes.DEFAULT | RAPIER.ActiveCollisionTypes.KINEMATIC_FIXED);
   }
 
   throwCarried(cameraForward: THREE.Vector3, eventBus: EventBus): void {
@@ -142,9 +227,16 @@ export class GrabCarryController {
     this.releaseCarryBody();
     object.body.enableCcd(true);
     const forward = cameraForward.clone().normalize();
+
+    // Offset launch position forward to clear player capsule and prevent self-collision
+    const bodyPos = object.body.translation();
+    const clearance = 0.35; // slightly larger than capsule radius (0.3)
+    object.body.setTranslation(
+      _setRV(_rv3A, bodyPos.x + forward.x * clearance, bodyPos.y + forward.y * clearance, bodyPos.z + forward.z * clearance),
+      true,
+    );
+
     // Treat throwForce as a *target throw speed* (m/s) rather than a raw impulse.
-    // WHY: applying a fixed impulse makes small/light objects reach extreme
-    // velocities and tunnel through walls even with contact events enabled.
     const targetSpeed = Math.max(0.5, Math.min(object.throwForce, 10));
     object.body.setLinvel(
       _setRV(_rv3A, forward.x * targetSpeed, forward.y * targetSpeed, forward.z * targetSpeed),
@@ -175,8 +267,10 @@ export class GrabCarryController {
   /** Update carry position to a specific world-space target (e.g., hand bone). */
   updateCarryTarget(target: THREE.Vector3): void {
     if (!this.carriedObject) return;
-    this.carriedObject.body.setTranslation(
-      { x: target.x, y: target.y, z: target.z }, true,
+    // Use setNextKinematicTranslation so Rapier computes derived velocity
+    // for proper collision response (not teleport via setTranslation).
+    this.carriedObject.body.setNextKinematicTranslation(
+      _setRV(_rv3A, target.x, target.y, target.z),
     );
   }
 
@@ -190,6 +284,30 @@ export class GrabCarryController {
     this.carriedObject.body.setNextKinematicTranslation(_setRV(_rv3A, _carryTarget.x, _carryTarget.y, _carryTarget.z));
   }
 
+  /** Force-release any grab or carry state (used on respawn). */
+  forceRelease(): void {
+    if (this.grabbedBody) {
+      const body = this.grabbedBody;
+      const collider = body.collider(0);
+      if (collider) {
+        if (this.grabbedCollisionGroups != null) collider.setCollisionGroups(this.grabbedCollisionGroups);
+        if (this.grabbedActiveCollisionTypes != null) collider.setActiveCollisionTypes(this.grabbedActiveCollisionTypes);
+      }
+      body.setBodyType(this.grabbedBodyType ?? RAPIER.RigidBodyType.Dynamic, true);
+      body.setGravityScale(this.grabbedGravityScale ?? 1, true);
+      this.grabbedBody = null;
+      this.grabbedBodyType = null;
+      this.grabbedGravityScale = null;
+      this.grabbedCollisionGroups = null;
+      this.grabbedActiveCollisionTypes = null;
+      this.grabFaceNormal = null;
+      this.grabWeightMult = 1.0;
+    }
+    if (this.carriedObject) {
+      this.releaseCarryBody();
+    }
+  }
+
   /** Restores a carried body to its original physics state and clears carry fields. */
   private releaseCarryBody(): void {
     if (!this.carriedObject) return;
@@ -199,9 +317,13 @@ export class GrabCarryController {
     if (this.carriedCollisionGroups != null) {
       object.collider.setCollisionGroups(this.carriedCollisionGroups);
     }
+    if (this.carriedActiveCollisionTypes != null) {
+      object.collider.setActiveCollisionTypes(this.carriedActiveCollisionTypes);
+    }
     this.carriedObject = null;
     this.carriedBodyType = null;
     this.carriedGravityScale = null;
     this.carriedCollisionGroups = null;
+    this.carriedActiveCollisionTypes = null;
   }
 }

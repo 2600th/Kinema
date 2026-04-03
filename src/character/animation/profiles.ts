@@ -38,6 +38,10 @@ export const PLAYER_PROFILE: AnimationProfile = {
   },
   deathClip: 'Death01',
   throwClip: 'OverhandThrow',
+  additiveOneShots: ['OverhandThrow', 'Interact'],
+  animationEvents: {
+    OverhandThrow: [{ time: 0.35, event: 'release' }],
+  },
 };
 
 export const NPC_PROFILE: AnimationProfile = {

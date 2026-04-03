@@ -165,6 +165,12 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       this.eventBus.on("debug:cameraCollision", (enabled) => {
         this.camera.setCollisionEnabled(enabled);
       }),
+      this.eventBus.on("camera:applyConfig", (config) => {
+        this.camera.applyCameraConfig(config);
+      }),
+      this.eventBus.on("camera:resetConfig", () => {
+        this.camera.resetCameraConfig();
+      }),
       this.eventBus.on("debug:exposure", (value) => {
         this.renderer.setExposure(value);
       }),

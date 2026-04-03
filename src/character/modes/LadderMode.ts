@@ -21,8 +21,7 @@ export class LadderMode implements CharacterMode {
   readonly id = "ladder";
 
   enter(ctx: PlayerContext): void {
-    // Use idle animation on ladder — no suitable looping climb clip available
-    ctx.fsm.requestState(STATE.idle);
+    ctx.fsm.requestState(STATE.climb);
     ctx.onLadder = true;
     // Uncrouch on ladder
     ctx.isCrouched = false;
@@ -55,9 +54,12 @@ export class LadderMode implements CharacterMode {
       return "grounded";
     }
 
-    // FSM update for animation state
-    ctx.fsm.handleInput(input, true);
+    // FSM update
     ctx.fsm.update(dt);
+
+    // Override FSM: on ladder, climb when moving vertically, idle when stationary
+    const climbing = input.forward || input.backward;
+    ctx.fsm.requestState(climbing ? STATE.climb : STATE.idle);
 
     // Ladder climbing movement
     this.handleLadderMovement(ctx, input);

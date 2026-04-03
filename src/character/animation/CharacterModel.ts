@@ -82,7 +82,7 @@ export class CharacterModel implements Disposable {
       }
     }
 
-    // 7. Strip root motion (X/Z) from all clips
+    // 7. Strip root motion (X/Y/Z) from all clips — physics drives all movement
     const rootBoneName = CharacterModel.findRootBoneName(root);
     for (const clip of clips.values()) {
       CharacterModel.stripRootMotion(clip, rootBoneName);
@@ -211,6 +211,7 @@ export class CharacterModel implements Disposable {
         const values = track.values;
         for (let i = 0; i < values.length; i += 3) {
           values[i] = 0;     // X
+          values[i + 1] = 0; // Y
           values[i + 2] = 0; // Z
         }
       }

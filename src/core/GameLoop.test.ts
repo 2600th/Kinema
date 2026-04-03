@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { GameLoop } from './GameLoop';
-import { PHYSICS_TIMESTEP, MAX_PHYSICS_STEPS } from './constants';
+import { MAX_PHYSICS_STEPS } from './constants';
 
 describe('GameLoop', () => {
   it('runs fixed update, physics step, post-physics sync, then render update', () => {
@@ -61,7 +61,7 @@ describe('GameLoop', () => {
     nowSpy.mockRestore();
   });
 
-  it('preserves accumulator during hitstop (no alpha snap)', () => {
+  it('zeroes accumulator during hitstop to prevent catch-up', () => {
     const game = {
       fixedUpdate: vi.fn(),
       postPhysicsUpdate: vi.fn(),
@@ -90,9 +90,9 @@ describe('GameLoop', () => {
     // Physics should NOT have stepped (frozen)
     expect(physics.step).not.toHaveBeenCalled();
 
-    // Alpha passed to update() should NOT be 0 — accumulator preserved
+    // Alpha is 0 during hitstop — accumulator is zeroed to prevent catch-up
     const alpha = game.update.mock.calls[0]?.[1] as number;
-    expect(alpha).toBeGreaterThan(0);
+    expect(alpha).toBe(0);
 
     nowSpy.mockRestore();
   });

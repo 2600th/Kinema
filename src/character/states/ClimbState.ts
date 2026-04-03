@@ -11,7 +11,7 @@ export class ClimbState extends State {
   exit(): void {}
 
   handleInput(_input: InputState, _isGrounded: boolean): StateId | null {
-    // Ladder mode handles transitions externally
+    // LadderMode manages climb/idle transitions directly via requestState
     return null;
   }
 

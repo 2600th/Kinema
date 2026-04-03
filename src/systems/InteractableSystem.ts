@@ -48,8 +48,8 @@ export class InteractableSystem implements RuntimeSystem {
     private uiManager: UIManager,
   ) {
     this.unsubs.push(
-      this.eventBus.on("interaction:grabStart", ({ body, offset }) => {
-        this.playerController.startGrab(body, offset);
+      this.eventBus.on("interaction:grabStart", ({ body, offset, grabWeight }) => {
+        this.playerController.startGrab(body, offset, grabWeight);
       }),
       this.eventBus.on("interaction:pickUp", ({ object }) => {
         this.carriedThrowable = object;
