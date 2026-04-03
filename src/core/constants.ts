@@ -39,11 +39,9 @@ export const DEFAULT_PLAYER_CONFIG: PlayerConfig = {
   capsuleRadius: 0.3,
   capsuleHalfHeight: 0.35,
   floatHeight: 0.3,
-  // Default movement matches the old sprint speed.
-  // Sprint remains a true 2x boost.
   moveSpeed: 5.2,
   turnSpeed: 20,
-  sprintMultiplier: 2,
+  sprintMultiplier: 1.3,
   jumpForce: 4.6,
   jumpForceToGroundMultiplier: 5,
   slopeJumpMultiplier: 0.25,
@@ -65,7 +63,7 @@ export const DEFAULT_PLAYER_CONFIG: PlayerConfig = {
   maxAirJumps: 1,
   airJumpForceMultiplier: 0.92,
   crouchHeightOffset: 0.28,
-  crouchSpeedMultiplier: 0.55,
+  crouchSpeedMultiplier: 0.8,
   slopeMaxAngle: 0.785,
   slopeRayLength: 3.3,
   slopeRayOriginOffset: 0.27,
