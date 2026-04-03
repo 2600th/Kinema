@@ -1936,6 +1936,7 @@ export class ProceduralBuilder {
         texture, color, PI, TWO_PI, luminance,
       } = await import('three/tsl');
       const { mx_fractal_noise_float } = await import('three/tsl');
+      const { mrt: mrtFn, vec4: vec4Fn } = await import('three/tsl');
 
       // Guard: if a new load/unload happened while awaiting imports, bail out
       if (this.loadGenerationRef.value !== gen) {
@@ -1998,6 +1999,7 @@ export class ProceduralBuilder {
       tornadoEmissiveMat.blending = THREE.AdditiveBlending;
       tornadoEmissiveMat.depthWrite = false;
       tornadoEmissiveMat.forceSinglePass = true;
+      tornadoEmissiveMat.mrtNode = mrtFn({ emissive: vec4Fn(1, 0.4, 0.15, 1) });
 
       tornadoEmissiveMat.positionNode = twistedCylinder(
         positionLocal, float(1), float(0.3), float(0.2), tornadoTime,
@@ -2124,6 +2126,7 @@ export class ProceduralBuilder {
       fireInnerMat.blending = THREE.AdditiveBlending;
       fireInnerMat.depthWrite = false;
       fireInnerMat.forceSinglePass = true;
+      fireInnerMat.mrtNode = mrtFn({ emissive: vec4Fn(1, 0.3, 0.05, 1) });
 
       fireInnerMat.positionNode = twistedCylinder(positionLocal, float(0.5), float(0.0), float(0.6), fireTime);
 

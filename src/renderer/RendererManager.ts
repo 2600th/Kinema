@@ -331,6 +331,7 @@ export class RendererManager implements Disposable {
         pass,
         mrt,
         output,
+        emissive,
         normalView,
         screenUV,
         builtinAOContext,
@@ -356,7 +357,7 @@ export class RendererManager implements Disposable {
         alpha: false,
         powerPreference: 'high-performance',
         requiredLimits: {
-          // Scene pass uses 2 HalfFloat MRT color attachments.
+          // Scene pass uses 3 MRT color attachments: output (HalfFloat) + metalrough (HalfFloat) + emissive (RGBA8).
           maxColorAttachmentBytesPerSample: 32,
         },
       } as any) as WebGPURenderer; // r182-r183: requiredLimits not in public types
@@ -436,8 +437,10 @@ export class RendererManager implements Disposable {
         mrt({
           output,
           metalrough: vec2(metalness, roughness),
+          emissive: vec4(emissive, 1),
         }),
       );
+      scenePass.getTexture('emissive').type = THREE.UnsignedByteType;
 
       const { add, uv, smoothstep, float, mix, length: tslLength, max: tslMax, min: tslMin, vec4: tslVec4 } = await import('three/tsl');
       const { bloom } = await import('three/addons/tsl/display/BloomNode.js');
@@ -445,6 +448,7 @@ export class RendererManager implements Disposable {
 
       // Keep reflection-driving channels precise to avoid quantization artifacts.
       scenePass.getTexture('metalrough').type = THREE.HalfFloatType;
+      const scenePassEmissive = scenePass.getTextureNode('emissive') as TSLNode;
 
       const scenePassColor = scenePass.getTextureNode('output');
       const scenePassMetalrough = scenePass.getTextureNode('metalrough');
@@ -670,10 +674,11 @@ export class RendererManager implements Disposable {
           currentNode = keepAlphaWithRgb(currentNode, nextRgb);
         }
 
-        // 2) Bloom — additive in linear space.
+        // 2) Selective bloom — bloom only the emissive channel, not the full beauty buffer.
+        //    Threshold=0 because everything in the emissive MRT attachment is intentionally there.
         if (this.bloomEnabled && profile !== 'performance') {
           const bloomNode = trackTempNode(
-            bloom(currentNode as never, 0.1, 0.8, 0.05),
+            bloom(scenePassEmissive as never, 0, 0.8, 0.05),
           ) as TSLNode & { strength: { value: number } };
           this.bloomNodes.push(bloomNode);
           const bloomRgb = (bloomNode as unknown as { rgb: TSLNode }).rgb;

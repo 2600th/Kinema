@@ -43,6 +43,7 @@ export async function createVfxShowcase(
       cos,
     } = await import('three/tsl');
     const { mx_fractal_noise_float } = await import('three/tsl');
+    const { mrt: mrtFn, vec4: vec4Fn } = await import('three/tsl');
 
     // =====================================================================
     // EFFECT A — DISSOLVE SPHERE
@@ -231,6 +232,7 @@ export async function createVfxShowcase(
         flameMat.depthWrite = false;
         flameMat.blending = THREE.AdditiveBlending;
         flameMat.forceSinglePass = true;
+        flameMat.mrtNode = mrtFn({ emissive: vec4Fn(1, 0.5, 0.1, 1) });
 
         // --- Fire alpha computation ---
         const v = uv();
