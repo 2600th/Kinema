@@ -107,7 +107,10 @@ export class Door implements IInteractable {
     return { mode: 'press' };
   }
 
-  canInteract(_player: PlayerController): InteractionAccess {
+  canInteract(player: PlayerController): InteractionAccess {
+    if (!player.isGrounded) {
+      return { allowed: false, reason: 'Must be grounded' };
+    }
     if (this.unlockCondition && !this.unlockCondition()) {
       return {
         allowed: false,

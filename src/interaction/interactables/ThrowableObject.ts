@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { EventBus } from '@core/EventBus';
 import type { PlayerController } from '@character/PlayerController';
-import type { IInteractable } from '../Interactable';
+import type { IInteractable, InteractionAccess } from '../Interactable';
 import { setMeshHighlight } from '../highlightMesh';
 
 export class ThrowableObject implements IInteractable {
@@ -61,6 +61,10 @@ export class ThrowableObject implements IInteractable {
 
   onBlur(): void {
     this.setHighlighted(false);
+  }
+
+  canInteract(player: PlayerController): InteractionAccess {
+    return player.isGrounded ? { allowed: true } : { allowed: false, reason: 'Must be grounded' };
   }
 
   interact(_player: PlayerController): void {

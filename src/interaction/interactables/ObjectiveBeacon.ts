@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { COLLISION_GROUP_INTERACTABLE } from '@core/constants';
-import type { IInteractable, InteractionSpec } from '../Interactable';
+import type { IInteractable, InteractionAccess, InteractionSpec } from '../Interactable';
 import type { PhysicsWorld } from '@physics/PhysicsWorld';
 import type { PlayerController } from '@character/PlayerController';
 
@@ -77,6 +77,10 @@ export class ObjectiveBeacon implements IInteractable {
 
   onBlur(): void {
     this.beaconMaterial.emissiveIntensity = this.activated ? 0.9 : 0.25;
+  }
+
+  canInteract(player: PlayerController): InteractionAccess {
+    return player.isGrounded ? { allowed: true } : { allowed: false, reason: 'Must be grounded' };
   }
 
   interact(_player: PlayerController): void {
