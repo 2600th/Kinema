@@ -144,7 +144,11 @@ export class InteractableSystem implements RuntimeSystem {
         const obj = this.throwableObjects.get(h1) ?? this.throwableObjects.get(h2);
         if (!obj) return;
         if (event.totalForceMagnitude() > 12) {
-          this.uiManager.hud.showStatus("Impact!", 700);
+          const otherHandle = this.throwableObjects.has(h1) ? h2 : h1;
+          const otherCollider = this.physicsWorld.world.getCollider(otherHandle);
+          const otherBody = otherCollider?.parent();
+          const isTarget = otherBody && (otherBody.userData as { kind?: string })?.kind === 'throw-target';
+          this.uiManager.hud.showStatus(isTarget ? "Target Hit!" : "Impact!", 700);
         }
       });
     }
@@ -231,6 +235,7 @@ export class InteractableSystem implements RuntimeSystem {
       const bodyDesc = RAPIER.RigidBodyDesc.dynamic().setTranslation(mesh.position.x, mesh.position.y, mesh.position.z);
       const body = this.physicsWorld.world.createRigidBody(bodyDesc);
       body.enableCcd(true);
+      body.userData = { kind: 'throwable' };
 
       let colliderDesc: RAPIER.ColliderDesc;
       if (entry.shape === "sphere") {

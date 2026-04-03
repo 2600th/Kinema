@@ -60,7 +60,7 @@ export function shouldApplyGroundReaction(body: RAPIER.RigidBody | null): boolea
   const data = body.userData;
   if (typeof data !== 'object' || data === null) return true;
   const kind = (data as { kind?: unknown }).kind;
-  return kind !== 'floating-platform';
+  return kind !== 'floating-platform' && kind !== 'throwable';
 }
 
 /**
