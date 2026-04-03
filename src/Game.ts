@@ -149,6 +149,39 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
           this.fovPunch.punch(3);
         }
       }),
+      // Interaction + lifecycle feedback presets
+      this.eventBus.on("interaction:grabStart", () => {
+        this.feedbackPlayer.play([
+          { duration: 0, onStart: () => this.camera.addTrauma(0.12) },
+          { duration: 0, onStart: () => this.fovPunch.punch(-1.5) },
+        ]);
+      }),
+      this.eventBus.on("interaction:throw", () => {
+        this.feedbackPlayer.play([
+          { duration: 0, onStart: () => this.fovPunch.punch(2.0) },
+          { duration: 0, onStart: () => this.camera.addTrauma(0.15) },
+          { duration: 0, onStart: () => this.hitstop.trigger(0.03) },
+        ]);
+      }),
+      this.eventBus.on("checkpoint:activated", () => {
+        this.feedbackPlayer.play([
+          { duration: 0, onStart: () => this.fovPunch.punch(1.5) },
+          { duration: 0, onStart: () => this.hitstop.trigger(0.06) },
+        ]);
+      }),
+      this.eventBus.on("player:dying", () => {
+        this.feedbackPlayer.play([
+          { duration: 0, onStart: () => this.camera.addTrauma(0.4) },
+          { duration: 0, onStart: () => this.hitstop.trigger(0.12) },
+          { duration: 0, onStart: () => this.fovPunch.punch(-3) },
+        ]);
+      }),
+      this.eventBus.on("player:respawned", () => {
+        this.feedbackPlayer.play([
+          { duration: 0, onStart: () => this.fovPunch.punch(2.0) },
+          { duration: 0, onStart: () => this.camera.addTrauma(0.1) },
+        ]);
+      }),
       // Debug event handlers that control the renderer (stay in Game)
       this.eventBus.on("debug:showLightHelpers", (enabled) => {
         this.levelManager.setLightDebugEnabled(enabled);
