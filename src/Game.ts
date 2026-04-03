@@ -388,7 +388,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     if (!this.vehicleManager.isActive()) {
       this.playerController.update(dt, alpha);
     }
-    const lightingPos = this.playerController.position;
+    const lightingPos = this.playerController.renderPosition;
     this.levelManager.updateLighting(lightingPos);
     this.levelManager.update(dt, alpha);
     // Always update vehicles (active + parked) so parked drone/vehicles visually follow physics.

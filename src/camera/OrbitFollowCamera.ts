@@ -143,7 +143,7 @@ export class OrbitFollowCamera implements Updatable, Disposable {
   }
 
   snapToTarget(): void {
-    const targetPos = this.target ? this.target.position : this.player.position;
+    const targetPos = this.target ? this.target.position : this.player.renderPosition;
     const crouchCameraOffset = this.target ? 0 : this.player.getCameraHeightOffset();
     const heightOffset = this.targetHeightOverride ?? this.config.heightOffset;
     _pivotPos.set(targetPos.x, targetPos.y + heightOffset - crouchCameraOffset, targetPos.z);
@@ -254,7 +254,7 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     }
 
     // Pivot at player head height — clamp to ceiling if in tight tunnel.
-    const targetPos = this.target ? this.target.position : this.player.position;
+    const targetPos = this.target ? this.target.position : this.player.renderPosition;
     const crouchCameraOffset = this.target ? 0 : this.player.getCameraHeightOffset();
     let heightOffset = this.targetHeightOverride ?? this.config.heightOffset;
 

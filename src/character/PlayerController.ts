@@ -687,6 +687,11 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     return this.currPosition;
   }
 
+  /** Interpolated mesh position for render-frame consumers (camera, lighting). */
+  get renderPosition(): THREE.Vector3 {
+    return this.mesh.position;
+  }
+
   /** Position at ground contact (bottom of capsule + float offset). */
   private readonly _groundPos = new THREE.Vector3();
   get groundPosition(): THREE.Vector3 {
