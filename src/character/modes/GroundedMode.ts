@@ -406,15 +406,15 @@ export class GroundedMode implements CharacterMode {
     if (_stepForward.lengthSq() < 0.0001) return;
     _stepForward.normalize();
 
-    const probeDist = ctx.config.capsuleRadius + (run ? 0.95 : 0.85);
+    const probeDist = ctx.config.capsuleRadius + (run ? 0.34 : 0.28);
     _stepProbeLowOrigin.set(
       ctx.currentPos.x,
-      ctx.currentPos.y - ctx.currentCapsuleHalfHeight + 0.08,
+      ctx.currentPos.y - ctx.currentCapsuleHalfHeight + 0.05,
       ctx.currentPos.z,
     );
     _stepProbeHighOrigin.set(
       ctx.currentPos.x,
-      ctx.currentPos.y - ctx.currentCapsuleHalfHeight + 0.68,
+      ctx.currentPos.y - ctx.currentCapsuleHalfHeight + 0.46,
       ctx.currentPos.z,
     );
 
@@ -445,36 +445,33 @@ export class GroundedMode implements CharacterMode {
 
     // Check precise step height via downward probe ahead
     _stepGroundProbeOrigin.set(
-      ctx.currentPos.x + _stepForward.x * (run ? 0.58 : 0.5),
-      ctx.currentPos.y - ctx.currentCapsuleHalfHeight + 0.75,
-      ctx.currentPos.z + _stepForward.z * (run ? 0.58 : 0.5),
+      ctx.currentPos.x + _stepForward.x * (run ? 0.42 : 0.36),
+      ctx.currentPos.y - ctx.currentCapsuleHalfHeight + 0.54,
+      ctx.currentPos.z + _stepForward.z * (run ? 0.42 : 0.36),
     );
     const downHit = ctx.physicsWorld.castRay(
       _setRV(_rv3A, _stepGroundProbeOrigin.x, _stepGroundProbeOrigin.y, _stepGroundProbeOrigin.z),
       _rapierDown,
-      1.4,
+      0.92,
       undefined,
       ctx.body,
       (c) => !c.isSensor(),
     );
-    const maxStepHeight = run ? 0.34 : 0.28;
+    const maxStepHeight = run ? 0.2 : 0.15;
+    const stepTolerance = 0.02;
     if (downHit) {
       const groundAheadY = _stepGroundProbeOrigin.y - downHit.timeOfImpact;
       const feetY = ctx.currentPos.y - ctx.currentCapsuleHalfHeight;
       const stepHeight = groundAheadY - feetY;
-      if (stepHeight > 0.02 && stepHeight <= maxStepHeight) {
+      if (stepHeight > 0.02 && stepHeight <= maxStepHeight + stepTolerance) {
         // Precise step: use measured height
-        const clampedHeight = Math.min(stepHeight + 0.02, maxStepHeight);
+        const clampedHeight = Math.min(stepHeight + 0.01, maxStepHeight);
         finalVy = Math.max(lv.y, clampedHeight * 60);
-        finalFwdBoost = 0.06 * 60;
-      } else if (stepHeight > maxStepHeight) {
-        // Step too tall to climb — apply general boost to help with curb-like obstacles
-        const upBoost = run ? 3.4 : 3.0;
-        const fwdBoost = run ? 1.35 : 1.2;
-        if (lv.y < upBoost) {
-          finalVy = Math.max(lv.y, upBoost);
-          finalFwdBoost = fwdBoost;
-        }
+        finalFwdBoost = 0.018 * 60;
+      } else if (stepHeight > maxStepHeight + stepTolerance) {
+        // Tall obstacles should block movement instead of converting into an
+        // unintended auto-hop or launch.
+        return;
       }
       // else stepHeight <= 0.02: ground ahead is at/below current feet — edge, not step
     } else {

@@ -648,11 +648,11 @@ export class ProceduralBuilder {
       2.2,
     );
     const grabbableMat = new THREE.MeshPhysicalMaterial({ color: 0x4fa8d8, roughness: 0.3, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.05 });
-    this.createDynamicBox('PushCubeS', new THREE.Vector3(0, bayTopY + 0.5, zGrab + 2), new THREE.Vector3(1.0, 1.0, 1.0), grabbableMat, { grabbable: true, grabWeight: 0.85 });
-    this.createDynamicBox('PushCubeM', new THREE.Vector3(0, bayTopY + 0.65, zGrab), new THREE.Vector3(1.3, 1.3, 1.3), grabbableMat, { grabbable: true, grabWeight: 0.6 });
-    this.createDynamicBox('PushCubeL', new THREE.Vector3(0, bayTopY + 0.8, zGrab - 3), new THREE.Vector3(1.6, 1.6, 1.6), grabbableMat, { grabbable: true, grabWeight: 0.4 });
-    this.createDynamicBox('PushCubeTinyA', new THREE.Vector3(3.5, bayTopY + 0.25, zGrab), new THREE.Vector3(0.5, 0.5, 0.5), obstacleMat, { grabbable: false });
-    this.createDynamicBox('PushCubeTinyB', new THREE.Vector3(-3.5, bayTopY + 0.25, zGrab), new THREE.Vector3(0.5, 0.5, 0.5), obstacleMat, { grabbable: false });
+    this.createDynamicBox('PushCubeS', new THREE.Vector3(0, bayTopY + 0.5, zGrab + 2), new THREE.Vector3(1.0, 1.0, 1.0), grabbableMat, { grabbable: true, grabWeight: 0.85, mass: 18, linearDamping: 0.5, angularDamping: 1.1 });
+    this.createDynamicBox('PushCubeM', new THREE.Vector3(0, bayTopY + 0.65, zGrab), new THREE.Vector3(1.3, 1.3, 1.3), grabbableMat, { grabbable: true, grabWeight: 0.6, mass: 30, linearDamping: 0.56, angularDamping: 1.2 });
+    this.createDynamicBox('PushCubeL', new THREE.Vector3(0, bayTopY + 0.8, zGrab - 3), new THREE.Vector3(1.6, 1.6, 1.6), grabbableMat, { grabbable: true, grabWeight: 0.4, mass: 46, linearDamping: 0.62, angularDamping: 1.3 });
+    this.createDynamicBox('PushCubeTinyA', new THREE.Vector3(3.5, bayTopY + 0.25, zGrab), new THREE.Vector3(0.5, 0.5, 0.5), obstacleMat, { grabbable: false, mass: 7.5, linearDamping: 0.42, angularDamping: 0.9 });
+    this.createDynamicBox('PushCubeTinyB', new THREE.Vector3(-3.5, bayTopY + 0.25, zGrab), new THREE.Vector3(0.5, 0.5, 0.5), obstacleMat, { grabbable: false, mass: 7.5, linearDamping: 0.42, angularDamping: 0.9 });
     this.createSpinningToy(new THREE.Vector3(14, 2.5, zGrab - 2), obstacleMat);
     } // end grab
 
@@ -681,133 +681,420 @@ export class ProceduralBuilder {
     //
     //   x:  -8 ──── -5 ──── 0 ──── +5 ──── +8
 
-    const targetZ = zThrow - 2.5;
-    const throwLineZ = zThrow + 2;
-    const backdropZ = zThrow - 4.5;
-
-    // ═══ ENVIRONMENT: Backdrop wall ═══════════════════════════════════════
-    // Dark wall behind targets catches scattered debris and frames the scene.
-    const wallMat = new THREE.MeshStandardMaterial({
-      color: 0x2a2a3a, roughness: 0.85, metalness: 0.1,
-    });
-    const backdrop = new THREE.Mesh(new THREE.BoxGeometry(18, 3, 0.3), wallMat);
-    backdrop.position.set(0, bayTopY + 1.5, backdropZ);
-    backdrop.receiveShadow = true;
-    backdrop.name = 'ThrowBackdrop_col';
-    this.scene.add(backdrop);
-    this.meshes.push(backdrop);
-    backdrop.updateWorldMatrix(true, false);
-    this.colliders.push(this.colliderFactory.createTrimesh(backdrop));
-
-    // Emissive strip along top of backdrop for bloom glow
-    const stripMat = new THREE.MeshStandardMaterial({
-      color: 0x111111, emissive: 0xff6622, emissiveIntensity: 1.8,
-      roughness: 0.5, metalness: 0.0,
-    });
-    const topStrip = new THREE.Mesh(new THREE.BoxGeometry(18, 0.08, 0.32), stripMat);
-    topStrip.position.set(0, bayTopY + 3.04, backdropZ);
-    this.scene.add(topStrip);
-    this.meshes.push(topStrip);
-
-    // ═══ ENVIRONMENT: Lane divider walls ═════════════════════════════════
-    // Short walls between the three lanes, guiding thrown objects.
-    const dividerMat = new THREE.MeshStandardMaterial({ color: 0x3a3a4a, roughness: 0.75, metalness: 0.15 });
-    for (const dx of [-2.8, 2.8]) {
-      const divider = new THREE.Mesh(new THREE.BoxGeometry(0.15, 1.8, 2.5), dividerMat);
-      divider.position.set(dx, bayTopY + 0.9, targetZ - 0.5);
-      divider.receiveShadow = true;
-      divider.castShadow = true;
-      divider.name = 'LaneDivider_col';
-      this.scene.add(divider);
-      this.meshes.push(divider);
-      divider.updateWorldMatrix(true, false);
-      this.colliders.push(this.colliderFactory.createTrimesh(divider));
-    }
-
-    // ═══ ENVIRONMENT: Throwing line (floor glow strip) ═══════════════════
-    // Bright line on the ground where the player stands to throw.
-    const throwLineMat = new THREE.MeshStandardMaterial({
-      color: 0x111111, emissive: 0x00ccff, emissiveIntensity: 1.5,
-      roughness: 0.5,
-    });
-    const throwLine = new THREE.Mesh(new THREE.BoxGeometry(14, 0.04, 0.12), throwLineMat);
-    throwLine.position.set(0, bayTopY + 0.02, throwLineZ);
-    this.scene.add(throwLine);
-    this.meshes.push(throwLine);
-
-    // ═══ ENVIRONMENT: Side bollards ══════════════════════════════════════
-    // Small lit posts flanking the throwing area for visual framing.
-    const bollardMat = new THREE.MeshStandardMaterial({ color: 0x505868, roughness: 0.4, metalness: 0.3 });
-    const bollardGlowMat = new THREE.MeshStandardMaterial({
-      color: 0x222222, emissive: 0xff8844, emissiveIntensity: 1.2,
-      roughness: 0.5,
-    });
-    for (const bx of [-7.5, 7.5]) {
-      // Post
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 1.2, 8), bollardMat);
-      post.position.set(bx, bayTopY + 0.6, throwLineZ);
-      post.castShadow = true;
-      this.scene.add(post);
-      this.meshes.push(post);
-      // Glowing cap
-      const cap = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 6), bollardGlowMat);
-      cap.position.set(bx, bayTopY + 1.25, throwLineZ);
-      this.scene.add(cap);
-      this.meshes.push(cap);
-    }
-
-    // ═══ ENVIRONMENT: Pickup shelf ══════════════════════════════════════
-    // An angled display shelf near the player showing available throwables.
-    const shelfMat = new THREE.MeshStandardMaterial({ color: 0x4a4a5a, roughness: 0.6, metalness: 0.2 });
-    const shelf = new THREE.Mesh(new THREE.BoxGeometry(6, 0.1, 1.2), shelfMat);
-    shelf.position.set(0, bayTopY + 0.6, zThrow + 1);
-    shelf.rotation.x = -0.15; // slight tilt toward player
-    shelf.receiveShadow = true;
-    shelf.name = 'PickupShelf_col';
-    this.scene.add(shelf);
-    this.meshes.push(shelf);
-    shelf.updateWorldMatrix(true, false);
-    this.colliders.push(this.colliderFactory.createTrimesh(shelf));
-
-    // Shelf legs
-    for (const lx of [-2.8, 2.8]) {
-      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.6, 0.08), shelfMat);
-      leg.position.set(lx, bayTopY + 0.3, zThrow + 1);
-      leg.castShadow = true;
-      this.scene.add(leg);
-      this.meshes.push(leg);
-    }
-
-    // ═══ ENVIRONMENT: Target accent lights ══════════════════════════════
-    // Colored spotlights on each target zone for drama and readability.
-    const addTargetLight = (x: number, color: number, intensity: number) => {
-      const light = new THREE.PointLight(color, intensity, 8, 2);
-      light.position.set(x, bayTopY + 2.8, targetZ);
-      light.castShadow = false;
-      this.scene.add(light);
-      this.meshes.push(light);
+    const targetZ = zThrow - 2.45;
+    const throwLineZ = zThrow + 1.7;
+    const throwMarkZ = zThrow + 2.45;
+    const pickupConsoleZ = zThrow + 2.55;
+    const backdropZ = zThrow - 4.35;
+    const laneStartZ = throwLineZ - 0.35;
+    const laneEndZ = targetZ + 0.9;
+    const laneLength = laneStartZ - laneEndZ;
+    const laneThemes = [
+      { x: -5, color: 0x4aa6ff, glow: 0x77d7ff, name: 'Bottle' },
+      { x: 0, color: 0xff7a38, glow: 0xffb066, name: 'Impact' },
+      { x: 5, color: 0x54df94, glow: 0x94ffc2, name: 'Can' },
+    ] as const;
+    const addStaticMesh = (
+      mesh: THREE.Mesh,
+      name: string,
+      withCollider = true,
+    ): THREE.Mesh => {
+      mesh.name = name;
+      this.scene.add(mesh);
+      this.meshes.push(mesh);
+      if (withCollider) {
+        mesh.updateWorldMatrix(true, false);
+        this.colliders.push(this.colliderFactory.createTrimesh(mesh));
+      }
+      return mesh;
     };
-    addTargetLight(-5, 0x4488ff, 8);  // Blue for bottles
-    addTargetLight(0, 0xff6644, 10);  // Warm for bricks
-    addTargetLight(5, 0x44ff88, 8);   // Green for cans
+    const addFixedCuboidCollider = (
+      center: THREE.Vector3,
+      size: THREE.Vector3,
+      kind = 'throw-station',
+    ): void => {
+      const body = this.physicsWorld.world.createRigidBody(
+        RAPIER.RigidBodyDesc.fixed().setTranslation(center.x, center.y, center.z),
+      );
+      body.userData = { kind };
+      const collider = this.physicsWorld.world.createCollider(
+        RAPIER.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2)
+          .setFriction(0.7)
+          .setCollisionGroups(COLLISION_GROUP_WORLD),
+        body,
+      );
+      this.bodies.push(body);
+      this.colliders.push(collider);
+    };
 
-    // ═══ TARGET ZONE LEFT: Milk Bottle Pyramid ══════════════════════════
-    const bottlePedestalMat = new THREE.MeshStandardMaterial({ color: 0x3366aa, roughness: 0.6, metalness: 0.1 });
-    const bottlePedestal = new THREE.Mesh(new THREE.BoxGeometry(3, 0.5, 2), bottlePedestalMat);
-    bottlePedestal.position.set(-5, bayTopY + 0.25, targetZ);
+    const throwShellMat = new THREE.MeshPhysicalMaterial({
+      color: 0xff6a1a,
+      roughness: 0.28,
+      metalness: 0.0,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.08,
+      emissive: 0x9a3100,
+      emissiveIntensity: 0.12,
+    });
+    const throwPanelMat = new THREE.MeshStandardMaterial({
+      color: 0x1f2734,
+      roughness: 0.72,
+      metalness: 0.18,
+    });
+    const throwDeckMat = new THREE.MeshStandardMaterial({
+      color: 0x2b3240,
+      roughness: 0.82,
+      metalness: 0.08,
+    });
+    const throwTrimMat = new THREE.MeshStandardMaterial({
+      color: 0x0b141f,
+      roughness: 0.24,
+      metalness: 0.2,
+      emissive: 0x52d6ff,
+      emissiveIntensity: 1.65,
+    });
+    const throwGlowMat = new THREE.MeshStandardMaterial({
+      color: 0x090a0d,
+      roughness: 0.15,
+      metalness: 0.0,
+      emissive: 0xff934d,
+      emissiveIntensity: 2.2,
+    });
+    const throwMarkOuterMat = new THREE.MeshStandardMaterial({
+      color: 0xff7b2e,
+      roughness: 0.28,
+      metalness: 0.0,
+      emissive: 0xaa3200,
+      emissiveIntensity: 0.16,
+    });
+    throwMarkOuterMat.polygonOffset = true;
+    throwMarkOuterMat.polygonOffsetFactor = -2;
+    throwMarkOuterMat.polygonOffsetUnits = -4;
+    const throwMarkInnerMat = new THREE.MeshStandardMaterial({
+      color: 0x263140,
+      roughness: 0.72,
+      metalness: 0.16,
+    });
+    throwMarkInnerMat.polygonOffset = true;
+    throwMarkInnerMat.polygonOffsetFactor = -3;
+    throwMarkInnerMat.polygonOffsetUnits = -5;
+    const throwMarkTrimMat = new THREE.MeshStandardMaterial({
+      color: 0x151c24,
+      roughness: 0.18,
+      metalness: 0.0,
+      emissive: 0xff964f,
+      emissiveIntensity: 1.8,
+    });
+    throwMarkTrimMat.polygonOffset = true;
+    throwMarkTrimMat.polygonOffsetFactor = -4;
+    throwMarkTrimMat.polygonOffsetUnits = -6;
+    const throwSupportMat = new THREE.MeshStandardMaterial({
+      color: 0x637184,
+      roughness: 0.4,
+      metalness: 0.45,
+    });
+
+    const arenaBase = new THREE.Mesh(
+      new RoundedBoxGeometry(19.2, 0.18, 10.4, 4, 0.08),
+      throwDeckMat,
+    );
+    arenaBase.position.set(0, bayTopY + 0.09, zThrow - 0.15);
+    arenaBase.receiveShadow = true;
+    addStaticMesh(arenaBase, 'ThrowArenaBase_col', false);
+    addFixedCuboidCollider(new THREE.Vector3(0, bayTopY + 0.09, zThrow - 0.15), new THREE.Vector3(19.2, 0.18, 10.4));
+
+    const centralRunway = new THREE.Mesh(
+      new RoundedBoxGeometry(12.2, 0.08, 3.0, 4, 0.05),
+      throwPanelMat,
+    );
+    centralRunway.position.set(0, bayTopY + 0.14, zThrow - 0.75);
+    centralRunway.receiveShadow = true;
+    addStaticMesh(centralRunway, 'ThrowRunway_col', false);
+    addFixedCuboidCollider(new THREE.Vector3(0, bayTopY + 0.14, zThrow - 0.75), new THREE.Vector3(12.2, 0.08, 3.0));
+
+    const throwDiscOuter = new THREE.Mesh(
+      new THREE.CircleGeometry(1.65, 40),
+      throwMarkOuterMat,
+    );
+    throwDiscOuter.rotation.x = -Math.PI / 2;
+    throwDiscOuter.position.set(0, bayTopY + 0.187, throwMarkZ);
+    addStaticMesh(throwDiscOuter, 'ThrowDiscOuter_col', false);
+
+    const throwDiscInner = new THREE.Mesh(
+      new THREE.CircleGeometry(1.12, 40),
+      throwMarkInnerMat,
+    );
+    throwDiscInner.rotation.x = -Math.PI / 2;
+    throwDiscInner.position.set(0, bayTopY + 0.189, throwMarkZ);
+    addStaticMesh(throwDiscInner, 'ThrowDiscInner_col', false);
+
+    const throwDiscRing = new THREE.Mesh(
+      new THREE.RingGeometry(1.19, 1.34, 48),
+      throwMarkTrimMat,
+    );
+    throwDiscRing.rotation.x = -Math.PI / 2;
+    throwDiscRing.position.set(0, bayTopY + 0.191, throwMarkZ);
+    addStaticMesh(throwDiscRing, 'ThrowDiscRing', false);
+
+    const throwLine = new THREE.Mesh(new THREE.PlaneGeometry(13.6, 0.18), throwMarkTrimMat);
+    throwLine.rotation.x = -Math.PI / 2;
+    throwLine.position.set(0, bayTopY + 0.192, throwLineZ);
+    addStaticMesh(throwLine, 'ThrowLine', false);
+
+    const overheadFrame = new THREE.Mesh(
+      new RoundedBoxGeometry(18.8, 4.2, 0.34, 4, 0.08),
+      throwShellMat,
+    );
+    overheadFrame.position.set(0, bayTopY + 2.25, backdropZ - 0.04);
+    addStaticMesh(overheadFrame, 'ThrowBackdropFrame_col', false);
+    addFixedCuboidCollider(new THREE.Vector3(0, bayTopY + 2.25, backdropZ - 0.04), new THREE.Vector3(18.8, 4.2, 0.34));
+
+    const backdropInset = new THREE.Mesh(
+      new THREE.BoxGeometry(16.9, 3.25, 0.16),
+      throwPanelMat,
+    );
+    backdropInset.position.set(0, bayTopY + 1.75, backdropZ + 0.08);
+    backdropInset.receiveShadow = true;
+    addStaticMesh(backdropInset, 'ThrowBackdrop_col', false);
+    addFixedCuboidCollider(new THREE.Vector3(0, bayTopY + 1.75, backdropZ + 0.08), new THREE.Vector3(16.9, 3.25, 0.16));
+
+    const backdropHeader = new THREE.Mesh(
+      new RoundedBoxGeometry(9.8, 0.48, 0.5, 4, 0.08),
+      throwGlowMat,
+    );
+    backdropHeader.position.set(0, bayTopY + 3.82, backdropZ + 0.12);
+    addStaticMesh(backdropHeader, 'ThrowBackdropHeader', false);
+    addFixedCuboidCollider(new THREE.Vector3(0, bayTopY + 3.82, backdropZ + 0.12), new THREE.Vector3(9.8, 0.48, 0.5));
+
+    for (const px of [-8.25, 8.25]) {
+      const tower = new THREE.Mesh(
+        new RoundedBoxGeometry(1.05, 3.2, 1.2, 4, 0.07),
+        throwSupportMat,
+      );
+      tower.position.set(px, bayTopY + 1.62, zThrow - 0.1);
+      tower.castShadow = true;
+      tower.receiveShadow = true;
+      addStaticMesh(tower, `ThrowSideTower_${px < 0 ? 'L' : 'R'}_col`, false);
+      addFixedCuboidCollider(new THREE.Vector3(px, bayTopY + 1.62, zThrow - 0.1), new THREE.Vector3(1.05, 3.2, 1.2));
+
+      const towerStrip = new THREE.Mesh(
+        new THREE.BoxGeometry(0.16, 2.5, 0.14),
+        throwTrimMat,
+      );
+      towerStrip.position.set(px + (px < 0 ? 0.34 : -0.34), bayTopY + 1.7, zThrow + 0.05);
+      addStaticMesh(towerStrip, `ThrowSideTowerGlow_${px < 0 ? 'L' : 'R'}`, false);
+    }
+
+    const consoleShellMat = new THREE.MeshPhysicalMaterial({
+      color: 0xf46b2c,
+      roughness: 0.34,
+      metalness: 0.0,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.08,
+      emissive: 0x6d2500,
+      emissiveIntensity: 0.08,
+    });
+    const consoleTopMat = new THREE.MeshStandardMaterial({
+      color: 0x253140,
+      roughness: 0.6,
+      metalness: 0.25,
+    });
+    for (const side of [-1, 1]) {
+      const consoleX = side * 5.8;
+      const console = new THREE.Mesh(
+        new RoundedBoxGeometry(4.2, 0.72, 1.85, 4, 0.07),
+        consoleShellMat,
+      );
+      console.position.set(consoleX, bayTopY + 0.36, pickupConsoleZ);
+      console.castShadow = true;
+      console.receiveShadow = true;
+      addStaticMesh(console, `ThrowPickupConsole_${side < 0 ? 'L' : 'R'}_col`, false);
+      addFixedCuboidCollider(new THREE.Vector3(consoleX, bayTopY + 0.36, pickupConsoleZ), new THREE.Vector3(4.2, 0.72, 1.85));
+
+      const consoleTop = new THREE.Mesh(
+        new THREE.BoxGeometry(3.5, 0.08, 1.18),
+        consoleTopMat,
+      );
+      consoleTop.position.set(consoleX, bayTopY + 0.73, pickupConsoleZ - 0.05);
+      addStaticMesh(consoleTop, `ThrowPickupConsoleTop_${side < 0 ? 'L' : 'R'}`, false);
+
+    }
+
+    const pickupPadXs = [-6.65, -5.4, -4.15, 4.15, 5.4, 6.65];
+    for (const padX of pickupPadXs) {
+      const padBase = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.48, 0.48, 0.05, 24),
+        throwPanelMat,
+      );
+      padBase.position.set(padX, bayTopY + 0.73, pickupConsoleZ - 0.44);
+      addStaticMesh(padBase, `ThrowPickupPadBase_${padX.toFixed(2)}`, false);
+
+      const pad = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.42, 0.42, 0.05, 24),
+        throwTrimMat,
+      );
+      pad.position.set(padX, bayTopY + 0.77, pickupConsoleZ - 0.44);
+      addStaticMesh(pad, `ThrowPickupPad_${padX.toFixed(2)}`, false);
+    }
+
+    const propCrateMat = new THREE.MeshStandardMaterial({
+      color: 0x4a5568,
+      roughness: 0.55,
+      metalness: 0.32,
+    });
+    const propAccentMat = new THREE.MeshStandardMaterial({
+      color: 0x131920,
+      roughness: 0.18,
+      metalness: 0.08,
+      emissive: 0xff8a4d,
+      emissiveIntensity: 1.2,
+    });
+    for (const side of [-1, 1]) {
+      const propX = side * 8.05;
+      const propZ = zThrow - 2.2;
+
+      const crateBase = new THREE.Mesh(
+        new RoundedBoxGeometry(1.25, 0.8, 1.05, 3, 0.05),
+        propCrateMat,
+      );
+      crateBase.position.set(propX, bayTopY + 0.4, propZ);
+      crateBase.castShadow = true;
+      crateBase.receiveShadow = true;
+      addStaticMesh(crateBase, `ThrowPropCrateBase_${side < 0 ? 'L' : 'R'}`, false);
+      addFixedCuboidCollider(new THREE.Vector3(propX, bayTopY + 0.4, propZ), new THREE.Vector3(1.25, 0.8, 1.05));
+
+      const crateTop = new THREE.Mesh(
+        new RoundedBoxGeometry(0.8, 0.52, 0.8, 3, 0.04),
+        propCrateMat,
+      );
+      crateTop.position.set(propX + side * 0.34, bayTopY + 1.06, propZ + 0.14);
+      crateTop.castShadow = true;
+      crateTop.receiveShadow = true;
+      addStaticMesh(crateTop, `ThrowPropCrateTop_${side < 0 ? 'L' : 'R'}`, false);
+      addFixedCuboidCollider(new THREE.Vector3(propX + side * 0.34, bayTopY + 1.06, propZ + 0.14), new THREE.Vector3(0.8, 0.52, 0.8));
+
+      for (let i = 0; i < 3; i++) {
+        const canister = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.14, 0.14, 0.58, 12),
+          propAccentMat,
+        );
+        canister.position.set(propX + side * (-0.35 + i * 0.24), bayTopY + 0.3, zThrow + 3.05);
+        addStaticMesh(canister, `ThrowPropCanister_${side < 0 ? 'L' : 'R'}_${i}`, false);
+      }
+
+    }
+
+    for (const side of [-1, 1]) {
+      for (let i = 0; i < 3; i++) {
+        const decal = new THREE.Mesh(
+          new THREE.BoxGeometry(0.55, 0.015, 0.4),
+          new THREE.MeshStandardMaterial({
+            color: 0x15181d,
+            roughness: 0.2,
+            metalness: 0.0,
+            emissive: i === 1 ? 0xff934d : 0x52d6ff,
+            emissiveIntensity: 1.3,
+          }),
+        );
+        decal.position.set(side * 7.4, bayTopY + 0.11, zThrow + 1.15 - i * 1.15);
+        decal.rotation.y = side * 0.42;
+        addStaticMesh(decal, `ThrowEdgeDecal_${side < 0 ? 'L' : 'R'}_${i}`, false);
+      }
+    }
+
+    for (const theme of laneThemes) {
+      const laneDeck = new THREE.Mesh(
+        new RoundedBoxGeometry(3.4, 0.12, laneLength + 1.1, 4, 0.04),
+        throwPanelMat,
+      );
+      laneDeck.position.set(theme.x, bayTopY + 0.13, (laneStartZ + laneEndZ) * 0.5);
+      laneDeck.receiveShadow = true;
+      addStaticMesh(laneDeck, `ThrowLaneDeck_${theme.name}`, false);
+
+      const laneBorder = new THREE.Mesh(
+        new THREE.BoxGeometry(3.05, 0.04, laneLength + 0.4),
+        new THREE.MeshStandardMaterial({
+          color: 0x0b0d11,
+          roughness: 0.18,
+          metalness: 0.0,
+          emissive: theme.color,
+          emissiveIntensity: 1.4,
+        }),
+      );
+      laneBorder.position.set(theme.x, bayTopY + 0.2, (laneStartZ + laneEndZ) * 0.5);
+      addStaticMesh(laneBorder, `ThrowLaneBorder_${theme.name}`, false);
+
+      const laneGuide = new THREE.Mesh(
+        new THREE.BoxGeometry(0.14, 0.04, laneLength + 0.7),
+        throwTrimMat,
+      );
+      laneGuide.position.set(theme.x, bayTopY + 0.24, (laneStartZ + laneEndZ) * 0.5);
+      addStaticMesh(laneGuide, `ThrowLaneGuide_${theme.name}`, false);
+
+      const laneBackboard = new THREE.Mesh(
+        new RoundedBoxGeometry(3.1, 2.3, 0.18, 4, 0.06),
+        new THREE.MeshStandardMaterial({
+          color: 0x202631,
+          roughness: 0.7,
+          metalness: 0.18,
+          emissive: theme.color,
+          emissiveIntensity: 0.16,
+        }),
+      );
+      laneBackboard.position.set(theme.x, bayTopY + 1.52, targetZ - 0.95);
+      addStaticMesh(laneBackboard, `ThrowLaneBackboard_${theme.name}`, false);
+      addFixedCuboidCollider(new THREE.Vector3(theme.x, bayTopY + 1.52, targetZ - 0.95), new THREE.Vector3(3.1, 2.3, 0.18));
+
+      const laneHalo = new THREE.Mesh(
+        new RoundedBoxGeometry(2.5, 0.18, 0.16, 4, 0.04),
+        new THREE.MeshStandardMaterial({
+          color: 0x111317,
+          roughness: 0.2,
+          metalness: 0.0,
+          emissive: theme.glow,
+          emissiveIntensity: 2.0,
+        }),
+      );
+      laneHalo.position.set(theme.x, bayTopY + 2.42, targetZ - 0.77);
+      addStaticMesh(laneHalo, `ThrowLaneHalo_${theme.name}`, false);
+
+      const accentLight = new THREE.PointLight(theme.glow, theme.x === 0 ? 18 : 12, 9, 2);
+      accentLight.position.set(theme.x, bayTopY + 2.65, targetZ - 0.15);
+      accentLight.castShadow = false;
+      this.scene.add(accentLight);
+      this.meshes.push(accentLight);
+    }
+
+    const bottlePedestal = new THREE.Mesh(
+      new RoundedBoxGeometry(3.2, 0.72, 2.3, 4, 0.06),
+      new THREE.MeshStandardMaterial({
+        color: 0x305f9a,
+        roughness: 0.45,
+        metalness: 0.22,
+      }),
+    );
+    bottlePedestal.position.set(-5, bayTopY + 0.36, targetZ);
     bottlePedestal.receiveShadow = true;
-    bottlePedestal.name = 'BottlePedestal_col';
-    this.scene.add(bottlePedestal);
-    this.meshes.push(bottlePedestal);
-    bottlePedestal.updateWorldMatrix(true, false);
-    this.colliders.push(this.colliderFactory.createTrimesh(bottlePedestal));
+    addStaticMesh(bottlePedestal, 'BottlePedestal_col', false);
+    addFixedCuboidCollider(new THREE.Vector3(-5, bayTopY + 0.36, targetZ), new THREE.Vector3(3.2, 0.72, 2.3));
 
-    const bottleMat = new THREE.MeshStandardMaterial({ color: 0xf5e6c8, roughness: 0.3, metalness: 0.05 });
+    const bottlePedestalTop = new THREE.Mesh(
+      new THREE.BoxGeometry(2.55, 0.08, 1.6),
+      throwPanelMat,
+    );
+    bottlePedestalTop.position.set(-5, bayTopY + 0.74, targetZ);
+    addStaticMesh(bottlePedestalTop, 'BottlePedestalTop', false);
+
+    const bottleMat = new THREE.MeshStandardMaterial({
+      color: 0xf4e2c8,
+      roughness: 0.24,
+      metalness: 0.05,
+    });
     const bottleR = 0.12;
     const bottleH = 0.22;
     const bottleBaseX = -5;
-    const bottleTop = bayTopY + 0.5;
-    const bottleSpacing = bottleR * 2.6;
+    const bottleTop = bayTopY + 0.74;
+    const bottleSpacing = bottleR * 2.8;
     [
       [bottleBaseX - bottleSpacing, bottleBaseX, bottleBaseX + bottleSpacing],
       [bottleBaseX - bottleSpacing * 0.5, bottleBaseX + bottleSpacing * 0.5],
@@ -815,7 +1102,10 @@ export class ProceduralBuilder {
     ].forEach((row, rowIdx) => {
       row.forEach((x) => {
         const y = bottleTop + bottleH + rowIdx * bottleH * 2;
-        const mesh = new THREE.Mesh(new THREE.CylinderGeometry(bottleR * 0.65, bottleR, bottleH * 2, 10), bottleMat);
+        const mesh = new THREE.Mesh(
+          new THREE.CylinderGeometry(bottleR * 0.65, bottleR, bottleH * 2, 10),
+          bottleMat,
+        );
         mesh.position.set(x, y, targetZ);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
@@ -823,43 +1113,107 @@ export class ProceduralBuilder {
         this.meshes.push(mesh);
         const bd = RAPIER.RigidBodyDesc.dynamic().setTranslation(x, y, targetZ);
         const body = this.physicsWorld.world.createRigidBody(bd);
-        RAPIER.ColliderDesc.cylinder(bottleH, bottleR).setFriction(0.5).setRestitution(0.15).setDensity(3.5).setCollisionGroups(COLLISION_GROUP_WORLD);
-        this.physicsWorld.world.createCollider(RAPIER.ColliderDesc.cylinder(bottleH, bottleR).setFriction(0.5).setRestitution(0.15).setDensity(3.5).setCollisionGroups(COLLISION_GROUP_WORLD), body);
+        body.setLinearDamping(0.18);
+        body.setAngularDamping(0.48);
+        this.physicsWorld.world.createCollider(
+          RAPIER.ColliderDesc.cylinder(bottleH, bottleR)
+            .setFriction(0.5)
+            .setRestitution(0.15)
+            .setMass(0.72)
+            .setCollisionGroups(COLLISION_GROUP_WORLD),
+          body,
+        );
         body.userData = { kind: 'throwable' };
         this.bodies.push(body);
-        this.dynamicBodiesArr.push({ mesh, body, prevPos: new THREE.Vector3(x, y, targetZ), currPos: new THREE.Vector3(x, y, targetZ), prevQuat: new THREE.Quaternion(), currQuat: new THREE.Quaternion(), hasPose: false });
+        this.dynamicBodiesArr.push({
+          mesh,
+          body,
+          prevPos: new THREE.Vector3(x, y, targetZ),
+          currPos: new THREE.Vector3(x, y, targetZ),
+          prevQuat: new THREE.Quaternion(),
+          currQuat: new THREE.Quaternion(),
+          hasPose: false,
+        });
       });
     });
 
-    // ═══ TARGET ZONE CENTER: Brick Wall ══════════════════════════════════
-    const targetMat = new THREE.MeshStandardMaterial({ color: 0xcc5533, roughness: 0.65 });
+    const impactPedestal = new THREE.Mesh(
+      new RoundedBoxGeometry(3.55, 0.78, 2.45, 4, 0.06),
+      throwShellMat,
+    );
+    impactPedestal.position.set(0, bayTopY + 0.39, targetZ);
+    impactPedestal.receiveShadow = true;
+    addStaticMesh(impactPedestal, 'ImpactPedestal_col', false);
+    addFixedCuboidCollider(new THREE.Vector3(0, bayTopY + 0.39, targetZ), new THREE.Vector3(3.55, 0.78, 2.45));
+
+    const impactFace = new THREE.Mesh(
+      new THREE.BoxGeometry(2.7, 1.7, 0.1),
+      new THREE.MeshStandardMaterial({
+        color: 0x31160d,
+        roughness: 0.65,
+        metalness: 0.1,
+        emissive: 0xff7a38,
+        emissiveIntensity: 0.18,
+      }),
+    );
+    impactFace.position.set(0, bayTopY + 1.18, targetZ - 0.78);
+    addStaticMesh(impactFace, 'ImpactLaneFace', false);
+
+    const targetMat = new THREE.MeshStandardMaterial({
+      color: 0xb52e2e,
+      roughness: 0.62,
+      metalness: 0.04,
+      emissive: 0x240707,
+      emissiveIntensity: 0.08,
+    });
     for (let row = 0; row < 5; row++) {
       for (let col = 0; col < 6; col++) {
-        const brickW = 0.4, brickH = 0.25, brickD = 0.22;
+        const brickW = 0.4;
+        const brickH = 0.25;
+        const brickD = 0.22;
         const xOff = (row % 2 === 0) ? 0 : brickW * 0.5;
         const x = (col - 2.5) * brickW + xOff;
-        const y = bayTopY + brickH * 0.5 + row * brickH;
-        this.createDynamicBox(`Target_${row}_${col}`, new THREE.Vector3(x, y, targetZ), new THREE.Vector3(brickW, brickH, brickD), targetMat);
+        const y = bayTopY + 0.79 + brickH * 0.5 + row * brickH;
+        this.createDynamicBox(
+          `Target_${row}_${col}`,
+          new THREE.Vector3(x, y, targetZ),
+          new THREE.Vector3(brickW, brickH, brickD),
+          targetMat,
+          { mass: 0.65, linearDamping: 0.35, angularDamping: 0.9 },
+        );
       }
     }
 
-    // ═══ TARGET ZONE RIGHT: Tin Can Pyramid ═════════════════════════════
-    const canPedestalMat = new THREE.MeshStandardMaterial({ color: 0x338855, roughness: 0.6, metalness: 0.1 });
-    const canPedestal = new THREE.Mesh(new THREE.BoxGeometry(3, 0.5, 2), canPedestalMat);
-    canPedestal.position.set(5, bayTopY + 0.25, targetZ);
+    const canPedestal = new THREE.Mesh(
+      new RoundedBoxGeometry(3.2, 0.72, 2.3, 4, 0.06),
+      new THREE.MeshStandardMaterial({
+        color: 0x287653,
+        roughness: 0.42,
+        metalness: 0.25,
+      }),
+    );
+    canPedestal.position.set(5, bayTopY + 0.36, targetZ);
     canPedestal.receiveShadow = true;
-    canPedestal.name = 'CanPedestal_col';
-    this.scene.add(canPedestal);
-    this.meshes.push(canPedestal);
-    canPedestal.updateWorldMatrix(true, false);
-    this.colliders.push(this.colliderFactory.createTrimesh(canPedestal));
+    addStaticMesh(canPedestal, 'CanPedestal_col', false);
+    addFixedCuboidCollider(new THREE.Vector3(5, bayTopY + 0.36, targetZ), new THREE.Vector3(3.2, 0.72, 2.3));
 
-    const canMat = new THREE.MeshStandardMaterial({ color: 0xc0c0c0, roughness: 0.2, metalness: 0.8 });
+    const canPedestalTop = new THREE.Mesh(
+      new THREE.BoxGeometry(2.55, 0.08, 1.6),
+      throwPanelMat,
+    );
+    canPedestalTop.position.set(5, bayTopY + 0.74, targetZ);
+    addStaticMesh(canPedestalTop, 'CanPedestalTop', false);
+
+    const canMat = new THREE.MeshStandardMaterial({
+      color: 0xc8d0d5,
+      roughness: 0.22,
+      metalness: 0.84,
+    });
     const canR = 0.1;
     const canH = 0.14;
     const canBaseX = 5;
-    const canTop = bayTopY + 0.5;
-    const canSpacing = canR * 2.5;
+    const canTop = bayTopY + 0.74;
+    const canSpacing = canR * 2.7;
     [
       [-1.5, -0.5, 0.5, 1.5].map(i => canBaseX + i * canSpacing),
       [-1, 0, 1].map(i => canBaseX + i * canSpacing),
@@ -868,17 +1222,37 @@ export class ProceduralBuilder {
     ].forEach((row, rowIdx) => {
       row.forEach((x) => {
         const y = canTop + canH + rowIdx * canH * 2;
-        const mesh = new THREE.Mesh(new THREE.CylinderGeometry(canR, canR, canH * 2, 8), canMat);
+        const mesh = new THREE.Mesh(
+          new THREE.CylinderGeometry(canR, canR, canH * 2, 8),
+          canMat,
+        );
         mesh.position.set(x, y, targetZ);
         mesh.castShadow = true;
         this.scene.add(mesh);
         this.meshes.push(mesh);
         const bd = RAPIER.RigidBodyDesc.dynamic().setTranslation(x, y, targetZ);
         const body = this.physicsWorld.world.createRigidBody(bd);
-        this.physicsWorld.world.createCollider(RAPIER.ColliderDesc.cylinder(canH, canR).setFriction(0.3).setRestitution(0.35).setDensity(0.6).setCollisionGroups(COLLISION_GROUP_WORLD), body);
+        body.setLinearDamping(0.24);
+        body.setAngularDamping(0.64);
+        this.physicsWorld.world.createCollider(
+          RAPIER.ColliderDesc.cylinder(canH, canR)
+            .setFriction(0.3)
+            .setRestitution(0.35)
+            .setMass(0.16)
+            .setCollisionGroups(COLLISION_GROUP_WORLD),
+          body,
+        );
         body.userData = { kind: 'throwable' };
         this.bodies.push(body);
-        this.dynamicBodiesArr.push({ mesh, body, prevPos: new THREE.Vector3(x, y, targetZ), currPos: new THREE.Vector3(x, y, targetZ), prevQuat: new THREE.Quaternion(), currQuat: new THREE.Quaternion(), hasPose: false });
+        this.dynamicBodiesArr.push({
+          mesh,
+          body,
+          prevPos: new THREE.Vector3(x, y, targetZ),
+          currPos: new THREE.Vector3(x, y, targetZ),
+          prevQuat: new THREE.Quaternion(),
+          currQuat: new THREE.Quaternion(),
+          hasPose: false,
+        });
       });
     });
     } // end throw
@@ -1197,7 +1571,7 @@ export class ProceduralBuilder {
     position: THREE.Vector3,
     size: THREE.Vector3,
     material: THREE.Material,
-    options?: { grabbable?: boolean; grabWeight?: number },
+    options?: { grabbable?: boolean; grabWeight?: number; mass?: number; linearDamping?: number; angularDamping?: number },
   ): void {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), material);
     mesh.position.copy(position);
@@ -1210,6 +1584,8 @@ export class ProceduralBuilder {
     this.meshes.push(mesh);
 
     const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
+      .setLinearDamping(options?.linearDamping ?? 0.18)
+      .setAngularDamping(options?.angularDamping ?? 0.45)
       .setTranslation(position.x, position.y, position.z);
     const body = this.physicsWorld.world.createRigidBody(bodyDesc);
     body.enableCcd(true);
@@ -1217,6 +1593,9 @@ export class ProceduralBuilder {
       .setFriction(0.7)
       .setRestitution(0.05)
       .setCollisionGroups(COLLISION_GROUP_WORLD);
+    if (options?.mass != null) {
+      colliderDesc.setMass(options.mass);
+    }
     const collider = this.physicsWorld.world.createCollider(colliderDesc, body);
 
     this.bodies.push(body);

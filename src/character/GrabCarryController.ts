@@ -242,7 +242,7 @@ export class GrabCarryController {
     );
 
     // Treat throwForce as a *target throw speed* (m/s) rather than a raw impulse.
-    const targetSpeed = Math.max(0.5, Math.min(object.throwForce, 10));
+    const targetSpeed = Math.max(1.0, Math.min(object.throwForce * 2, 20));
     object.body.setLinvel(
       _setRV(_rv3A, forward.x * targetSpeed, forward.y * targetSpeed, forward.z * targetSpeed),
       true,
