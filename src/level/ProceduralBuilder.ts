@@ -88,6 +88,7 @@ export interface ProceduralBuildResult {
   navMeshManager: NavMeshManager | null;
   navPatrolSystem: NavPatrolSystem | null;
   navDebugOverlay: NavDebugOverlay | null;
+  vfxDisposeCallbacks: Array<() => void>;
 }
 
 /**
@@ -109,6 +110,7 @@ export class ProceduralBuilder {
   private dustMotesArr: DustMoteEntry[] = [];
   private vfxNoiseTextureRef: THREE.CanvasTexture | null = null;
   private vfxLightningLightRef: THREE.PointLight | null = null;
+  private vfxDisposeCallbacks: Array<() => void> = [];
   private spawnPointData: SpawnPointData = { position: new THREE.Vector3(0, 2, 0) };
   private navMeshManagerRef: NavMeshManager | null = null;
   private navPatrolSystemRef: NavPatrolSystem | null = null;
@@ -644,9 +646,9 @@ export class ProceduralBuilder {
       2.2,
     );
     const grabbableMat = new THREE.MeshPhysicalMaterial({ color: 0x4fa8d8, roughness: 0.3, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.05 });
-    this.createDynamicBox('PushCubeS', new THREE.Vector3(0, bayTopY + 0.5, zGrab + 2), new THREE.Vector3(1.0, 1.0, 1.0), grabbableMat, { grabbable: true });
-    this.createDynamicBox('PushCubeM', new THREE.Vector3(0, bayTopY + 0.65, zGrab), new THREE.Vector3(1.3, 1.3, 1.3), grabbableMat, { grabbable: true });
-    this.createDynamicBox('PushCubeL', new THREE.Vector3(0, bayTopY + 0.8, zGrab - 3), new THREE.Vector3(1.6, 1.6, 1.6), grabbableMat, { grabbable: true });
+    this.createDynamicBox('PushCubeS', new THREE.Vector3(0, bayTopY + 0.5, zGrab + 2), new THREE.Vector3(1.0, 1.0, 1.0), grabbableMat, { grabbable: true, grabWeight: 0.85 });
+    this.createDynamicBox('PushCubeM', new THREE.Vector3(0, bayTopY + 0.65, zGrab), new THREE.Vector3(1.3, 1.3, 1.3), grabbableMat, { grabbable: true, grabWeight: 0.6 });
+    this.createDynamicBox('PushCubeL', new THREE.Vector3(0, bayTopY + 0.8, zGrab - 3), new THREE.Vector3(1.6, 1.6, 1.6), grabbableMat, { grabbable: true, grabWeight: 0.4 });
     this.createDynamicBox('PushCubeTinyA', new THREE.Vector3(3.5, bayTopY + 0.25, zGrab), new THREE.Vector3(0.5, 0.5, 0.5), obstacleMat, { grabbable: false });
     this.createDynamicBox('PushCubeTinyB', new THREE.Vector3(-3.5, bayTopY + 0.25, zGrab), new THREE.Vector3(0.5, 0.5, 0.5), obstacleMat, { grabbable: false });
     this.createSpinningToy(new THREE.Vector3(14, 2.5, zGrab - 2), obstacleMat);
@@ -1014,7 +1016,7 @@ export class ProceduralBuilder {
     position: THREE.Vector3,
     size: THREE.Vector3,
     material: THREE.Material,
-    options?: { grabbable?: boolean },
+    options?: { grabbable?: boolean; grabWeight?: number },
   ): void {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), material);
     mesh.position.copy(position);
@@ -1022,6 +1024,7 @@ export class ProceduralBuilder {
     mesh.receiveShadow = true;
     mesh.name = `${name}_dyn`;
     mesh.userData.grabbable = options?.grabbable === true;
+    if (options?.grabWeight != null) mesh.userData.grabWeight = options.grabWeight;
     this.scene.add(mesh);
     this.meshes.push(mesh);
 
@@ -1908,8 +1911,13 @@ export class ProceduralBuilder {
     try {
       const { createVfxShowcase } = await import('@level/VfxShowcase');
       if (this.loadGenerationRef.value !== gen) return;
-      const objects = await createVfxShowcase(this.scene, base, bayWidth);
-      this.meshes.push(...objects);
+      const result = await createVfxShowcase(this.scene, base, bayWidth);
+      if (this.loadGenerationRef.value !== gen) {
+        result.dispose();
+        return;
+      }
+      this.meshes.push(...result.objects);
+      this.vfxDisposeCallbacks.push(result.dispose);
     } catch (err) {
       console.warn('[ProceduralBuilder] VFX showcase V2 failed, falling back to legacy:', err);
       // Fall back to old VFX bay
@@ -2576,6 +2584,7 @@ export class ProceduralBuilder {
       navMeshManager: this.navMeshManagerRef,
       navPatrolSystem: this.navPatrolSystemRef,
       navDebugOverlay: this.navDebugOverlayRef,
+      vfxDisposeCallbacks: this.vfxDisposeCallbacks,
     };
   }
 }

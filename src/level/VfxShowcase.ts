@@ -1,5 +1,10 @@
 import * as THREE from 'three';
 
+export interface VfxShowcaseResult {
+  objects: THREE.Object3D[];
+  dispose: () => void;
+}
+
 /**
  * Creates 4 VFX demos arranged in a row within the given bay area.
  * Returns all created meshes so the caller can track them.
@@ -15,8 +20,9 @@ export async function createVfxShowcase(
   base: THREE.Vector3,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _bayWidth: number,
-): Promise<THREE.Object3D[]> {
+): Promise<VfxShowcaseResult> {
   const created: THREE.Object3D[] = [];
+  const intervalIds: ReturnType<typeof setInterval>[] = [];
 
   try {
     // ── Dynamic TSL / WebGPU imports ─────────────────────────────────────
@@ -206,7 +212,7 @@ export async function createVfxShowcase(
         }
         (emberGeo.attributes.position as THREE.BufferAttribute).needsUpdate = true;
       }, 16);
-      void emberInterval;
+      intervalIds.push(emberInterval);
 
       // --- FIRE SHEETS (TSL volumetric flames above the logs) ---
       const flameWidth = 1.6;
@@ -382,7 +388,7 @@ export async function createVfxShowcase(
           }
         }
       }, 16);
-      void smokeInterval;
+      intervalIds.push(smokeInterval);
     }
 
     // =====================================================================
@@ -538,7 +544,7 @@ export async function createVfxShowcase(
             }
           }
         }, 16);
-        void animInterval;
+        intervalIds.push(animInterval);
       } catch (err) {
         console.warn('[VfxShowcase] Failed to load cloud_lightning.glb:', err);
       }
@@ -575,7 +581,7 @@ export async function createVfxShowcase(
       const ringInterval = setInterval(() => {
         ringGroup.rotation.y += 0.008; // ~0.5 rad/s at 60fps
       }, 16);
-      void ringInterval;
+      intervalIds.push(ringInterval);
 
       // --- Orbiting particles ---
       const particleCount = 100;
@@ -623,8 +629,11 @@ export async function createVfxShowcase(
     }
   } catch (err) {
     console.warn('[VfxShowcase] Failed to create VFX demos:', err);
-    return [];
+    return { objects: [], dispose: () => {} };
   }
 
-  return created;
+  return {
+    objects: created,
+    dispose: () => { for (const id of intervalIds) clearInterval(id); },
+  };
 }
