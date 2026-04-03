@@ -89,6 +89,7 @@ export interface ProceduralBuildResult {
   navPatrolSystem: NavPatrolSystem | null;
   navDebugOverlay: NavDebugOverlay | null;
   vfxDisposeCallbacks: Array<() => void>;
+  vfxUpdateCallbacks: Array<(dt: number) => void>;
 }
 
 /**
@@ -111,6 +112,7 @@ export class ProceduralBuilder {
   private vfxNoiseTextureRef: THREE.CanvasTexture | null = null;
   private vfxLightningLightRef: THREE.PointLight | null = null;
   private vfxDisposeCallbacks: Array<() => void> = [];
+  private vfxUpdateCallbacks: Array<(dt: number) => void> = [];
   private spawnPointData: SpawnPointData = { position: new THREE.Vector3(0, 2, 0) };
   private navMeshManagerRef: NavMeshManager | null = null;
   private navPatrolSystemRef: NavPatrolSystem | null = null;
@@ -1918,6 +1920,7 @@ export class ProceduralBuilder {
       }
       this.meshes.push(...result.objects);
       this.vfxDisposeCallbacks.push(result.dispose);
+      this.vfxUpdateCallbacks.push(result.update);
     } catch (err) {
       console.warn('[ProceduralBuilder] VFX showcase V2 failed, falling back to legacy:', err);
       // Fall back to old VFX bay
@@ -2591,6 +2594,7 @@ export class ProceduralBuilder {
       navPatrolSystem: this.navPatrolSystemRef,
       navDebugOverlay: this.navDebugOverlayRef,
       vfxDisposeCallbacks: this.vfxDisposeCallbacks,
+      vfxUpdateCallbacks: this.vfxUpdateCallbacks,
     };
   }
 }

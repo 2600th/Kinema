@@ -84,6 +84,7 @@ export class LevelManager implements Disposable {
   private currentLevelName: string | null = null;
   private levelObjects: THREE.Object3D[] = [];
   private vfxDisposeCallbacks: Array<() => void> = [];
+  private vfxUpdateCallbacks: Array<(dt: number) => void> = [];
   private levelColliders: RAPIER.Collider[] = [];
   private levelBodies: RAPIER.RigidBody[] = [];
   /** Per-object imported GLB asset paths loaded during JSON import. */
@@ -472,6 +473,7 @@ export class LevelManager implements Disposable {
     // Clear VFX interval timers
     for (const cb of this.vfxDisposeCallbacks) cb();
     this.vfxDisposeCallbacks = [];
+    this.vfxUpdateCallbacks = [];
 
     // Remove scene objects
     for (const obj of this.levelObjects) {
@@ -643,6 +645,9 @@ export class LevelManager implements Disposable {
 
     // Sparkle particles
     this.sparkleParticles?.update(dt);
+
+    // VFX showcase animations (embers, smoke, rain, ring rotation)
+    for (const cb of this.vfxUpdateCallbacks) cb(dt);
 
     // Dust motes gentle drift.
     for (const mote of this.dustMotes) {
@@ -835,6 +840,7 @@ export class LevelManager implements Disposable {
     this.navPatrolSystem = result.navPatrolSystem;
     this.navDebugOverlay = result.navDebugOverlay;
     this.vfxDisposeCallbacks = result.vfxDisposeCallbacks;
+    this.vfxUpdateCallbacks = result.vfxUpdateCallbacks;
   }
 
 

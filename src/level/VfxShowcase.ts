@@ -3,6 +3,7 @@ import * as THREE from 'three';
 export interface VfxShowcaseResult {
   objects: THREE.Object3D[];
   dispose: () => void;
+  update: (dt: number) => void;
 }
 
 /**
@@ -22,7 +23,7 @@ export async function createVfxShowcase(
   _bayWidth: number,
 ): Promise<VfxShowcaseResult> {
   const created: THREE.Object3D[] = [];
-  const intervalIds: ReturnType<typeof setInterval>[] = [];
+  const updateFns: Array<(dt: number) => void> = [];
 
   try {
     // ── Dynamic TSL / WebGPU imports ─────────────────────────────────────
@@ -197,10 +198,10 @@ export async function createVfxShowcase(
       // Animate embers rising
       const emberSpeeds = new Float32Array(emberParticleCount);
       for (let e = 0; e < emberParticleCount; e++) emberSpeeds[e] = 0.3 + Math.random() * 0.5;
-      const emberInterval = setInterval(() => {
+      updateFns.push((dt: number) => {
         const epos = (emberGeo.attributes.position as THREE.BufferAttribute).array as Float32Array;
         for (let e = 0; e < emberParticleCount; e++) {
-          epos[e * 3 + 1] += emberSpeeds[e] * 0.016;
+          epos[e * 3 + 1] += emberSpeeds[e] * dt;
           epos[e * 3] += (Math.random() - 0.5) * 0.005;
           epos[e * 3 + 2] += (Math.random() - 0.5) * 0.005;
           if (epos[e * 3 + 1] > 2.5) {
@@ -212,8 +213,7 @@ export async function createVfxShowcase(
           }
         }
         (emberGeo.attributes.position as THREE.BufferAttribute).needsUpdate = true;
-      }, 16);
-      intervalIds.push(emberInterval);
+      });
 
       // --- FIRE SHEETS (TSL volumetric flames above the logs) ---
       const flameWidth = 1.6;
@@ -370,10 +370,10 @@ export async function createVfxShowcase(
         });
       }
       let smokeTime = 0;
-      const smokeInterval = setInterval(() => {
-        smokeTime += 0.016;
+      updateFns.push((dt: number) => {
+        smokeTime += dt;
         for (const sp of smokeSprites) {
-          sp.sprite.position.y += sp.speed * 0.016;
+          sp.sprite.position.y += sp.speed * dt;
           sp.sprite.position.x = sp.baseX + Math.sin(smokeTime * 0.7 + sp.phase) * 0.3;
           sp.sprite.position.z = sp.baseZ + Math.cos(smokeTime * 0.5 + sp.phase) * 0.2;
           sp.mat.rotation += 0.004;
@@ -390,8 +390,7 @@ export async function createVfxShowcase(
             sp.mat.opacity = 0.4;
           }
         }
-      }, 16);
-      intervalIds.push(smokeInterval);
+      });
     }
 
     // =====================================================================
@@ -508,9 +507,7 @@ export async function createVfxShowcase(
         let flashDuration = 0;
         const dummy = new THREE.Object3D();
 
-        const animInterval = setInterval(() => {
-          const dt = 0.016;
-
+        updateFns.push((dt: number) => {
           // --- Rain particle animation ---
           if (rainInstancedMesh) {
             for (let i = 0; i < RAIN_COUNT; i++) {
@@ -546,8 +543,7 @@ export async function createVfxShowcase(
               flashLight.intensity = 0;
             }
           }
-        }, 16);
-        intervalIds.push(animInterval);
+        });
       } catch (err) {
         console.warn('[VfxShowcase] Failed to load cloud_lightning.glb:', err);
       }
@@ -581,10 +577,9 @@ export async function createVfxShowcase(
       created.push(ringGroup);
 
       // Slowly rotate the ring group
-      const ringInterval = setInterval(() => {
-        ringGroup.rotation.y += 0.008; // ~0.5 rad/s at 60fps
-      }, 16);
-      intervalIds.push(ringInterval);
+      updateFns.push((dt: number) => {
+        ringGroup.rotation.y += 0.5 * dt;
+      });
 
       // --- Orbiting particles ---
       const particleCount = 100;
@@ -635,17 +630,19 @@ export async function createVfxShowcase(
     return {
       objects: created,
       dispose: () => {
-        for (const id of intervalIds) clearInterval(id);
         for (const obj of created) obj.removeFromParent();
       },
+      update: () => {},
     };
   }
 
   return {
     objects: created,
     dispose: () => {
-      for (const id of intervalIds) clearInterval(id);
       for (const obj of created) obj.removeFromParent();
+    },
+    update: (dt: number) => {
+      for (const fn of updateFns) fn(dt);
     },
   };
 }
