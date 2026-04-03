@@ -12,6 +12,28 @@ import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import type { Disposable } from '@core/types';
 import type { GraphicsProfile, ShadowQualityTier } from '@core/UserSettings';
 
+/**
+ * INTERNAL API PATCHES — Three.js r182/r183
+ *
+ * This renderer uses several non-public Three.js APIs. On upgrade, search for
+ * each identifier and verify the patch is still valid:
+ *
+ * 1. _nodes (NodeManager prototype)  — patchShadowNodeForToggle()
+ *    Guards shadow toggle crash. Has SUPPORTED_THREE_REVISIONS version check.
+ *
+ * 2. _onDeviceLost                   — init() WebGPU setup
+ *    Wraps device-lost to show overlay. Has typeof guard + dispose cleanup.
+ *
+ * 3. outputColorTransform            — init() post-processing setup
+ *    Disables auto tone mapping (we apply manually). Has 'in' guard.
+ *
+ * 4. info.autoReset                  — init() renderer creation
+ *    Ensures per-frame stats reset.
+ *
+ * 5. init()                          — WebGPU async initialization
+ *    Not in public types but documented in examples.
+ */
+
 const _drawingSize = new THREE.Vector2();
 const _envRotation = new THREE.Euler();
 
@@ -377,12 +399,19 @@ export class RendererManager implements Disposable {
 
       // Override device-lost handler to show a user-visible overlay
       // r182-r183: WebGPURenderer._onDeviceLost internal
-      const defaultHandler = (wgpuRenderer as any)._onDeviceLost.bind(wgpuRenderer);
-      (wgpuRenderer as any).onDeviceLost = (info: { api: string; message: string; reason: string | null }) => {
-        defaultHandler(info);
-        console.error('[RendererManager] GPU device lost:', info);
-        this.showDeviceLostOverlay(info);
-      };
+      if (typeof (wgpuRenderer as any)._onDeviceLost === 'function') {
+        const defaultHandler = (wgpuRenderer as any)._onDeviceLost.bind(wgpuRenderer);
+        (wgpuRenderer as any).onDeviceLost = (info: { api: string; message: string; reason: string | null }) => {
+          defaultHandler(info);
+          console.error('[RendererManager] GPU device lost:', info);
+          this.showDeviceLostOverlay(info);
+        };
+      } else {
+        console.warn(
+          `[RendererManager] _onDeviceLost not found on WebGPURenderer (r${THREE.REVISION}). ` +
+          'Device-lost overlay will not be available.',
+        );
+      }
 
       // --- Opaque-only pre-pass for AO inputs ---
       const prePass = pass(this.scene, this.camera) as TSLPassNode & {
@@ -690,8 +719,16 @@ export class RendererManager implements Disposable {
       );
       // We call renderOutput() manually in applyDisplayOutput() — disable the automatic
       // color transform to prevent double tone mapping + color space conversion.
-      // r182-r183: RenderPipeline.outputColorTransform not in public types
-      (postProcessing as any).outputColorTransform = false;
+      // r182-r183: RenderPipeline.outputColorTransform not in public types.
+      // Disables automatic tone mapping + sRGB to prevent double-apply (we call renderOutput() manually).
+      if ('outputColorTransform' in postProcessing) {
+        (postProcessing as any).outputColorTransform = false;
+      } else {
+        console.warn(
+          `[RendererManager] outputColorTransform not found on RenderPipeline (r${THREE.REVISION}). ` +
+          'Verify tone mapping is not double-applied.',
+        );
+      }
       this.postProcessing = postProcessing;
 
       // Store the builder function so we can rebuild only on structural changes.
@@ -1451,6 +1488,12 @@ export class RendererManager implements Disposable {
       tex.dispose();
     }
     this.lutCache.clear();
+
+    // Clean up custom device-lost handler to avoid dangling closure references.
+    if (this.isWebGPUPipeline && typeof (this.renderer as any).onDeviceLost !== 'undefined') {
+      (this.renderer as any).onDeviceLost = null;
+    }
+
     this.renderer.dispose();
     if (this.renderer.domElement.parentElement) {
       this.renderer.domElement.parentElement.removeChild(this.renderer.domElement);
