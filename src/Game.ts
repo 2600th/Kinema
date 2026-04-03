@@ -33,6 +33,8 @@ import * as THREE from "three";
 // Temp vector for speed calculation
 const _prevPos = new THREE.Vector3();
 const _currPos = new THREE.Vector3();
+const _cameraAimOrigin = new THREE.Vector3();
+const _cameraAimDirection = new THREE.Vector3();
 const SENSITIVITY_STEP = 0.0002;
 const GAMEPAD_DEADZONE_STEP = 0.02;
 const GAMEPAD_CURVE_STEP = 0.1;
@@ -357,6 +359,9 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     if (!this.vehicleManager.isActive()) {
       // Feed input + camera yaw to player
       this.playerController.cameraYaw = this.camera.getYaw();
+      _cameraAimOrigin.copy(this.camera.position);
+      this.camera.getForwardDirection(_cameraAimDirection);
+      this.playerController.setCameraAim(_cameraAimOrigin, _cameraAimDirection);
       this.playerController.setLadderZones(this.levelManager.getLadderZones());
       this.playerController.fixedUpdate(dt);
       if (this.playerController.position.y < this.fallRespawnY && !this.isDying) {
@@ -440,6 +445,11 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
 
     // Camera follows player (runs every render frame for smoothness)
     this.camera.update(dt, alpha);
+    if (!this.vehicleManager.isActive()) {
+      _cameraAimOrigin.copy(this.camera.position);
+      this.camera.getForwardDirection(_cameraAimDirection);
+      this.playerController.setCameraAim(_cameraAimOrigin, _cameraAimDirection);
+    }
 
     // Debug stats throttled to 4 Hz
     this.debugSampleTimer -= dt;

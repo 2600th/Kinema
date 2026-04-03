@@ -228,6 +228,11 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     return this.yaw;
   }
 
+  /** Current world-space camera forward direction. */
+  getForwardDirection(target: THREE.Vector3): THREE.Vector3 {
+    return this.camera.getWorldDirection(target).normalize();
+  }
+
   /** Render-frame update — position camera with collision. */
   update(dt: number, _alpha: number): void {
     // Smooth camera rotation for a less abrupt orbit response.

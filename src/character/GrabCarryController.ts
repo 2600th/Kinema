@@ -12,11 +12,18 @@ const _toPlayer = new THREE.Vector3();
 // Pre-allocated Rapier vectors for grab/carry operations.
 const _rv3A = new RAPIER.Vector3(0, 0, 0);
 const _rv3B = new RAPIER.Vector3(0, 0, 0);
+const _rqA = new RAPIER.Quaternion(0, 0, 0, 1);
 
 /** Set x/y/z on a pre-allocated RAPIER.Vector3 and return it. */
 function _setRV(v: RAPIER.Vector3, x: number, y: number, z: number): RAPIER.Vector3 {
   v.x = x; v.y = y; v.z = z;
   return v;
+}
+
+/** Set x/y/z/w on a pre-allocated RAPIER.Quaternion and return it. */
+function _setRQ(q: RAPIER.Quaternion, x: number, y: number, z: number, w: number): RAPIER.Quaternion {
+  q.x = x; q.y = y; q.z = z; q.w = w;
+  return q;
 }
 
 export interface CarryableObject {
@@ -222,24 +229,45 @@ export class GrabCarryController {
     this.carriedActiveCollisionTypes = object.collider.activeCollisionTypes();
     object.body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
     object.body.setGravityScale(0, true);
-    object.collider.setCollisionGroups(COLLISION_GROUP_WORLD_ONLY);
-    object.collider.setActiveCollisionTypes(RAPIER.ActiveCollisionTypes.DEFAULT | RAPIER.ActiveCollisionTypes.KINEMATIC_FIXED);
+    // Held throwables read much better if they stop behaving like world-blocking
+    // kinematic obstacles while attached to the player.
+    object.body.setLinvel(_setRV(_rv3A, 0, 0, 0), true);
+    object.body.setAngvel(_setRV(_rv3B, 0, 0, 0), true);
+    object.collider.setCollisionGroups(0);
+    object.collider.setActiveCollisionTypes(0 as RAPIER.ActiveCollisionTypes);
   }
 
-  throwCarried(cameraForward: THREE.Vector3, eventBus: EventBus): void {
+  throwCarried(
+    throwDirection: THREE.Vector3,
+    eventBus: EventBus,
+    releasePosition?: THREE.Vector3,
+    releaseRotation?: THREE.Quaternion,
+  ): void {
     if (!this.carriedObject) return;
     const object = this.carriedObject;
     this.releaseCarryBody();
     object.body.enableCcd(true);
-    const forward = cameraForward.clone().normalize();
+    const forward = throwDirection.clone().normalize();
 
-    // Offset launch position forward to clear player capsule and prevent self-collision
+    // Release from the current carry socket so throws originate from the palm,
+    // then push slightly forward to avoid immediate self-overlap.
     const bodyPos = object.body.translation();
-    const clearance = 0.35; // slightly larger than capsule radius (0.3)
+    const release = releasePosition
+      ? releasePosition
+      : new THREE.Vector3(bodyPos.x, bodyPos.y, bodyPos.z);
+    const clearance = releasePosition ? 0.12 : 0.35;
     object.body.setTranslation(
-      _setRV(_rv3A, bodyPos.x + forward.x * clearance, bodyPos.y + forward.y * clearance, bodyPos.z + forward.z * clearance),
+      _setRV(
+        _rv3A,
+        release.x + forward.x * clearance,
+        release.y + forward.y * clearance,
+        release.z + forward.z * clearance,
+      ),
       true,
     );
+    if (releaseRotation) {
+      object.body.setRotation(_setRQ(_rqA, releaseRotation.x, releaseRotation.y, releaseRotation.z, releaseRotation.w), true);
+    }
 
     // Treat throwForce as a *target throw speed* (m/s) rather than a raw impulse.
     const targetSpeed = Math.max(1.0, Math.min(object.throwForce * 2, 20));
@@ -270,13 +298,18 @@ export class GrabCarryController {
   }
 
   /** Update carry position to a specific world-space target (e.g., hand bone). */
-  updateCarryTarget(target: THREE.Vector3): void {
+  updateCarryTarget(target: THREE.Vector3, rotation?: THREE.Quaternion): void {
     if (!this.carriedObject) return;
     // Use setNextKinematicTranslation so Rapier computes derived velocity
     // for proper collision response (not teleport via setTranslation).
     this.carriedObject.body.setNextKinematicTranslation(
       _setRV(_rv3A, target.x, target.y, target.z),
     );
+    if (rotation) {
+      this.carriedObject.body.setNextKinematicRotation(
+        _setRQ(_rqA, rotation.x, rotation.y, rotation.z, rotation.w),
+      );
+    }
   }
 
   updateCarry(playerPosition: THREE.Vector3, _capsuleHalfHeight: number): void {

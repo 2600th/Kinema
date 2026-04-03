@@ -1,4 +1,4 @@
-import { DEFAULT_PLAYER_CONFIG, GRAB_CAMERA_CONFIG, CARRY_CAMERA_CONFIG } from "@core/constants";
+import { DEFAULT_PLAYER_CONFIG, GRAB_CAMERA_CONFIG } from "@core/constants";
 import type { EventBus } from "@core/EventBus";
 import {
   type Disposable,
@@ -33,8 +33,18 @@ const _desiredMove = new THREE.Vector3();
 const _currentPos = new THREE.Vector3();
 const _currentVel = new THREE.Vector3();
 const _movingObjectVelocity = new THREE.Vector3();
+const _carryForward = new THREE.Vector3();
+const _carryRight = new THREE.Vector3();
+const _carryTargetPos = new THREE.Vector3();
+const _carryHandPos = new THREE.Vector3();
 const _worldUp = new THREE.Vector3(0, 1, 0);
 const _ladderProbePoint = new THREE.Vector3();
+const _cameraAimOrigin = new THREE.Vector3();
+const _cameraAimDirection = new THREE.Vector3();
+const _throwAimPoint = new THREE.Vector3();
+const _throwDirection = new THREE.Vector3();
+const _carryTargetRot = new THREE.Quaternion();
+const _carryHandRot = new THREE.Quaternion();
 
 /** Default GroundInfo used before the first motor query. */
 const NULL_GROUND_INFO: GroundInfo = {
@@ -71,7 +81,6 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
   private prevPosition = new THREE.Vector3();
   private currPosition = new THREE.Vector3();
-  private readonly _handWorldPos = new THREE.Vector3();
   private lastInput: InputState | null = null;
 
   private canJump = false;
@@ -98,6 +107,11 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   private cachedHorizontalSpeed = 0;
   private interactSuppressFrames = 0;
   private groundInfo: GroundInfo = NULL_GROUND_INFO;
+  private readonly cachedCarrySocketPos = new THREE.Vector3();
+  private readonly cachedCarrySocketRot = new THREE.Quaternion();
+  private readonly cameraAimOrigin = new THREE.Vector3(0, 0, 0);
+  private readonly cameraAimDirection = new THREE.Vector3(0, 0, -1);
+  private hasCarrySocket = false;
 
   // -- Mode system --
   private readonly modes: Map<string, CharacterMode>;
@@ -384,7 +398,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
           this.pendingThrow = true;
           this.animator.playOneShot(PLAYER_PROFILE.throwClip ?? 'OverhandThrow', 0.1);
         } else {
-          this.grabCarry.throwCarried(this.getCameraForward(), this.eventBus);
+          this.throwCarriedObject();
         }
         this.eventBus.emit('camera:resetConfig', undefined);
         this.fsm.requestState(this.hasMovementInput(input) ? STATE.move : STATE.idle);
@@ -468,14 +482,13 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       this.grabCarry.updateGrab(_currentPos, this.getCameraForward());
     }
     if (this.grabCarry.isCarrying) {
-      if (this.characterModel?.handBone) {
-        // Hand bone: use cached hand position from last render frame
-        this.characterModel.getHandWorldPosition(this._handWorldPos);
-        this.grabCarry.updateCarryTarget(this._handWorldPos);
+      if (this.hasCarrySocket) {
+        _carryTargetPos.copy(this.cachedCarrySocketPos);
+        _carryTargetRot.copy(this.cachedCarrySocketRot);
       } else {
-        // Fallback: position at body center when hand bone isn't available
-        this.grabCarry.updateCarry(_currentPos, this.currentCapsuleHalfHeight);
+        this.computeCarryAnchor(_carryTargetPos, _carryTargetRot);
       }
+      this.grabCarry.updateCarryTarget(_carryTargetPos, _carryTargetRot);
     }
   }
 
@@ -563,6 +576,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     }
     this.animator?.update(_dt);
 
+    this.refreshCarrySocketCache();
+
     // Carried object positioning is now handled in fixedUpdate for proper
     // kinematic velocity computation via setNextKinematicTranslation.
   }
@@ -600,8 +615,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   startCarry(object: CarryableObject): void {
     this.grabCarry.startCarry(object);
     if (this.grabCarry.isCarrying) {
+      this.refreshCarrySocketCache();
       this.fsm.requestState(STATE.carry);
-      this.eventBus.emit('camera:applyConfig', CARRY_CAMERA_CONFIG);
     }
   }
 
@@ -655,6 +670,86 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     return _desiredMove;
   }
 
+  setCameraAim(origin: THREE.Vector3, direction: THREE.Vector3): void {
+    this.cameraAimOrigin.copy(origin);
+    this.cameraAimDirection.copy(direction).normalize();
+  }
+
+  /**
+   * Build a stable carry socket in front of the torso.
+   * Used as a fallback before the first animated hand socket has been cached.
+   */
+  private computeCarryAnchor(targetPosition: THREE.Vector3, targetRotation: THREE.Quaternion): void {
+    const yaw = this.mesh.rotation.y;
+    _carryForward.set(Math.sin(yaw), 0, Math.cos(yaw));
+    _carryRight.set(Math.cos(yaw), 0, -Math.sin(yaw));
+
+    targetPosition
+      .copy(this.currPosition)
+      .addScaledVector(_carryForward, 0.38)
+      .addScaledVector(_carryRight, 0.22);
+    targetPosition.y -= 0.02;
+
+    targetRotation.setFromAxisAngle(_worldUp, yaw);
+  }
+
+  private refreshCarrySocketCache(): void {
+    if (!this.characterModel?.getHandWorldTransform(_carryHandPos, _carryHandRot)) {
+      this.hasCarrySocket = false;
+      return;
+    }
+
+    // Offset from wrist bone into the palm center and slightly forward of the fingers.
+    this.cachedCarrySocketPos
+      .copy(_carryHandPos)
+      .add(new THREE.Vector3(0, 0.075, 0.018).applyQuaternion(_carryHandRot));
+    this.cachedCarrySocketRot.copy(_carryHandRot);
+    this.hasCarrySocket = true;
+  }
+
+  private getThrowAimDirection(releaseOrigin: THREE.Vector3): THREE.Vector3 {
+    _cameraAimOrigin.copy(this.cameraAimOrigin);
+    _cameraAimDirection.copy(this.cameraAimDirection);
+    const carriedBody = this.grabCarry.carriedBody;
+
+    const hit = this.physicsWorld.castRay(
+      { x: _cameraAimOrigin.x, y: _cameraAimOrigin.y, z: _cameraAimOrigin.z } as RAPIER.Vector3,
+      { x: _cameraAimDirection.x, y: _cameraAimDirection.y, z: _cameraAimDirection.z } as RAPIER.Vector3,
+      64,
+      undefined,
+      this.body,
+      (collider) => {
+        if (collider.isSensor()) return false;
+        if (carriedBody && collider.parent() === carriedBody) return false;
+        return true;
+      },
+    );
+
+    if (hit) {
+      _throwAimPoint.copy(_cameraAimDirection).multiplyScalar(hit.timeOfImpact).add(_cameraAimOrigin);
+      _throwDirection.copy(_throwAimPoint).sub(releaseOrigin);
+    } else {
+      _throwDirection.copy(_cameraAimDirection);
+    }
+
+    if (_throwDirection.lengthSq() < 0.0001) {
+      _throwDirection.copy(_cameraAimDirection);
+    }
+
+    return _throwDirection.normalize();
+  }
+
+  private throwCarriedObject(): void {
+    if (!this.grabCarry.isCarrying) return;
+    if (!this.hasCarrySocket) {
+      this.computeCarryAnchor(_carryTargetPos, _carryTargetRot);
+    }
+    const releasePos = this.hasCarrySocket ? this.cachedCarrySocketPos : _carryTargetPos;
+    const releaseRot = this.hasCarrySocket ? this.cachedCarrySocketRot : _carryTargetRot;
+    const throwDirection = this.getThrowAimDirection(releasePos);
+    this.grabCarry.throwCarried(throwDirection, this.eventBus, releasePos, releaseRot);
+  }
+
   /** Dot product of facing direction and velocity direction [0..1]. */
   /** Execute the deferred throw when the animation release marker fires. */
   private executePendingThrow(): void {
@@ -663,7 +758,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       return;
     }
     this.pendingThrow = false;
-    this.grabCarry.throwCarried(this.getCameraForward(), this.eventBus);
+    this.refreshCarrySocketCache();
+    this.throwCarriedObject();
   }
 
   private computeForwardAlignment(): number {

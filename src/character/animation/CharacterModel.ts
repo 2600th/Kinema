@@ -133,6 +133,15 @@ export class CharacterModel implements Disposable {
     return target;
   }
 
+  /** Get the right hand bone's world transform (for carry sockets / release positions). */
+  getHandWorldTransform(positionTarget: THREE.Vector3, rotationTarget: THREE.Quaternion): boolean {
+    if (!this.handBone) return false;
+    this.handBone.updateWorldMatrix(true, false);
+    this.handBone.getWorldPosition(positionTarget);
+    this.handBone.getWorldQuaternion(rotationTarget);
+    return true;
+  }
+
   /** Reset all materials to a neutral mannequin color (removes purple joints). */
   neutralize(): void {
     const neutral = new THREE.Color(0xccbbaa);
