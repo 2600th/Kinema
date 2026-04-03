@@ -1,5 +1,4 @@
 import RAPIER from '@dimforge/rapier3d-compat';
-import * as THREE from 'three';
 
 function showBootstrapError(err: unknown): void {
   const message = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
@@ -72,7 +71,7 @@ async function bootstrap(): Promise<void> {
   const renderer = new RendererManager();
   await renderer.init();
   // Wire KTX2 support early so all AssetLoader instances detect compressed texture formats.
-  AssetLoader.initRendererSupport(renderer.renderer as THREE.WebGLRenderer);
+  AssetLoader.initRendererSupport(renderer.renderer);
   renderer.setGraphicsProfile(settings.value.graphicsProfile);
   renderer.setAntiAliasingMode(settings.value.aaMode);
   renderer.setResolutionScale(settings.value.resolutionScale);
@@ -268,6 +267,8 @@ async function bootstrap(): Promise<void> {
   };
 
   // Expose debug API for automated testing (Playwright, etc.)
+  // Gated behind DEV to tree-shake new Function() evaluator from production builds.
+  if (import.meta.env.DEV) {
   (window as unknown as Record<string, unknown>).__KINEMA__ = {
     get player() {
       const pos = playerController.position;
@@ -336,6 +337,7 @@ async function bootstrap(): Promise<void> {
       });
     },
   };
+  } // if (import.meta.env.DEV)
 
   // Check for ?station= query param to load a single station directly.
   const params = new URLSearchParams(window.location.search);

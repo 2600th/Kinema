@@ -4,16 +4,17 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
+import type { WebGPURenderer } from 'three/webgpu';
 
 /**
  * GLTF/GLB loader with caching.
  * Configures DRACO + KTX2 decoders so compressed assets work out of the box.
  */
 export class AssetLoader {
-  private static sharedRenderer: THREE.WebGLRenderer | undefined;
+  private static sharedRenderer: THREE.WebGLRenderer | WebGPURenderer | undefined;
 
   /** Store a renderer reference so all future AssetLoader instances auto-detect KTX2 support. */
-  static initRendererSupport(renderer: THREE.WebGLRenderer): void {
+  static initRendererSupport(renderer: THREE.WebGLRenderer | WebGPURenderer): void {
     AssetLoader.sharedRenderer = renderer;
   }
 
@@ -22,7 +23,7 @@ export class AssetLoader {
   private ktx2Loader: KTX2Loader;
   private cache = new Map<string, GLTF>();
 
-  constructor(renderer?: THREE.WebGLRenderer) {
+  constructor(renderer?: THREE.WebGLRenderer | WebGPURenderer) {
     this.loader = new GLTFLoader();
 
     this.dracoLoader = new DRACOLoader();
