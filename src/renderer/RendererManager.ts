@@ -357,7 +357,7 @@ export class RendererManager implements Disposable {
         alpha: false,
         powerPreference: 'high-performance',
         requiredLimits: {
-          // Scene pass uses 3 MRT color attachments: output (HalfFloat) + metalrough (HalfFloat) + emissive (RGBA8).
+          // Scene pass uses 3 HalfFloat MRT color attachments: output + metalrough + emissive = 24 bytes.
           maxColorAttachmentBytesPerSample: 32,
         },
       } as any) as WebGPURenderer; // r182-r183: requiredLimits not in public types
@@ -440,7 +440,7 @@ export class RendererManager implements Disposable {
           emissive: vec4(emissive, 1),
         }),
       );
-      scenePass.getTexture('emissive').type = THREE.UnsignedByteType;
+      scenePass.getTexture('emissive').type = THREE.HalfFloatType;
 
       const { add, uv, smoothstep, float, mix, length: tslLength, max: tslMax, min: tslMin, vec4: tslVec4 } = await import('three/tsl');
       const { bloom } = await import('three/addons/tsl/display/BloomNode.js');
