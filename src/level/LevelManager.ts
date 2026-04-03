@@ -646,9 +646,6 @@ export class LevelManager implements Disposable {
     // Sparkle particles
     this.sparkleParticles?.update(dt);
 
-    // VFX showcase animations (embers, smoke, rain, ring rotation)
-    for (const cb of this.vfxUpdateCallbacks) cb(dt);
-
     // Dust motes gentle drift.
     for (const mote of this.dustMotes) {
       const t = this.simTime * mote.speed + mote.phase;
@@ -683,12 +680,14 @@ export class LevelManager implements Disposable {
   }
 
   /** Render-frame interpolation for dynamic body visuals. */
-  update(_dt: number, alpha: number): void {
+  update(dt: number, alpha: number): void {
     for (const item of this.dynamicBodies) {
       if (!item.hasPose) continue;
       item.mesh.position.lerpVectors(item.prevPos, item.currPos, alpha);
       item.mesh.quaternion.slerpQuaternions(item.prevQuat, item.currQuat, alpha);
     }
+    // VFX showcase animations — visual-only, runs at render rate for smooth animation
+    for (const cb of this.vfxUpdateCallbacks) cb(dt);
   }
 
   /** Keep directional light near player for stable, sharp shadows. */
