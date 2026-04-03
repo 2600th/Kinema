@@ -681,33 +681,95 @@ export class ProceduralBuilder {
         );
       }
     }
-    // Add a pyramid of spheres as another target
-    const sphereMat = new THREE.MeshStandardMaterial({ color: 0x44bb66, roughness: 0.4, metalness: 0.2 });
-    const pyrZ = zThrow - 5;
-    for (let row = 0; row < 3; row++) {
-      for (let col = 0; col <= 2 - row; col++) {
-        const r = 0.15;
-        const x = 3 + (col - (2 - row) * 0.5) * r * 2.2;
-        const y = bayTopY + r + row * r * 2;
-        const sphereMesh = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 8), sphereMat);
-        sphereMesh.position.set(x, y, pyrZ);
-        sphereMesh.castShadow = true;
-        sphereMesh.receiveShadow = true;
-        this.scene.add(sphereMesh);
-        this.meshes.push(sphereMesh);
-        const bd = RAPIER.RigidBodyDesc.dynamic().setTranslation(x, y, pyrZ);
-        const body = this.physicsWorld.world.createRigidBody(bd);
-        const cd = RAPIER.ColliderDesc.ball(r)
-          .setFriction(0.5)
-          .setRestitution(0.3)
-          .setCollisionGroups(COLLISION_GROUP_WORLD)
-          .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
-          .setContactForceEventThreshold(5);
-        this.physicsWorld.world.createCollider(cd, body);
-        body.userData = { kind: 'throw-target' };
-        this.bodies.push(body);
+    // Stacked crate tower — taller, more dramatic knockdown
+    const crateMat = new THREE.MeshStandardMaterial({ color: 0xc4a35a, roughness: 0.8, metalness: 0.05 });
+    const crateZ = zThrow - 5;
+    for (let row = 0; row < 5; row++) {
+      for (let col = 0; col < 3; col++) {
+        const s = 0.35;
+        const xOff = (row % 2 === 0) ? 0 : s * 0.5;
+        const x = 3.5 + (col - 1) * s + xOff;
+        const y = bayTopY + s * 0.5 + row * s;
+        this.createDynamicBox(
+          `Crate_${row}_${col}`,
+          new THREE.Vector3(x, y, crateZ),
+          new THREE.Vector3(s, s, s),
+          crateMat,
+        );
       }
     }
+
+    // Barrel stack — cylinders that roll on impact
+    const barrelMat = new THREE.MeshStandardMaterial({ color: 0x7a5c3a, roughness: 0.7, metalness: 0.1 });
+    const barrelZ = zThrow - 3;
+    const barrelR = 0.22;
+    const barrelH = 0.35;
+    const barrelPositions = [
+      // Bottom row: 3 barrels
+      new THREE.Vector3(-3.5, bayTopY + barrelH, barrelZ),
+      new THREE.Vector3(-3.5 + barrelR * 2.3, bayTopY + barrelH, barrelZ),
+      new THREE.Vector3(-3.5 + barrelR * 4.6, bayTopY + barrelH, barrelZ),
+      // Top row: 2 barrels nestled on top
+      new THREE.Vector3(-3.5 + barrelR * 1.15, bayTopY + barrelH * 3, barrelZ),
+      new THREE.Vector3(-3.5 + barrelR * 3.45, bayTopY + barrelH * 3, barrelZ),
+    ];
+    barrelPositions.forEach((pos) => {
+      const mesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(barrelR, barrelR, barrelH * 2, 12),
+        barrelMat,
+      );
+      mesh.position.copy(pos);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      this.scene.add(mesh);
+      this.meshes.push(mesh);
+      const bd = RAPIER.RigidBodyDesc.dynamic().setTranslation(pos.x, pos.y, pos.z);
+      const body = this.physicsWorld.world.createRigidBody(bd);
+      const cd = RAPIER.ColliderDesc.cylinder(barrelH, barrelR)
+        .setFriction(0.4)
+        .setRestitution(0.2)
+        .setDensity(2.0)
+        .setCollisionGroups(COLLISION_GROUP_WORLD);
+      this.physicsWorld.world.createCollider(cd, body);
+      this.bodies.push(body);
+      this.dynamicBodiesArr.push({ mesh, body, prevPos: pos.clone(), currPos: pos.clone(), prevQuat: new THREE.Quaternion(), currQuat: new THREE.Quaternion(), hasPose: false });
+    });
+
+    // Bottle pins — lightweight cylinders in a bowling formation
+    const pinMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.3, metalness: 0.05 });
+    const pinZ = zThrow - 7;
+    const pinR = 0.06;
+    const pinH = 0.18;
+    const pinFormation = [
+      // Row 1 (back): 4 pins
+      [-0.27, 0, 0.27, 0.54].map(x => new THREE.Vector3(x - 0.13, bayTopY + pinH, pinZ)),
+      // Row 2: 3 pins
+      [-0.14, 0.13, 0.4].map(x => new THREE.Vector3(x, bayTopY + pinH, pinZ + 0.25)),
+      // Row 3: 2 pins
+      [0, 0.27].map(x => new THREE.Vector3(x, bayTopY + pinH, pinZ + 0.5)),
+      // Row 4 (front): 1 pin
+      [new THREE.Vector3(0.13, bayTopY + pinH, pinZ + 0.75)],
+    ].flat();
+    pinFormation.forEach((pos) => {
+      const mesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(pinR * 0.6, pinR, pinH * 2, 8),
+        pinMat,
+      );
+      mesh.position.copy(pos);
+      mesh.castShadow = true;
+      this.scene.add(mesh);
+      this.meshes.push(mesh);
+      const bd = RAPIER.RigidBodyDesc.dynamic().setTranslation(pos.x, pos.y, pos.z);
+      const body = this.physicsWorld.world.createRigidBody(bd);
+      const cd = RAPIER.ColliderDesc.cylinder(pinH, pinR)
+        .setFriction(0.3)
+        .setRestitution(0.1)
+        .setDensity(0.8)
+        .setCollisionGroups(COLLISION_GROUP_WORLD);
+      this.physicsWorld.world.createCollider(cd, body);
+      this.bodies.push(body);
+      this.dynamicBodiesArr.push({ mesh, body, prevPos: pos.clone(), currPos: pos.clone(), prevQuat: new THREE.Quaternion(), currQuat: new THREE.Quaternion(), hasPose: false });
+    });
     } // end throw
 
     if (isTarget('door')) {

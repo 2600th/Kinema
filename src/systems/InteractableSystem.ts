@@ -144,17 +144,7 @@ export class InteractableSystem implements RuntimeSystem {
         const obj = this.throwableObjects.get(h1) ?? this.throwableObjects.get(h2);
         if (!obj) return;
         if (event.totalForceMagnitude() > 12) {
-          const otherHandle = this.throwableObjects.has(h1) ? h2 : h1;
-          const otherCollider = this.physicsWorld.world.getCollider(otherHandle);
-          const otherBody = otherCollider?.parent();
-          const isTarget = otherBody && (otherBody.userData as { kind?: string })?.kind === 'throw-target';
-          if (isTarget && otherBody) {
-            this.uiManager.hud.showStatus("Target Hit!", 700);
-            const vel = obj.body.linvel();
-            otherBody.applyImpulse({ x: vel.x * 0.3, y: 3, z: vel.z * 0.3 }, true);
-          } else {
-            this.uiManager.hud.showStatus("Impact!", 700);
-          }
+          this.uiManager.hud.showStatus("Impact!", 700);
         }
       });
     }
