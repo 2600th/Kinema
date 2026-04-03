@@ -695,6 +695,11 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     return this.mesh.position;
   }
 
+  /** Reset camera to default config (called by states on exit). */
+  resetCameraConfig(): void {
+    this.eventBus.emit('camera:resetConfig', undefined);
+  }
+
   /** The rigidbody of the currently carried throwable, if any. */
   get carriedBody(): RAPIER.RigidBody | null {
     return this.grabCarry.carriedBody;

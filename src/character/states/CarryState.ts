@@ -12,7 +12,7 @@ export class CarryState extends State {
   }
 
   exit(): void {
-    // Carry cleanup handled by PlayerController throw/drop helpers.
+    this.player.resetCameraConfig();
   }
 
   handleInput(input: InputState, isGrounded: boolean): StateId | null {
