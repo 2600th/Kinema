@@ -697,8 +697,14 @@ export class ProceduralBuilder {
         this.meshes.push(sphereMesh);
         const bd = RAPIER.RigidBodyDesc.dynamic().setTranslation(x, y, pyrZ);
         const body = this.physicsWorld.world.createRigidBody(bd);
-        const cd = RAPIER.ColliderDesc.ball(r).setFriction(0.5).setRestitution(0.3).setCollisionGroups(COLLISION_GROUP_WORLD);
+        const cd = RAPIER.ColliderDesc.ball(r)
+          .setFriction(0.5)
+          .setRestitution(0.3)
+          .setCollisionGroups(COLLISION_GROUP_WORLD)
+          .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
+          .setContactForceEventThreshold(5);
         this.physicsWorld.world.createCollider(cd, body);
+        body.userData = { kind: 'throw-target' };
         this.bodies.push(body);
       }
     }
