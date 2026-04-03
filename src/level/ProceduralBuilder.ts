@@ -659,116 +659,138 @@ export class ProceduralBuilder {
     if (isTarget('throw')) {
     this.createSectionLabel(
       'Pick Up & Throw\nF to pick up \u2022 LMB to throw \u2022 C to drop',
-      new THREE.Vector3(0, 2.55, zThrow),
+      new THREE.Vector3(0, 2.55, zThrow + 3),
       11.0,
       2.25,
     );
-    // Target wall of small physics blocks to knock over with thrown objects
-    const targetMat = new THREE.MeshStandardMaterial({ color: 0xdd6644, roughness: 0.6 });
-    const wallZ = zThrow - 5;
-    for (let row = 0; row < 4; row++) {
-      for (let col = 0; col < 5; col++) {
-        const brickW = 0.4, brickH = 0.25, brickD = 0.2;
-        // Offset odd rows for brick pattern
+
+    // ── THROW STATION LAYOUT ──────────────────────────────────────────────
+    //
+    // Carnival shooting-gallery design. Three target zones arrayed LEFT,
+    // CENTER, RIGHT across the bay width — all at the SAME depth from the
+    // player (zThrow - 2) so they're equally throwable. Each raised on a
+    // colored pedestal for visibility. Throwable pickups stay near spawn.
+    //
+    //   LEFT  (x=-5):  Milk Bottle pyramid on blue pedestal
+    //   CENTER(x= 0):  Brick wall — the classic knockdown
+    //   RIGHT (x=+5):  Tin Can pyramid on green pedestal
+    //
+    // Sizes are scaled 3-5x from the first attempt for visibility from
+    // throw distance (~6 units). Colors chosen for contrast against the
+    // warm amber bay pedestal.
+
+    const targetZ = zThrow - 2;
+
+    // ── LEFT: Milk Bottle Pyramid (3-2-1, heavy, satisfying topple) ──────
+    // Raised on a blue pedestal so the bottles stand out.
+    const bottlePedestalMat = new THREE.MeshStandardMaterial({ color: 0x3366aa, roughness: 0.7 });
+    const bottlePedestal = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.5, 1.5), bottlePedestalMat);
+    bottlePedestal.position.set(-5, bayTopY + 0.25, targetZ);
+    bottlePedestal.receiveShadow = true;
+    bottlePedestal.name = 'BottlePedestal_col';
+    this.scene.add(bottlePedestal);
+    this.meshes.push(bottlePedestal);
+    bottlePedestal.updateWorldMatrix(true, false);
+    this.colliders.push(this.colliderFactory.createTrimesh(bottlePedestal));
+
+    const bottleMat = new THREE.MeshStandardMaterial({ color: 0xf5e6c8, roughness: 0.3, metalness: 0.05 });
+    const bottleR = 0.12;
+    const bottleH = 0.22;
+    const bottleBaseX = -5;
+    const bottleTop = bayTopY + 0.5;
+    const bottleSpacing = bottleR * 2.6;
+    const bottleRows = [
+      [bottleBaseX - bottleSpacing, bottleBaseX, bottleBaseX + bottleSpacing],
+      [bottleBaseX - bottleSpacing * 0.5, bottleBaseX + bottleSpacing * 0.5],
+      [bottleBaseX],
+    ];
+    bottleRows.forEach((row, rowIdx) => {
+      row.forEach((x) => {
+        const y = bottleTop + bottleH + rowIdx * bottleH * 2;
+        const mesh = new THREE.Mesh(
+          new THREE.CylinderGeometry(bottleR * 0.65, bottleR, bottleH * 2, 10),
+          bottleMat,
+        );
+        mesh.position.set(x, y, targetZ);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        this.scene.add(mesh);
+        this.meshes.push(mesh);
+        const bd = RAPIER.RigidBodyDesc.dynamic().setTranslation(x, y, targetZ);
+        const body = this.physicsWorld.world.createRigidBody(bd);
+        const cd = RAPIER.ColliderDesc.cylinder(bottleH, bottleR)
+          .setFriction(0.5).setRestitution(0.15).setDensity(3.5)
+          .setCollisionGroups(COLLISION_GROUP_WORLD);
+        this.physicsWorld.world.createCollider(cd, body);
+        body.userData = { kind: 'throwable' };
+        this.bodies.push(body);
+        this.dynamicBodiesArr.push({ mesh, body, prevPos: new THREE.Vector3(x, y, targetZ), currPos: new THREE.Vector3(x, y, targetZ), prevQuat: new THREE.Quaternion(), currQuat: new THREE.Quaternion(), hasPose: false });
+      });
+    });
+
+    // ── CENTER: Brick Wall (5x6, chain-collapse) ─────────────────────────
+    // Classic destructible wall. Terracotta bricks contrast against amber.
+    const targetMat = new THREE.MeshStandardMaterial({ color: 0xcc5533, roughness: 0.65 });
+    for (let row = 0; row < 5; row++) {
+      for (let col = 0; col < 6; col++) {
+        const brickW = 0.4, brickH = 0.25, brickD = 0.22;
         const xOff = (row % 2 === 0) ? 0 : brickW * 0.5;
-        const x = (col - 2) * brickW + xOff;
+        const x = (col - 2.5) * brickW + xOff;
         const y = bayTopY + brickH * 0.5 + row * brickH;
         this.createDynamicBox(
           `Target_${row}_${col}`,
-          new THREE.Vector3(x, y, wallZ),
+          new THREE.Vector3(x, y, targetZ),
           new THREE.Vector3(brickW, brickH, brickD),
           targetMat,
         );
       }
     }
-    // Stacked crate tower — taller, more dramatic knockdown
-    const crateMat = new THREE.MeshStandardMaterial({ color: 0xc4a35a, roughness: 0.8, metalness: 0.05 });
-    const crateZ = zThrow - 5;
-    for (let row = 0; row < 5; row++) {
-      for (let col = 0; col < 3; col++) {
-        const s = 0.35;
-        const xOff = (row % 2 === 0) ? 0 : s * 0.5;
-        const x = 3.5 + (col - 1) * s + xOff;
-        const y = bayTopY + s * 0.5 + row * s;
-        this.createDynamicBox(
-          `Crate_${row}_${col}`,
-          new THREE.Vector3(x, y, crateZ),
-          new THREE.Vector3(s, s, s),
-          crateMat,
-        );
-      }
-    }
 
-    // Barrel stack — cylinders that roll on impact
-    const barrelMat = new THREE.MeshStandardMaterial({ color: 0x7a5c3a, roughness: 0.7, metalness: 0.1 });
-    const barrelZ = zThrow - 3;
-    const barrelR = 0.22;
-    const barrelH = 0.35;
-    const barrelPositions = [
-      // Bottom row: 3 barrels
-      new THREE.Vector3(-3.5, bayTopY + barrelH, barrelZ),
-      new THREE.Vector3(-3.5 + barrelR * 2.3, bayTopY + barrelH, barrelZ),
-      new THREE.Vector3(-3.5 + barrelR * 4.6, bayTopY + barrelH, barrelZ),
-      // Top row: 2 barrels nestled on top
-      new THREE.Vector3(-3.5 + barrelR * 1.15, bayTopY + barrelH * 3, barrelZ),
-      new THREE.Vector3(-3.5 + barrelR * 3.45, bayTopY + barrelH * 3, barrelZ),
+    // ── RIGHT: Tin Can Pyramid (4-3-2-1, light, dramatic scatter) ────────
+    // Raised on a green pedestal. Lightweight cans fly on impact.
+    const canPedestalMat = new THREE.MeshStandardMaterial({ color: 0x338855, roughness: 0.7 });
+    const canPedestal = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.5, 1.5), canPedestalMat);
+    canPedestal.position.set(5, bayTopY + 0.25, targetZ);
+    canPedestal.receiveShadow = true;
+    canPedestal.name = 'CanPedestal_col';
+    this.scene.add(canPedestal);
+    this.meshes.push(canPedestal);
+    canPedestal.updateWorldMatrix(true, false);
+    this.colliders.push(this.colliderFactory.createTrimesh(canPedestal));
+
+    const canMat = new THREE.MeshStandardMaterial({ color: 0xc0c0c0, roughness: 0.2, metalness: 0.8 });
+    const canR = 0.1;
+    const canH = 0.14;
+    const canBaseX = 5;
+    const canTop = bayTopY + 0.5;
+    const canSpacing = canR * 2.5;
+    const canRows = [
+      [-1.5, -0.5, 0.5, 1.5].map(i => canBaseX + i * canSpacing),
+      [-1, 0, 1].map(i => canBaseX + i * canSpacing),
+      [-0.5, 0.5].map(i => canBaseX + i * canSpacing),
+      [canBaseX],
     ];
-    barrelPositions.forEach((pos) => {
-      const mesh = new THREE.Mesh(
-        new THREE.CylinderGeometry(barrelR, barrelR, barrelH * 2, 12),
-        barrelMat,
-      );
-      mesh.position.copy(pos);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      this.scene.add(mesh);
-      this.meshes.push(mesh);
-      const bd = RAPIER.RigidBodyDesc.dynamic().setTranslation(pos.x, pos.y, pos.z);
-      const body = this.physicsWorld.world.createRigidBody(bd);
-      const cd = RAPIER.ColliderDesc.cylinder(barrelH, barrelR)
-        .setFriction(0.4)
-        .setRestitution(0.2)
-        .setDensity(2.0)
-        .setCollisionGroups(COLLISION_GROUP_WORLD);
-      this.physicsWorld.world.createCollider(cd, body);
-      this.bodies.push(body);
-      this.dynamicBodiesArr.push({ mesh, body, prevPos: pos.clone(), currPos: pos.clone(), prevQuat: new THREE.Quaternion(), currQuat: new THREE.Quaternion(), hasPose: false });
-    });
-
-    // Bottle pins — lightweight cylinders in a bowling formation
-    const pinMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.3, metalness: 0.05 });
-    const pinZ = zThrow - 7;
-    const pinR = 0.06;
-    const pinH = 0.18;
-    const pinFormation = [
-      // Row 1 (back): 4 pins
-      [-0.27, 0, 0.27, 0.54].map(x => new THREE.Vector3(x - 0.13, bayTopY + pinH, pinZ)),
-      // Row 2: 3 pins
-      [-0.14, 0.13, 0.4].map(x => new THREE.Vector3(x, bayTopY + pinH, pinZ + 0.25)),
-      // Row 3: 2 pins
-      [0, 0.27].map(x => new THREE.Vector3(x, bayTopY + pinH, pinZ + 0.5)),
-      // Row 4 (front): 1 pin
-      [new THREE.Vector3(0.13, bayTopY + pinH, pinZ + 0.75)],
-    ].flat();
-    pinFormation.forEach((pos) => {
-      const mesh = new THREE.Mesh(
-        new THREE.CylinderGeometry(pinR * 0.6, pinR, pinH * 2, 8),
-        pinMat,
-      );
-      mesh.position.copy(pos);
-      mesh.castShadow = true;
-      this.scene.add(mesh);
-      this.meshes.push(mesh);
-      const bd = RAPIER.RigidBodyDesc.dynamic().setTranslation(pos.x, pos.y, pos.z);
-      const body = this.physicsWorld.world.createRigidBody(bd);
-      const cd = RAPIER.ColliderDesc.cylinder(pinH, pinR)
-        .setFriction(0.3)
-        .setRestitution(0.1)
-        .setDensity(0.8)
-        .setCollisionGroups(COLLISION_GROUP_WORLD);
-      this.physicsWorld.world.createCollider(cd, body);
-      this.bodies.push(body);
-      this.dynamicBodiesArr.push({ mesh, body, prevPos: pos.clone(), currPos: pos.clone(), prevQuat: new THREE.Quaternion(), currQuat: new THREE.Quaternion(), hasPose: false });
+    canRows.forEach((row, rowIdx) => {
+      row.forEach((x) => {
+        const y = canTop + canH + rowIdx * canH * 2;
+        const mesh = new THREE.Mesh(
+          new THREE.CylinderGeometry(canR, canR, canH * 2, 8),
+          canMat,
+        );
+        mesh.position.set(x, y, targetZ);
+        mesh.castShadow = true;
+        this.scene.add(mesh);
+        this.meshes.push(mesh);
+        const bd = RAPIER.RigidBodyDesc.dynamic().setTranslation(x, y, targetZ);
+        const body = this.physicsWorld.world.createRigidBody(bd);
+        const cd = RAPIER.ColliderDesc.cylinder(canH, canR)
+          .setFriction(0.3).setRestitution(0.35).setDensity(0.6)
+          .setCollisionGroups(COLLISION_GROUP_WORLD);
+        this.physicsWorld.world.createCollider(cd, body);
+        body.userData = { kind: 'throwable' };
+        this.bodies.push(body);
+        this.dynamicBodiesArr.push({ mesh, body, prevPos: new THREE.Vector3(x, y, targetZ), currPos: new THREE.Vector3(x, y, targetZ), prevQuat: new THREE.Quaternion(), currQuat: new THREE.Quaternion(), hasPose: false });
+      });
     });
     } // end throw
 
