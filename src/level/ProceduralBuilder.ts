@@ -659,32 +659,141 @@ export class ProceduralBuilder {
     if (isTarget('throw')) {
     this.createSectionLabel(
       'Pick Up & Throw\nF to pick up \u2022 LMB to throw \u2022 C to drop',
-      new THREE.Vector3(0, 2.55, zThrow + 3),
+      new THREE.Vector3(0, 3.6, zThrow + 5),
       11.0,
       2.25,
     );
 
-    // ── THROW STATION LAYOUT ──────────────────────────────────────────────
+    // ── THROW STATION — CARNIVAL GALLERY ENVIRONMENT ──────────────────────
     //
-    // Carnival shooting-gallery design. Three target zones arrayed LEFT,
-    // CENTER, RIGHT across the bay width — all at the SAME depth from the
-    // player (zThrow - 2) so they're equally throwable. Each raised on a
-    // colored pedestal for visibility. Throwable pickups stay near spawn.
+    // Layout (viewed from above, player spawns at zThrow+4 facing -Z):
     //
-    //   LEFT  (x=-5):  Milk Bottle pyramid on blue pedestal
-    //   CENTER(x= 0):  Brick wall — the classic knockdown
-    //   RIGHT (x=+5):  Tin Can pyramid on green pedestal
+    //   zThrow+4   PLAYER SPAWN (facing toward targets)
+    //   zThrow+2   ──── Throwing line (glowing floor strip) ────
+    //   zThrow+1   ┌──Shelf──┐  Pickup objects on display shelf
+    //   zThrow     │         │
+    //   zThrow-1   └─────────┘
+    //   zThrow-2   ┌─LANE─┬─LANE─┬─LANE─┐  Three target lanes
+    //              │Bottle│Brick │ Cans  │
+    //   zThrow-3   │      │ Wall │       │
+    //   zThrow-4   └──────┴──────┴───────┘
+    //   zThrow-5   ═══ BACKDROP WALL (catches debris) ═══
     //
-    // Sizes are scaled 3-5x from the first attempt for visibility from
-    // throw distance (~6 units). Colors chosen for contrast against the
-    // warm amber bay pedestal.
+    //   x:  -8 ──── -5 ──── 0 ──── +5 ──── +8
 
-    const targetZ = zThrow - 2;
+    const targetZ = zThrow - 2.5;
+    const throwLineZ = zThrow + 2;
+    const backdropZ = zThrow - 4.5;
 
-    // ── LEFT: Milk Bottle Pyramid (3-2-1, heavy, satisfying topple) ──────
-    // Raised on a blue pedestal so the bottles stand out.
-    const bottlePedestalMat = new THREE.MeshStandardMaterial({ color: 0x3366aa, roughness: 0.7 });
-    const bottlePedestal = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.5, 1.5), bottlePedestalMat);
+    // ═══ ENVIRONMENT: Backdrop wall ═══════════════════════════════════════
+    // Dark wall behind targets catches scattered debris and frames the scene.
+    const wallMat = new THREE.MeshStandardMaterial({
+      color: 0x2a2a3a, roughness: 0.85, metalness: 0.1,
+    });
+    const backdrop = new THREE.Mesh(new THREE.BoxGeometry(18, 3, 0.3), wallMat);
+    backdrop.position.set(0, bayTopY + 1.5, backdropZ);
+    backdrop.receiveShadow = true;
+    backdrop.name = 'ThrowBackdrop_col';
+    this.scene.add(backdrop);
+    this.meshes.push(backdrop);
+    backdrop.updateWorldMatrix(true, false);
+    this.colliders.push(this.colliderFactory.createTrimesh(backdrop));
+
+    // Emissive strip along top of backdrop for bloom glow
+    const stripMat = new THREE.MeshStandardMaterial({
+      color: 0x111111, emissive: 0xff6622, emissiveIntensity: 1.8,
+      roughness: 0.5, metalness: 0.0,
+    });
+    const topStrip = new THREE.Mesh(new THREE.BoxGeometry(18, 0.08, 0.32), stripMat);
+    topStrip.position.set(0, bayTopY + 3.04, backdropZ);
+    this.scene.add(topStrip);
+    this.meshes.push(topStrip);
+
+    // ═══ ENVIRONMENT: Lane divider walls ═════════════════════════════════
+    // Short walls between the three lanes, guiding thrown objects.
+    const dividerMat = new THREE.MeshStandardMaterial({ color: 0x3a3a4a, roughness: 0.75, metalness: 0.15 });
+    for (const dx of [-2.8, 2.8]) {
+      const divider = new THREE.Mesh(new THREE.BoxGeometry(0.15, 1.8, 2.5), dividerMat);
+      divider.position.set(dx, bayTopY + 0.9, targetZ - 0.5);
+      divider.receiveShadow = true;
+      divider.castShadow = true;
+      divider.name = 'LaneDivider_col';
+      this.scene.add(divider);
+      this.meshes.push(divider);
+      divider.updateWorldMatrix(true, false);
+      this.colliders.push(this.colliderFactory.createTrimesh(divider));
+    }
+
+    // ═══ ENVIRONMENT: Throwing line (floor glow strip) ═══════════════════
+    // Bright line on the ground where the player stands to throw.
+    const throwLineMat = new THREE.MeshStandardMaterial({
+      color: 0x111111, emissive: 0x00ccff, emissiveIntensity: 1.5,
+      roughness: 0.5,
+    });
+    const throwLine = new THREE.Mesh(new THREE.BoxGeometry(14, 0.04, 0.12), throwLineMat);
+    throwLine.position.set(0, bayTopY + 0.02, throwLineZ);
+    this.scene.add(throwLine);
+    this.meshes.push(throwLine);
+
+    // ═══ ENVIRONMENT: Side bollards ══════════════════════════════════════
+    // Small lit posts flanking the throwing area for visual framing.
+    const bollardMat = new THREE.MeshStandardMaterial({ color: 0x505868, roughness: 0.4, metalness: 0.3 });
+    const bollardGlowMat = new THREE.MeshStandardMaterial({
+      color: 0x222222, emissive: 0xff8844, emissiveIntensity: 1.2,
+      roughness: 0.5,
+    });
+    for (const bx of [-7.5, 7.5]) {
+      // Post
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 1.2, 8), bollardMat);
+      post.position.set(bx, bayTopY + 0.6, throwLineZ);
+      post.castShadow = true;
+      this.scene.add(post);
+      this.meshes.push(post);
+      // Glowing cap
+      const cap = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 6), bollardGlowMat);
+      cap.position.set(bx, bayTopY + 1.25, throwLineZ);
+      this.scene.add(cap);
+      this.meshes.push(cap);
+    }
+
+    // ═══ ENVIRONMENT: Pickup shelf ══════════════════════════════════════
+    // An angled display shelf near the player showing available throwables.
+    const shelfMat = new THREE.MeshStandardMaterial({ color: 0x4a4a5a, roughness: 0.6, metalness: 0.2 });
+    const shelf = new THREE.Mesh(new THREE.BoxGeometry(6, 0.1, 1.2), shelfMat);
+    shelf.position.set(0, bayTopY + 0.6, zThrow + 1);
+    shelf.rotation.x = -0.15; // slight tilt toward player
+    shelf.receiveShadow = true;
+    shelf.name = 'PickupShelf_col';
+    this.scene.add(shelf);
+    this.meshes.push(shelf);
+    shelf.updateWorldMatrix(true, false);
+    this.colliders.push(this.colliderFactory.createTrimesh(shelf));
+
+    // Shelf legs
+    for (const lx of [-2.8, 2.8]) {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.6, 0.08), shelfMat);
+      leg.position.set(lx, bayTopY + 0.3, zThrow + 1);
+      leg.castShadow = true;
+      this.scene.add(leg);
+      this.meshes.push(leg);
+    }
+
+    // ═══ ENVIRONMENT: Target accent lights ══════════════════════════════
+    // Colored spotlights on each target zone for drama and readability.
+    const addTargetLight = (x: number, color: number, intensity: number) => {
+      const light = new THREE.PointLight(color, intensity, 8, 2);
+      light.position.set(x, bayTopY + 2.8, targetZ);
+      light.castShadow = false;
+      this.scene.add(light);
+      this.meshes.push(light);
+    };
+    addTargetLight(-5, 0x4488ff, 8);  // Blue for bottles
+    addTargetLight(0, 0xff6644, 10);  // Warm for bricks
+    addTargetLight(5, 0x44ff88, 8);   // Green for cans
+
+    // ═══ TARGET ZONE LEFT: Milk Bottle Pyramid ══════════════════════════
+    const bottlePedestalMat = new THREE.MeshStandardMaterial({ color: 0x3366aa, roughness: 0.6, metalness: 0.1 });
+    const bottlePedestal = new THREE.Mesh(new THREE.BoxGeometry(3, 0.5, 2), bottlePedestalMat);
     bottlePedestal.position.set(-5, bayTopY + 0.25, targetZ);
     bottlePedestal.receiveShadow = true;
     bottlePedestal.name = 'BottlePedestal_col';
@@ -699,18 +808,14 @@ export class ProceduralBuilder {
     const bottleBaseX = -5;
     const bottleTop = bayTopY + 0.5;
     const bottleSpacing = bottleR * 2.6;
-    const bottleRows = [
+    [
       [bottleBaseX - bottleSpacing, bottleBaseX, bottleBaseX + bottleSpacing],
       [bottleBaseX - bottleSpacing * 0.5, bottleBaseX + bottleSpacing * 0.5],
       [bottleBaseX],
-    ];
-    bottleRows.forEach((row, rowIdx) => {
+    ].forEach((row, rowIdx) => {
       row.forEach((x) => {
         const y = bottleTop + bottleH + rowIdx * bottleH * 2;
-        const mesh = new THREE.Mesh(
-          new THREE.CylinderGeometry(bottleR * 0.65, bottleR, bottleH * 2, 10),
-          bottleMat,
-        );
+        const mesh = new THREE.Mesh(new THREE.CylinderGeometry(bottleR * 0.65, bottleR, bottleH * 2, 10), bottleMat);
         mesh.position.set(x, y, targetZ);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
@@ -718,18 +823,15 @@ export class ProceduralBuilder {
         this.meshes.push(mesh);
         const bd = RAPIER.RigidBodyDesc.dynamic().setTranslation(x, y, targetZ);
         const body = this.physicsWorld.world.createRigidBody(bd);
-        const cd = RAPIER.ColliderDesc.cylinder(bottleH, bottleR)
-          .setFriction(0.5).setRestitution(0.15).setDensity(3.5)
-          .setCollisionGroups(COLLISION_GROUP_WORLD);
-        this.physicsWorld.world.createCollider(cd, body);
+        RAPIER.ColliderDesc.cylinder(bottleH, bottleR).setFriction(0.5).setRestitution(0.15).setDensity(3.5).setCollisionGroups(COLLISION_GROUP_WORLD);
+        this.physicsWorld.world.createCollider(RAPIER.ColliderDesc.cylinder(bottleH, bottleR).setFriction(0.5).setRestitution(0.15).setDensity(3.5).setCollisionGroups(COLLISION_GROUP_WORLD), body);
         body.userData = { kind: 'throwable' };
         this.bodies.push(body);
         this.dynamicBodiesArr.push({ mesh, body, prevPos: new THREE.Vector3(x, y, targetZ), currPos: new THREE.Vector3(x, y, targetZ), prevQuat: new THREE.Quaternion(), currQuat: new THREE.Quaternion(), hasPose: false });
       });
     });
 
-    // ── CENTER: Brick Wall (5x6, chain-collapse) ─────────────────────────
-    // Classic destructible wall. Terracotta bricks contrast against amber.
+    // ═══ TARGET ZONE CENTER: Brick Wall ══════════════════════════════════
     const targetMat = new THREE.MeshStandardMaterial({ color: 0xcc5533, roughness: 0.65 });
     for (let row = 0; row < 5; row++) {
       for (let col = 0; col < 6; col++) {
@@ -737,19 +839,13 @@ export class ProceduralBuilder {
         const xOff = (row % 2 === 0) ? 0 : brickW * 0.5;
         const x = (col - 2.5) * brickW + xOff;
         const y = bayTopY + brickH * 0.5 + row * brickH;
-        this.createDynamicBox(
-          `Target_${row}_${col}`,
-          new THREE.Vector3(x, y, targetZ),
-          new THREE.Vector3(brickW, brickH, brickD),
-          targetMat,
-        );
+        this.createDynamicBox(`Target_${row}_${col}`, new THREE.Vector3(x, y, targetZ), new THREE.Vector3(brickW, brickH, brickD), targetMat);
       }
     }
 
-    // ── RIGHT: Tin Can Pyramid (4-3-2-1, light, dramatic scatter) ────────
-    // Raised on a green pedestal. Lightweight cans fly on impact.
-    const canPedestalMat = new THREE.MeshStandardMaterial({ color: 0x338855, roughness: 0.7 });
-    const canPedestal = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.5, 1.5), canPedestalMat);
+    // ═══ TARGET ZONE RIGHT: Tin Can Pyramid ═════════════════════════════
+    const canPedestalMat = new THREE.MeshStandardMaterial({ color: 0x338855, roughness: 0.6, metalness: 0.1 });
+    const canPedestal = new THREE.Mesh(new THREE.BoxGeometry(3, 0.5, 2), canPedestalMat);
     canPedestal.position.set(5, bayTopY + 0.25, targetZ);
     canPedestal.receiveShadow = true;
     canPedestal.name = 'CanPedestal_col';
@@ -764,29 +860,22 @@ export class ProceduralBuilder {
     const canBaseX = 5;
     const canTop = bayTopY + 0.5;
     const canSpacing = canR * 2.5;
-    const canRows = [
+    [
       [-1.5, -0.5, 0.5, 1.5].map(i => canBaseX + i * canSpacing),
       [-1, 0, 1].map(i => canBaseX + i * canSpacing),
       [-0.5, 0.5].map(i => canBaseX + i * canSpacing),
       [canBaseX],
-    ];
-    canRows.forEach((row, rowIdx) => {
+    ].forEach((row, rowIdx) => {
       row.forEach((x) => {
         const y = canTop + canH + rowIdx * canH * 2;
-        const mesh = new THREE.Mesh(
-          new THREE.CylinderGeometry(canR, canR, canH * 2, 8),
-          canMat,
-        );
+        const mesh = new THREE.Mesh(new THREE.CylinderGeometry(canR, canR, canH * 2, 8), canMat);
         mesh.position.set(x, y, targetZ);
         mesh.castShadow = true;
         this.scene.add(mesh);
         this.meshes.push(mesh);
         const bd = RAPIER.RigidBodyDesc.dynamic().setTranslation(x, y, targetZ);
         const body = this.physicsWorld.world.createRigidBody(bd);
-        const cd = RAPIER.ColliderDesc.cylinder(canH, canR)
-          .setFriction(0.3).setRestitution(0.35).setDensity(0.6)
-          .setCollisionGroups(COLLISION_GROUP_WORLD);
-        this.physicsWorld.world.createCollider(cd, body);
+        this.physicsWorld.world.createCollider(RAPIER.ColliderDesc.cylinder(canH, canR).setFriction(0.3).setRestitution(0.35).setDensity(0.6).setCollisionGroups(COLLISION_GROUP_WORLD), body);
         body.userData = { kind: 'throwable' };
         this.bodies.push(body);
         this.dynamicBodiesArr.push({ mesh, body, prevPos: new THREE.Vector3(x, y, targetZ), currPos: new THREE.Vector3(x, y, targetZ), prevQuat: new THREE.Quaternion(), currQuat: new THREE.Quaternion(), hasPose: false });
