@@ -632,11 +632,20 @@ export async function createVfxShowcase(
     }
   } catch (err) {
     console.warn('[VfxShowcase] Failed to create VFX demos:', err);
-    return { objects: [], dispose: () => {} };
+    return {
+      objects: created,
+      dispose: () => {
+        for (const id of intervalIds) clearInterval(id);
+        for (const obj of created) obj.removeFromParent();
+      },
+    };
   }
 
   return {
     objects: created,
-    dispose: () => { for (const id of intervalIds) clearInterval(id); },
+    dispose: () => {
+      for (const id of intervalIds) clearInterval(id);
+      for (const obj of created) obj.removeFromParent();
+    },
   };
 }
