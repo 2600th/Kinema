@@ -148,7 +148,13 @@ export class InteractableSystem implements RuntimeSystem {
           const otherCollider = this.physicsWorld.world.getCollider(otherHandle);
           const otherBody = otherCollider?.parent();
           const isTarget = otherBody && (otherBody.userData as { kind?: string })?.kind === 'throw-target';
-          this.uiManager.hud.showStatus(isTarget ? "Target Hit!" : "Impact!", 700);
+          if (isTarget && otherBody) {
+            this.uiManager.hud.showStatus("Target Hit!", 700);
+            const vel = obj.body.linvel();
+            otherBody.applyImpulse({ x: vel.x * 0.3, y: 3, z: vel.z * 0.3 }, true);
+          } else {
+            this.uiManager.hud.showStatus("Impact!", 700);
+          }
         }
       });
     }
