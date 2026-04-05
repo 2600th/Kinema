@@ -9,6 +9,7 @@ export interface TouchInputState {
   moveY: number;
   lookDX: number;
   lookDY: number;
+  vehicleVertical: number;
   jump: boolean;
   jumpPressed: boolean;
   interact: boolean;
@@ -132,6 +133,7 @@ export class TouchControlsManager implements Disposable {
       moveY: -move.y,
       lookDX: look.x * TOUCH_LOOK_SENSITIVITY,
       lookDY: look.y * TOUCH_LOOK_SENSITIVITY,
+      vehicleVertical: -look.y,
       jump: jumpHeld,
       jumpPressed,
       interact: interactHeld,

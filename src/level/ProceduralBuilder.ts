@@ -183,7 +183,10 @@ export class ProceduralBuilder {
 
     // Broad floor
     if (buildAll) {
-    const floor = new THREE.Mesh(new THREE.BoxGeometry(300, 5, 300), floorMat);
+    const floor = new THREE.Mesh(
+      new THREE.BoxGeometry(SHOWCASE_LAYOUT.hall.width, 5, SHOWCASE_LAYOUT.hall.length),
+      floorMat,
+    );
     // WHY: The showcase hall floor surface sits at y=-1.0. If the broad floor
     // also has its top face at y=-1.0, the two coplanar surfaces z-fight and
     // the grid flickers. Keep the broad floor below the hall floor plane.
@@ -243,58 +246,29 @@ export class ProceduralBuilder {
     hallFloor.updateWorldMatrix(true, false);
     this.colliders.push(this.colliderFactory.createTrimesh(hallFloor));
 
-    // ── Astro Bot-style: open-air floating walkway with rounded edge rails ──
-    // No walls, no ribs, no beams — just clean rounded borders on the floor edges.
-    // Thick chunky rounded rails — Astro Bot "safe bumper" aesthetic.
-    const railMat = new THREE.MeshPhysicalMaterial({
-      color: 0xffffff,
-      roughness: 0.1,
-      metalness: 0.1,
-      clearcoat: 1.0,
-      clearcoatRoughness: 0.05,
+    const boundaryWallMat = new THREE.MeshStandardMaterial({
+      color: 0x7b8aa5,
+      roughness: 0.45,
+      metalness: 0.08,
     });
-    const railRadius = 0.5;
-
-    // Left edge rail — thick capsule-style bumper
-    const leftRail = new THREE.Mesh(
-      new THREE.CapsuleGeometry(railRadius, hallLength, 6, 12),
-      railMat,
+    const boundaryWallSize = new THREE.Vector3(0.5, 0.7, hallLength);
+    const boundaryWallY = -1.0 + boundaryWallSize.y * 0.5;
+    this.createFixedStaticBox(
+      'ShowcaseBoundaryWall_L',
+      boundaryWallSize,
+      new THREE.Vector3(-hallWidth * 0.5 + boundaryWallSize.x * 0.5, boundaryWallY, showcaseCenterZ),
+      new THREE.Euler(),
+      boundaryWallMat,
+      'showcase-boundary',
     );
-    leftRail.rotation.x = Math.PI / 2; // align along Z
-    leftRail.position.set(-hallWidth / 2, -0.7, showcaseCenterZ);
-    leftRail.name = 'WalkwayRail_L';
-    leftRail.castShadow = true;
-    leftRail.receiveShadow = true;
-    this.scene.add(leftRail);
-    this.meshes.push(leftRail);
-    leftRail.updateWorldMatrix(true, false);
-    this.colliders.push(this.colliderFactory.createTrimesh(leftRail));
-
-    // Right edge rail
-    const rightRail = leftRail.clone();
-    rightRail.position.set(hallWidth / 2, -0.8, showcaseCenterZ);
-    rightRail.name = 'WalkwayRail_R';
-    this.scene.add(rightRail);
-    this.meshes.push(rightRail);
-    rightRail.updateWorldMatrix(true, false);
-    this.colliders.push(this.colliderFactory.createTrimesh(rightRail));
-
-    // Thin side skirt below the floor for visual thickness (like a floating platform)
-    const skirtMat = new THREE.MeshStandardMaterial({ color: 0x8090a0, roughness: 0.5, metalness: 0.1 });
-    const leftSkirt = new THREE.Mesh(
-      new THREE.BoxGeometry(0.3, 1.2, hallLength),
-      skirtMat,
+    this.createFixedStaticBox(
+      'ShowcaseBoundaryWall_R',
+      boundaryWallSize,
+      new THREE.Vector3(hallWidth * 0.5 - boundaryWallSize.x * 0.5, boundaryWallY, showcaseCenterZ),
+      new THREE.Euler(),
+      boundaryWallMat,
+      'showcase-boundary',
     );
-    leftSkirt.position.set(-hallWidth / 2 + 0.15, -1.6, showcaseCenterZ);
-    leftSkirt.name = 'WalkwaySkirt_L';
-    this.scene.add(leftSkirt);
-    this.meshes.push(leftSkirt);
-
-    const rightSkirt = leftSkirt.clone();
-    rightSkirt.position.set(hallWidth / 2 - 0.15, -1.6, showcaseCenterZ);
-    rightSkirt.name = 'WalkwaySkirt_R';
-    this.scene.add(rightSkirt);
-    this.meshes.push(rightSkirt);
 
     // ── Floating sparkle particles throughout the corridor ──
     const sparkles = new SparkleParticles({
@@ -362,6 +336,7 @@ export class ProceduralBuilder {
       this.meshes.push(pedestal);
       pedestal.updateWorldMatrix(true, false);
       this.colliders.push(this.colliderFactory.createTrimesh(pedestal));
+      this.createBayAccessRamps(z, bayWidth, bayTopY, stationColor);
 
       // Emissive accent edge — glowing strip around the pedestal top edge for bloom.
       // Subtle emissive accent — gentle bloom glow.
@@ -1861,6 +1836,92 @@ export class ProceduralBuilder {
       amplitude,
       rotationOffset: new THREE.Euler(0, 0, 0),
     });
+  }
+
+  private createBayAccessRamps(
+    zCenter: number,
+    bayWidth: number,
+    bayTopY: number,
+    stationColor: number,
+  ): void {
+    const hallFloorTopY = -1.0;
+    const rise = bayTopY - hallFloorTopY;
+    const rampRun = 3.1;
+    const rampThickness = 0.1;
+    const rampAngle = Math.atan2(rise, rampRun);
+    const rampCenterY = hallFloorTopY + rise * 0.5 - 0.03;
+    const overlap = 0.01;
+    const edgeInset = 0.35;
+    const longitudinalSize = new THREE.Vector3(bayWidth - edgeInset * 2, rampThickness, rampRun);
+    const rampMaterial = new THREE.MeshPhysicalMaterial({
+      color: stationColor,
+      roughness: 0.24,
+      metalness: 0.0,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.08,
+      transmission: 0.0,
+      thickness: 0.0,
+      emissive: stationColor,
+      emissiveIntensity: 0.06,
+    });
+
+    this.createStaticRamp(
+      `ShowcaseBayRamp_N_${zCenter}`,
+      longitudinalSize,
+      new THREE.Vector3(0, rampCenterY, zCenter + SHOWCASE_LAYOUT.bay.pedestalLength * 0.5 + rampRun * 0.5 - overlap),
+      new THREE.Euler(rampAngle, 0, 0),
+      rampMaterial,
+    );
+    this.createStaticRamp(
+      `ShowcaseBayRamp_S_${zCenter}`,
+      longitudinalSize,
+      new THREE.Vector3(0, rampCenterY, zCenter - SHOWCASE_LAYOUT.bay.pedestalLength * 0.5 - rampRun * 0.5 + overlap),
+      new THREE.Euler(-rampAngle, 0, 0),
+      rampMaterial,
+    );
+  }
+
+  private createStaticRamp(
+    name: string,
+    size: THREE.Vector3,
+    position: THREE.Vector3,
+    rotation: THREE.Euler,
+    material: THREE.Material,
+  ): void {
+    this.createFixedStaticBox(name, size, position, rotation, material, 'showcase-ramp');
+  }
+
+  private createFixedStaticBox(
+    name: string,
+    size: THREE.Vector3,
+    position: THREE.Vector3,
+    rotation: THREE.Euler,
+    material: THREE.Material,
+    kind = 'showcase-static',
+  ): void {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), material);
+    mesh.name = `${name}_col`;
+    mesh.position.copy(position);
+    mesh.rotation.copy(rotation);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    this.scene.add(mesh);
+    this.meshes.push(mesh);
+
+    const quat = new THREE.Quaternion().setFromEuler(rotation);
+    const bodyDesc = RAPIER.RigidBodyDesc.fixed()
+      .setTranslation(position.x, position.y, position.z)
+      .setRotation({ x: quat.x, y: quat.y, z: quat.z, w: quat.w });
+    const body = this.physicsWorld.world.createRigidBody(bodyDesc);
+    body.userData = { kind };
+    const collider = this.physicsWorld.world.createCollider(
+      RAPIER.ColliderDesc.cuboid(size.x * 0.5, size.y * 0.5, size.z * 0.5)
+        .setFriction(0.8)
+        .setCollisionGroups(COLLISION_GROUP_WORLD),
+      body,
+    );
+    this.bodies.push(body);
+    this.colliders.push(collider);
   }
 
   private createFloatingPlatform(

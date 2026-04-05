@@ -58,6 +58,9 @@ export class DroneController implements VehicleController {
   private controlYaw: number | null = null;
   private visualPitch = 0;
   private visualRoll = 0;
+  private actionRoll = 0;
+  private rollTimeRemaining = 0;
+  private rollDirection = 1;
   private hoverTargetY: number | null = null;
   private rotorMeshes: THREE.Object3D[] = [];
 
@@ -74,6 +77,9 @@ export class DroneController implements VehicleController {
   private hoverSpeedIntegral = 0;
   private readonly hoverMaxVerticalSpeed = 10;
   private readonly hoverAdjustSpeedKeyboard = 7.5; // m/s via Space/C when piloting
+  private readonly rollDuration = 0.45;
+  private readonly rollCooldownDuration = 0.45;
+  private rollCooldown = 0;
 
   constructor(
     id: string,
@@ -114,6 +120,9 @@ export class DroneController implements VehicleController {
     this.input = _input;
     this.hoverTargetY = null;
     this.hoverSpeedIntegral = 0;
+    this.rollTimeRemaining = 0;
+    this.rollCooldown = 0;
+    this.actionRoll = 0;
     // Great-feel flight: disable gravity while piloting and directly control velocity.
     this.body.setGravityScale(0, true);
     // Prevent mid-air sleeping from "freezing" the drone.
@@ -140,6 +149,8 @@ export class DroneController implements VehicleController {
     this.input = null;
     this.visualPitch = 0;
     this.visualRoll = 0;
+    this.actionRoll = 0;
+    this.rollTimeRemaining = 0;
     this.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
     this.body.setGravityScale(1, true);
     // Let the drone settle naturally; allow sleeping once it comes to rest.
@@ -208,6 +219,7 @@ export class DroneController implements VehicleController {
     const input = this.input;
 
     this.verticalSuppressSeconds = Math.max(0, this.verticalSuppressSeconds - _dt);
+    this.rollCooldown = Math.max(0, this.rollCooldown - _dt);
 
     // Mouse look is owned by OrbitFollowCamera. Drive drone yaw from camera yaw.
     if (this.controlYaw != null) {
@@ -220,8 +232,13 @@ export class DroneController implements VehicleController {
 
     const moveX = input.moveX;
     const moveZ = input.moveY;
-    const rawMoveY = ((input.jump || input.altitudeUp) ? 1 : 0) - ((input.crouch || input.altitudeDown) ? 1 : 0);
-    const moveY = this.verticalSuppressSeconds > 0 ? 0 : rawMoveY;
+    const moveY = this.verticalSuppressSeconds > 0 ? 0 : input.vehicleVertical;
+
+    if (input.jumpPressed && this.rollCooldown <= 0) {
+      this.rollDirection = moveX !== 0 ? -Math.sign(moveX) : 1;
+      this.rollTimeRemaining = this.rollDuration;
+      this.rollCooldown = this.rollCooldownDuration;
+    }
 
     // Movement uses yaw-only for direction so pitch doesn't cause unintended vertical drift.
     _yawQuat.setFromEuler(_yawEuler);
@@ -306,8 +323,15 @@ export class DroneController implements VehicleController {
     if (!this.hasPose) return;
     this.mesh.position.lerpVectors(this._prevPos, this._currPos, alpha);
     this.mesh.quaternion.slerpQuaternions(this._prevQuat, this._currQuat, alpha);
+    if (this.rollTimeRemaining > 0) {
+      const rollProgress = 1 - this.rollTimeRemaining / this.rollDuration;
+      this.actionRoll = this.rollDirection * rollProgress * Math.PI * 2;
+      this.rollTimeRemaining = Math.max(0, this.rollTimeRemaining - dt);
+    } else {
+      this.actionRoll = 0;
+    }
     // Apply mesh-only banking after base interpolation so physics stays stable.
-    _tiltEuler.set(this.visualPitch, 0, this.visualRoll);
+    _tiltEuler.set(this.visualPitch, 0, this.visualRoll + this.actionRoll);
     _tiltQuat.setFromEuler(_tiltEuler);
     this.mesh.quaternion.multiply(_tiltQuat);
 

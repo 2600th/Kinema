@@ -5,26 +5,29 @@
 
 /* ----- Design Tokens ----- */
 :root {
-  --ke-bg:          rgba(26, 16, 64, 0.92);
-  --ke-bg-solid:    #1a1040;
-  --ke-border:      rgba(255, 255, 255, 0.12);
-  --ke-border-hover:rgba(255, 255, 255, 0.22);
-  --ke-text:        #e0e0f0;
-  --ke-text-dim:    #9090b0;
+  --ke-bg:          rgba(17, 24, 46, 0.84);
+  --ke-bg-solid:    #11192f;
+  --ke-bg-elevated: rgba(25, 34, 62, 0.9);
+  --ke-border:      rgba(255, 255, 255, 0.1);
+  --ke-border-hover:rgba(255, 255, 255, 0.2);
+  --ke-text:        #dde8ff;
+  --ke-text-dim:    #91a2c6;
   --ke-text-bright: #ffffff;
-  --ke-accent:      #7b2fff;
-  --ke-accent-dim:  rgba(123, 47, 255, 0.25);
-  --ke-accent-glow: rgba(123, 47, 255, 0.45);
-  --ke-input-bg:    rgba(255, 255, 255, 0.08);
-  --ke-input-bg-hover: rgba(255, 255, 255, 0.14);
-  --ke-danger:      #ff6b9d;
-  --ke-success:     #4caf50;
-  --ke-warning:     #ff9800;
+  --ke-accent:      #62e6ff;
+  --ke-accent-2:    #7b6cff;
+  --ke-accent-3:    #ff79ba;
+  --ke-accent-dim:  rgba(98, 230, 255, 0.18);
+  --ke-accent-glow: rgba(98, 230, 255, 0.28);
+  --ke-input-bg:    rgba(255, 255, 255, 0.05);
+  --ke-input-bg-hover: rgba(255, 255, 255, 0.1);
+  --ke-danger:      #ff79ba;
+  --ke-success:     #82e47f;
+  --ke-warning:     #ffcf67;
   --ke-radius:      12px;
   --ke-radius-sm:   6px;
   --ke-radius-pill: 100px;
-  --ke-blur:        12px;
-  --ke-shadow:      0 8px 32px rgba(0, 0, 0, 0.45), 0 0 20px rgba(123, 47, 255, 0.08);
+  --ke-blur:        18px;
+  --ke-shadow:      0 18px 48px rgba(0, 0, 0, 0.36), 0 0 24px rgba(98, 230, 255, 0.08);
   --ke-transition:  150ms ease;
   --ke-font:        'Outfit', system-ui, sans-serif;
   --ke-font-mono:   'JetBrains Mono', 'Fira Code', monospace;
@@ -36,7 +39,9 @@
 /* ----- Panel ----- */
 .ke-panel {
   position: absolute;
-  background: var(--ke-bg);
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02) 28%, rgba(255,255,255,0.05) 56%, rgba(255,255,255,0.02) 78%),
+    linear-gradient(180deg, rgba(16, 23, 43, 0.9), rgba(10, 14, 26, 0.94));
   backdrop-filter: blur(var(--ke-blur));
   -webkit-backdrop-filter: blur(var(--ke-blur));
   border: 1px solid var(--ke-border);
@@ -49,6 +54,16 @@
   overflow: hidden;
   z-index: 1000;
   user-select: none;
+}
+
+.ke-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(110deg, rgba(255,255,255,0.08), transparent 18%, transparent 62%, rgba(98,230,255,0.06) 74%, transparent 86%),
+    linear-gradient(180deg, rgba(255,255,255,0.025), transparent 30%);
+  pointer-events: none;
 }
 
 .ke-panel-header {
@@ -85,7 +100,9 @@
   align-items: center;
   gap: 4px;
   padding: 5px 8px;
-  background: var(--ke-bg);
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02) 32%, rgba(255,255,255,0.04)),
+    linear-gradient(180deg, rgba(16, 23, 43, 0.9), rgba(10, 14, 26, 0.94));
   backdrop-filter: blur(var(--ke-blur));
   -webkit-backdrop-filter: blur(var(--ke-blur));
   border: 1px solid var(--ke-border);
@@ -129,19 +146,19 @@
   padding: 6px 16px;
   height: 32px;
   border-radius: var(--ke-radius-sm);
-  border: 1px solid rgba(76, 175, 80, 0.5);
-  background: rgba(76, 175, 80, 0.18);
-  color: #4caf50;
+  border: 1px solid rgba(98, 230, 255, 0.35);
+  background: linear-gradient(135deg, rgba(98, 230, 255, 0.18), rgba(123, 108, 255, 0.16));
+  color: #dff8ff;
   font-family: var(--ke-font);
   cursor: pointer;
   transition: all var(--ke-transition);
 }
 
 .ke-btn-play:hover {
-  background: rgba(76, 175, 80, 0.35);
-  border-color: rgba(76, 175, 80, 0.8);
-  box-shadow: 0 0 14px rgba(76, 175, 80, 0.35);
-  color: #66bb6a;
+  background: linear-gradient(135deg, rgba(98, 230, 255, 0.28), rgba(123, 108, 255, 0.24));
+  border-color: rgba(98, 230, 255, 0.62);
+  box-shadow: 0 0 16px rgba(98, 230, 255, 0.26);
+  color: #ffffff;
 }
 
 .ke-btn-play:active {
@@ -313,7 +330,9 @@
   align-items: stretch;
   gap: 4px;
   padding: 6px 10px;
-  background: var(--ke-bg);
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02) 32%, rgba(255,255,255,0.04)),
+    linear-gradient(180deg, rgba(16, 23, 43, 0.9), rgba(10, 14, 26, 0.94));
   backdrop-filter: blur(var(--ke-blur));
   -webkit-backdrop-filter: blur(var(--ke-blur));
   border: 1px solid var(--ke-border);
@@ -471,7 +490,7 @@
 .ke-btn-active {
   background: var(--ke-accent-dim);
   border-color: var(--ke-accent);
-  color: var(--ke-accent);
+  color: #ffffff;
   box-shadow: 0 0 8px var(--ke-accent-glow);
 }
 
@@ -531,6 +550,7 @@
 .ke-input:focus {
   border-color: var(--ke-accent);
   background: var(--ke-input-bg-hover);
+  box-shadow: 0 0 0 1px rgba(98, 230, 255, 0.18);
 }
 
 .ke-input::placeholder {
@@ -622,7 +642,9 @@
 .ke-context-menu {
   position: fixed;
   min-width: 160px;
-  background: var(--ke-bg-solid);
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02) 32%, rgba(255,255,255,0.04)),
+    linear-gradient(180deg, rgba(16, 23, 43, 0.94), rgba(10, 14, 26, 0.98));
   backdrop-filter: blur(var(--ke-blur));
   -webkit-backdrop-filter: blur(var(--ke-blur));
   border: 1px solid var(--ke-border);

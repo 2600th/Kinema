@@ -159,6 +159,19 @@ export class CharacterModel implements Disposable {
     });
   }
 
+  /** Apply a stylized iridescent metallic finish for the player character. */
+  applyHeroFinish(): void {
+    let materialIndex = 0;
+
+    this.root.traverse((node) => {
+      if (!(node instanceof THREE.Mesh)) return;
+
+      const materials = Array.isArray(node.material) ? node.material : [node.material];
+      const upgraded = materials.map((material) => CharacterModel.createHeroMaterial(material, materialIndex++));
+      node.material = Array.isArray(node.material) ? upgraded : upgraded[0];
+    });
+  }
+
   /** Tint all materials by blending toward the given color. */
   tint(color: THREE.Color): void {
     this.root.traverse((node) => {
@@ -225,5 +238,119 @@ export class CharacterModel implements Disposable {
         }
       }
     }
+  }
+
+  private static createHeroMaterial(material: THREE.Material, materialIndex: number): THREE.Material {
+    if (!(material instanceof THREE.MeshStandardMaterial)) {
+      return material;
+    }
+
+    const physical = material instanceof THREE.MeshPhysicalMaterial
+      ? material
+      : CharacterModel.upgradeStandardToPhysical(material);
+
+    const baseColor = new THREE.Color().setHSL(
+      0.55 + (materialIndex % 3) * 0.02,
+      0.34 + (materialIndex % 2) * 0.05,
+      0.82 + (materialIndex % 3) * 0.025,
+    );
+    const pearlAccent = new THREE.Color(materialIndex % 2 === 0 ? 0x8af2ff : 0xff79ba);
+    const emissiveColor = baseColor.clone().lerp(pearlAccent, 0.34);
+
+    physical.color.copy(baseColor);
+    physical.metalness = 0.68;
+    physical.roughness = 0.08 + (materialIndex % 3) * 0.02;
+    physical.clearcoat = 1.0;
+    physical.clearcoatRoughness = 0.04;
+    physical.iridescence = 1.0;
+    physical.iridescenceIOR = 1.16;
+    physical.iridescenceThicknessRange = [120, 960];
+    physical.sheen = 0.12;
+    physical.sheenColor.copy(emissiveColor);
+    physical.sheenRoughness = 0.34;
+    physical.specularIntensity = 1;
+    physical.specularColor.copy(emissiveColor);
+    physical.envMapIntensity = Math.max(physical.envMapIntensity, 2.0);
+    physical.emissive.copy(emissiveColor);
+    physical.emissiveIntensity = 0.03;
+
+    return physical;
+  }
+
+  private static upgradeStandardToPhysical(material: THREE.MeshStandardMaterial): THREE.MeshPhysicalMaterial {
+    const physical = new THREE.MeshPhysicalMaterial();
+
+    physical.name = material.name;
+    physical.color.copy(material.color);
+    physical.map = material.map;
+    physical.lightMap = material.lightMap;
+    physical.lightMapIntensity = material.lightMapIntensity;
+    physical.aoMap = material.aoMap;
+    physical.aoMapIntensity = material.aoMapIntensity;
+    physical.emissive.copy(material.emissive);
+    physical.emissiveMap = material.emissiveMap;
+    physical.emissiveIntensity = material.emissiveIntensity;
+    physical.bumpMap = material.bumpMap;
+    physical.bumpScale = material.bumpScale;
+    physical.normalMap = material.normalMap;
+    physical.normalMapType = material.normalMapType;
+    physical.normalScale.copy(material.normalScale);
+    physical.displacementMap = material.displacementMap;
+    physical.displacementScale = material.displacementScale;
+    physical.displacementBias = material.displacementBias;
+    physical.roughness = material.roughness;
+    physical.roughnessMap = material.roughnessMap;
+    physical.metalness = material.metalness;
+    physical.metalnessMap = material.metalnessMap;
+    physical.alphaMap = material.alphaMap;
+    physical.envMap = material.envMap;
+    physical.envMapRotation.copy(material.envMapRotation);
+    physical.envMapIntensity = material.envMapIntensity;
+    physical.wireframe = material.wireframe;
+    physical.wireframeLinewidth = material.wireframeLinewidth;
+    physical.flatShading = material.flatShading;
+    physical.fog = material.fog;
+
+    physical.side = material.side;
+    physical.shadowSide = material.shadowSide;
+    physical.opacity = material.opacity;
+    physical.transparent = material.transparent;
+    physical.alphaHash = material.alphaHash;
+    physical.blending = material.blending;
+    physical.blendSrc = material.blendSrc;
+    physical.blendDst = material.blendDst;
+    physical.blendEquation = material.blendEquation;
+    physical.blendSrcAlpha = material.blendSrcAlpha;
+    physical.blendDstAlpha = material.blendDstAlpha;
+    physical.blendEquationAlpha = material.blendEquationAlpha;
+    physical.depthFunc = material.depthFunc;
+    physical.depthTest = material.depthTest;
+    physical.depthWrite = material.depthWrite;
+    physical.colorWrite = material.colorWrite;
+    physical.stencilWrite = material.stencilWrite;
+    physical.stencilWriteMask = material.stencilWriteMask;
+    physical.stencilFunc = material.stencilFunc;
+    physical.stencilRef = material.stencilRef;
+    physical.stencilFuncMask = material.stencilFuncMask;
+    physical.stencilFail = material.stencilFail;
+    physical.stencilZFail = material.stencilZFail;
+    physical.stencilZPass = material.stencilZPass;
+    physical.clippingPlanes = material.clippingPlanes;
+    physical.clipIntersection = material.clipIntersection;
+    physical.clipShadows = material.clipShadows;
+    physical.clipShadows = material.clipShadows;
+    physical.polygonOffset = material.polygonOffset;
+    physical.polygonOffsetFactor = material.polygonOffsetFactor;
+    physical.polygonOffsetUnits = material.polygonOffsetUnits;
+    physical.dithering = material.dithering;
+    physical.alphaTest = material.alphaTest;
+    physical.alphaToCoverage = material.alphaToCoverage;
+    physical.premultipliedAlpha = material.premultipliedAlpha;
+    physical.forceSinglePass = material.forceSinglePass;
+    physical.toneMapped = material.toneMapped;
+    physical.visible = material.visible;
+
+    material.dispose();
+    return physical;
   }
 }

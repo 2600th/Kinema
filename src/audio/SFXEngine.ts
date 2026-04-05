@@ -46,6 +46,10 @@ export class SFXEngine {
   private engineOsc: Tone.Oscillator | null = null;
   private engineSub: Tone.Oscillator | null = null;
   private engineGain: Tone.Gain | null = null;
+  private engineFilter: Tone.Filter | null = null;
+  private engineAirNoise: Tone.Noise | null = null;
+  private engineAirFilter: Tone.Filter | null = null;
+  private engineAirGain: Tone.Gain | null = null;
 
   // Drone rotor sustained sound
   private droneOsc: Tone.Oscillator | null = null;
@@ -775,28 +779,57 @@ export class SFXEngine {
   startEngine(): void {
     if (this.engineOsc) return;
     this.engineGain = new Tone.Gain(0).connect(this.output);
-    this.engineOsc = new Tone.Oscillator({ type: 'sawtooth', frequency: 80, volume: -10 }).connect(this.engineGain);
-    this.engineSub = new Tone.Oscillator({ type: 'square', frequency: 40, volume: -14 }).connect(this.engineGain);
+    this.engineFilter = new Tone.Filter({ type: 'lowpass', frequency: 260, rolloff: -24, Q: 0.7 }).connect(this.engineGain);
+    this.engineOsc = new Tone.Oscillator({ type: 'triangle', frequency: 68, volume: -15 }).connect(this.engineFilter);
+    this.engineSub = new Tone.Oscillator({ type: 'sine', frequency: 34, volume: -17 }).connect(this.engineFilter);
+    this.engineAirGain = new Tone.Gain(0.01).connect(this.engineGain);
+    this.engineAirFilter = new Tone.Filter({ type: 'bandpass', frequency: 1100, Q: 0.9 }).connect(this.engineAirGain);
+    this.engineAirNoise = new Tone.Noise('pink').connect(this.engineAirFilter);
     this.engineOsc.start();
     this.engineSub.start();
+    this.engineAirNoise.start();
+    this.engineGain.gain.rampTo(0.03, 0.2);
   }
 
   updateEngine(speedNorm: number): void {
-    if (!this.engineOsc || !this.engineSub || !this.engineGain) return;
-    this.engineOsc.frequency.value = 80 + speedNorm * 140;
-    this.engineSub.frequency.value = 40 + speedNorm * 60;
-    this.engineGain.gain.rampTo(0.02 + speedNorm * 0.08, 0.05);
+    if (!this.engineOsc || !this.engineSub || !this.engineGain || !this.engineFilter || !this.engineAirFilter || !this.engineAirGain) return;
+    const speed = clamp(speedNorm, 0, 1);
+    this.engineOsc.frequency.rampTo(68 + speed * 88, 0.08);
+    this.engineSub.frequency.rampTo(34 + speed * 46, 0.08);
+    this.engineFilter.frequency.rampTo(240 + speed * 1050, 0.08);
+    this.engineAirFilter.frequency.rampTo(900 + speed * 2300, 0.08);
+    this.engineAirGain.gain.rampTo(0.006 + speed * 0.03, 0.08);
+    this.engineGain.gain.rampTo(0.022 + speed * 0.05, 0.08);
   }
 
   stopEngine(): void {
-    this.engineOsc?.stop();
-    this.engineOsc?.dispose();
-    this.engineSub?.stop();
-    this.engineSub?.dispose();
-    this.engineGain?.dispose();
+    const osc = this.engineOsc;
+    const sub = this.engineSub;
+    const gain = this.engineGain;
+    const filter = this.engineFilter;
+    const airNoise = this.engineAirNoise;
+    const airFilter = this.engineAirFilter;
+    const airGain = this.engineAirGain;
+    gain?.gain.rampTo(0, 0.18);
     this.engineOsc = null;
     this.engineSub = null;
     this.engineGain = null;
+    this.engineFilter = null;
+    this.engineAirNoise = null;
+    this.engineAirFilter = null;
+    this.engineAirGain = null;
+    setTimeout(() => {
+      osc?.stop();
+      osc?.dispose();
+      sub?.stop();
+      sub?.dispose();
+      airNoise?.stop();
+      airNoise?.dispose();
+      filter?.dispose();
+      airFilter?.dispose();
+      airGain?.dispose();
+      gain?.dispose();
+    }, 220);
   }
 
   // ── Lifecycle ─────────────────────────────────────────────

@@ -25,6 +25,7 @@ type GamepadSnapshot = {
   sprint: boolean;
   lookX: number;
   lookY: number;
+  vehicleVertical: number;
   moveX: number;
   moveY: number;
 };
@@ -120,6 +121,10 @@ export class InputManager implements Disposable {
     const primary = (this.locked && this.mousePrimary) || gamepad.primary;
     const altitudeUp = this.locked && this.keys.has('KeyE');
     const altitudeDown = this.locked && this.keys.has('KeyQ');
+    const keyboardVehicleVertical = (altitudeUp ? 1 : 0) - (altitudeDown ? 1 : 0);
+    const vehicleVertical = touch != null
+      ? touch.vehicleVertical
+      : (gamepad.vehicleVertical !== 0 ? gamepad.vehicleVertical : keyboardVehicleVertical);
     this.prevCrouch = crouch;
     const jumpPressed = (jump && !this.prevJump) || (touch?.jumpPressed ?? false);
     const interactPressed = (interact && !this.prevInteract) || (touch?.interactPressed ?? false);
@@ -164,6 +169,7 @@ export class InputManager implements Disposable {
       primaryPressed,
       altitudeUp,
       altitudeDown,
+      vehicleVertical,
       moveX,
       moveY,
       sprint: (this.locked && (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight'))) || gamepad.sprint || (touch?.sprint ?? false),
@@ -342,7 +348,7 @@ export class InputManager implements Disposable {
     const nullSnap: GamepadSnapshot = {
       forward: false, backward: false, left: false, right: false,
       crouch: false, jump: false, interact: false, primary: false, sprint: false,
-      lookX: 0, lookY: 0, moveX: 0, moveY: 0,
+      lookX: 0, lookY: 0, vehicleVertical: 0, moveX: 0, moveY: 0,
     };
     const api = navigator.getGamepads?.bind(navigator);
     if (!api) return nullSnap;
@@ -373,6 +379,7 @@ export class InputManager implements Disposable {
       sprint: pressed(10) || pressed(4), // Left stick press or LB
       lookX,
       lookY,
+      vehicleVertical: -lookY,
       moveX: gpMoveX,
       moveY: -gpMoveY, // invert: stick up (negative) = forward (positive moveY)
     };

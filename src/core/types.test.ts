@@ -11,6 +11,7 @@ describe('InputState', () => {
     expect(NULL_INPUT.jumpPressed).toBe(false);
     expect(NULL_INPUT.interact).toBe(false);
     expect(NULL_INPUT.interactPressed).toBe(false);
+    expect(NULL_INPUT.vehicleVertical).toBe(0);
     expect(NULL_INPUT.mouseDeltaX).toBe(0);
     expect(NULL_INPUT.mouseDeltaY).toBe(0);
     expect(NULL_INPUT.mouseWheelDelta).toBe(0);

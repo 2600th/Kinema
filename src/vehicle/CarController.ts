@@ -13,6 +13,9 @@ const _yAxisUp = new THREE.Vector3(0, 1, 0);
 const _yawEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 const _wheelWorldPos = new THREE.Vector3();
 const _carRight = new THREE.Vector3();
+const _carGroundNormal = new THREE.Vector3(0, 1, 0);
+const _carGroundNormalSum = new THREE.Vector3();
+const _driveDirection = new THREE.Vector3();
 const _exitProbe = new THREE.Vector3();
 const _exitCandidates = [
   new THREE.Vector3(-1.5, 0, 0),   // driver side (left)
@@ -63,9 +66,16 @@ export class CarController implements VehicleController {
   private simTime = 0;
   private taillightMeshes: THREE.Mesh[] = [];
   private braking = false;
+  private groundedWheelCount = 0;
+  private hopCooldown = 0;
+  private readonly averageGroundNormal = new THREE.Vector3(0, 1, 0);
+  private readonly spawnPosition = new THREE.Vector3();
+  private readonly spawnQuaternion = new THREE.Quaternion();
 
   private readonly acceleration = 40;
   private readonly drag = 4;
+  private readonly hopCooldownSeconds = 0.6;
+  private readonly hopVelocity = 3.2;
   private readonly maxSteerAngle = Math.PI / 5;
   private readonly steerSpeed = 12;
   private readonly wheelRadius = 0.32;
@@ -96,6 +106,8 @@ export class CarController implements VehicleController {
     private scene: THREE.Scene,
   ) {
     this.id = id;
+    this.spawnPosition.copy(position);
+    this.spawnQuaternion.identity();
 
     const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
       .setTranslation(position.x, position.y, position.z);
@@ -125,6 +137,7 @@ export class CarController implements VehicleController {
     this.mesh = this.createCarMesh();
     this.mesh.position.copy(position);
     this.scene.add(this.mesh);
+    this.prewarmSuspensionPose();
   }
 
   enter(_input: InputState): void {
@@ -133,6 +146,7 @@ export class CarController implements VehicleController {
     _quat.set(rot.x, rot.y, rot.z, rot.w);
     _tempEuler.setFromQuaternion(_quat, 'YXZ');
     this.yaw = _tempEuler.y;
+    this.prewarmSuspensionPose();
   }
 
   exit(): SpawnPointData {
@@ -179,12 +193,39 @@ export class CarController implements VehicleController {
     return { position: _exitProbe.clone() };
   }
 
+  resetToSpawn(): void {
+    this.speed = 0;
+    this.steerAngle = 0;
+    this.lateralSlip = 0;
+    this.visualRoll = 0;
+    this.suspensionOffset = 0;
+    this.braking = false;
+    this.groundedWheelCount = 0;
+    this.hopCooldown = 0;
+    this.yaw = 0;
+    this.hasPose = false;
+
+    this.body.setTranslation(_setCRV(_crv3A, this.spawnPosition.x, this.spawnPosition.y, this.spawnPosition.z), true);
+    this.body.setRotation(toRapierQuat(this.spawnQuaternion), true);
+    this.body.setLinvel(_setCRV(_crv3A, 0, 0, 0), true);
+    this.body.setAngvel(_setCRV(_crv3B, 0, 0, 0), true);
+    this.body.wakeUp();
+
+    this.mesh.position.copy(this.spawnPosition);
+    this.mesh.quaternion.copy(this.spawnQuaternion);
+    if (this.cabinMesh) {
+      this.cabinMesh.rotation.z = 0;
+    }
+    this.prewarmSuspensionPose();
+  }
+
   setInput(input: InputState): void {
     this.input = input;
   }
 
   fixedUpdate(dt: number): void {
     this.simTime += dt;
+    this.hopCooldown = Math.max(0, this.hopCooldown - dt);
 
     const input = this.input;
     const hasInput = input !== null;
@@ -194,7 +235,7 @@ export class CarController implements VehicleController {
       const accelInput = input.moveY;
       const steerInput = input.moveX;
       const boosting = input.sprint;
-      const handbrake = input.jump;
+      const handbrake = input.crouch;
 
       const maxForward = boosting ? 28 : 22;
       const maxReverse = 14;
@@ -264,6 +305,8 @@ export class CarController implements VehicleController {
 
     // --- 4-Wheel Suspension Raycasts (always run to keep parked cars on terrain) ---
     let anyWheelGrounded = false;
+    let groundedWheelCount = 0;
+    _carGroundNormalSum.set(0, 0, 0);
     for (let i = 0; i < 4; i++) {
       const localPos = this.wheelOffsetPositions[i];
       // Transform wheel position to world space
@@ -283,10 +326,26 @@ export class CarController implements VehicleController {
 
       if (rayHit && rayHit.timeOfImpact < this.suspensionRestLength + 0.3) {
         anyWheelGrounded = true;
+        groundedWheelCount++;
         const compression = this.suspensionRestLength - rayHit.timeOfImpact;
         const prevCompression = this.wheelCompressions[i];
         const compressionVelocity = (compression - prevCompression) / dt;
         this.wheelCompressions[i] = compression;
+
+        const normalHit = this.physicsWorld.castRayAndGetNormal(
+          _setCRV(_crv3A, _wheelWorldPos.x, _wheelWorldPos.y, _wheelWorldPos.z),
+          _setCRV(_crv3B, 0, -1, 0),
+          this.suspensionRestLength + 0.5,
+          undefined,
+          this.body,
+        );
+        if (normalHit) {
+          _carGroundNormalSum.add(_carGroundNormal.set(
+            normalHit.normal.x,
+            normalHit.normal.y,
+            normalHit.normal.z,
+          ));
+        }
 
         const springForce = this.suspensionStiffness * compression - this.suspensionDamping * compressionVelocity;
         const impulse = Math.max(0, springForce) * dt;
@@ -299,9 +358,15 @@ export class CarController implements VehicleController {
         this.wheelCompressions[i] = 0;
       }
     }
+    this.groundedWheelCount = groundedWheelCount;
+    if (groundedWheelCount > 0 && _carGroundNormalSum.lengthSq() > 0.0001) {
+      this.averageGroundNormal.copy(_carGroundNormalSum.normalize());
+    } else {
+      this.averageGroundNormal.set(0, 1, 0);
+    }
 
     // --- Per-axle lateral grip with slip-angle based reduction ---
-    const handbrake = hasInput && this.input!.jump;
+    const handbrake = hasInput && this.input!.crouch;
     const lateralVel = currentVel.x * _carRight.x + currentVel.z * _carRight.z;
     const forwardVel = currentVel.x * _forward.x + currentVel.z * _forward.z;
 
@@ -338,12 +403,18 @@ export class CarController implements VehicleController {
 
     // --- Drive force ---
     if (anyWheelGrounded) {
+      _driveDirection.copy(_forward).projectOnPlane(this.averageGroundNormal);
+      if (_driveDirection.lengthSq() < 0.0001) {
+        _driveDirection.copy(_forward);
+      } else {
+        _driveDirection.normalize();
+      }
       const absImpulse = Math.abs(this.speed) * dt * 2.5;
-      const curForwardVel = currentVel.x * _forward.x + currentVel.z * _forward.z;
+      const curForwardVel = currentVel.x * _driveDirection.x + currentVel.y * _driveDirection.y + currentVel.z * _driveDirection.z;
       const driveDelta = this.speed - curForwardVel;
       const driveForce = THREE.MathUtils.clamp(driveDelta * 3.0, -absImpulse, absImpulse);
       this.body.applyImpulse(
-        _setCRV(_crv3A, _forward.x * driveForce, 0, _forward.z * driveForce),
+        _setCRV(_crv3A, _driveDirection.x * driveForce, _driveDirection.y * driveForce, _driveDirection.z * driveForce),
         true,
       );
     } else {
@@ -351,16 +422,22 @@ export class CarController implements VehicleController {
       this.body.applyImpulse(_setCRV(_crv3A, 0, -18.0 * dt, 0), true);
     }
 
+    if (hasInput && input!.jumpPressed && this.groundedWheelCount >= 2 && this.hopCooldown <= 0) {
+      this.body.applyImpulse(_setCRV(_crv3A, 0, this.body.mass() * this.hopVelocity, 0), true);
+      this.body.wakeUp();
+      this.hopCooldown = this.hopCooldownSeconds;
+    }
+
     // Track braking state for taillight juice
     const accelForBrake = hasInput ? input!.moveY : 0;
     this.braking = hasInput && (
-      input!.jump ||
+      input!.crouch ||
       (accelForBrake < 0 && this.speed > 0.3) ||
       (accelForBrake > 0 && this.speed < -0.3)
     );
 
     // Lateral drift tracking for visuals
-    const handbrakeActive = hasInput && this.input!.jump;
+    const handbrakeActive = hasInput && this.input!.crouch;
     const speedAbs = Math.abs(this.speed);
     const maxFwd = hasInput && this.input!.sprint ? 18 : 14;
     const speedNorm = THREE.MathUtils.clamp(speedAbs / Math.max(0.01, maxFwd), 0, 1);
@@ -502,6 +579,87 @@ export class CarController implements VehicleController {
     });
 
     return group;
+  }
+
+  private prewarmSuspensionPose(): void {
+    const pos = this.body.translation();
+    const rot = this.body.rotation();
+    _quat.set(rot.x, rot.y, rot.z, rot.w);
+
+    let groundedCount = 0;
+    let avgCompression = 0;
+    _carGroundNormalSum.set(0, 0, 0);
+
+    for (let i = 0; i < 4; i++) {
+      const localPos = this.wheelOffsetPositions[i];
+      _wheelWorldPos.copy(localPos).applyQuaternion(_quat);
+      _wheelWorldPos.x += pos.x;
+      _wheelWorldPos.y += pos.y;
+      _wheelWorldPos.z += pos.z;
+
+      const rayHit = this.physicsWorld.castRay(
+        _setCRV(_crv3A, _wheelWorldPos.x, _wheelWorldPos.y, _wheelWorldPos.z),
+        _setCRV(_crv3B, 0, -1, 0),
+        this.suspensionRestLength + 0.5,
+        undefined,
+        this.body,
+        (c) => !c.isSensor(),
+      );
+
+      if (rayHit && rayHit.timeOfImpact < this.suspensionRestLength + 0.3) {
+        groundedCount++;
+        const compression = this.suspensionRestLength - rayHit.timeOfImpact;
+        this.wheelCompressions[i] = compression;
+        avgCompression += compression;
+
+        const normalHit = this.physicsWorld.castRayAndGetNormal(
+          _setCRV(_crv3A, _wheelWorldPos.x, _wheelWorldPos.y, _wheelWorldPos.z),
+          _setCRV(_crv3B, 0, -1, 0),
+          this.suspensionRestLength + 0.5,
+          undefined,
+          this.body,
+        );
+        if (normalHit) {
+          _carGroundNormalSum.add(_carGroundNormal.set(
+            normalHit.normal.x,
+            normalHit.normal.y,
+            normalHit.normal.z,
+          ));
+        }
+      } else {
+        this.wheelCompressions[i] = 0;
+      }
+    }
+
+    this.groundedWheelCount = groundedCount;
+    if (groundedCount > 0) {
+      this.suspensionOffset = (avgCompression / groundedCount) * 0.15;
+      if (_carGroundNormalSum.lengthSq() > 0.0001) {
+        this.averageGroundNormal.copy(_carGroundNormalSum.normalize());
+      } else {
+        this.averageGroundNormal.set(0, 1, 0);
+      }
+    } else {
+      this.suspensionOffset = 0;
+      this.averageGroundNormal.set(0, 1, 0);
+    }
+
+    this.syncVisualPoseImmediate();
+  }
+
+  private syncVisualPoseImmediate(): void {
+    const pos = this.body.translation();
+    const rot = this.body.rotation();
+    this._prevPos.set(pos.x, pos.y, pos.z);
+    this._currPos.set(pos.x, pos.y, pos.z);
+    this._prevQuat.set(rot.x, rot.y, rot.z, rot.w);
+    this._currQuat.set(rot.x, rot.y, rot.z, rot.w);
+    this.hasPose = true;
+    this.mesh.position.set(pos.x, pos.y + this.suspensionOffset, pos.z);
+    this.mesh.quaternion.set(rot.x, rot.y, rot.z, rot.w);
+    if (this.cabinMesh) {
+      this.cabinMesh.rotation.z = this.visualRoll;
+    }
   }
 
   private updateWheelVisuals(dt: number): void {

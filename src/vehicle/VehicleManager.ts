@@ -7,6 +7,7 @@ import type { InteractionManager } from '@interaction/InteractionManager';
 import type { VehicleController } from './VehicleController';
 
 export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Disposable {
+  private static readonly VEHICLE_RESET_Y = -8;
   private vehicles = new Map<string, VehicleController>();
   private active: VehicleController | null = null;
   private lastInput: InputState = NULL_INPUT;
@@ -29,6 +30,14 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
 
   register(vehicle: VehicleController): void {
     this.vehicles.set(vehicle.id, vehicle);
+  }
+
+  getVehicle(id: string): VehicleController | null {
+    return this.vehicles.get(id) ?? null;
+  }
+
+  getVehicleIds(): string[] {
+    return [...this.vehicles.keys()];
   }
 
   isActive(): boolean {
@@ -64,6 +73,7 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
     }
     if (this.active) {
       this.active.fixedUpdate(dt);
+      this.resetIfOutOfBounds(this.active);
       const lv = this.active.body.linvel();
       const sn = Math.min(Math.hypot(lv.x, lv.z) / 18, 1);
       this.camera.setVehicleSpeedRatio(sn);
@@ -73,6 +83,7 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
     // Keep parked vehicles simulating (e.g., drone auto-landing).
     for (const vehicle of this.vehicles.values()) {
       vehicle.fixedUpdate(dt);
+      this.resetIfOutOfBounds(vehicle);
     }
   }
 
@@ -129,6 +140,10 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
     this.player.setActive(false);
     this.player.setEnabled(false);
     this.interactionManager.setEnabled(false);
+    vehicle.body.wakeUp();
+    vehicle.enter(this.lastInput);
+    vehicle.postPhysicsUpdate(0);
+    vehicle.update(0, 1);
     this.camera.applyCameraConfig(vehicle.cameraConfig);
     this.camera.setTarget(vehicle.mesh, {
       body: vehicle.body,
@@ -137,7 +152,6 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
     });
     this.camera.setChaseMode(true);
     this.camera.snapToTarget();
-    vehicle.enter(this.lastInput);
     this.eventBus.emit('vehicle:engineStart', undefined);
   }
 
@@ -168,5 +182,15 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
       position: spawn.position.clone(),
       rotation: spawn.rotation?.clone(),
     };
+  }
+
+  private resetIfOutOfBounds(vehicle: VehicleController): void {
+    if (!vehicle.resetToSpawn) return;
+    const p = vehicle.body.translation();
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z) || p.y < VehicleManager.VEHICLE_RESET_Y) {
+      vehicle.resetToSpawn();
+      this.camera.setVehicleSpeedRatio(0);
+      this.eventBus.emit('vehicle:speedUpdate', { speedNorm: 0 });
+    }
   }
 }

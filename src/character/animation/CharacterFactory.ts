@@ -6,6 +6,7 @@ import { AnimationController } from './AnimationController';
 
 export interface CharacterCreateOptions {
   tint?: THREE.Color;
+  heroFinish?: boolean;
 }
 
 export async function createAnimatedCharacter(
@@ -16,6 +17,7 @@ export async function createAnimatedCharacter(
 ): Promise<{ model: CharacterModel; animator: AnimationController }> {
   const model = await CharacterModel.load(profile, parent, loader);
   model.neutralize(); // Reset purple joints to neutral base
+  if (options?.heroFinish) model.applyHeroFinish();
   if (options?.tint) model.tint(options.tint);
   const animator = new AnimationController(model, profile);
   return { model, animator };

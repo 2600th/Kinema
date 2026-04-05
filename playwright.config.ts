@@ -2,7 +2,7 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests",
-  testMatch: ["visual-check.ts", "vehicle-controllers.ts", "vfx-particles.ts", "jump-mechanics.ts", "station-screenshots.ts", "physics-verification.ts"],
+  testMatch: ["visual-check.ts", "vehicle-controllers.ts", "vfx-particles.ts", "jump-mechanics.ts", "station-screenshots.ts", "physics-verification.ts", "procedural-review-screenshots.ts"],
   timeout: 60_000,
   webServer: {
     command: 'npm run dev',

@@ -265,50 +265,66 @@ export class MenuManager {
   }
 
   private addCosmicBackground(): void {
-    const orbs: { color: string; size: number; top: string; left: string; anim: string }[] = [
-      { color: 'rgba(123, 47, 255, 0.15)', size: 200, top: '15%', left: '10%', anim: 'menuOrbFloat1 12s ease-in-out infinite' },
-      { color: 'rgba(255, 107, 157, 0.1)', size: 160, top: '60%', left: '75%', anim: 'menuOrbFloat2 15s ease-in-out infinite' },
-      { color: 'rgba(0, 210, 255, 0.08)', size: 140, top: '75%', left: '20%', anim: 'menuOrbFloat3 18s ease-in-out infinite' },
+    const backdrop = document.createElement('div');
+    backdrop.className = 'menu-backdrop';
+
+    const glows = document.createElement('div');
+    glows.className = 'menu-backdrop-glows';
+    ['a', 'b', 'c'].forEach((suffix) => {
+      const glow = document.createElement('div');
+      glow.className = `menu-backdrop-glow menu-backdrop-glow-${suffix}`;
+      glows.appendChild(glow);
+    });
+    backdrop.appendChild(glows);
+
+    const ribbons = document.createElement('div');
+    ribbons.className = 'menu-backdrop-ribbons';
+    ['a', 'b'].forEach((suffix) => {
+      const ribbon = document.createElement('div');
+      ribbon.className = `menu-backdrop-ribbon menu-backdrop-ribbon-${suffix}`;
+      ribbons.appendChild(ribbon);
+    });
+    backdrop.appendChild(ribbons);
+
+    const pane = document.createElement('div');
+    pane.className = 'menu-backdrop-pane';
+
+    const paneShine = document.createElement('div');
+    paneShine.className = 'menu-backdrop-pane-shine';
+    pane.appendChild(paneShine);
+
+    const particles = document.createElement('div');
+    particles.className = 'menu-backdrop-particles';
+    const particleConfigs = [
+      { x: '10%', y: '68%', size: '220px', color: 'rgba(97, 229, 255, 0.18)', duration: '22s', delay: '-4s' },
+      { x: '22%', y: '24%', size: '140px', color: 'rgba(255, 95, 174, 0.18)', duration: '18s', delay: '-9s' },
+      { x: '38%', y: '78%', size: '260px', color: 'rgba(122, 103, 255, 0.16)', duration: '26s', delay: '-3s' },
+      { x: '56%', y: '18%', size: '180px', color: 'rgba(97, 229, 255, 0.14)', duration: '20s', delay: '-12s' },
+      { x: '74%', y: '62%', size: '210px', color: 'rgba(255, 208, 105, 0.12)', duration: '24s', delay: '-7s' },
+      { x: '84%', y: '28%', size: '300px', color: 'rgba(255, 95, 174, 0.14)', duration: '28s', delay: '-10s' },
     ];
 
-    for (const orb of orbs) {
+    for (const particle of particleConfigs) {
       const el = document.createElement('div');
-      el.className = 'menu-cosmic-orb';
-      el.style.width = `${orb.size}px`;
-      el.style.height = `${orb.size}px`;
-      el.style.background = `radial-gradient(circle, ${orb.color}, transparent 70%)`;
-      el.style.top = orb.top;
-      el.style.left = orb.left;
-      el.style.animation = orb.anim;
-      this.overlay.appendChild(el);
+      el.className = 'menu-backdrop-particle';
+      el.style.left = particle.x;
+      el.style.top = particle.y;
+      el.style.width = particle.size;
+      el.style.height = particle.size;
+      el.style.setProperty('--particle-color', particle.color);
+      el.style.setProperty('--particle-duration', particle.duration);
+      el.style.setProperty('--particle-delay', particle.delay);
+      particles.appendChild(el);
     }
+    pane.appendChild(particles);
 
-    const particles: { color: string; size: number; top: string; left: string; duration: string; delay: string; opacity: number }[] = [
-      { color: '#ff6b9d', size: 4, top: '20%', left: '25%', duration: '5s', delay: '0s', opacity: 0.6 },
-      { color: '#7b2fff', size: 3, top: '35%', left: '80%', duration: '4s', delay: '1.2s', opacity: 0.5 },
-      { color: '#00d2ff', size: 3, top: '70%', left: '15%', duration: '6s', delay: '0.5s', opacity: 0.5 },
-      { color: '#ffd700', size: 3, top: '50%', left: '60%', duration: '4.5s', delay: '2s', opacity: 0.4 },
-      { color: '#ff6b9d', size: 2, top: '80%', left: '45%', duration: '5.5s', delay: '0.8s', opacity: 0.5 },
-      { color: '#7b2fff', size: 4, top: '10%', left: '65%', duration: '4s', delay: '1.5s', opacity: 0.6 },
-      { color: '#00d2ff', size: 2, top: '45%', left: '35%', duration: '5s', delay: '2.5s', opacity: 0.4 },
-      { color: '#ffd700', size: 3, top: '85%', left: '85%', duration: '6s', delay: '0.3s', opacity: 0.5 },
-    ];
+    const contour = document.createElement('div');
+    contour.className = 'menu-backdrop-contour';
+    pane.appendChild(contour);
 
-    for (const p of particles) {
-      const el = document.createElement('div');
-      el.className = 'menu-cosmic-particle';
-      el.style.width = `${p.size}px`;
-      el.style.height = `${p.size}px`;
-      el.style.background = p.color;
-      el.style.boxShadow = `0 0 ${p.size * 2}px ${p.color}`;
-      el.style.top = p.top;
-      el.style.left = p.left;
-      el.style.setProperty('--p-duration', p.duration);
-      el.style.setProperty('--p-delay', p.delay);
-      el.style.setProperty('--p-opacity', String(p.opacity));
-      el.style.opacity = String(p.opacity);
-      this.overlay.appendChild(el);
-    }
+    backdrop.appendChild(pane);
+
+    this.overlay.appendChild(backdrop);
   }
 
   private async requestPointerLock(): Promise<void> {

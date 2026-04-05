@@ -213,6 +213,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     try {
       const { model, animator } = await createAnimatedCharacter(
         PLAYER_PROFILE, this.mesh, this.assetLoader,
+        { heroFinish: true },
       );
       this.characterModel = model;
       this.animator = animator;
@@ -360,7 +361,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     forward: false, backward: false, left: false, right: false,
     crouch: false, crouchPressed: false, jump: false, jumpPressed: false,
     interact: false, interactPressed: false, primary: false, primaryPressed: false,
-    altitudeUp: false, altitudeDown: false, moveX: 0, moveY: 0,
+    altitudeUp: false, altitudeDown: false, vehicleVertical: 0, moveX: 0, moveY: 0,
     sprint: false, mouseDeltaX: 0, mouseDeltaY: 0, mouseWheelDelta: 0,
   };
 

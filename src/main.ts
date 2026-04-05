@@ -1,4 +1,5 @@
 import RAPIER from '@dimforge/rapier3d-compat';
+import type { InputState } from '@core/types';
 
 function showBootstrapError(err: unknown): void {
   const message = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
@@ -42,7 +43,7 @@ async function bootstrap(): Promise<void> {
     { VehicleManager },
     { MenuManager },
     { LevelSaveStore },
-    { SHOWCASE_STATION_ORDER },
+    { SHOWCASE_STATION_ORDER, PROCEDURAL_REVIEW_SPAWN_ORDER, resolveProceduralReviewSpawn },
     { Game },
     { AssetLoader },
   ] = await Promise.all([
@@ -146,6 +147,16 @@ async function bootstrap(): Promise<void> {
 
   /** Yield to browser so CSS animations and paint can run */
   const yieldToRenderer = () => new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+  const parseFiniteParam = (value: string | null): number | null => {
+    if (value == null) return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  const applyCameraPose = (yaw: number | null, pitch: number | null): void => {
+    if (yaw == null || pitch == null) return;
+    camera.snapToAngle(yaw, pitch);
+  };
 
   const startGame = async (): Promise<void> => {
     if (levelLoaded) return;
@@ -157,8 +168,18 @@ async function bootstrap(): Promise<void> {
     gameLoop.setSimulationEnabled(false);
     if (!gameLoop.isRunning()) gameLoop.start();
     await yieldToRenderer();
+    const params = new URLSearchParams(window.location.search);
+    const reviewSpawnParam = params.get('spawn');
+    const camYawParam = parseFiniteParam(params.get('camYaw'));
+    const camPitchParam = parseFiniteParam(params.get('camPitch'));
+    const reviewSpawn = reviewSpawnParam ? resolveProceduralReviewSpawn(reviewSpawnParam) : null;
+
     await levelManager.load('procedural');
-    playerController.spawn(levelManager.getSpawnPoint());
+    playerController.spawn(reviewSpawn?.spawn ?? levelManager.getSpawnPoint());
+    applyCameraPose(
+      camYawParam ?? reviewSpawn?.cameraYaw ?? null,
+      camPitchParam ?? reviewSpawn?.cameraPitch ?? null,
+    );
     // Warm the Rapier query pipeline so first-tick raycasts are valid.
     physicsWorld.step();
     game.setupLevel();
@@ -290,7 +311,7 @@ async function bootstrap(): Promise<void> {
         forward: false, backward: false, left: false, right: false,
         crouch: false, crouchPressed: false, jump: true, jumpPressed: true,
         interact: false, interactPressed: false, primary: false, primaryPressed: false,
-        altitudeUp: false, altitudeDown: false, moveX: 0, moveY: 0,
+        altitudeUp: false, altitudeDown: false, vehicleVertical: 0, moveX: 0, moveY: 0,
         sprint: false, mouseDeltaX: 0, mouseDeltaY: 0, mouseWheelDelta: 0,
       };
       game.testInputOverride = jumpInput;
@@ -300,16 +321,81 @@ async function bootstrap(): Promise<void> {
     setCameraLook(pitch: number, yaw: number) {
       camera.snapToAngle(yaw, pitch);
     },
+    listReviewSpawns() {
+      return [...PROCEDURAL_REVIEW_SPAWN_ORDER];
+    },
+    teleportToReviewSpawn(key: string) {
+      const reviewSpawn = resolveProceduralReviewSpawn(key);
+      if (!reviewSpawn) return false;
+      playerController.spawn(reviewSpawn.spawn);
+      camera.snapToAngle(reviewSpawn.cameraYaw, reviewSpawn.cameraPitch);
+      return true;
+    },
     /** Simulate movement input for several frames (headless testing). */
     simulateMove(moveX: number, moveY: number, frames = 30) {
       const moveInput = {
         forward: moveY > 0, backward: moveY < 0, left: moveX < 0, right: moveX > 0,
         crouch: false, crouchPressed: false, jump: false, jumpPressed: false,
         interact: false, interactPressed: false, primary: false, primaryPressed: false,
-        altitudeUp: false, altitudeDown: false, moveX, moveY,
+        altitudeUp: false, altitudeDown: false, vehicleVertical: 0, moveX, moveY,
         sprint: false, mouseDeltaX: 0, mouseDeltaY: 0, mouseWheelDelta: 0,
       };
       game.testInputOverride = moveInput;
+      game.testInputFrames = frames;
+    },
+    listVehicles() {
+      return vehicleManager.getVehicleIds();
+    },
+    getVehicleState(id: string) {
+      const vehicle = vehicleManager.getVehicle(id);
+      if (!vehicle) return null;
+      const pos = vehicle.body.translation();
+      const vel = vehicle.body.linvel();
+      return {
+        id,
+        active: vehicleManager.isActive() && vehicleManager.getVehicle(id) === vehicle,
+        position: { x: pos.x, y: pos.y, z: pos.z },
+        velocity: { x: vel.x, y: vel.y, z: vel.z },
+      };
+    },
+    enterVehicle(id: string) {
+      const vehicle = vehicleManager.getVehicle(id);
+      if (!vehicle) return false;
+      eventBus.emit('vehicle:enter', { vehicle });
+      return true;
+    },
+    resetVehicle(id: string) {
+      const vehicle = vehicleManager.getVehicle(id);
+      if (!vehicle?.resetToSpawn) return false;
+      vehicle.resetToSpawn();
+      return true;
+    },
+    simulateVehicleInput(input: Partial<InputState>, frames = 30) {
+      const vehicleInput: InputState = {
+        forward: false,
+        backward: false,
+        left: false,
+        right: false,
+        crouch: false,
+        crouchPressed: false,
+        jump: false,
+        jumpPressed: false,
+        interact: false,
+        interactPressed: false,
+        primary: false,
+        primaryPressed: false,
+        altitudeUp: false,
+        altitudeDown: false,
+        vehicleVertical: 0,
+        moveX: 0,
+        moveY: 0,
+        sprint: false,
+        mouseDeltaX: 0,
+        mouseDeltaY: 0,
+        mouseWheelDelta: 0,
+        ...input,
+      };
+      game.testInputOverride = vehicleInput;
       game.testInputFrames = frames;
     },
     get config() {
@@ -342,10 +428,24 @@ async function bootstrap(): Promise<void> {
   // Check for ?station= query param to load a single station directly.
   const params = new URLSearchParams(window.location.search);
   const stationParam = params.get('station');
+  const reviewSpawnParam = params.get('spawn');
+  const registerUnload = (menuManager: import('@ui/menus/MenuManager').MenuManager | null): void => {
+    window.addEventListener('beforeunload', () => {
+      gameLoop.stop();
+      game.dispose();
+      menuManager?.dispose();
+    });
+  };
   if (stationParam && SHOWCASE_STATION_ORDER.includes(stationParam as import('@level/ShowcaseLayout').ShowcaseStationKey)) {
     await startStation(stationParam);
     gameLoop.start();
+    registerUnload(null);
     console.log(`[Kinema] Station "${stationParam}" started directly`);
+  } else if (reviewSpawnParam) {
+    await startGame();
+    gameLoop.start();
+    registerUnload(null);
+    console.log(`[Kinema] Procedural level started at review spawn "${reviewSpawnParam}"`);
   } else {
     const menuManager = new MenuManager(
       eventBus,
@@ -361,13 +461,7 @@ async function bootstrap(): Promise<void> {
       startBlankLevelForEditor,
     );
     menuManager.showMainMenu();
-
-    // Cleanup on page unload to release GPU / audio / physics resources.
-    window.addEventListener('beforeunload', () => {
-      gameLoop.stop();
-      game.dispose();
-      menuManager.dispose();
-    });
+    registerUnload(menuManager);
 
     console.log('[Kinema] Game started');
   }

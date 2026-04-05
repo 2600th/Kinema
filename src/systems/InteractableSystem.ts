@@ -387,11 +387,12 @@ export class InteractableSystem implements RuntimeSystem {
       this.physicsWorld,
       this.renderer.scene,
     );
-    // Car needs body center high enough that suspension settles wheels ON the surface.
-    // wheelOffset=0.32, wheelRadius=0.32, suspensionRest=0.6 → min Y = 1.25 above pedestal.
+    // Car origin sits close to the wheel contact plane, so spawning it high above the
+    // pedestal causes a visible "floating then settling" moment on first load/enter.
+    // Keep a small clearance for the chassis collider and let suspension start near ride height.
     const car = new CarController(
       "car-1",
-      new THREE.Vector3(10, bayTopY + 1.3, zVehicles),
+      new THREE.Vector3(10, bayTopY + 0.08, zVehicles),
       this.physicsWorld,
       this.renderer.scene,
     );

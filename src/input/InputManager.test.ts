@@ -81,6 +81,7 @@ describe('InputManager', () => {
 
     expect(state.forward).toBe(true);
     expect(state.right).toBe(true);
+    expect(state.vehicleVertical).toBeGreaterThan(0);
     expect(state.crouchPressed).toBe(true);
     expect(state.jumpPressed).toBe(true);
     expect(state.interactPressed).toBe(true);
@@ -91,6 +92,21 @@ describe('InputManager', () => {
     const look = manager.pollLook(1 / 60);
     expect(look.lookDX).not.toBe(0);
     expect(look.lookDY).not.toBe(0);
+    manager.dispose();
+  });
+
+  it('maps keyboard vehicle vertical input from E and Q', () => {
+    const manager = new InputManager(new EventBus(), canvasTarget as any);
+    documentTarget.pointerLockElement = canvasTarget;
+    documentTarget.dispatch('pointerlockchange');
+
+    windowTarget.dispatch('keydown', { code: 'KeyE', preventDefault: vi.fn() });
+    expect(manager.poll().vehicleVertical).toBe(1);
+
+    windowTarget.dispatch('keyup', { code: 'KeyE' });
+    windowTarget.dispatch('keydown', { code: 'KeyQ', preventDefault: vi.fn() });
+    expect(manager.poll().vehicleVertical).toBe(-1);
+
     manager.dispose();
   });
 });

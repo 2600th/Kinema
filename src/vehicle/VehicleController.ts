@@ -23,4 +23,6 @@ export interface VehicleController extends FixedUpdatable, PostPhysicsUpdatable,
    * The orbit camera always owns raw mouse look; vehicles can follow the camera yaw.
    */
   setControlYaw?(yaw: number): void;
+  /** Optional: restore the vehicle to its authored spawn if it leaves the playable space. */
+  resetToSpawn?(): void;
 }

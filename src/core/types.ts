@@ -19,6 +19,7 @@ export interface InputState {
   readonly primaryPressed: boolean;
   readonly altitudeUp: boolean;
   readonly altitudeDown: boolean;
+  readonly vehicleVertical: number;
   readonly moveX: number;   // -1..1 (left/right analog axis)
   readonly moveY: number;   // -1..1 (backward/forward analog axis)
   readonly sprint: boolean;
@@ -43,6 +44,7 @@ export const NULL_INPUT: InputState = Object.freeze({
   primaryPressed: false,
   altitudeUp: false,
   altitudeDown: false,
+  vehicleVertical: 0,
   moveX: 0,
   moveY: 0,
   sprint: false,

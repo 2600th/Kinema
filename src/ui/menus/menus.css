@@ -1,34 +1,57 @@
 :root {
-  --menu-bg: rgba(26, 16, 64, 0.92);
-  --menu-accent: #7b2fff;
-  --menu-accent-hover: #ff6b9d;
+  --menu-bg: rgba(15, 18, 34, 0.78);
+  --menu-accent: #7b6cff;
+  --menu-accent-hover: #ff79ba;
+  --menu-accent-cyan: #62e6ff;
   --menu-text: #ffffff;
+  --menu-muted: rgba(228, 234, 255, 0.72);
+  --menu-line: rgba(255, 255, 255, 0.08);
   --font-body: 'Outfit', system-ui, sans-serif;
   --font-heading: 'Outfit', system-ui, sans-serif;
 }
 
-/* ---- Cosmic background keyframes ---- */
-
-@keyframes menuOrbFloat1 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(30px, -20px) scale(1.1); }
-  66% { transform: translate(-20px, 15px) scale(0.9); }
+@keyframes menuPaneGlow {
+  0%, 100% { transform: translate3d(-50%, -50%, 0) scale(1); opacity: 0.7; }
+  50% { transform: translate3d(-49.3%, -50.7%, 0) scale(1.015); opacity: 0.9; }
 }
 
-@keyframes menuOrbFloat2 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  50% { transform: translate(-25px, 20px) scale(1.15); }
+@keyframes menuGlowDrift {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.58; }
+  50% { transform: translate3d(3%, -2%, 0) scale(1.06); opacity: 0.92; }
 }
 
-@keyframes menuOrbFloat3 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  40% { transform: translate(20px, 25px) scale(1.05); }
-  75% { transform: translate(-15px, -10px) scale(0.95); }
+@keyframes menuRibbonDriftA {
+  0% { transform: translate3d(-4%, -2%, 0) rotate(-10deg) scale(1); opacity: 0.28; }
+  100% { transform: translate3d(8%, 4%, 0) rotate(-2deg) scale(1.08); opacity: 0.68; }
 }
 
-@keyframes menuParticleFloat {
-  0%, 100% { transform: translateY(0) scale(1); opacity: var(--p-opacity); }
-  50% { transform: translateY(-15px) scale(1.2); opacity: calc(var(--p-opacity) * 1.5); }
+@keyframes menuRibbonDriftB {
+  0% { transform: translate3d(4%, -2%, 0) rotate(12deg) scale(1); opacity: 0.2; }
+  100% { transform: translate3d(-7%, 4%, 0) rotate(5deg) scale(1.12); opacity: 0.56; }
+}
+
+@keyframes menuParticleDrift {
+  0% {
+    transform: translate3d(-5%, 4%, 0) scale(0.9);
+    opacity: 0.18;
+  }
+  35% {
+    transform: translate3d(6%, -6%, 0) scale(1.08);
+    opacity: 0.42;
+  }
+  68% {
+    transform: translate3d(-4%, -10%, 0) scale(1.16);
+    opacity: 0.24;
+  }
+  100% {
+    transform: translate3d(8%, -16%, 0) scale(0.94);
+    opacity: 0.36;
+  }
+}
+
+@keyframes menuContourShift {
+  0%, 100% { transform: translateX(-3%); opacity: 0.22; }
+  50% { transform: translateX(3%); opacity: 0.4; }
 }
 
 /* ---- Overlay ---- */
@@ -39,7 +62,7 @@
   display: none;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(ellipse at 50% 50%, #1a1040 0%, #0c0524 60%, #050210 100%);
+  background: radial-gradient(circle at 50% 50%, #0c1020 0%, #060911 68%, #020307 100%);
   z-index: 1200;
   font-family: var(--font-body);
   color: var(--menu-text);
@@ -51,25 +74,180 @@
   display: flex;
 }
 
-/* ---- Cosmic orbs ---- */
-
-.menu-cosmic-orb {
+.menu-backdrop,
+.menu-backdrop-glows,
+.menu-backdrop-ribbons,
+.menu-backdrop-particles,
+.menu-backdrop-contour {
   position: absolute;
-  border-radius: 50%;
-  filter: blur(30px);
+  inset: 0;
   pointer-events: none;
-  z-index: 0;
 }
 
-/* ---- Cosmic particles ---- */
+.menu-backdrop {
+  z-index: 0;
+  overflow: hidden;
+}
 
-.menu-cosmic-particle {
+.menu-backdrop-pane {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(1440px, 92vw);
+  height: min(880px, 86vh);
+  transform: translate(-50%, -50%);
+  border-radius: 54px;
+  overflow: hidden;
+  background:
+    linear-gradient(130deg, rgba(255,255,255,0.11), rgba(255,255,255,0.025) 28%, rgba(255,255,255,0.06) 56%, rgba(255,255,255,0.025) 76%),
+    linear-gradient(180deg, rgba(15, 23, 44, 0.5), rgba(8, 12, 24, 0.28));
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.18),
+    inset 0 -1px 0 rgba(98,230,255,0.08),
+    0 55px 140px rgba(0,0,0,0.32);
+  backdrop-filter: blur(40px) saturate(128%);
+  animation: menuPaneGlow 16s ease-in-out infinite;
+}
+
+.menu-backdrop-pane::before,
+.menu-backdrop-pane::after,
+.menu-backdrop-pane-shine {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.menu-backdrop-pane::before {
+  background:
+    radial-gradient(circle at 16% 26%, rgba(255,255,255,0.12), transparent 22%),
+    radial-gradient(circle at 78% 22%, rgba(98,230,255,0.12), transparent 24%),
+    linear-gradient(108deg, rgba(255,255,255,0.18), transparent 16%, transparent 56%, rgba(98,230,255,0.08) 72%, transparent 86%);
+  filter: blur(16px);
+  opacity: 0.92;
+}
+
+.menu-backdrop-pane::after {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.026) 0 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.018) 0 1px, transparent 1px);
+  background-size: 54px 54px;
+  opacity: 0.18;
+}
+
+.menu-backdrop-pane-shine {
+  background:
+    linear-gradient(118deg, rgba(255,255,255,0.08), transparent 18%, transparent 58%, rgba(98,230,255,0.06) 70%, transparent 84%),
+    linear-gradient(180deg, rgba(255,255,255,0.035), transparent 28%);
+  mix-blend-mode: screen;
+  opacity: 0.9;
+}
+
+.menu-backdrop-glows {
+  filter: blur(56px) saturate(136%);
+  mix-blend-mode: screen;
+  opacity: 0.78;
+}
+
+.menu-backdrop-glow {
+  position: absolute;
+  border-radius: 999px;
+}
+
+.menu-backdrop-glow-a {
+  left: -10%;
+  top: 6%;
+  width: 36%;
+  height: 28%;
+  background: radial-gradient(circle at 48% 50%, rgba(98, 230, 255, 0.32), rgba(98, 230, 255, 0.12) 34%, transparent 70%);
+  animation: menuGlowDrift 24s ease-in-out infinite alternate;
+}
+
+.menu-backdrop-glow-b {
+  right: -8%;
+  top: -2%;
+  width: 32%;
+  height: 26%;
+  background: radial-gradient(circle at 50% 50%, rgba(255, 121, 186, 0.28), rgba(255, 121, 186, 0.1) 34%, transparent 72%);
+  animation: menuGlowDrift 28s ease-in-out infinite alternate-reverse;
+}
+
+.menu-backdrop-glow-c {
+  left: 22%;
+  bottom: -8%;
+  width: 42%;
+  height: 30%;
+  background: radial-gradient(circle at 50% 48%, rgba(123, 108, 255, 0.24), rgba(123, 108, 255, 0.1) 34%, transparent 74%);
+  animation: menuGlowDrift 32s ease-in-out infinite alternate;
+}
+
+.menu-backdrop-ribbons {
+  filter: blur(34px) saturate(130%);
+  mix-blend-mode: screen;
+  opacity: 0.78;
+}
+
+.menu-backdrop-ribbon {
+  position: absolute;
+  border-radius: 999px;
+}
+
+.menu-backdrop-ribbon-a {
+  left: -16%;
+  top: 12%;
+  width: 56%;
+  height: 26%;
+  background:
+    radial-gradient(ellipse at 30% 50%, rgba(98,230,255,0.26), transparent 60%),
+    linear-gradient(90deg, transparent, rgba(98,230,255,0.1), rgba(123,108,255,0.08), transparent);
+  animation: menuRibbonDriftA 34s ease-in-out infinite alternate;
+}
+
+.menu-backdrop-ribbon-b {
+  right: -14%;
+  bottom: 8%;
+  width: 58%;
+  height: 28%;
+  background:
+    radial-gradient(ellipse at 55% 48%, rgba(255,121,186,0.22), transparent 60%),
+    linear-gradient(90deg, transparent, rgba(255,121,186,0.08), rgba(98,230,255,0.06), transparent);
+  animation: menuRibbonDriftB 40s ease-in-out infinite alternate;
+}
+
+.menu-backdrop-particles {
+  inset: -6%;
+  z-index: 1;
+  mix-blend-mode: screen;
+}
+
+.menu-backdrop-particle {
   position: absolute;
   border-radius: 50%;
-  pointer-events: none;
-  z-index: 0;
-  animation: menuParticleFloat var(--p-duration, 4s) ease-in-out infinite;
-  animation-delay: var(--p-delay, 0s);
+  background:
+    radial-gradient(circle at 35% 35%, rgba(255,255,255,0.18), rgba(255,255,255,0.03) 18%, transparent 62%),
+    radial-gradient(circle at 50% 52%, var(--particle-color), transparent 72%);
+  filter: blur(24px);
+  opacity: 0.28;
+  animation: menuParticleDrift var(--particle-duration, 22s) ease-in-out infinite;
+  animation-delay: var(--particle-delay, 0s);
+}
+
+.menu-backdrop-contour {
+  inset: -3%;
+  z-index: 2;
+  background:
+    repeating-radial-gradient(circle at 24% 40%, rgba(98,230,255,0.08) 0 2px, transparent 2px 18px),
+    repeating-radial-gradient(circle at 76% 24%, rgba(255,121,186,0.06) 0 2px, transparent 2px 20px),
+    repeating-radial-gradient(circle at 58% 76%, rgba(123,108,255,0.07) 0 2px, transparent 2px 22px);
+  mask-image:
+    radial-gradient(circle at 24% 40%, black 0 24%, transparent 48%),
+    radial-gradient(circle at 76% 24%, black 0 22%, transparent 46%),
+    radial-gradient(circle at 58% 76%, black 0 26%, transparent 50%);
+  mask-composite: add;
+  opacity: 0.24;
+  animation: menuContourShift 18s ease-in-out infinite;
 }
 
 /* ---- Glass card ---- */
@@ -80,18 +258,33 @@
   max-height: 90vh;
   overflow: hidden;
   padding: 32px 36px;
-  border-radius: 20px;
-  background: linear-gradient(160deg, rgba(26, 16, 64, 0.75), rgba(12, 5, 36, 0.85));
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(123, 47, 255, 0.18);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 60px rgba(123, 47, 255, 0.03);
+  border-radius: 22px;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02) 26%, rgba(255,255,255,0.05) 54%, rgba(255,255,255,0.02) 78%),
+    linear-gradient(180deg, rgba(17, 22, 40, 0.8), rgba(10, 13, 24, 0.88));
+  backdrop-filter: blur(18px) saturate(128%);
+  -webkit-backdrop-filter: blur(18px) saturate(128%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 18px 60px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255,255,255,0.08),
+    inset 0 -1px 0 rgba(98,230,255,0.05);
   transform: translateY(20px) scale(0.98);
   opacity: 0;
   pointer-events: none;
   position: absolute;
   z-index: 1;
   transition: opacity 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.menu-screen::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(108deg, rgba(255,255,255,0.1), transparent 22%, transparent 58%, rgba(98,230,255,0.06) 74%, transparent 82%),
+    linear-gradient(180deg, rgba(255,255,255,0.04), transparent 24%);
+  pointer-events: none;
 }
 
 .menu-screen.active {
@@ -101,7 +294,7 @@
   position: relative;
 }
 
-/* ---- Title with gradient underline ---- */
+/* ---- Title ---- */
 
 .menu-title {
   font-family: var(--font-heading);
@@ -111,11 +304,8 @@
   letter-spacing: 4px;
   position: relative;
   padding-bottom: 14px;
-  background: none;
-  -webkit-background-clip: unset;
-  -webkit-text-fill-color: unset;
   color: #ffffff;
-  text-shadow: 0 0 30px rgba(123, 47, 255, 0.33), 0 0 60px rgba(123, 47, 255, 0.13);
+  text-shadow: 0 0 18px rgba(123, 108, 255, 0.18);
   text-align: center;
   text-transform: uppercase;
 }
@@ -126,11 +316,11 @@
   bottom: 0;
   left: 50%;
   transform: translateX(-50%);
-  width: 50px;
+  width: 56px;
   height: 2px;
-  background: linear-gradient(90deg, #ff6b9d, #7b2fff, #00d2ff);
+  background: linear-gradient(90deg, #ff79ba, #7b6cff, #62e6ff);
   border-radius: 2px;
-  opacity: 0.8;
+  opacity: 0.82;
 }
 
 /* ---- Buttons ---- */
@@ -140,46 +330,48 @@
   width: 100%;
   margin-top: 12px;
   padding: 14px 20px;
-  border: 1px solid rgba(123, 47, 255, 0.15);
-  border-radius: 12px;
-  background: rgba(123, 47, 255, 0.08);
-  color: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.04), transparent 70%),
+    rgba(255,255,255,0.03);
+  color: rgba(255, 255, 255, 0.82);
   font-size: 16px;
-  font-weight: 500;
+  font-weight: 600;
   font-family: var(--font-body);
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .menu-button:hover {
-  background: rgba(123, 47, 255, 0.15);
-  border-color: rgba(123, 47, 255, 0.3);
-  color: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 0 20px rgba(123, 47, 255, 0.1);
+  background:
+    linear-gradient(135deg, rgba(123,108,255,0.16), transparent 70%),
+    rgba(255,255,255,0.05);
+  border-color: rgba(123,108,255,0.28);
+  color: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 0 22px rgba(123,108,255,0.12);
   transform: translateY(-2px);
 }
 
 .menu-button:active {
   transform: translateY(1px);
-  box-shadow: 0 2px 10px rgba(123, 47, 255, 0.1);
+  box-shadow: 0 2px 10px rgba(123,108,255,0.1);
 }
 
-/* Primary button (Play / Resume) */
-
 .menu-button-primary {
-  background: linear-gradient(135deg, rgba(123, 47, 255, 0.4), rgba(255, 107, 157, 0.2)) !important;
-  border-color: rgba(123, 47, 255, 0.5) !important;
+  background: linear-gradient(135deg, rgba(123,108,255,0.34), rgba(255,121,186,0.18)) !important;
+  border-color: rgba(123,108,255,0.42) !important;
   color: #fff !important;
   font-size: 15px !important;
   font-weight: 700 !important;
   letter-spacing: 1px;
-  box-shadow: 0 0 20px rgba(123, 47, 255, 0.17);
+  box-shadow: 0 0 24px rgba(123,108,255,0.18);
 }
 
 .menu-button-primary:hover {
-  background: linear-gradient(135deg, rgba(123, 47, 255, 0.55), rgba(255, 107, 157, 0.3)) !important;
-  box-shadow: 0 0 30px rgba(123, 47, 255, 0.28);
-  border-color: rgba(123, 47, 255, 0.7) !important;
+  background: linear-gradient(135deg, rgba(123,108,255,0.48), rgba(255,121,186,0.28)) !important;
+  box-shadow: 0 0 30px rgba(123,108,255,0.24);
+  border-color: rgba(123,108,255,0.6) !important;
 }
 
 /* ---- Version text ---- */
@@ -189,7 +381,7 @@
   margin-top: 20px;
   font-family: var(--font-body);
   font-size: 10px;
-  color: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.28);
   letter-spacing: 1px;
 }
 
@@ -215,12 +407,12 @@
 .menu-tab {
   flex: 1;
   padding: 10px 14px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.03);
   color: rgba(255, 255, 255, 0.6);
   font-family: var(--font-body);
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
 }
@@ -232,9 +424,9 @@
 
 .menu-tab.active {
   color: #fff;
-  background: linear-gradient(135deg, rgba(123, 47, 255, 0.15), rgba(255, 107, 157, 0.1));
-  border-color: rgba(123, 47, 255, 0.4);
-  box-shadow: inset 0 0 10px rgba(123, 47, 255, 0.1);
+  background: linear-gradient(135deg, rgba(123,108,255,0.18), rgba(255,121,186,0.08));
+  border-color: rgba(123,108,255,0.32);
+  box-shadow: inset 0 0 12px rgba(123,108,255,0.08);
 }
 
 /* ---- Sections ---- */
@@ -264,7 +456,6 @@
   -webkit-overflow-scrolling: touch;
 }
 
-/* Thin scrollbar matching the dark theme */
 .menu-section::-webkit-scrollbar {
   width: 4px;
 }
@@ -283,7 +474,6 @@
   background: rgba(255, 255, 255, 0.25);
 }
 
-/* Scroll fade gradient at the bottom of the settings content */
 .menu-section.active::after {
   content: '';
   position: sticky;
@@ -293,7 +483,7 @@
   display: block;
   height: 40px;
   margin-top: -40px;
-  background: linear-gradient(to bottom, transparent, rgba(12, 5, 36, 0.85));
+  background: linear-gradient(to bottom, transparent, rgba(10, 13, 24, 0.9));
   pointer-events: none;
 }
 
@@ -303,16 +493,15 @@
   margin: 16px 0;
 }
 
-.menu-field>label {
+.menu-field > label {
   display: flex;
   align-items: center;
   font-size: 14px;
   font-weight: 500;
   margin-bottom: 10px;
-  color: rgba(224, 224, 224, 0.95);
+  color: rgba(230, 236, 255, 0.95);
 }
 
-/* Custom Checkbox */
 .menu-field input[type="checkbox"] {
   appearance: none;
   -webkit-appearance: none;
@@ -330,13 +519,13 @@
 
 .menu-field input[type="checkbox"]:hover {
   border-color: var(--menu-accent);
-  background: rgba(123, 47, 255, 0.1);
+  background: rgba(123, 108, 255, 0.1);
 }
 
 .menu-field input[type="checkbox"]:checked {
   background: var(--menu-accent);
   border-color: var(--menu-accent);
-  box-shadow: 0 0 12px rgba(123, 47, 255, 0.4);
+  box-shadow: 0 0 12px rgba(123, 108, 255, 0.35);
 }
 
 .menu-field input[type="checkbox"]:checked::after {
@@ -351,7 +540,6 @@
   transform: rotate(45deg);
 }
 
-/* Custom Range Input */
 .menu-field input[type="range"] {
   width: 100%;
   appearance: none;
@@ -366,22 +554,22 @@
 }
 
 .menu-field input[type="range"]:focus-visible::-webkit-slider-thumb {
-  box-shadow: 0 0 0 4px rgba(123, 47, 255, 0.4);
+  box-shadow: 0 0 0 4px rgba(123, 108, 255, 0.28);
   border-color: #fff;
 }
 
 .menu-field input[type="range"]:focus-visible::-moz-range-thumb {
-  box-shadow: 0 0 0 4px rgba(123, 47, 255, 0.4);
+  box-shadow: 0 0 0 4px rgba(123, 108, 255, 0.28);
   border-color: #fff;
 }
 
 .menu-field input[type="range"]::-webkit-slider-runnable-track {
   width: 100%;
   height: 6px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.12);
   border-radius: 3px;
-  border: 1px solid rgba(0, 0, 0, 0.2);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.45);
 }
 
 .menu-field input[type="range"]::-webkit-slider-thumb {
@@ -393,7 +581,7 @@
   appearance: none;
   -webkit-appearance: none;
   margin-top: -7px;
-  box-shadow: 0 0 10px rgba(123, 47, 255, 0.5);
+  box-shadow: 0 0 10px rgba(123, 108, 255, 0.42);
   transition: transform 0.1s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -401,7 +589,6 @@
   transform: scale(1.2);
 }
 
-/* Custom Select */
 .menu-select {
   width: 100%;
   padding: 10px 14px;
@@ -422,9 +609,9 @@
 
 .menu-select:hover,
 .menu-select:focus {
-  border-color: rgba(123, 47, 255, 0.5);
+  border-color: rgba(123, 108, 255, 0.5);
   outline: none;
-  box-shadow: 0 0 0 2px rgba(123, 47, 255, 0.1);
+  box-shadow: 0 0 0 2px rgba(123, 108, 255, 0.08);
 }
 
 /* ---- Level Select ---- */
@@ -457,16 +644,16 @@
   align-items: center;
   justify-content: space-between;
   padding: 12px 14px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.03);
   transition: all 0.2s ease;
 }
 
 .menu-level-card:hover {
-  border-color: rgba(123, 47, 255, 0.3);
-  background: rgba(123, 47, 255, 0.05);
-  box-shadow: 0 0 12px rgba(123, 47, 255, 0.08);
+  border-color: rgba(123, 108, 255, 0.28);
+  background: rgba(123, 108, 255, 0.07);
+  box-shadow: 0 0 12px rgba(123, 108, 255, 0.08);
 }
 
 .menu-level-info {
@@ -501,8 +688,8 @@
 .menu-button-small {
   padding: 6px 14px;
   border-radius: 8px;
-  border: 1px solid rgba(123, 47, 255, 0.2);
-  background: rgba(123, 47, 255, 0.08);
+  border: 1px solid rgba(123, 108, 255, 0.2);
+  background: rgba(123, 108, 255, 0.08);
   color: var(--menu-text);
   font-size: 12px;
   font-weight: 500;
@@ -512,8 +699,8 @@
 }
 
 .menu-button-small:hover {
-  background: rgba(123, 47, 255, 0.2);
-  border-color: rgba(123, 47, 255, 0.5);
+  background: rgba(123, 108, 255, 0.2);
+  border-color: rgba(123, 108, 255, 0.45);
 }
 
 .menu-button-danger {
@@ -523,7 +710,7 @@
 
 .menu-button-danger:hover {
   background: rgba(255, 80, 80, 0.2);
-  border-color: rgba(255, 80, 80, 0.5);
+  border-color: rgba(255, 80, 80, 0.45);
 }
 
 .menu-section-header {
@@ -531,7 +718,7 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.8px;
-  color: rgba(123, 47, 255, 0.8);
+  color: rgba(123, 108, 255, 0.82);
   margin: 20px 0 8px 0;
   padding-top: 12px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
@@ -606,14 +793,14 @@
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-bottom-width: 2px;
-  color: var(--menu-accent);
+  color: var(--menu-accent-cyan);
   font-family: 'Courier New', Courier, monospace;
   font-size: 11px;
   font-weight: 600;
   line-height: 1.4;
   letter-spacing: 0.5px;
   white-space: nowrap;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .help-desc-cell {
@@ -649,6 +836,11 @@
   .menu-level-list {
     max-height: 250px;
   }
+
+  .menu-backdrop-pane {
+    width: 92vw;
+    height: 72vh;
+  }
 }
 
 @media (max-width: 480px) {
@@ -657,7 +849,7 @@
     width: calc(100vw - 32px);
     max-width: 100%;
     padding: 20px 18px;
-    border-radius: 14px;
+    border-radius: 16px;
   }
 
   .menu-title {
@@ -694,7 +886,6 @@
     font-size: 13px;
   }
 
-  /* 44px minimum touch targets on mobile */
   .menu-field input[type="checkbox"] {
     width: 24px;
     height: 24px;
@@ -711,10 +902,6 @@
 
   .menu-select {
     min-height: 44px;
-    padding: 12px 14px;
-  }
-
-  .menu-button {
     padding: 12px 14px;
   }
 
