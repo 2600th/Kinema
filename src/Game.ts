@@ -187,6 +187,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       // Debug event handlers that control the renderer (stay in Game)
       this.eventBus.on("debug:showLightHelpers", (enabled) => {
         this.levelManager.setLightDebugEnabled(enabled);
+        this.syncDebugPanel();
       }),
       this.eventBus.on("debug:postProcessing", (enabled) => {
         this.renderer.setPostProcessingEnabled(enabled);
@@ -199,6 +200,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       }),
       this.eventBus.on("debug:cameraCollision", (enabled) => {
         this.camera.setCollisionEnabled(enabled);
+        this.syncDebugPanel();
       }),
       this.eventBus.on("camera:applyConfig", (config) => {
         this.camera.applyCameraConfig(config);
@@ -487,6 +489,9 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     const f = this.renderer.getDebugFlags();
     this.uiManager.debugPanel.syncRenderSettings({
       activeBackend: f.activeBackend,
+      showColliders: this.debugSystem.getColliderDebugEnabled(),
+      showLightHelpers: this.levelManager.getLightDebugEnabled(),
+      cameraCollision: this.camera.getCollisionEnabled(),
       postProcessingEnabled: f.postProcessingEnabled,
       shadowsEnabled: f.shadowsEnabled,
       shadowQuality: f.shadowQuality,

@@ -177,6 +177,10 @@ export class LevelManager implements Disposable {
     this.lighting.setLightDebugEnabled(enabled);
   }
 
+  getLightDebugEnabled(): boolean {
+    return this.lighting.getLightDebugEnabled();
+  }
+
   setShadowDebugEnabled(enabled: boolean): void {
     this.lighting.setShadowDebugEnabled(enabled);
   }
@@ -561,6 +565,19 @@ export class LevelManager implements Disposable {
           break;
       }
 
+      platform.linearVelocity
+        .copy(_platformNextPos)
+        .sub(platform.lastPosition)
+        .multiplyScalar(1 / Math.max(dt, 1e-5));
+      platform.angularVelocity.set(
+        (nextRotX - platform.lastRotX) / Math.max(dt, 1e-5),
+        (nextRotY - platform.lastRotY) / Math.max(dt, 1e-5),
+        0,
+      );
+      platform.lastPosition.copy(_platformNextPos);
+      platform.lastRotX = nextRotX;
+      platform.lastRotY = nextRotY;
+
       platform.mesh.position.copy(_platformNextPos);
       if (platform.mode === 'rotateY' || platform.mode === 'yRotate') {
         platform.mesh.rotation.set(
@@ -579,6 +596,22 @@ export class LevelManager implements Disposable {
 
       _platformRV3.x = _platformNextPos.x; _platformRV3.y = _platformNextPos.y; _platformRV3.z = _platformNextPos.z;
       platform.body.setNextKinematicTranslation(_platformRV3);
+      if (typeof platform.body.userData !== 'object' || platform.body.userData === null) {
+        platform.body.userData = {};
+      }
+      Object.assign(platform.body.userData as Record<string, unknown>, {
+        kind: 'moving-platform',
+        platformLinearVelocity: {
+          x: platform.linearVelocity.x,
+          y: platform.linearVelocity.y,
+          z: platform.linearVelocity.z,
+        },
+        platformAngularVelocity: {
+          x: platform.angularVelocity.x,
+          y: platform.angularVelocity.y,
+          z: platform.angularVelocity.z,
+        },
+      });
       if (platform.mode === 'rotateY' || platform.mode === 'yRotate' || platform.mode === 'rotateX') {
         _platformEuler.set(
           (platform.mode === 'rotateX' ? nextRotX : 0) + platform.rotationOffset.x,
@@ -594,8 +627,9 @@ export class LevelManager implements Disposable {
     // Floating dynamic platforms — ray from bottom of platform body.
     for (const platform of this.floatingPlatforms) {
       const p = platform.body.translation();
-      // Cast from slightly below center to better detect ground below.
-      _floatOrigin.x = p.x; _floatOrigin.y = p.y - 0.15; _floatOrigin.z = p.z;
+      // Cast from the body center so compressed platforms do not lose their
+      // support sample when they dip close to the ground plane.
+      _floatOrigin.x = p.x; _floatOrigin.y = p.y; _floatOrigin.z = p.z;
       const rayHit = this.physicsWorld.castRay(
         _floatOrigin,
         _floatDown,
@@ -609,7 +643,9 @@ export class LevelManager implements Disposable {
         const floatingForce =
           platform.springK * (platform.floatingDistance - rayHit.timeOfImpact) -
           lv.y * platform.dampingC;
-        _floatImpulse.x = 0; _floatImpulse.y = floatingForce; _floatImpulse.z = 0;
+        const compression = Math.max(0, platform.floatingDistance - rayHit.timeOfImpact);
+        const recoveryBoost = compression > 0.18 ? compression * platform.springK * 0.75 : 0;
+        _floatImpulse.x = 0; _floatImpulse.y = floatingForce + recoveryBoost; _floatImpulse.z = 0;
         platform.body.applyImpulse(_floatImpulse, true);
       }
 
@@ -625,7 +661,12 @@ export class LevelManager implements Disposable {
           platform.moveDirectionX = 1;
         }
         const lv = platform.body.linvel();
-        _floatLinvel.x = platform.moveDirectionX * platform.moveSpeedX; _floatLinvel.y = lv.y; _floatLinvel.z = 0;
+        const targetVx = platform.moveDirectionX * platform.moveSpeedX;
+        const accel = platform.moveAccelX ?? 6;
+        const deltaVx = THREE.MathUtils.clamp(targetVx - lv.x, -accel * dt, accel * dt);
+        _floatLinvel.x = lv.x + deltaVx;
+        _floatLinvel.y = lv.y;
+        _floatLinvel.z = lv.z * Math.max(0, 1 - dt * 8);
         platform.body.setLinvel(_floatLinvel, true);
       }
     }

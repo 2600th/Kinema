@@ -119,3 +119,85 @@ describe('LevelManager rotated body creation', () => {
     cuboidSpy.mockRestore();
   });
 });
+
+describe('LevelManager VFX timing', () => {
+  let logSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+  });
+
+  it('advances VFX callbacks from render update, not fixedUpdate', () => {
+    const scene = new THREE.Scene();
+    const physicsWorld = {
+      world: {},
+      removeCollider: vi.fn(),
+      removeBody: vi.fn(),
+    };
+    const eventBus = { emit: vi.fn() };
+    const manager = new LevelManager(scene, physicsWorld as any, eventBus as any);
+    const vfxCallback = vi.fn();
+    (manager as any).vfxUpdateCallbacks = [vfxCallback];
+
+    manager.fixedUpdate(1 / 60);
+    expect(vfxCallback).not.toHaveBeenCalled();
+
+    manager.update(1 / 30, 0.5);
+    expect(vfxCallback).toHaveBeenCalledTimes(1);
+    expect(vfxCallback).toHaveBeenCalledWith(1 / 30);
+  });
+});
+
+describe('LevelManager moving platform metadata', () => {
+  let logSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+  });
+
+  it('stores authored linear velocity for kinematic moving platforms', () => {
+    const scene = new THREE.Scene();
+    const physicsWorld = {
+      world: {},
+      removeCollider: vi.fn(),
+      removeBody: vi.fn(),
+    };
+    const eventBus = { emit: vi.fn() };
+    const manager = new LevelManager(scene, physicsWorld as any, eventBus as any);
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+    mesh.position.set(0, 0, 0);
+    const body = {
+      userData: {},
+      setNextKinematicTranslation: vi.fn(),
+      setNextKinematicRotation: vi.fn(),
+    };
+
+    (manager as any).movingPlatforms = [{
+      mesh,
+      body,
+      base: new THREE.Vector3(0, 0, 0),
+      mode: 'x',
+      speed: 1,
+      amplitude: 2,
+      rotationOffset: new THREE.Euler(),
+      lastPosition: new THREE.Vector3(0, 0, 0),
+      lastRotX: 0,
+      lastRotY: 0,
+      linearVelocity: new THREE.Vector3(),
+      angularVelocity: new THREE.Vector3(),
+    }];
+
+    manager.fixedUpdate(0.25);
+
+    expect((body.userData as any).kind).toBe('moving-platform');
+    expect(Math.abs((body.userData as any).platformLinearVelocity.x)).toBeGreaterThan(0.01);
+  });
+});

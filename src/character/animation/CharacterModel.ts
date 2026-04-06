@@ -7,11 +7,18 @@ export class CharacterModel implements Disposable {
   readonly root: THREE.Object3D;
   readonly clips: Map<string, THREE.AnimationClip>;
   readonly handBone: THREE.Object3D | null;
+  private readonly baseRootY: number;
 
-  private constructor(root: THREE.Object3D, clips: Map<string, THREE.AnimationClip>, handBone: THREE.Object3D | null) {
+  private constructor(
+    root: THREE.Object3D,
+    clips: Map<string, THREE.AnimationClip>,
+    handBone: THREE.Object3D | null,
+    baseRootY: number,
+  ) {
     this.root = root;
     this.clips = clips;
     this.handBone = handBone;
+    this.baseRootY = baseRootY;
   }
 
   static async load(
@@ -121,7 +128,7 @@ export class CharacterModel implements Disposable {
       }
     });
 
-    return new CharacterModel(root, clips, handBone);
+    return new CharacterModel(root, clips, handBone, root.position.y);
   }
 
   /** Get the right hand bone's world position (for grab/carry attachment). */
@@ -140,6 +147,11 @@ export class CharacterModel implements Disposable {
     this.handBone.getWorldPosition(positionTarget);
     this.handBone.getWorldQuaternion(rotationTarget);
     return true;
+  }
+
+  /** Raise/lower the rendered character without moving the physics body. */
+  setVisualLift(offsetY: number): void {
+    this.root.position.y = this.baseRootY + offsetY;
   }
 
   /** Reset all materials to a neutral mannequin color (removes purple joints). */

@@ -29,39 +29,10 @@ export class AirMode implements CharacterMode {
   readonly id = "air";
 
   fixedUpdate(ctx: PlayerContext, input: InputState, dt: number): string | null {
-    ctx.floatingDistance = ctx.config.capsuleRadius + ctx.config.floatHeight;
-
-    // -- Ground detection (delegated to CharacterMotor) --
-    const groundInfo = ctx.motor.queryGround(
-      ctx.body,
-      ctx.currentCapsuleHalfHeight,
-      ctx.mesh.quaternion,
-      ctx.config,
-      ctx.physicsWorld,
-      ctx.floatingDistance,
-      dt,
-    );
-    ctx.groundInfo = groundInfo;
+    const groundInfo = ctx.groundInfo;
     ctx.actualSlopeAngle = groundInfo.slopeAngle;
     _actualSlopeNormal.copy(groundInfo.slopeNormal);
     _standingForcePoint.copy(groundInfo.standingForcePoint);
-    ctx.canJump = groundInfo.canJump;
-
-    const wasGrounded = ctx.isGrounded;
-    ctx.isGrounded = groundInfo.isGrounded;
-    if (ctx.isGrounded) {
-      ctx.remainingAirJumps = ctx.config.maxAirJumps;
-    }
-    if (ctx.isGrounded !== wasGrounded) {
-      ctx.eventBus.emit("player:grounded", ctx.isGrounded);
-    }
-    // Landing event
-    if (ctx.isGrounded && !wasGrounded) {
-      const groundVy = groundInfo.floatingRayHit?.collider.parent()?.linvel().y ?? 0;
-      const impactSpeed = Math.max(0, Math.abs(ctx.prevVerticalVelocity - groundVy));
-      ctx.eventBus.emit("player:landed", { impactSpeed });
-      ctx.jumpActive = false;
-    }
 
     // Variable jump cut
     if (!input.jump && ctx.verticalVelocity > 0 && ctx.jumpActive && !ctx.motor.isJumpSuppressed) {
@@ -103,7 +74,7 @@ export class AirMode implements CharacterMode {
     ctx.motor.applyGravity(ctx.body, ctx.currentVel.y, ctx.canJump, ctx.config);
 
     // -- Mode transitions --
-    if (ctx.canJump || ctx.isGrounded) {
+    if (ctx.stableGrounded) {
       return "grounded";
     }
     return null;

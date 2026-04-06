@@ -72,6 +72,7 @@ export class PhysicsWorld implements Disposable {
     excludeCollider?: RAPIER.Collider,
     excludeRigidBody?: RAPIER.RigidBody,
     filterPredicate?: (collider: RAPIER.Collider) => boolean,
+    filterGroups?: number,
   ): RAPIER.RayColliderHit | null {
     this._ray.origin = origin;
     this._ray.dir = direction;
@@ -80,7 +81,7 @@ export class PhysicsWorld implements Disposable {
       maxToi,
       true,
       undefined,
-      undefined,
+      filterGroups,
       excludeCollider,
       excludeRigidBody,
       filterPredicate,
@@ -94,6 +95,8 @@ export class PhysicsWorld implements Disposable {
     maxToi: number,
     excludeCollider?: RAPIER.Collider,
     excludeRigidBody?: RAPIER.RigidBody,
+    filterPredicate?: (collider: RAPIER.Collider) => boolean,
+    filterGroups?: number,
   ): RAPIER.RayColliderIntersection | null {
     this._ray.origin = origin;
     this._ray.dir = direction;
@@ -102,10 +105,39 @@ export class PhysicsWorld implements Disposable {
       maxToi,
       true,
       undefined,
-      undefined,
+      filterGroups,
       excludeCollider,
       excludeRigidBody,
+      filterPredicate,
     );
+  }
+
+  /** Whether any collider intersects a shape at the provided transform. */
+  intersectsShape(
+    shapePos: RAPIER.Vector3,
+    shapeRot: RAPIER.Quaternion,
+    shape: RAPIER.Shape,
+    excludeCollider?: RAPIER.Collider,
+    excludeRigidBody?: RAPIER.RigidBody,
+    filterPredicate?: (collider: RAPIER.Collider) => boolean,
+    filterGroups?: number,
+  ): boolean {
+    let hit = false;
+    this.world.intersectionsWithShape(
+      shapePos,
+      shapeRot,
+      shape,
+      () => {
+        hit = true;
+        return false;
+      },
+      undefined,
+      filterGroups,
+      excludeCollider,
+      excludeRigidBody,
+      filterPredicate,
+    );
+    return hit;
   }
 
   /** Remove a rigid body and all attached colliders. */

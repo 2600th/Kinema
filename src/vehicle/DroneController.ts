@@ -3,7 +3,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import type { InputState, SpawnPointData } from '@core/types';
 import type { PhysicsWorld } from '@physics/PhysicsWorld';
 import { toRapierQuat } from '@physics/PhysicsHelpers';
-import { COLLISION_GROUP_VEHICLE } from '@core/constants';
+import { COLLISION_GROUP_VEHICLE, VEHICLE_DOMINANCE_GROUP } from '@core/constants';
 import type { VehicleController } from './VehicleController';
 
 const _forward = new THREE.Vector3();
@@ -94,6 +94,7 @@ export class DroneController implements VehicleController {
     this.body = this.physicsWorld.world.createRigidBody(bodyDesc);
     this.body.userData = { kind: 'vehicle' };
     this.body.enableCcd(true);
+    this.body.setDominanceGroup(VEHICLE_DOMINANCE_GROUP);
     this.body.setLinearDamping(2.8);
     this.body.setAngularDamping(3.2);
     // Parked drone uses normal gravity (it will settle on the ground).

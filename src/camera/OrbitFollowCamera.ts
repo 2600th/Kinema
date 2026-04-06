@@ -122,6 +122,10 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     this.collisionEnabled = enabled;
   }
 
+  getCollisionEnabled(): boolean {
+    return this.collisionEnabled;
+  }
+
   /** Add trauma to the screen shake system (0-1 range, clamped). */
   addTrauma(amount: number): void {
     this.screenShake.addTrauma(amount);

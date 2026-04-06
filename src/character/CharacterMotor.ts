@@ -27,6 +27,14 @@ function _setRV(v: RAPIER.Vector3, x: number, y: number, z: number): RAPIER.Vect
   return v;
 }
 
+function getBodyKind(body: RAPIER.RigidBody | null): string | null {
+  if (!body) return null;
+  const data = body.userData;
+  if (typeof data !== 'object' || data === null) return null;
+  const kind = (data as { kind?: unknown }).kind;
+  return typeof kind === 'string' ? kind : null;
+}
+
 /** Raycast filter: skip sensors and vehicle colliders. */
 export function notSensorOrVehicle(c: RAPIER.Collider): boolean {
   if (c.isSensor()) return false;
@@ -60,7 +68,7 @@ export function shouldApplyGroundReaction(body: RAPIER.RigidBody | null): boolea
   const data = body.userData;
   if (typeof data !== 'object' || data === null) return true;
   const kind = (data as { kind?: unknown }).kind;
-  return kind !== 'floating-platform' && kind !== 'throwable';
+  return kind !== 'throwable' && kind !== 'vehicle';
 }
 
 /**
@@ -229,8 +237,9 @@ export class CharacterMotor {
 
     const standingBody = groundInfo.floatingRayHit.collider.parent();
     if (standingBody && floatingForce > 0 && shouldApplyGroundReaction(standingBody)) {
+      const reactionScale = getBodyKind(standingBody) === 'floating-platform' ? 0.28 : 1;
       standingBody.applyImpulseAtPoint(
-        _setRV(_rv3A, 0, -floatingForce, 0),
+        _setRV(_rv3A, 0, -floatingForce * reactionScale, 0),
         _setRV(_rv3B, groundInfo.standingForcePoint.x, groundInfo.standingForcePoint.y, groundInfo.standingForcePoint.z),
         true,
       );

@@ -20,7 +20,6 @@ export class UIManager implements Disposable {
   private unsubscribers: (() => void)[] = [];
   private overlayEl: HTMLElement | null = null;
   private hintEl: HTMLDivElement | null = null;
-  private hintStyleEl: HTMLStyleElement | null = null;
 
   constructor(private eventBus: EventBus) {
     let overlay = document.getElementById('ui-overlay');
@@ -152,7 +151,6 @@ export class UIManager implements Disposable {
     this.loadingScreen.dispose();
     this.deathEffect.dispose();
     this.hintEl?.remove();
-    this.hintStyleEl?.remove();
     this.overlayEl?.remove();
   }
 
@@ -162,41 +160,15 @@ export class UIManager implements Disposable {
     this.hintEl = document.createElement('div');
     const hint = this.hintEl;
     hint.textContent = 'Click to start';
-    hint.style.cssText = [
-      'position:fixed',
-      'bottom:48px',
-      'left:50%',
-      'transform:translateX(-50%)',
-      'opacity:0.6',
-      'font-size:14px',
-      'color:#e0e0e0',
-      'pointer-events:none',
-      'font-family:Inter,system-ui,sans-serif',
-      'z-index:1000',
-      'transition:opacity 0.5s ease',
-    ].join(';');
-
-    // Pulse animation
-    this.hintStyleEl = document.createElement('style');
-    const style = this.hintStyleEl;
-    style.textContent = `
-      @keyframes kinema-hint-pulse {
-        0%, 100% { opacity: 0.6; }
-        50% { opacity: 0.3; }
-      }
-    `;
-    (document.head ?? document.body).appendChild(style);
-    hint.style.animation = 'kinema-hint-pulse 2s ease-in-out infinite';
+    hint.className = 'kinema-ui-hint';
 
     document.body.appendChild(hint);
 
     const dismiss = (): void => {
       document.removeEventListener('pointerdown', dismiss);
-      hint.style.animation = 'none';
       hint.style.opacity = '0';
       setTimeout(() => {
         hint.remove();
-        style.remove();
       }, 500);
     };
     document.addEventListener('pointerdown', dismiss);

@@ -37,6 +37,35 @@ function _setRV(v: RAPIER.Vector3, x: number, y: number, z: number): RAPIER.Vect
   return v;
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function getBodyKind(body: RAPIER.RigidBody | null): string | null {
+  if (!body) return null;
+  const data = body.userData;
+  if (typeof data !== 'object' || data === null) return null;
+  const kind = (data as { kind?: unknown }).kind;
+  return typeof kind === 'string' ? kind : null;
+}
+
+function getJumpBoostMultiplier(body: RAPIER.RigidBody | null): number {
+  if (!body) return 1;
+  const data = body.userData;
+  if (typeof data !== 'object' || data === null) return 1;
+  const multiplier = (data as { jumpBoostMultiplier?: unknown }).jumpBoostMultiplier;
+  return typeof multiplier === 'number' && Number.isFinite(multiplier) && multiplier > 0
+    ? multiplier
+    : 1;
+}
+
+function shouldAutoBounce(body: RAPIER.RigidBody | null): boolean {
+  if (!body) return false;
+  const data = body.userData;
+  if (typeof data !== 'object' || data === null) return false;
+  return (data as { autoBounce?: unknown }).autoBounce === true;
+}
+
 /**
  * Grounded locomotion mode — movement steering, step assist, crouch,
  * ground jump, and moving-platform tracking.
@@ -50,36 +79,18 @@ export class GroundedMode implements CharacterMode {
   readonly id = 'grounded';
   private stepAssistCooldown = 0;
 
-  fixedUpdate(ctx: PlayerContext, input: InputState, dt: number): string | null {
-    // -- Crouch --
-    this.updateCrouchState(ctx, input.crouch, ctx.currentPos, dt);
+  prepareForGroundRefresh(ctx: PlayerContext, wantsCrouch: boolean, dt: number): void {
+    this.updateCrouchState(ctx, wantsCrouch, ctx.currentPos, dt);
     ctx.floatingDistance = ctx.config.capsuleRadius + ctx.config.floatHeight;
+  }
 
-    // -- Ground detection (delegated to CharacterMotor) --
-    const groundInfo = ctx.motor.queryGround(
-      ctx.body, ctx.currentCapsuleHalfHeight, ctx.mesh.quaternion,
-      ctx.config, ctx.physicsWorld, ctx.floatingDistance, dt,
-    );
-    ctx.groundInfo = groundInfo;
+  fixedUpdate(ctx: PlayerContext, input: InputState, dt: number): string | null {
+    const groundInfo = ctx.groundInfo;
     ctx.actualSlopeAngle = groundInfo.slopeAngle;
     _actualSlopeNormal.copy(groundInfo.slopeNormal);
     _standingForcePoint.copy(groundInfo.standingForcePoint);
-    ctx.canJump = groundInfo.canJump;
-
-    const wasGrounded = ctx.isGrounded;
-    ctx.isGrounded = groundInfo.isGrounded;
-    if (ctx.isGrounded) {
-      ctx.remainingAirJumps = ctx.config.maxAirJumps;
-    }
-    if (ctx.isGrounded !== wasGrounded) {
-      ctx.eventBus.emit('player:grounded', ctx.isGrounded);
-    }
-    // Landing event
-    if (ctx.isGrounded && !wasGrounded) {
-      const groundVy = groundInfo.floatingRayHit?.collider.parent()?.linvel().y ?? 0;
-      const impactSpeed = Math.max(0, Math.abs(ctx.prevVerticalVelocity - groundVy));
-      ctx.eventBus.emit('player:landed', { impactSpeed });
-      ctx.jumpActive = false;
+    if (!ctx.stableGrounded) {
+      return 'air';
     }
 
     // Variable jump cut
@@ -121,6 +132,13 @@ export class GroundedMode implements CharacterMode {
     if (groundInfo.groundBody) {
       const groundBody = groundInfo.groundBody;
       const groundBodyType = groundBody.bodyType();
+      const groundData = typeof groundBody.userData === 'object' && groundBody.userData !== null
+        ? groundBody.userData as {
+          kind?: unknown;
+          platformLinearVelocity?: { x?: unknown; y?: unknown; z?: unknown };
+          platformAngularVelocity?: { x?: unknown; y?: unknown; z?: unknown };
+        }
+        : null;
       ctx.currentGroundBody = groundBody;
 
       if (groundBodyType === 0 || groundBodyType === 2) {
@@ -130,27 +148,46 @@ export class GroundedMode implements CharacterMode {
         _distanceFromCharacterToObject
           .copy(ctx.currentPos)
           .sub(_groundBodyTranslation);
-        const lv = groundBody.linvel();
-        const av = groundBody.angvel();
-        _groundBodyAngvel.set(av.x, av.y, av.z);
+        const bodyLinvel = groundBody.linvel();
+        const bodyAngvel = groundBody.angvel();
+        const authoredLinvel = groundData?.platformLinearVelocity;
+        const authoredAngvel = groundData?.platformAngularVelocity;
+        const lvx = groundBodyType === 2 && isFiniteNumber(authoredLinvel?.x) ? authoredLinvel.x : bodyLinvel.x;
+        const lvy = groundBodyType === 2 && isFiniteNumber(authoredLinvel?.y) ? authoredLinvel.y : bodyLinvel.y;
+        const lvz = groundBodyType === 2 && isFiniteNumber(authoredLinvel?.z) ? authoredLinvel.z : bodyLinvel.z;
+        const avx = groundBodyType === 2 && isFiniteNumber(authoredAngvel?.x) ? authoredAngvel.x : bodyAngvel.x;
+        const avy = groundBodyType === 2 && isFiniteNumber(authoredAngvel?.y) ? authoredAngvel.y : bodyAngvel.y;
+        const avz = groundBodyType === 2 && isFiniteNumber(authoredAngvel?.z) ? authoredAngvel.z : bodyAngvel.z;
+        _groundBodyAngvel.set(avx, avy, avz);
         _objectAngvelToLinvel.crossVectors(
           _groundBodyAngvel,
           _distanceFromCharacterToObject,
         );
         ctx.movingObjectVelocity.set(
-          lv.x + _objectAngvelToLinvel.x,
-          lv.y,
-          lv.z + _objectAngvelToLinvel.z,
+          lvx + _objectAngvelToLinvel.x,
+          lvy,
+          lvz + _objectAngvelToLinvel.z,
         );
 
-        const groundMass = Math.max(groundBody.mass(), 0.001);
-        const massRatio = ctx.body.mass() / groundMass;
-        ctx.movingObjectVelocity.multiplyScalar(Math.min(1, 1 / massRatio));
+        if (groundData?.kind === 'throwable') {
+          const groundMass = Math.max(groundBody.mass(), 0.001);
+          const massRatio = ctx.body.mass() / groundMass;
+          ctx.movingObjectVelocity.multiplyScalar(Math.min(1, 1 / massRatio));
+        }
         _velocityDiff.subVectors(ctx.movingObjectVelocity, ctx.currentVel);
-        if (_velocityDiff.length() > 30) {
-          ctx.movingObjectVelocity.multiplyScalar(1 / _velocityDiff.length());
+        if (_velocityDiff.length() > 40) {
+          ctx.movingObjectVelocity.multiplyScalar(40 / _velocityDiff.length());
         }
       }
+    }
+
+    if (ctx.justGrounded && shouldAutoBounce(ctx.currentGroundBody)) {
+      ctx.fsm.requestState(STATE.jump);
+      this.applyJumpImpulse(ctx, false, false);
+      ctx.jumpBufferRemaining = 0;
+      ctx.motor.clearGroundedGrace();
+      ctx.canJump = false;
+      return null;
     }
 
     // -- Movement --
@@ -341,10 +378,12 @@ export class GroundedMode implements CharacterMode {
   private applyJumpImpulse(ctx: PlayerContext, run: boolean, airJump: boolean): void {
     ctx.jumpActive = true;
     ctx.motor.onJumpFired();
+    const jumpBoostMultiplier = airJump ? 1 : getJumpBoostMultiplier(ctx.currentGroundBody);
     const jumpVel =
       (run ? ctx.config.sprintJumpMultiplier : 1) *
       ctx.config.jumpForce *
-      (airJump ? ctx.config.airJumpForceMultiplier : 1);
+      (airJump ? ctx.config.airJumpForceMultiplier : 1) *
+      jumpBoostMultiplier;
 
     if (airJump) {
       ctx.body.setLinvel(
@@ -373,7 +412,9 @@ export class GroundedMode implements CharacterMode {
     });
 
     if (ctx.currentGroundBody && shouldApplyGroundReaction(ctx.currentGroundBody)) {
-      const down = -jumpVel * ctx.config.jumpForceToGroundMultiplier * 0.5;
+      const groundKind = getBodyKind(ctx.currentGroundBody);
+      const reactionScale = groundKind === 'floating-platform' ? 0.22 : 0.5;
+      const down = -jumpVel * ctx.config.jumpForceToGroundMultiplier * reactionScale;
       ctx.currentGroundBody.applyImpulseAtPoint(
         _setRV(_rv3A, 0, down, 0),
         _setRV(_rv3B, _standingForcePoint.x, _standingForcePoint.y, _standingForcePoint.z),

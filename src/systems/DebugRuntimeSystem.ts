@@ -13,6 +13,7 @@ export class DebugRuntimeSystem implements RuntimeSystem {
   readonly id = "debug";
 
   private physicsDebugView: PhysicsDebugView | null = null;
+  private colliderDebugEnabled = false;
   private navPatrolSystem: NavPatrolSystem | null = null;
   private navDebugOverlay: NavDebugOverlay | null = null;
   private navTargetMode = false;
@@ -32,6 +33,7 @@ export class DebugRuntimeSystem implements RuntimeSystem {
   ) {
     this.unsubs.push(
       this.eventBus.on("debug:showColliders", (enabled) => {
+        this.colliderDebugEnabled = enabled;
         if (this.physicsDebugView) {
           this.physicsDebugView.setEnabled(enabled);
         } else {
@@ -68,6 +70,10 @@ export class DebugRuntimeSystem implements RuntimeSystem {
 
   fixedUpdate(dt: number): void {
     this.navPatrolSystem?.update(dt);
+  }
+
+  getColliderDebugEnabled(): boolean {
+    return this.colliderDebugEnabled;
   }
 
   update(dt: number, _alpha: number): void {

@@ -8,6 +8,9 @@ type ShadowQualityTier = 'auto' | GraphicsProfile;
 
 interface RenderSettingsSnapshot {
   activeBackend: string;
+  showColliders: boolean;
+  showLightHelpers: boolean;
+  cameraCollision: boolean;
   postProcessingEnabled: boolean;
   shadowsEnabled: boolean;
   shadowQuality: ShadowQualityTier;
@@ -158,7 +161,8 @@ export class DebugPanel implements Disposable {
     this.metrics = document.createElement('div');
     this.metrics.style.cssText = [
       'display:grid',
-      'grid-template-columns:1fr auto',
+      'grid-template-columns:minmax(0,1fr) 12ch',
+      'align-items:center',
       'row-gap:3px',
       'column-gap:10px',
       'padding:8px 10px',
@@ -521,6 +525,9 @@ export class DebugPanel implements Disposable {
 
   syncRenderSettings(settings: RenderSettingsSnapshot): void {
     this.metricBackend.textContent = settings.activeBackend;
+    this.setCheckbox('showColliders', settings.showColliders);
+    this.setCheckbox('lightHelpers', settings.showLightHelpers);
+    this.setCheckbox('cameraCollision', settings.cameraCollision);
     this.setCheckbox('postProcessing', settings.postProcessingEnabled);
     this.setCheckbox('shadows', settings.shadowsEnabled);
     this.setSelect('shadowQuality', settings.shadowQuality);
@@ -718,10 +725,18 @@ export class DebugPanel implements Disposable {
   private addMetricRow(label: string): HTMLSpanElement {
     const key = document.createElement('span');
     key.textContent = label;
-    key.style.cssText = 'color:#89a2ba;';
+    key.style.cssText = 'color:#89a2ba;min-width:0;';
     const value = document.createElement('span');
     value.textContent = '-';
-    value.style.cssText = 'font-family:Consolas, "Courier New", monospace;color:#e8f3ff;';
+    value.style.cssText = [
+      'display:block',
+      'min-width:12ch',
+      'text-align:right',
+      'white-space:nowrap',
+      'font-family:Consolas, "Courier New", monospace',
+      'font-variant-numeric:tabular-nums lining-nums',
+      'color:#e8f3ff',
+    ].join(';');
     this.metrics.appendChild(key);
     this.metrics.appendChild(value);
     return value;

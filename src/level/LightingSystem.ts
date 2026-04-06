@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Disposable } from '@core/types';
 import type { GraphicsProfile, ShadowQualityTier } from '@core/UserSettings';
+import { getShadowMapSizeForProfile } from '@renderer/pipelineProfile';
 
 const _lightGoalPos = new THREE.Vector3();
 const _lightGoalTarget = new THREE.Vector3();
@@ -50,10 +51,10 @@ export class LightingSystem implements Disposable {
     this.scene.fog = new THREE.Fog(0xdcf2ff, 60, 200);
 
     // Balanced environment intensity — enough for reflections without washout.
-    this.scene.environmentIntensity = 0.55;
+    this.scene.environmentIntensity = 0.68;
     // Clear sunrise sky visible through open ceiling — sharp HDR, no blur.
     this.scene.backgroundIntensity = 1.0;
-    this.scene.backgroundBlurriness = 0;
+    this.scene.backgroundBlurriness = 0.15;
 
     // Warm directional key — main shadow caster.
     const dirLight = new THREE.DirectionalLight(0xfff5e0, 2.0);
@@ -61,8 +62,9 @@ export class LightingSystem implements Disposable {
     dirLight.castShadow = this.shadowsEnabled;
     const shadowSize = this.getShadowMapSize();
     dirLight.shadow.mapSize.set(shadowSize, shadowSize);
-    dirLight.shadow.normalBias = 0.03;
-    dirLight.shadow.bias = -0.0005;
+    // r183 WebGPU shadows need materially less bias than the older setup.
+    dirLight.shadow.normalBias = 0.004;
+    dirLight.shadow.bias = 0;
     dirLight.shadow.camera.near = 1;
     dirLight.shadow.camera.far = 90;
     dirLight.shadow.camera.left = -35;
@@ -146,6 +148,10 @@ export class LightingSystem implements Disposable {
     this.ensureLightHelpers();
   }
 
+  getLightDebugEnabled(): boolean {
+    return this.lightDebugEnabled;
+  }
+
   setShadowDebugEnabled(enabled: boolean): void {
     this.shadowDebugEnabled = enabled;
     if (!enabled) {
@@ -178,9 +184,7 @@ export class LightingSystem implements Disposable {
     const effectiveProfile = this.shadowQualityTier === 'auto'
       ? this.graphicsProfile
       : this.shadowQualityTier;
-    if (effectiveProfile === 'performance') return 1024;
-    if (effectiveProfile === 'balanced') return 2048;
-    return 4096; // cinematic
+    return getShadowMapSizeForProfile(effectiveProfile);
   }
 
   private applyDirectionalLightQuality(): void {

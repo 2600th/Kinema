@@ -121,11 +121,15 @@ export const INTERACTION_SENSOR_HALF_HEIGHT = 1.0;
 /**
  * Collision groups for physics filtering.
  * Rapier: (membership << 16) | filter. Interaction iff (a.membership & b.filter) && (b.membership & a.filter).
- * Bits: 0=world, 1=player, 2=playerSensor, 3=interactable.
+ * Bits: 0=world, 1=player, 2=playerSensor, 3=interactable, 4=vehicle.
  */
 export const COLLISION_GROUP_WORLD = (1 << 16) | 0x13; // membership world, filter: world+player+vehicle
 export const COLLISION_GROUP_WORLD_ONLY = (1 << 16) | 1; // membership world, filter: world only
-export const COLLISION_GROUP_PLAYER = (2 << 16) | 1; // membership player, filter: world only
+export const COLLISION_GROUP_PLAYER = (2 << 16) | 0x11; // membership player, filter: world+vehicle
 export const COLLISION_GROUP_PLAYER_SENSOR = (4 << 16) | 8; // membership playerSensor, filter: interactable
 export const COLLISION_GROUP_INTERACTABLE = (8 << 16) | 4; // membership interactable, filter: playerSensor
-export const COLLISION_GROUP_VEHICLE = (16 << 16) | 1; // membership vehicle(bit4), filter: world only
+export const COLLISION_GROUP_VEHICLE = (16 << 16) | 0x3; // membership vehicle(bit4), filter: world+player
+
+/** Dominance groups keep vehicles from being shoved around by the player while still blocking movement. */
+export const PLAYER_DOMINANCE_GROUP = 0;
+export const VEHICLE_DOMINANCE_GROUP = 10;

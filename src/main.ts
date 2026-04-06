@@ -22,6 +22,9 @@ function showBootstrapError(err: unknown): void {
 }
 
 async function bootstrap(): Promise<void> {
+  const bootstrapParams = new URLSearchParams(window.location.search);
+  const forceWebGL = /^(1|true)$/i.test(bootstrapParams.get('forceWebGL') ?? '');
+
   // Initialize Rapier WASM
   await RAPIER.init();
   console.log('[Kinema] Rapier WASM initialized');
@@ -69,7 +72,7 @@ async function bootstrap(): Promise<void> {
 
   const settings = UserSettingsStore.load();
 
-  const renderer = new RendererManager();
+  const renderer = new RendererManager({ forceWebGL });
   await renderer.init();
   // Wire KTX2 support early so all AssetLoader instances detect compressed texture formats.
   AssetLoader.initRendererSupport(renderer.renderer);
@@ -351,11 +354,13 @@ async function bootstrap(): Promise<void> {
       if (!vehicle) return null;
       const pos = vehicle.body.translation();
       const vel = vehicle.body.linvel();
+      const debug = (vehicle as { getDebugState?: () => unknown }).getDebugState?.();
       return {
         id,
         active: vehicleManager.isActive() && vehicleManager.getVehicle(id) === vehicle,
         position: { x: pos.x, y: pos.y, z: pos.z },
         velocity: { x: vel.x, y: vel.y, z: vel.z },
+        debug,
       };
     },
     enterVehicle(id: string) {

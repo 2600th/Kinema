@@ -27,6 +27,8 @@ export interface PlayerContext {
   remainingAirJumps: number;
   isCrouched: boolean;
   isGrounded: boolean;
+  stableGrounded: boolean;
+  justGrounded: boolean;
   canJump: boolean;
   groundInfo: GroundInfo;
   isOnMovingObject: boolean;

@@ -15,7 +15,7 @@ import { getShowcaseBayTopY, getShowcaseStationZ, type ShowcaseStationKey } from
 import type { PhysicsWorld } from "@physics/PhysicsWorld";
 import type { RendererManager } from "@renderer/RendererManager";
 import type { UIManager } from "@ui/UIManager";
-import { CarController } from "@vehicle/CarController";
+import { CAR_SPAWN_Y_OFFSET, CarController } from "@vehicle/CarController";
 import { DroneController } from "@vehicle/DroneController";
 import type { VehicleManager } from "@vehicle/VehicleManager";
 import * as THREE from "three";
@@ -387,14 +387,12 @@ export class InteractableSystem implements RuntimeSystem {
       this.physicsWorld,
       this.renderer.scene,
     );
-    // Car origin sits close to the wheel contact plane, so spawning it high above the
-    // pedestal causes a visible "floating then settling" moment on first load/enter.
-    // Keep a small clearance for the chassis collider and let suspension start near ride height.
     const car = new CarController(
       "car-1",
-      new THREE.Vector3(10, bayTopY + 0.08, zVehicles),
+      new THREE.Vector3(10, bayTopY + CAR_SPAWN_Y_OFFSET, zVehicles),
       this.physicsWorld,
       this.renderer.scene,
+      this.playerController.body,
     );
     this.vehicleManager.register(drone);
     this.vehicleManager.register(car);
@@ -414,6 +412,7 @@ export class InteractableSystem implements RuntimeSystem {
   ): VehicleSeat {
     const colliderDesc = RAPIER.ColliderDesc.cuboid(0.6, 0.8, 0.6)
       .setSensor(true)
+      .setDensity(0)
       .setCollisionGroups(COLLISION_GROUP_INTERACTABLE)
       .setTranslation(offset.x, offset.y, offset.z);
     const collider = this.physicsWorld.world.createCollider(colliderDesc, vehicle.body);

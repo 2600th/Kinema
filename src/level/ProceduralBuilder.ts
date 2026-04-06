@@ -33,6 +33,11 @@ export interface MovingPlatformEntry {
   speed: number;
   amplitude: number;
   rotationOffset: THREE.Euler;
+  lastPosition: THREE.Vector3;
+  lastRotX: number;
+  lastRotY: number;
+  linearVelocity: THREE.Vector3;
+  angularVelocity: THREE.Vector3;
 }
 
 export interface FloatingPlatformEntry {
@@ -46,6 +51,7 @@ export interface FloatingPlatformEntry {
   moveRangeMaxX?: number;
   moveSpeedX?: number;
   moveDirectionX?: number;
+  moveAccelX?: number;
 }
 
 export interface DynamicBodyEntry {
@@ -1292,42 +1298,56 @@ export class ProceduralBuilder {
     await this.yieldProgress(0.75);
 
     if (isTarget('platformsPhysics')) {
-    // Platform stage B: dynamic/pushable platforms + rotating drum (single bay).
-    this.createFloatingPlatform(
-      'FloatingPlatformA',
-      new THREE.Vector3(5, 0.2, 5),
-      new THREE.Vector3(-10, bayTopY + 1.2, zPlatformsPhysics + 3),
-      floatingPlatformMat,
+    // Platform stage B: readable physics interactions.
+    const boostPlatformMat = new THREE.MeshPhysicalMaterial({
+      color: 0x6cf7c9,
+      roughness: 0.22,
+      metalness: 0.0,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.08,
+      emissive: 0x21d19d,
+      emissiveIntensity: 0.18,
+    });
+    const drumPlatformMat = new THREE.MeshPhysicalMaterial({
+      color: 0xffd36b,
+      roughness: 0.22,
+      metalness: 0.0,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.08,
+      emissive: 0xffaa1f,
+      emissiveIntensity: 0.16,
+    });
+    this.createFixedStaticBox(
+      'BoostPlatformStatic',
+      new THREE.Vector3(5.2, 0.28, 5.2),
+      new THREE.Vector3(-11, bayTopY + 0.14, zPlatformsPhysics + 2.25),
+      new THREE.Euler(),
+      boostPlatformMat,
+      'boost-platform',
+      { jumpBoostMultiplier: 1.78, autoBounce: true },
     );
-    this.createFloatingPlatform(
-      'FloatingPlatformB',
-      new THREE.Vector3(5, 0.2, 5),
-      new THREE.Vector3(10, bayTopY + 1.2, zPlatformsPhysics + 3),
-      floatingPlatformMat,
-      { lockX: true, lockY: false, lockZ: true, rotX: false, rotY: true, rotZ: false },
-    );
-    this.createFloatingPlatform(
-      'FloatingMovingPlatform',
-      new THREE.Vector3(2.5, 0.2, 2.5),
-      new THREE.Vector3(0, bayTopY + 1.2, zPlatformsPhysics - 4),
-      floatingPlatformMat,
-      undefined,
-      { minX: -5, maxX: 10, speedX: 2 },
-    );
-    // Drum offset in Z to avoid blocking the floating moving platform on X axis.
     this.createKinematicDrum(
-      'RotatingDrum',
-      new THREE.Vector3(0, bayTopY + 0.8, zPlatformsPhysics + 2),
-      1.5,
-      14.0,
+      'RollingDrum',
+      new THREE.Vector3(0, bayTopY + 0.82, zPlatformsPhysics + 2.1),
+      1.55,
+      9.5,
       'rotateX',
-      0.5,
-      kinematicPlatformMat,
+      0.85,
+      drumPlatformMat,
+    );
+    this.createFloatingPlatform(
+      'BoostMovingPlatform',
+      new THREE.Vector3(4.2, 0.22, 4.2),
+      new THREE.Vector3(10.5, bayTopY + 1.15, zPlatformsPhysics - 2.75),
+      floatingPlatformMat,
+      { lockX: false, lockY: false, lockZ: true, rotX: true, rotY: false, rotZ: true },
+      { minX: 6.5, maxX: 14.5, speedX: 2.35 },
+      { kind: 'boost-platform', jumpBoostMultiplier: 1.9, autoBounce: true },
     );
     this.createSectionLabel(
-      'Physics Platforms\nFloating \u2022 Moving \u2022 Rotating Drum',
+      'Physics Platforms\nBoost Pad \u2022 Rolling Drum \u2022 Moving Boost Pad',
       new THREE.Vector3(0, 3.6, zPlatformsPhysics + 6.5),
-      11.4,
+      12.4,
       2.05,
     );
     } // end platformsPhysics
@@ -1808,6 +1828,7 @@ export class ProceduralBuilder {
     speed: number,
     amplitude: number,
     material: THREE.Material,
+    extraUserData?: Record<string, unknown>,
   ): void {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), material);
     mesh.position.copy(base);
@@ -1820,6 +1841,12 @@ export class ProceduralBuilder {
     const bodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased()
       .setTranslation(base.x, base.y, base.z);
     const body = this.physicsWorld.world.createRigidBody(bodyDesc);
+    body.userData = {
+      kind: 'moving-platform',
+      platformLinearVelocity: { x: 0, y: 0, z: 0 },
+      platformAngularVelocity: { x: 0, y: 0, z: 0 },
+      ...extraUserData,
+    };
     const colliderDesc = RAPIER.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2)
       .setFriction(0.8)
       .setCollisionGroups(COLLISION_GROUP_WORLD);
@@ -1835,6 +1862,11 @@ export class ProceduralBuilder {
       speed,
       amplitude,
       rotationOffset: new THREE.Euler(0, 0, 0),
+      lastPosition: base.clone(),
+      lastRotX: 0,
+      lastRotY: 0,
+      linearVelocity: new THREE.Vector3(),
+      angularVelocity: new THREE.Vector3(),
     });
   }
 
@@ -1898,6 +1930,7 @@ export class ProceduralBuilder {
     rotation: THREE.Euler,
     material: THREE.Material,
     kind = 'showcase-static',
+    extraUserData?: Record<string, unknown>,
   ): void {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), material);
     mesh.name = `${name}_col`;
@@ -1913,7 +1946,7 @@ export class ProceduralBuilder {
       .setTranslation(position.x, position.y, position.z)
       .setRotation({ x: quat.x, y: quat.y, z: quat.z, w: quat.w });
     const body = this.physicsWorld.world.createRigidBody(bodyDesc);
-    body.userData = { kind };
+    body.userData = { kind, ...extraUserData };
     const collider = this.physicsWorld.world.createCollider(
       RAPIER.ColliderDesc.cuboid(size.x * 0.5, size.y * 0.5, size.z * 0.5)
         .setFriction(0.8)
@@ -1931,6 +1964,7 @@ export class ProceduralBuilder {
     material: THREE.Material,
     lockConfig?: { lockX: boolean; lockY: boolean; lockZ: boolean; rotX: boolean; rotY: boolean; rotZ: boolean },
     movingConfig?: { minX: number; maxX: number; speedX: number },
+    extraUserData?: Record<string, unknown>,
   ): void {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), material);
     mesh.position.copy(position);
@@ -1941,13 +1975,17 @@ export class ProceduralBuilder {
     this.meshes.push(mesh);
 
     const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
-      .setTranslation(position.x, position.y, position.z);
+      .setTranslation(position.x, position.y, position.z)
+      .setCanSleep(false);
     const body = this.physicsWorld.world.createRigidBody(bodyDesc);
     body.userData = {
       kind: 'floating-platform',
       moving: movingConfig != null,
+      ...extraUserData,
     };
     body.enableCcd(true);
+    body.setLinearDamping(1.8);
+    body.setAngularDamping(4.2);
     if (lockConfig) {
       body.setEnabledTranslations(!lockConfig.lockX, !lockConfig.lockY, !lockConfig.lockZ, true);
       body.setEnabledRotations(lockConfig.rotX, lockConfig.rotY, lockConfig.rotZ, true);
@@ -1977,12 +2015,13 @@ export class ProceduralBuilder {
       body,
       rayLength: 2.5,
       floatingDistance: 1.2,
-      springK: 3.5,
-      dampingC: 0.4,
+      springK: 9.0,
+      dampingC: 1.8,
       moveRangeMinX: movingConfig?.minX,
       moveRangeMaxX: movingConfig?.maxX,
       moveSpeedX: movingConfig?.speedX,
       moveDirectionX: movingConfig ? 1 : undefined,
+      moveAccelX: movingConfig ? 7.5 : undefined,
     });
   }
 
@@ -1993,9 +2032,8 @@ export class ProceduralBuilder {
     length: number,
     mode: 'rotateX' | 'rotateY',
     speed: number,
-    _material: THREE.Material,
+    material: THREE.Material,
   ): void {
-    // Procedural striped texture so rotation is visually obvious.
     const stripeCanvas = document.createElement('canvas');
     stripeCanvas.width = 256;
     stripeCanvas.height = 256;
@@ -2011,30 +2049,42 @@ export class ProceduralBuilder {
     stripeTex.wrapT = THREE.RepeatWrapping;
     stripeTex.needsUpdate = true;
 
+    const drumSourceMat = material as THREE.MeshPhysicalMaterial;
     const drumMat = new THREE.MeshPhysicalMaterial({
       map: stripeTex,
-      roughness: 0.3,
-      metalness: 0.0,
-      clearcoat: 0.5,
-      clearcoatRoughness: 0.1,
+      roughness: drumSourceMat.roughness,
+      metalness: drumSourceMat.metalness,
+      clearcoat: drumSourceMat.clearcoat,
+      clearcoatRoughness: drumSourceMat.clearcoatRoughness,
+      emissive: drumSourceMat.emissive,
+      emissiveIntensity: drumSourceMat.emissiveIntensity,
     });
-    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, length, 24), drumMat);
+
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, length, 28), drumMat);
     mesh.position.copy(base);
-    mesh.rotation.z = Math.PI / 2; // align drum
+    mesh.rotation.z = Math.PI / 2;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.name = `${name}_col`;
     this.scene.add(mesh);
     this.meshes.push(mesh);
 
+    const startQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, Math.PI / 2));
     const bodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased()
       .setTranslation(base.x, base.y, base.z)
-      .setRotation(new RAPIER.Quaternion(0, 0, Math.sin(Math.PI / 4), Math.cos(Math.PI / 4)));
+      .setRotation({ x: startQuat.x, y: startQuat.y, z: startQuat.z, w: startQuat.w });
     const body = this.physicsWorld.world.createRigidBody(bodyDesc);
-    const colliderDesc = RAPIER.ColliderDesc.cylinder(length / 2, radius)
-      .setFriction(0.8)
-      .setCollisionGroups(COLLISION_GROUP_WORLD);
-    const collider = this.physicsWorld.world.createCollider(colliderDesc, body);
+    body.userData = {
+      kind: 'moving-platform',
+      platformLinearVelocity: { x: 0, y: 0, z: 0 },
+      platformAngularVelocity: { x: 0, y: 0, z: 0 },
+    };
+    const collider = this.physicsWorld.world.createCollider(
+      RAPIER.ColliderDesc.cylinder(length * 0.5, radius)
+        .setFriction(0.95)
+        .setCollisionGroups(COLLISION_GROUP_WORLD),
+      body,
+    );
 
     this.bodies.push(body);
     this.colliders.push(collider);
@@ -2046,6 +2096,11 @@ export class ProceduralBuilder {
       speed,
       amplitude: 0,
       rotationOffset: new THREE.Euler(0, 0, Math.PI / 2),
+      lastPosition: base.clone(),
+      lastRotX: 0,
+      lastRotY: 0,
+      linearVelocity: new THREE.Vector3(),
+      angularVelocity: new THREE.Vector3(),
     });
   }
 
@@ -2274,21 +2329,100 @@ export class ProceduralBuilder {
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
+    const roundedRect = (x: number, y: number, width: number, height: number, radius: number): void => {
+      const r = Math.min(radius, width * 0.5, height * 0.5);
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + width, y, x + width, y + height, r);
+      ctx.arcTo(x + width, y + height, x, y + height, r);
+      ctx.arcTo(x, y + height, x, y, r);
+      ctx.arcTo(x, y, x + width, y, r);
+      ctx.closePath();
+    };
+
     ctx.clearRect(0, 0, logicalWidth, logicalHeight);
-    // Dark panel with warm accent border (closer to Unity/Unreal sample signage).
-    const panelX = panelPad;
-    const panelY = 86;
-    const panelW = logicalWidth - panelPad * 2;
-    const panelH = logicalHeight - 172;
-    // Clean Sci-fi Theme for UI Panels
-    ctx.fillStyle = 'rgba(20, 30, 50, 0.80)';
+    const panelInset = panelPad + 32;
+    const panelX = panelInset;
+    const panelY = 112;
+    const panelW = logicalWidth - panelInset * 2;
+    const panelH = logicalHeight - 224;
+    const panelRadius = 28;
+
+    ctx.save();
+    roundedRect(panelX, panelY, panelW, panelH, panelRadius);
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.42)';
+    ctx.shadowBlur = 40;
+    ctx.shadowOffsetY = 16;
+    ctx.fillStyle = 'rgba(4, 7, 13, 0.4)';
+    ctx.fill();
+    ctx.restore();
+
+    const panelGradient = ctx.createLinearGradient(panelX, panelY, panelX + panelW, panelY + panelH);
+    panelGradient.addColorStop(0, 'rgba(20, 29, 44, 0.72)');
+    panelGradient.addColorStop(0.42, 'rgba(11, 17, 28, 0.68)');
+    panelGradient.addColorStop(1, 'rgba(7, 10, 18, 0.7)');
+
+    roundedRect(panelX, panelY, panelW, panelH, panelRadius);
+    ctx.fillStyle = panelGradient;
+    ctx.fill();
+
+    ctx.save();
+    roundedRect(panelX, panelY, panelW, panelH, panelRadius);
+    ctx.clip();
+
+    const sheen = ctx.createLinearGradient(panelX, panelY, panelX + panelW, panelY + panelH);
+    sheen.addColorStop(0, 'rgba(255,255,255,0.1)');
+    sheen.addColorStop(0.16, 'rgba(255,255,255,0.035)');
+    sheen.addColorStop(0.7, 'rgba(98,230,255,0.02)');
+    sheen.addColorStop(1, 'rgba(255,121,186,0.02)');
+    ctx.fillStyle = sheen;
     ctx.fillRect(panelX, panelY, panelW, panelH);
-    ctx.strokeStyle = 'rgba(60, 130, 220, 0.86)';
-    ctx.lineWidth = 6;
-    ctx.strokeRect(panelX, panelY, panelW, panelH);
-    ctx.strokeStyle = 'rgba(200, 180, 50, 0.4)';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(panelX + 10, panelY + 10, panelW - 20, panelH - 20);
+
+    const highlight = ctx.createRadialGradient(
+      panelX + panelW * 0.18,
+      panelY + panelH * 0.18,
+      0,
+      panelX + panelW * 0.18,
+      panelY + panelH * 0.18,
+      panelW * 0.38,
+    );
+    highlight.addColorStop(0, 'rgba(255,255,255,0.12)');
+    highlight.addColorStop(0.32, 'rgba(255,255,255,0.05)');
+    highlight.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = highlight;
+    ctx.fillRect(panelX, panelY, panelW, panelH);
+
+    const haze = ctx.createRadialGradient(
+      panelX + panelW * 0.8,
+      panelY + panelH * 0.35,
+      0,
+      panelX + panelW * 0.8,
+      panelY + panelH * 0.35,
+      panelW * 0.28,
+    );
+    haze.addColorStop(0, 'rgba(98,230,255,0.06)');
+    haze.addColorStop(0.35, 'rgba(98,230,255,0.024)');
+    haze.addColorStop(1, 'rgba(98,230,255,0)');
+    ctx.fillStyle = haze;
+    ctx.fillRect(panelX, panelY, panelW, panelH);
+
+    const edgeFade = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelH);
+    edgeFade.addColorStop(0, 'rgba(255,255,255,0.08)');
+    edgeFade.addColorStop(0.12, 'rgba(255,255,255,0.02)');
+    edgeFade.addColorStop(0.88, 'rgba(255,255,255,0.015)');
+    edgeFade.addColorStop(1, 'rgba(255,255,255,0.06)');
+    ctx.fillStyle = edgeFade;
+    ctx.fillRect(panelX, panelY, panelW, panelH);
+
+    const plateGrain = ctx.createLinearGradient(panelX, panelY, panelX + panelW, panelY);
+    plateGrain.addColorStop(0, 'rgba(255,255,255,0.014)');
+    plateGrain.addColorStop(0.5, 'rgba(255,255,255,0.004)');
+    plateGrain.addColorStop(1, 'rgba(255,255,255,0.014)');
+    ctx.fillStyle = plateGrain;
+    for (let y = panelY + 14; y < panelY + panelH - 14; y += 10) {
+      ctx.fillRect(panelX + 18, y, panelW - 36, 1);
+    }
+    ctx.restore();
 
     const lines = text.split('\n').map((s) => s.trim()).filter(Boolean);
     const header = lines[0] ?? '';
@@ -2297,16 +2431,16 @@ export class ProceduralBuilder {
     const headerTitle = headerMatch?.[2] ?? header;
     const bodyLines = lines.slice(1);
 
-    const headerFontPx = 86;
-    const bodyFontPx = bodyLines.length > 0 ? 60 : 76;
+    const headerFontPx = 72;
+    const bodyFontPx = bodyLines.length > 0 ? 46 : 62;
     const headerLineHeight = headerFontPx * 1.05;
     const bodyLineHeight = bodyFontPx * 1.05;
 
     // Measure widths to compute a single horizontal scale factor.
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
-    const contentX = panelX + 56;
-    const availableTextWidth = panelX + panelW - contentX - 56;
+    const contentX = panelX + 72;
+    const availableTextWidth = panelX + panelW - contentX - 72;
     ctx.font = `800 ${headerFontPx}px Segoe UI, Arial, sans-serif`;
     const headerWidth =
       headerCode && headerTitle
@@ -2323,7 +2457,7 @@ export class ProceduralBuilder {
     ctx.save();
     ctx.translate(contentX, 0);
     ctx.scale(scaleFactor, 1);
-    ctx.shadowColor = 'rgba(0,0,0,0.55)';
+    ctx.shadowColor = 'rgba(0,0,0,0.45)';
     ctx.shadowBlur = 10;
 
     // Header: draw "code" in accent + title in white.
@@ -2331,19 +2465,19 @@ export class ProceduralBuilder {
     if (headerCode) {
       const code = `${headerCode}`;
       const codeWidth = ctx.measureText(`${code}  `).width;
-      ctx.fillStyle = '#5599dd';
+      ctx.fillStyle = '#9ae8f4';
       ctx.fillText(code, 0, startY);
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = '#f7fbff';
       ctx.fillText(`  ${headerTitle}`, codeWidth, startY);
     } else {
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = '#f7fbff';
       ctx.fillText(headerTitle, 0, startY);
     }
 
     // Body: smaller, slightly muted.
     ctx.shadowBlur = 6;
     ctx.font = `600 ${bodyFontPx}px Segoe UI, Arial, sans-serif`;
-    ctx.fillStyle = 'rgba(233, 238, 250, 0.92)';
+    ctx.fillStyle = 'rgba(224, 238, 255, 0.9)';
     const bodyStartY = startY + headerLineHeight / 2 + bodyLineHeight / 2;
     for (let i = 0; i < bodyLines.length; i += 1) {
       ctx.fillText(bodyLines[i], 0, bodyStartY + i * bodyLineHeight);
@@ -2373,7 +2507,7 @@ export class ProceduralBuilder {
     material.blending = THREE.NormalBlending;
     const sprite = new THREE.Sprite(material);
     sprite.position.copy(position);
-    sprite.scale.set(scaleX, scaleY, 1);
+    sprite.scale.set(scaleX * 0.92, scaleY * 0.9, 1);
     sprite.name = `Label_${text.slice(0, 18)}`;
     sprite.renderOrder = 20;
     this.scene.add(sprite);

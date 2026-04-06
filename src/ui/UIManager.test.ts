@@ -3,13 +3,23 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const hudDispose = vi.fn();
 const fadeDispose = vi.fn();
 const debugDispose = vi.fn();
+const hudInstances: any[] = [];
 
 vi.mock('./components/HUD', () => ({
   HUD: class {
     showPrompt = vi.fn();
     hidePrompt = vi.fn();
+    setHoldProgress = vi.fn();
+    showStatus = vi.fn();
+    setObjective = vi.fn();
+    updateCollectibles = vi.fn();
+    updateHealth = vi.fn();
+    showGameHUD = vi.fn();
+    hideGameHUD = vi.fn();
     dispose = hudDispose;
-    constructor(_parent: HTMLElement) {}
+    constructor(_parent: HTMLElement) {
+      hudInstances.push(this);
+    }
   },
 }));
 
@@ -54,6 +64,7 @@ describe('UIManager', () => {
   let warnSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
+    hudInstances.length = 0;
     appendBodyChild.mockClear();
     createElement.mockClear();
     getElementById.mockClear();
@@ -82,6 +93,25 @@ describe('UIManager', () => {
     expect(warnSpy).toHaveBeenCalledWith(
       '[UIManager] #ui-overlay missing. Created fallback overlay element.',
     );
+    ui.dispose();
+  });
+
+  it('routes objective updates to the pinned objective card and completion to status toasts', () => {
+    const listeners = new Map<string, (payload: any) => void>();
+    const on = vi.fn((event: string, handler: (payload: any) => void) => {
+      listeners.set(event, handler);
+      return () => {};
+    });
+    const eventBus = { on };
+
+    const ui = new UIManager(eventBus as any);
+    const hud = hudInstances[0];
+
+    listeners.get('objective:set')?.({ text: 'Reach the beacon' });
+    listeners.get('objective:completed')?.({ text: 'Reach the beacon' });
+
+    expect(hud.setObjective).toHaveBeenCalledWith('Reach the beacon');
+    expect(hud.showStatus).toHaveBeenCalledWith('Objective complete: Reach the beacon');
     ui.dispose();
   });
 });

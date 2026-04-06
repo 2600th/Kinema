@@ -1,3 +1,4 @@
+import './hud.css';
 import type { Disposable } from '@core/types';
 
 /**
@@ -8,138 +9,54 @@ export class HUD implements Disposable {
   private prompt: HTMLDivElement;
   private holdWrap: HTMLDivElement;
   private holdFill: HTMLDivElement;
+  private objectiveRegion: HTMLDivElement;
   private objective: HTMLDivElement;
-  private status: HTMLDivElement;
+  private objectiveText: HTMLDivElement;
+  private statusLane: HTMLDivElement;
   private crosshair: HTMLDivElement;
-  private statusTimer: ReturnType<typeof setTimeout> | null = null;
   private collectibleEl!: HTMLDivElement;
   private healthEl!: HTMLDivElement;
   private hearts: HTMLSpanElement[] = [];
+  private statusTimers = new Map<HTMLDivElement, ReturnType<typeof setTimeout>>();
 
   constructor(parent: HTMLElement) {
     this.container = parent;
     this.prompt = document.createElement('div');
     this.prompt.id = 'hud-prompt';
-    this.prompt.style.cssText = `
-      position: absolute;
-      bottom: 20%;
-      left: 50%;
-      transform: translateX(-50%);
-      padding: clamp(10px, 2vw, 14px) clamp(18px, 4vw, 32px);
-      background: rgba(26, 16, 64, 0.85);
-      backdrop-filter: blur(12px) saturate(120%);
-      color: white;
-      font-family: 'Outfit', sans-serif;
-      font-size: clamp(14px, 2.5vw, 18px);
-      max-width: calc(100vw - 40px);
-      box-sizing: border-box;
-      font-weight: 600;
-      letter-spacing: 0.5px;
-      border: 1px solid #7b2fff;
-      box-shadow: 0 0 20px #7b2fff33;
-      border-radius: 12px;
-      pointer-events: none;
-      opacity: 0;
-      transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-      user-select: none;
-      z-index: 1000;
-    `;
+    this.prompt.className = 'hud-glass-card hud-prompt';
     parent.appendChild(this.prompt);
 
     this.holdWrap = document.createElement('div');
     this.holdWrap.id = 'hud-hold';
-    this.holdWrap.style.cssText = `
-      position: absolute;
-      bottom: calc(20% - 26px);
-      left: 50%;
-      transform: translateX(-50%);
-      width: clamp(140px, 40vw, 220px);
-      height: 10px;
-      border-radius: 999px;
-      background: #ffffff18;
-      border: 1px solid rgba(255, 255, 255, 0.14);
-      overflow: hidden;
-      pointer-events: none;
-      opacity: 0;
-      transition: opacity 0.15s ease;
-      z-index: 1000;
-    `;
+    this.holdWrap.className = 'hud-hold-track';
     this.holdFill = document.createElement('div');
-    this.holdFill.style.cssText = `
-      height: 100%;
-      width: 0%;
-      background: linear-gradient(90deg, #ff6b9d, #7b2fff, #00d2ff);
-      box-shadow: 0 0 14px rgba(79,195,247,0.35);
-    `;
+    this.holdFill.className = 'hud-hold-fill';
     this.holdWrap.appendChild(this.holdFill);
     parent.appendChild(this.holdWrap);
 
+    this.objectiveRegion = document.createElement('div');
+    this.objectiveRegion.className = 'hud-objective-region';
+    parent.appendChild(this.objectiveRegion);
+
     this.objective = document.createElement('div');
     this.objective.id = 'hud-objective';
-    this.objective.style.cssText = `
-      position: absolute;
-      top: clamp(48px, 6vh, 60px);
-      left: clamp(12px, 3vw, 32px);
-      max-width: min(400px, calc(100vw - 24px));
-      padding: clamp(8px, 1.5vw, 12px) clamp(12px, 2vw, 20px);
-      background: rgba(26, 16, 64, 0.85);
-      backdrop-filter: blur(12px);
-      border-left: 4px solid #7b2fff;
-      color: #e0f2fe;
-      font-family: 'Outfit', sans-serif;
-      box-shadow: 0 0 20px #7b2fff33;
-      font-size: clamp(12px, 2vw, 15px);
-      box-sizing: border-box;
-      font-weight: 500;
-      letter-spacing: 0.5px;
-      border-radius: 4px;
-      pointer-events: none;
-      user-select: none;
-      opacity: 1;
-      transition: opacity 0.2s ease;
-      z-index: 1000;
-    `;
-    parent.appendChild(this.objective);
+    this.objective.className = 'hud-glass-card hud-objective-card';
+    const objectiveEyebrow = document.createElement('div');
+    objectiveEyebrow.className = 'hud-card-eyebrow';
+    objectiveEyebrow.textContent = 'Objective';
+    this.objectiveText = document.createElement('div');
+    this.objectiveText.className = 'hud-objective-text';
+    this.objective.appendChild(objectiveEyebrow);
+    this.objective.appendChild(this.objectiveText);
+    this.objectiveRegion.appendChild(this.objective);
 
-    this.status = document.createElement('div');
-    this.status.id = 'hud-status';
-    this.status.style.cssText = `
-      position: absolute;
-      top: clamp(52px, 10vw, 86px);
-      left: clamp(12px, 3vw, 32px);
-      max-width: min(400px, calc(100vw - 24px));
-      padding: clamp(7px, 1.5vw, 10px) clamp(12px, 2vw, 18px);
-      background: rgba(26, 16, 64, 0.85);
-      backdrop-filter: blur(8px);
-      border-left: 4px solid #ff6b9d;
-      color: #ff6b9d;
-      font-family: 'Outfit', sans-serif;
-      font-size: clamp(11px, 1.8vw, 14px);
-      box-sizing: border-box;
-      font-weight: 500;
-      border-radius: 4px;
-      pointer-events: none;
-      user-select: none;
-      opacity: 0;
-      transition: opacity 0.15s ease;
-      z-index: 1000;
-    `;
-    parent.appendChild(this.status);
+    this.statusLane = document.createElement('div');
+    this.statusLane.id = 'hud-status-lane';
+    this.statusLane.className = 'hud-status-lane';
+    this.objectiveRegion.appendChild(this.statusLane);
 
     this.crosshair = document.createElement('div');
-    this.crosshair.style.cssText = `
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      width: 4px;
-      height: 4px;
-      border-radius: 50%;
-      background: #00d2ff;
-      box-shadow: 0 0 8px #00d2ff88;
-      transform: translate(-50%, -50%);
-      pointer-events: none;
-      z-index: 1000;
-    `;
+    this.crosshair.className = 'hud-crosshair';
     parent.appendChild(this.crosshair);
 
     this.createCollectibleCounter();
@@ -148,87 +65,67 @@ export class HUD implements Disposable {
 
   showPrompt(text: string): void {
     this.prompt.textContent = text;
-    this.prompt.style.opacity = '1';
+    this.prompt.classList.add('is-visible');
   }
 
   hidePrompt(): void {
-    this.prompt.style.opacity = '0';
+    this.prompt.classList.remove('is-visible');
   }
 
   setHoldProgress(progress: number | null): void {
     if (progress === null) {
-      this.holdWrap.style.opacity = '0';
+      this.holdWrap.classList.remove('is-visible');
       this.holdFill.style.width = '0%';
       return;
     }
     const clamped = Math.max(0, Math.min(1, progress));
-    this.holdWrap.style.opacity = '1';
+    this.holdWrap.classList.add('is-visible');
     this.holdFill.style.width = `${(clamped * 100).toFixed(2)}%`;
   }
 
   setObjective(text: string): void {
-    this.objective.textContent = `Objective: ${text}`;
+    this.objectiveText.textContent = text;
     this.showObjective();
   }
 
   hideObjective(): void {
-    this.objective.style.opacity = '0';
+    this.objective.classList.remove('is-visible');
   }
 
   showObjective(): void {
-    this.objective.style.opacity = '1';
+    this.objective.classList.add('is-visible');
   }
 
   showStatus(text: string, durationMs = 1600): void {
-    this.status.textContent = text;
-    this.status.style.opacity = '1';
-    if (this.statusTimer) {
-      clearTimeout(this.statusTimer);
+    const status = document.createElement('div');
+    status.className = 'hud-glass-card hud-status-card';
+    status.textContent = text;
+    this.statusLane.appendChild(status);
+    void status.offsetHeight;
+    status.classList.add('is-visible');
+
+    while (this.statusLane.children.length > 3) {
+      const oldest = this.statusLane.firstElementChild as HTMLDivElement | null;
+      if (!oldest) break;
+      this.clearStatus(oldest, true);
     }
-    this.statusTimer = setTimeout(() => {
-      this.status.style.opacity = '0';
-      this.statusTimer = null;
+
+    const timer = setTimeout(() => {
+      this.clearStatus(status, false);
     }, durationMs);
+    this.statusTimers.set(status, timer);
   }
 
   private createCollectibleCounter(): void {
     this.collectibleEl = document.createElement('div');
-    Object.assign(this.collectibleEl.style, {
-      position: 'absolute',
-      top: 'clamp(12px, 2vh, 20px)',
-      left: 'clamp(12px, 2vw, 20px)',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '8px',
-      opacity: '0',
-      transition: 'opacity 0.3s ease',
-      pointerEvents: 'none',
-    });
+    this.collectibleEl.className = 'hud-stat-chip hud-collectible-chip';
 
     const icon = document.createElement('div');
-    Object.assign(icon.style, {
-      width: '28px',
-      height: '28px',
-      borderRadius: '50%',
-      background: 'linear-gradient(135deg, #FFD700, #FFA500)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontSize: '14px',
-      boxShadow: '0 0 10px #FFD70044',
-    });
+    icon.className = 'hud-stat-icon hud-collectible-icon';
     icon.textContent = '\u2726';
 
     const count = document.createElement('span');
     count.className = 'collectible-count';
-    Object.assign(count.style, {
-      fontFamily: "'Outfit', sans-serif",
-      fontWeight: '700',
-      fontSize: '18px',
-      color: '#FFD700',
-      textShadow: '0 0 8px #FFD70044',
-      transition: 'transform 0.2s ease',
-    });
     count.textContent = '0';
 
     this.collectibleEl.appendChild(icon);
@@ -238,26 +135,11 @@ export class HUD implements Disposable {
 
   private createHealthHearts(): void {
     this.healthEl = document.createElement('div');
-    Object.assign(this.healthEl.style, {
-      position: 'absolute',
-      top: 'clamp(12px, 2vh, 20px)',
-      right: 'clamp(12px, 2vw, 20px)',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '5px',
-      opacity: '0',
-      transition: 'opacity 0.3s ease',
-      pointerEvents: 'none',
-    });
+    this.healthEl.className = 'hud-stat-chip hud-health-chip';
 
     for (let i = 0; i < 3; i++) {
       const heart = document.createElement('span');
-      Object.assign(heart.style, {
-        color: '#ff6b9d',
-        fontSize: '22px',
-        filter: 'drop-shadow(0 0 6px #ff6b9d88)',
-        transition: 'transform 0.2s ease, opacity 0.2s ease',
-      });
+      heart.className = 'hud-heart';
       heart.textContent = '\u2764';
       this.hearts.push(heart);
       this.healthEl.appendChild(heart);
@@ -288,26 +170,42 @@ export class HUD implements Disposable {
   }
 
   showGameHUD(): void {
-    this.collectibleEl.style.opacity = '1';
-    this.healthEl.style.opacity = '1';
+    this.collectibleEl.classList.add('is-visible');
+    this.healthEl.classList.add('is-visible');
   }
 
   hideGameHUD(): void {
-    this.collectibleEl.style.opacity = '0';
-    this.healthEl.style.opacity = '0';
+    this.collectibleEl.classList.remove('is-visible');
+    this.healthEl.classList.remove('is-visible');
   }
 
   dispose(): void {
-    if (this.statusTimer) {
-      clearTimeout(this.statusTimer);
-      this.statusTimer = null;
+    for (const timer of this.statusTimers.values()) {
+      clearTimeout(timer);
     }
+    this.statusTimers.clear();
     this.prompt.remove();
     this.holdWrap.remove();
+    this.objectiveRegion.remove();
     this.objective.remove();
-    this.status.remove();
     this.crosshair.remove();
     this.collectibleEl.remove();
     this.healthEl.remove();
+  }
+
+  private clearStatus(status: HTMLDivElement, immediate: boolean): void {
+    const timer = this.statusTimers.get(status);
+    if (timer) {
+      clearTimeout(timer);
+      this.statusTimers.delete(status);
+    }
+
+    if (immediate) {
+      status.remove();
+      return;
+    }
+
+    status.classList.remove('is-visible');
+    window.setTimeout(() => status.remove(), 180);
   }
 }
