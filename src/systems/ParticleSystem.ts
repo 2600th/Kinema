@@ -87,6 +87,23 @@ export class ParticleSystem implements RuntimeSystem {
         }
       }),
     );
+    this.unsubs.push(
+      this.eventBus.on("player:damaged", ({ position, reason }) => {
+        if (reason !== "spike") {
+          return;
+        }
+        const emitBurst = (particles: GameParticles): void => {
+          particles.damageBurst(position);
+        };
+        if (this.gameParticles) {
+          emitBurst(this.gameParticles);
+        } else {
+          void this.ensureGameParticles().then((p) => {
+            emitBurst(p);
+          });
+        }
+      }),
+    );
   }
 
   fixedUpdate(_dt: number): void {

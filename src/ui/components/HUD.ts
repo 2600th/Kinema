@@ -14,10 +14,17 @@ export class HUD implements Disposable {
   private objectiveText: HTMLDivElement;
   private statusLane: HTMLDivElement;
   private crosshair: HTMLDivElement;
+  private damageOverlay: HTMLDivElement;
   private collectibleEl!: HTMLDivElement;
   private healthEl!: HTMLDivElement;
   private hearts: HTMLSpanElement[] = [];
+  private previousObjectiveText: string | null = null;
+  private previousCollectibleCount = 0;
+  private previousHealth: number | null = null;
   private statusTimers = new Map<HTMLDivElement, ReturnType<typeof setTimeout>>();
+  private heartTimers = new Map<HTMLSpanElement, ReturnType<typeof setTimeout>>();
+  private elementTimers = new Map<HTMLElement, ReturnType<typeof setTimeout>>();
+  private healthHitTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(parent: HTMLElement) {
     this.container = parent;
@@ -59,6 +66,10 @@ export class HUD implements Disposable {
     this.crosshair.className = 'hud-crosshair';
     parent.appendChild(this.crosshair);
 
+    this.damageOverlay = document.createElement('div');
+    this.damageOverlay.className = 'hud-damage-overlay';
+    parent.appendChild(this.damageOverlay);
+
     this.createCollectibleCounter();
     this.createHealthHearts();
   }
@@ -84,8 +95,13 @@ export class HUD implements Disposable {
   }
 
   setObjective(text: string): void {
+    const changed = text !== this.previousObjectiveText;
     this.objectiveText.textContent = text;
     this.showObjective();
+    if (changed) {
+      this.triggerPulse(this.objective, 'is-updated', 480);
+      this.previousObjectiveText = text;
+    }
   }
 
   hideObjective(): void {
@@ -139,7 +155,7 @@ export class HUD implements Disposable {
 
     for (let i = 0; i < 3; i++) {
       const heart = document.createElement('span');
-      heart.className = 'hud-heart';
+      heart.className = 'hud-heart is-filled';
       heart.textContent = '\u2764';
       this.hearts.push(heart);
       this.healthEl.appendChild(heart);
@@ -152,21 +168,75 @@ export class HUD implements Disposable {
     const countEl = this.collectibleEl.querySelector('.collectible-count') as HTMLSpanElement;
     if (countEl) {
       countEl.textContent = String(count);
-      countEl.style.transform = 'scale(1.3)';
-      setTimeout(() => { countEl.style.transform = 'scale(1)'; }, 200);
+      if (count !== this.previousCollectibleCount) {
+        this.triggerPulse(this.collectibleEl, 'is-boosted', 440);
+        countEl.style.transform = 'scale(1.3)';
+        setTimeout(() => { countEl.style.transform = 'scale(1)'; }, 200);
+      }
     }
+    this.previousCollectibleCount = count;
   }
 
   updateHealth(current: number, _max: number): void {
+    if (this.previousHealth !== null && current < this.previousHealth) {
+      this.healthEl.classList.remove('is-hit');
+      void this.healthEl.offsetWidth;
+      this.healthEl.classList.add('is-hit');
+      if (this.healthHitTimer) {
+        clearTimeout(this.healthHitTimer);
+      }
+      this.healthHitTimer = setTimeout(() => {
+        this.healthEl.classList.remove('is-hit');
+        this.healthHitTimer = null;
+      }, 420);
+
+      for (let index = current; index < this.previousHealth; index++) {
+        const heart = this.hearts[index];
+        if (!heart) continue;
+        const existing = this.heartTimers.get(heart);
+        if (existing) {
+          clearTimeout(existing);
+        }
+        heart.classList.remove('is-lost');
+        void heart.offsetWidth;
+        heart.classList.add('is-lost');
+        const timer = setTimeout(() => {
+          heart.classList.remove('is-lost');
+          this.heartTimers.delete(heart);
+        }, 420);
+        this.heartTimers.set(heart, timer);
+      }
+    } else if (this.previousHealth !== null && current > this.previousHealth) {
+      this.triggerPulse(this.healthEl, 'is-restored', 460);
+      for (let index = this.previousHealth; index < current; index++) {
+        const heart = this.hearts[index];
+        if (!heart) continue;
+        this.triggerPulse(heart, 'is-refilled', 420);
+      }
+    }
+
     this.hearts.forEach((heart, i) => {
       const filled = i < current;
-      heart.style.opacity = filled ? '1' : '0.2';
-      heart.style.filter = filled ? 'drop-shadow(0 0 6px #ff6b9d88)' : 'none';
-      if (filled) {
-        heart.style.transform = 'scale(1.2)';
-        setTimeout(() => { heart.style.transform = 'scale(1)'; }, 200);
-      }
+      heart.classList.toggle('is-filled', filled);
+      heart.classList.toggle('is-empty', !filled);
     });
+    this.previousHealth = current;
+  }
+
+  celebrateCollectible(value: number): void {
+    this.triggerPulse(this.collectibleEl, 'is-celebrating', 520);
+    this.spawnFloatingDelta(this.collectibleEl, `+${value}`, 'hud-floating-delta collectible');
+  }
+
+  flashObjectiveComplete(text: string): void {
+    this.triggerPulse(this.objective, 'is-complete', 620);
+    this.spawnFloatingDelta(this.objective, 'Complete', 'hud-floating-delta objective');
+    this.objectiveText.textContent = text;
+  }
+
+  flashDamage(reason: 'spike' | 'fall'): void {
+    this.damageOverlay.classList.toggle('is-fall', reason === 'fall');
+    this.triggerPulse(this.damageOverlay, 'is-hit', 420);
   }
 
   showGameHUD(): void {
@@ -184,11 +254,24 @@ export class HUD implements Disposable {
       clearTimeout(timer);
     }
     this.statusTimers.clear();
+    for (const timer of this.heartTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.heartTimers.clear();
+    for (const timer of this.elementTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.elementTimers.clear();
+    if (this.healthHitTimer) {
+      clearTimeout(this.healthHitTimer);
+      this.healthHitTimer = null;
+    }
     this.prompt.remove();
     this.holdWrap.remove();
     this.objectiveRegion.remove();
     this.objective.remove();
     this.crosshair.remove();
+    this.damageOverlay.remove();
     this.collectibleEl.remove();
     this.healthEl.remove();
   }
@@ -207,5 +290,33 @@ export class HUD implements Disposable {
 
     status.classList.remove('is-visible');
     window.setTimeout(() => status.remove(), 180);
+  }
+
+  private triggerPulse(element: HTMLElement, className: string, durationMs: number): void {
+    const existing = this.elementTimers.get(element);
+    if (existing) {
+      clearTimeout(existing);
+    }
+    element.classList.remove(className);
+    void element.offsetWidth;
+    element.classList.add(className);
+    const timer = setTimeout(() => {
+      element.classList.remove(className);
+      this.elementTimers.delete(element);
+    }, durationMs);
+    this.elementTimers.set(element, timer);
+  }
+
+  private spawnFloatingDelta(parent: HTMLElement, text: string, className: string): void {
+    const delta = document.createElement('div');
+    delta.className = className;
+    delta.textContent = text;
+    parent.appendChild(delta);
+    void delta.offsetWidth;
+    delta.classList.add('is-visible');
+    window.setTimeout(() => {
+      delta.classList.remove('is-visible');
+      window.setTimeout(() => delta.remove(), 220);
+    }, 320);
   }
 }

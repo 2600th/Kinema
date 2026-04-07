@@ -1,5 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import type { InputState } from '@core/types';
+import * as THREE from 'three';
 
 function showBootstrapError(err: unknown): void {
   const message = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
@@ -147,6 +148,19 @@ async function bootstrap(): Promise<void> {
   });
 
   let levelLoaded = false;
+  type ProceduralRunDescriptor = {
+    kind: 'procedural';
+    reviewSpawnKey: string | null;
+    camYaw: number | null;
+    camPitch: number | null;
+  };
+  type RunDescriptor =
+    | ProceduralRunDescriptor
+    | { kind: 'station'; key: import('@level/ShowcaseLayout').ShowcaseStationKey }
+    | { kind: 'saved'; key: string }
+    | { kind: 'editor-blank' };
+  let currentRun: RunDescriptor | null = null;
+  let restartInFlight = false;
 
   /** Yield to browser so CSS animations and paint can run */
   const yieldToRenderer = () => new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
@@ -161,8 +175,34 @@ async function bootstrap(): Promise<void> {
     camera.snapToAngle(yaw, pitch);
   };
 
-  const startGame = async (): Promise<void> => {
-    if (levelLoaded) return;
+  const cloneRun = (run: RunDescriptor): RunDescriptor => {
+    if (run.kind === 'procedural') {
+      return { ...run };
+    }
+    if (run.kind === 'station' || run.kind === 'saved') {
+      return { ...run };
+    }
+    return { kind: 'editor-blank' };
+  };
+
+  const getProceduralRunFromLocation = (): ProceduralRunDescriptor => {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      kind: 'procedural',
+      reviewSpawnKey: params.get('spawn'),
+      camYaw: parseFiniteParam(params.get('camYaw')),
+      camPitch: parseFiniteParam(params.get('camPitch')),
+    };
+  };
+
+  const unloadCurrentRun = (): void => {
+    if (!levelLoaded) return;
+    game.teardownLevel();
+    levelManager.unload();
+    levelLoaded = false;
+  };
+
+  const prepareSceneLoad = async (): Promise<void> => {
     if (editorManager?.isActive()) editorManager.toggle();
     await uiManager.loadingScreen.show();
     // Start render loop with simulation DISABLED so the loading screen CSS
@@ -170,25 +210,31 @@ async function bootstrap(): Promise<void> {
     // paints frames (hidden behind the loading screen at z-index 1300).
     gameLoop.setSimulationEnabled(false);
     if (!gameLoop.isRunning()) gameLoop.start();
+    unloadCurrentRun();
     await yieldToRenderer();
-    const params = new URLSearchParams(window.location.search);
-    const reviewSpawnParam = params.get('spawn');
-    const camYawParam = parseFiniteParam(params.get('camYaw'));
-    const camPitchParam = parseFiniteParam(params.get('camPitch'));
-    const reviewSpawn = reviewSpawnParam ? resolveProceduralReviewSpawn(reviewSpawnParam) : null;
+  };
+
+  const finishSceneLoad = async (): Promise<void> => {
+    gameLoop.setSimulationEnabled(true);
+    await uiManager.loadingScreen.hide();
+    levelLoaded = true;
+  };
+
+  const startGame = async (descriptor = getProceduralRunFromLocation()): Promise<void> => {
+    await prepareSceneLoad();
+    const reviewSpawn = descriptor.reviewSpawnKey ? resolveProceduralReviewSpawn(descriptor.reviewSpawnKey) : null;
 
     await levelManager.load('procedural');
     playerController.spawn(reviewSpawn?.spawn ?? levelManager.getSpawnPoint());
     applyCameraPose(
-      camYawParam ?? reviewSpawn?.cameraYaw ?? null,
-      camPitchParam ?? reviewSpawn?.cameraPitch ?? null,
+      descriptor.camYaw ?? reviewSpawn?.cameraYaw ?? null,
+      descriptor.camPitch ?? reviewSpawn?.cameraPitch ?? null,
     );
     // Warm the Rapier query pipeline so first-tick raycasts are valid.
     physicsWorld.step();
     game.setupLevel();
-    gameLoop.setSimulationEnabled(true);
-    await uiManager.loadingScreen.hide();
-    levelLoaded = true;
+    currentRun = cloneRun(descriptor);
+    await finishSceneLoad();
   };
 
   const returnToMainMenu = async (): Promise<void> => {
@@ -199,39 +245,27 @@ async function bootstrap(): Promise<void> {
     levelManager.unload();
     audioManager.stopMusic(1.5);
     levelLoaded = false;
+    currentRun = null;
+    restartInFlight = false;
   };
 
   const startSavedLevel = async (key: string): Promise<void> => {
-    if (editorManager?.isActive()) editorManager.toggle();
-    if (levelLoaded) {
-      game.teardownLevel();
-      levelManager.unload();
-      levelLoaded = false;
-    }
     const data = LevelSaveStore.load(key);
     if (!data) {
       console.error(`[Kinema] Failed to load saved level "${key}"`);
       return;
     }
-    await uiManager.loadingScreen.show();
-    gameLoop.setSimulationEnabled(false);
-    if (!gameLoop.isRunning()) gameLoop.start();
-    await yieldToRenderer();
+    await prepareSceneLoad();
     await levelManager.loadFromJSON(data);
     playerController.spawn(levelManager.getSpawnPoint());
     physicsWorld.step();
     game.setupCustomLevel();
-    gameLoop.setSimulationEnabled(true);
-    await uiManager.loadingScreen.hide();
-    levelLoaded = true;
+    currentRun = { kind: 'saved', key };
+    await finishSceneLoad();
   };
 
   const startBlankLevelForEditor = async (): Promise<void> => {
-    if (levelLoaded) {
-      game.teardownLevel();
-      levelManager.unload();
-      levelLoaded = false;
-    }
+    unloadCurrentRun();
     // Minimal blank level: a floor platform so the player can stand
     const blankLevel: import('@editor/LevelSerializer').LevelDataV2 = {
       version: 2,
@@ -267,28 +301,43 @@ async function bootstrap(): Promise<void> {
     physicsWorld.step();
     game.setupCustomLevel();
     levelLoaded = true;
+    currentRun = { kind: 'editor-blank' };
     // Open the editor
     eventBus.emit('editor:toggle', undefined);
   };
 
   const startStation = async (key: string): Promise<void> => {
-    if (levelLoaded) {
-      game.teardownLevel();
-      levelManager.unload();
-      levelLoaded = false;
-    }
-    await uiManager.loadingScreen.show();
-    gameLoop.setSimulationEnabled(false);
-    if (!gameLoop.isRunning()) gameLoop.start();
-    await yieldToRenderer();
+    await prepareSceneLoad();
     await levelManager.loadStation(key as import('@level/ShowcaseLayout').ShowcaseStationKey);
     playerController.spawn(levelManager.getSpawnPoint());
     physicsWorld.step();
     game.setupStation(key as import('@level/ShowcaseLayout').ShowcaseStationKey);
-    gameLoop.setSimulationEnabled(true);
-    await uiManager.loadingScreen.hide();
-    levelLoaded = true;
+    currentRun = { kind: 'station', key: key as import('@level/ShowcaseLayout').ShowcaseStationKey };
+    await finishSceneLoad();
   };
+
+  const restartCurrentRun = async (): Promise<void> => {
+    if (restartInFlight || !currentRun) return;
+    restartInFlight = true;
+    try {
+      const run = cloneRun(currentRun);
+      if (run.kind === 'procedural') {
+        await startGame(run);
+      } else if (run.kind === 'station') {
+        await startStation(run.key);
+      } else if (run.kind === 'saved') {
+        await startSavedLevel(run.key);
+      } else {
+        await startBlankLevelForEditor();
+      }
+    } finally {
+      restartInFlight = false;
+    }
+  };
+
+  eventBus.on('run:restartRequested', () => {
+    void restartCurrentRun();
+  });
 
   // Expose debug API for automated testing (Playwright, etc.)
   // Gated behind DEV to tree-shake new Function() evaluator from production builds.
@@ -409,11 +458,29 @@ async function bootstrap(): Promise<void> {
     getCollectibleCount() {
       return game.getCollectibleCount();
     },
+    getHealth() {
+      return game.getHealthState();
+    },
     listCollectibles() {
       return game.listRemainingCollectibles();
     },
+    listHazards() {
+      return game.listHazards();
+    },
     teleportToCollectible(id?: string) {
       return game.teleportPlayerToCollectible(id);
+    },
+    teleportToHazard(id?: string) {
+      return game.teleportPlayerToHazard(id);
+    },
+    teleportPlayer(position: { x: number; y: number; z: number }) {
+      return game.teleportPlayer(new THREE.Vector3(position.x, position.y, position.z));
+    },
+    forcePlayerPosition(position: { x: number; y: number; z: number }) {
+      playerController.body.setTranslation(new RAPIER.Vector3(position.x, position.y, position.z), true);
+      playerController.body.setLinvel(new RAPIER.Vector3(0, 0, 0), true);
+      playerController.body.setAngvel(new RAPIER.Vector3(0, 0, 0), true);
+      return true;
     },
     /** Wait for a condition on player state, polling at physics rate. */
     waitFor(predicate: string, timeoutMs = 5000): Promise<boolean> {
@@ -456,7 +523,7 @@ async function bootstrap(): Promise<void> {
     registerUnload(null);
     console.log(`[Kinema] Station "${stationParam}" started directly`);
   } else if (reviewSpawnParam) {
-    await startGame();
+    await startGame(getProceduralRunFromLocation());
     gameLoop.start();
     registerUnload(null);
     console.log(`[Kinema] Procedural level started at review spawn "${reviewSpawnParam}"`);

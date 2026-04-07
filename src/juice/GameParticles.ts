@@ -19,6 +19,8 @@ export class GameParticles {
   private dustPool: ParticlePool;
   private sparkPool: ParticlePool;
   private coinGlowPool: ParticlePool;
+  private hurtSparkPool: ParticlePool;
+  private hurtGlowPool: ParticlePool;
 
   constructor(scene: THREE.Scene) {
     // Dust: earthy brown, normal blending, soft and floaty
@@ -51,6 +53,26 @@ export class GameParticles {
       color: new THREE.Color(0xfff0a8),
       gravity: 0.45,
       drag: 2.2,
+      additive: true,
+    });
+
+    this.hurtSparkPool = new ParticlePool(scene, {
+      maxParticles: 96,
+      size: 0.08,
+      sizeVariation: 0.55,
+      color: new THREE.Color(0xff4fb0),
+      gravity: 2.2,
+      drag: 1.3,
+      additive: true,
+    });
+
+    this.hurtGlowPool = new ParticlePool(scene, {
+      maxParticles: 96,
+      size: 0.18,
+      sizeVariation: 0.55,
+      color: new THREE.Color(0x66ecff),
+      gravity: 0.7,
+      drag: 2,
       additive: true,
     });
   }
@@ -172,6 +194,29 @@ export class GameParticles {
     });
   }
 
+  damageBurst(position: THREE.Vector3): void {
+    _emitPos.copy(position);
+    _emitPos.y += 0.18;
+
+    _glowVelMin.set(-0.7, 0.5, -0.7);
+    _glowVelMax.set(0.7, 1.55, 0.7);
+    this.hurtGlowPool.emit(_emitPos, 12, {
+      velocityMin: _glowVelMin,
+      velocityMax: _glowVelMax,
+      lifetime: 0.24,
+      spread: 0.12,
+    });
+
+    _sparkVelMin.set(-1.75, 0.35, -1.75);
+    _sparkVelMax.set(1.75, 1.95, 1.75);
+    this.hurtSparkPool.emit(_emitPos, 16, {
+      velocityMin: _sparkVelMin,
+      velocityMax: _sparkVelMax,
+      lifetime: 0.26,
+      spread: 0.08,
+    });
+  }
+
   /**
    * Small outward puff at the player's feet when jumping.
    */
@@ -194,11 +239,15 @@ export class GameParticles {
     this.dustPool.update(dt, camera);
     this.sparkPool.update(dt, camera);
     this.coinGlowPool.update(dt, camera);
+    this.hurtSparkPool.update(dt, camera);
+    this.hurtGlowPool.update(dt, camera);
   }
 
   dispose(): void {
     this.dustPool.dispose();
     this.sparkPool.dispose();
     this.coinGlowPool.dispose();
+    this.hurtSparkPool.dispose();
+    this.hurtGlowPool.dispose();
   }
 }

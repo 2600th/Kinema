@@ -88,6 +88,7 @@ export class UIManager implements Disposable {
 
     this.unsubscribers.push(
       this.eventBus.on('objective:completed', ({ text }) => {
+        this.hud.flashObjectiveComplete(text);
         this.hud.showStatus(`Objective complete: ${text}`);
       }),
     );
@@ -123,8 +124,20 @@ export class UIManager implements Disposable {
     );
 
     this.unsubscribers.push(
+      this.eventBus.on('collectible:collected', ({ value }) => {
+        this.hud.celebrateCollectible(value);
+      }),
+    );
+
+    this.unsubscribers.push(
       this.eventBus.on('health:changed', ({ current, max }) => {
         this.hud.updateHealth(current, max);
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('player:damaged', ({ reason }) => {
+        this.hud.flashDamage(reason);
       }),
     );
 

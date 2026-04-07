@@ -178,6 +178,7 @@ export interface EventMap {
   'player:landed': { impactSpeed: number };
   'player:jumped': { airJump: boolean; run: boolean; jumpVel: number; position: THREE.Vector3; groundPosition: THREE.Vector3 };
   'player:respawned': { reason: string };
+  'player:damaged': { current: number; max: number; reason: 'spike' | 'fall'; position: THREE.Vector3 };
   'interaction:focusChanged': { id: string | null; label: string | null };
   'interaction:triggered': { id: string };
   'interaction:blocked': { id: string; reason: string };
@@ -198,6 +199,7 @@ export interface EventMap {
   'health:changed': { current: number; max: number };
   'player:dying': { reason: string };
   'player:deathMidpoint': undefined;
+  'run:restartRequested': { reason: 'health-depleted' };
   'vehicle:enter': { vehicle: VehicleController };
   'vehicle:exit': { position: THREE.Vector3 };
   'vehicle:engineStart': undefined;

@@ -8,6 +8,11 @@ export class CharacterModel implements Disposable {
   readonly clips: Map<string, THREE.AnimationClip>;
   readonly handBone: THREE.Object3D | null;
   private readonly baseRootY: number;
+  private readonly baseMaterialState = new Map<
+    THREE.MeshStandardMaterial,
+    { color: THREE.Color; emissive: THREE.Color; emissiveIntensity: number }
+  >();
+  private readonly damageTint = new THREE.Color(0xff6ea8);
 
   private constructor(
     root: THREE.Object3D,
@@ -154,6 +159,15 @@ export class CharacterModel implements Disposable {
     this.root.position.y = this.baseRootY + offsetY;
   }
 
+  setDamagePulse(weight: number): void {
+    const clamped = Math.max(0, Math.min(1, weight));
+    for (const [material, base] of this.baseMaterialState.entries()) {
+      material.color.copy(base.color).lerp(this.damageTint, clamped * 0.16);
+      material.emissive.copy(base.emissive).lerp(this.damageTint, clamped * 0.82);
+      material.emissiveIntensity = base.emissiveIntensity + clamped * 0.95;
+    }
+  }
+
   /** Reset all materials to a neutral mannequin color (removes purple joints). */
   neutralize(): void {
     const neutral = new THREE.Color(0xccbbaa);
@@ -182,6 +196,7 @@ export class CharacterModel implements Disposable {
       const upgraded = materials.map((material) => CharacterModel.createHeroMaterial(material, materialIndex++));
       node.material = Array.isArray(node.material) ? upgraded : upgraded[0];
     });
+    this.captureBaseMaterialState();
   }
 
   /** Tint all materials by blending toward the given color. */
@@ -198,6 +213,7 @@ export class CharacterModel implements Disposable {
         }
       }
     });
+    this.captureBaseMaterialState();
   }
 
   dispose(): void {
@@ -227,6 +243,7 @@ export class CharacterModel implements Disposable {
         }
       }
     });
+    this.captureBaseMaterialState();
   }
 
   private static findRootBoneName(root: THREE.Object3D): string {
@@ -250,6 +267,22 @@ export class CharacterModel implements Disposable {
         }
       }
     }
+  }
+
+  private captureBaseMaterialState(): void {
+    this.baseMaterialState.clear();
+    this.root.traverse((node) => {
+      if (!(node instanceof THREE.Mesh)) return;
+      const materials = Array.isArray(node.material) ? node.material : [node.material];
+      for (const material of materials) {
+        if (!(material instanceof THREE.MeshStandardMaterial)) continue;
+        this.baseMaterialState.set(material, {
+          color: material.color.clone(),
+          emissive: material.emissive.clone(),
+          emissiveIntensity: material.emissiveIntensity,
+        });
+      }
+    });
   }
 
   private static createHeroMaterial(material: THREE.Material, materialIndex: number): THREE.Material {

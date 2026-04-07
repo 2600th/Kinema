@@ -27,6 +27,8 @@ import { CoinCollectibleSystem, type CoinDebugEntry } from "@systems/CoinCollect
 import { DebugRuntimeSystem } from "@systems/DebugRuntimeSystem";
 import { InteractableSystem } from "@systems/InteractableSystem";
 import { ParticleSystem } from "@systems/ParticleSystem";
+import { PlayerHealthSystem, type HealthDebugState } from "@systems/PlayerHealthSystem";
+import { SpikeHazardSystem, type HazardDebugEntry } from "@systems/SpikeHazardSystem";
 import type { UIManager } from "@ui/UIManager";
 import type { VehicleManager } from "@vehicle/VehicleManager";
 import * as THREE from "three";
@@ -74,6 +76,8 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
   // Runtime subsystems
   private systems: RuntimeSystem[] = [];
   private readonly interactableSystem: InteractableSystem;
+  private readonly healthSystem: PlayerHealthSystem;
+  private readonly spikeHazardSystem: SpikeHazardSystem;
   private readonly coinSystem: CoinCollectibleSystem;
   private readonly debugSystem: DebugRuntimeSystem;
 
@@ -109,6 +113,17 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     );
     this.registerSystem(this.interactableSystem);
 
+    this.healthSystem = new PlayerHealthSystem(eventBus);
+    this.registerSystem(this.healthSystem);
+
+    this.spikeHazardSystem = new SpikeHazardSystem(
+      renderer.scene,
+      playerController,
+      vehicleManager,
+      this.healthSystem,
+    );
+    this.registerSystem(this.spikeHazardSystem);
+
     this.coinSystem = new CoinCollectibleSystem(renderer.scene, eventBus, playerController, vehicleManager);
     this.registerSystem(this.coinSystem);
 
@@ -124,8 +139,13 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     // Respawn at the midpoint of the iris wipe (screen is black)
     this.unsubs.push(
       this.eventBus.on('player:deathMidpoint', () => {
+        const pendingResolution = this.healthSystem.consumePendingDeathResolution();
+        if (pendingResolution?.mode === 'full-reset') {
+          this.eventBus.emit('run:restartRequested', { reason: 'health-depleted' });
+          return;
+        }
         this.playerController.respawn();
-        this.eventBus.emit('player:respawned', { reason: 'fall' });
+        this.eventBus.emit('player:respawned', { reason: pendingResolution?.reason ?? 'fall' });
         this.isDying = false;
       }),
     );
@@ -176,7 +196,18 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
           { duration: 0, onStart: () => this.hitstop.trigger(0.06) },
         ]);
       }),
+      this.eventBus.on("player:damaged", ({ reason }) => {
+        if (reason !== "spike") {
+          return;
+        }
+        this.feedbackPlayer.play([
+          { duration: 0, onStart: () => this.camera.addTrauma(0.18) },
+          { duration: 0, onStart: () => this.hitstop.trigger(0.045) },
+          { duration: 0, onStart: () => this.fovPunch.punch(-1.4) },
+        ]);
+      }),
       this.eventBus.on("player:dying", () => {
+        this.isDying = true;
         this.feedbackPlayer.play([
           { duration: 0, onStart: () => this.camera.addTrauma(0.4) },
           { duration: 0, onStart: () => this.hitstop.trigger(0.12) },
@@ -184,6 +215,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
         ]);
       }),
       this.eventBus.on("player:respawned", () => {
+        this.isDying = false;
         this.feedbackPlayer.play([
           { duration: 0, onStart: () => this.fovPunch.punch(2.0) },
           { duration: 0, onStart: () => this.camera.addTrauma(0.1) },
@@ -372,8 +404,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       this.playerController.setLadderZones(this.levelManager.getLadderZones());
       this.playerController.fixedUpdate(dt);
       if (this.playerController.position.y < this.fallRespawnY && !this.isDying) {
-        this.isDying = true;
-        this.eventBus.emit('player:dying', { reason: 'fall' });
+        this.healthSystem.applyFallDamage(this.playerController.position);
       }
     }
     this.audioManager.fixedUpdate(dt);
@@ -533,17 +564,22 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
 
   /** Minimal level setup for custom/editor levels -- no procedural showcase content. */
   setupCustomLevel(): void {
+    this.healthSystem.setupCustomLevel();
+    this.spikeHazardSystem.setupCustomLevel();
     this.coinSystem.setupCustomLevel();
     this.interactableSystem.setupCustomLevel();
   }
 
   /** Setup only the interactables for a single showcase station (debug/test). */
   setupStation(key: ShowcaseStationKey): void {
+    this.healthSystem.setupStation(key);
+    this.spikeHazardSystem.setupStation(key);
     this.coinSystem.setupStation(key);
     this.interactableSystem.setupStation(key);
   }
 
   teardownLevel(): void {
+    this.isDying = false;
     for (const system of this.systems) {
       system.teardownLevel?.();
     }
@@ -562,15 +598,34 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     return this.coinSystem.listRemainingCoins();
   }
 
+  getHealthState(): HealthDebugState {
+    return this.healthSystem.getHealthState();
+  }
+
+  listHazards(): HazardDebugEntry[] {
+    return this.spikeHazardSystem.listHazards();
+  }
+
   teleportPlayerToCollectible(id?: string): boolean {
     const target = this.coinSystem.getTeleportTarget(id);
     if (!target) {
       return false;
     }
 
-    this.playerController.spawn({
-      position: target.clone().add(new THREE.Vector3(0, 0.25, 0)),
-    });
+    return this.teleportPlayer(target.clone().add(new THREE.Vector3(0, 0.25, 0)));
+  }
+
+  teleportPlayerToHazard(id?: string): boolean {
+    const target = this.spikeHazardSystem.getTeleportTarget(id);
+    if (!target) {
+      return false;
+    }
+
+    return this.teleportPlayer(target.clone().add(new THREE.Vector3(0, 0.32, 0)));
+  }
+
+  teleportPlayer(position: THREE.Vector3): boolean {
+    this.playerController.spawn({ position });
     this.camera.snapToTarget();
     return true;
   }

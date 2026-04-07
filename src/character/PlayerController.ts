@@ -151,6 +151,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   private animator: AnimationController | null = null;
   private readonly capsuleMesh: THREE.Mesh;
   private pendingThrow = false;
+  private damagePulse = 0;
 
   constructor(
     private physicsWorld: PhysicsWorld,
@@ -208,6 +209,13 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       if (this.animator) {
         this.animator.playOneShot(PLAYER_PROFILE.deathClip ?? 'Death01');
       }
+    });
+    this.eventBus.on('player:damaged', () => {
+      this.damagePulse = 1;
+    });
+    this.eventBus.on('player:respawned', () => {
+      this.damagePulse = 0;
+      this.characterModel?.setDamagePulse(0);
     });
 
     const pos = this.body.translation();
@@ -603,6 +611,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     const crouchVisualLift =
       (this.standingCapsuleHalfHeight - this.currentCapsuleHalfHeight) * this.crouchVisual;
     this.characterModel?.setVisualLift(crouchVisualLift);
+    this.damagePulse += (0 - this.damagePulse) * (1 - Math.exp(-18 * _dt));
+    this.characterModel?.setDamagePulse(this.damagePulse);
     const animSpeed = this.currentMode.id === 'ladder'
       ? Math.abs(this.body.linvel().y)
       : this.cachedHorizontalSpeed;

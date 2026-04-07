@@ -12,8 +12,11 @@ vi.mock('./components/HUD', () => ({
     setHoldProgress = vi.fn();
     showStatus = vi.fn();
     setObjective = vi.fn();
+    flashObjectiveComplete = vi.fn();
     updateCollectibles = vi.fn();
+    celebrateCollectible = vi.fn();
     updateHealth = vi.fn();
+    flashDamage = vi.fn();
     showGameHUD = vi.fn();
     hideGameHUD = vi.fn();
     dispose = hudDispose;
@@ -111,6 +114,7 @@ describe('UIManager', () => {
     listeners.get('objective:completed')?.({ text: 'Reach the beacon' });
 
     expect(hud.setObjective).toHaveBeenCalledWith('Reach the beacon');
+    expect(hud.flashObjectiveComplete).toHaveBeenCalledWith('Reach the beacon');
     expect(hud.showStatus).toHaveBeenCalledWith('Objective complete: Reach the beacon');
     ui.dispose();
   });
@@ -129,6 +133,42 @@ describe('UIManager', () => {
     listeners.get('collectible:changed')?.({ count: 5 });
 
     expect(hud.updateCollectibles).toHaveBeenCalledWith(5);
+    ui.dispose();
+  });
+
+  it('routes collectible pickup celebrations and damage flashes to the HUD', () => {
+    const listeners = new Map<string, (payload: any) => void>();
+    const on = vi.fn((event: string, handler: (payload: any) => void) => {
+      listeners.set(event, handler);
+      return () => {};
+    });
+    const eventBus = { on };
+
+    const ui = new UIManager(eventBus as any);
+    const hud = hudInstances[0];
+
+    listeners.get('collectible:collected')?.({ value: 1 });
+    listeners.get('player:damaged')?.({ reason: 'spike' });
+
+    expect(hud.celebrateCollectible).toHaveBeenCalledWith(1);
+    expect(hud.flashDamage).toHaveBeenCalledWith('spike');
+    ui.dispose();
+  });
+
+  it('routes health updates to the HUD heart chip', () => {
+    const listeners = new Map<string, (payload: any) => void>();
+    const on = vi.fn((event: string, handler: (payload: any) => void) => {
+      listeners.set(event, handler);
+      return () => {};
+    });
+    const eventBus = { on };
+
+    const ui = new UIManager(eventBus as any);
+    const hud = hudInstances[0];
+
+    listeners.get('health:changed')?.({ current: 2, max: 3 });
+
+    expect(hud.updateHealth).toHaveBeenCalledWith(2, 3);
     ui.dispose();
   });
 });

@@ -374,6 +374,14 @@ export class AudioManager implements FixedUpdatable, Disposable {
       }),
     );
 
+    this.unsubscribers.push(
+      this.eventBus.on('player:damaged', ({ reason }) => {
+        if (reason === 'spike') {
+          this.sfxEngine.damageHit();
+        }
+      }),
+    );
+
     // ── Death / Respawn ────────────────────────────────
     this.unsubscribers.push(
       this.eventBus.on('player:dying', () => {

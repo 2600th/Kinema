@@ -326,6 +326,33 @@ export class SFXEngine {
     setTimeout(() => { this.delay.wet.value = 0; }, 250);
   }
 
+  damageHit(): void {
+    if (Tone.getContext().state !== 'running') return;
+    const toneNow = this.safeToneTime();
+    const noiseNow = this.safeNoiseTime();
+    const pitchVar = randRange(1.0, 0.08);
+
+    this.noiseSynth.noise.type = 'pink';
+    this.noiseSynth.envelope.attack = 0.001;
+    this.noiseSynth.envelope.decay = 0.08;
+    this.noiseSynth.envelope.sustain = 0;
+    this.noiseSynth.envelope.release = 0.02;
+    this.noiseSynth.volume.value = -14;
+    this.noiseSynth.triggerAttackRelease('32n', noiseNow);
+
+    this.toneSynth.oscillator.type = 'sawtooth';
+    this.toneSynth.envelope.attack = 0.002;
+    this.toneSynth.envelope.decay = 0.12;
+    this.toneSynth.envelope.sustain = 0;
+    this.toneSynth.envelope.release = 0.04;
+    this.toneSynth.volume.value = -10;
+    this.toneSynth.triggerAttackRelease(520 * pitchVar, 0.12, toneNow);
+    this.toneSynth.frequency.setValueAtTime(520 * pitchVar, toneNow);
+    this.toneSynth.frequency.exponentialRampToValueAtTime(240 * pitchVar, toneNow + 0.12);
+
+    this.noiseSynth.noise.type = 'white';
+  }
+
   objectiveComplete(): void {
     // Sustained major chord C-E-G with shimmer
     const now = Tone.now();
