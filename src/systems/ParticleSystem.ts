@@ -18,6 +18,11 @@ export class ParticleSystem implements RuntimeSystem {
     private vehicleManager: VehicleManager,
   ) {
     this.unsubs.push(
+      this.eventBus.on("level:loaded", () => {
+        void this.ensureGameParticles();
+      }),
+    );
+    this.unsubs.push(
       this.eventBus.on("player:jumped", ({ airJump, groundPosition, position }) => {
         if (airJump) {
           if (this.gameParticles) {
@@ -64,6 +69,21 @@ export class ParticleSystem implements RuntimeSystem {
           void this.ensureGameParticles().then((p) =>
             p.footstepDust(this.playerController.groundPosition, planarSpeed),
           );
+        }
+      }),
+    );
+
+    this.unsubs.push(
+      this.eventBus.on("collectible:collected", ({ position }) => {
+        const emitBurst = (particles: GameParticles): void => {
+          particles.coinBurst(position);
+        };
+        if (this.gameParticles) {
+          emitBurst(this.gameParticles);
+        } else {
+          void this.ensureGameParticles().then((p) => {
+            emitBurst(p);
+          });
         }
       }),
     );

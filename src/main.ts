@@ -406,6 +406,15 @@ async function bootstrap(): Promise<void> {
     get config() {
       return playerController.config;
     },
+    getCollectibleCount() {
+      return game.getCollectibleCount();
+    },
+    listCollectibles() {
+      return game.listRemainingCollectibles();
+    },
+    teleportToCollectible(id?: string) {
+      return game.teleportPlayerToCollectible(id);
+    },
     /** Wait for a condition on player state, polling at physics rate. */
     waitFor(predicate: string, timeoutMs = 5000): Promise<boolean> {
       const fn = new Function('p', `return ${predicate}`) as (p: any) => boolean;

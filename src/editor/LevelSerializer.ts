@@ -63,6 +63,9 @@ export interface SerializedObjectV2 {
   id: string;
   name: string;
   parentId: string | null;
+  visible?: boolean;
+  locked?: boolean;
+  spawnTag?: string;
   source: {
     type: 'primitive' | 'glb' | 'sprite' | 'brush';
     asset?: string;
@@ -136,6 +139,9 @@ export class LevelSerializer {
         id: obj.id,
         name: obj.name,
         parentId: obj.parentId ?? null,
+        visible: obj.visible ?? true,
+        locked: obj.locked ?? false,
+        spawnTag: obj.spawnTag,
         source: obj.source,
         transform: obj.transform,
         physics: {
@@ -211,6 +217,9 @@ export class LevelSerializer {
           id: obj.id,
           name: obj.name,
           parentId: null,
+          visible: true,
+          locked: false,
+          spawnTag: undefined,
           source: obj.source,
           transform: obj.transform,
           physics: { type: obj.physics?.type ?? 'static' },

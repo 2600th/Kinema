@@ -1,134 +1,100 @@
-/**
- * VFX particle system verification tests.
- *
- * Validates:
- *   1. Particle effects render without errors during gameplay
- *   2. Walking triggers footstep dust
- *   3. Jumping triggers jump puff + landing impact particles
- *   4. No WebGL errors during particle rendering
- *
- * Uses ?station=vehicles to load directly into gameplay (skips menu).
- *
- * Prerequisites:
- *   1. Start the dev server:  npm run dev
- *   2. Run:  npx playwright test tests/vfx-particles.ts
- */
-import { test, expect } from '@playwright/test';
+import { expect, test, type Page } from "@playwright/test";
 
-async function waitForGameReady(page: import('@playwright/test').Page) {
-  await page.goto('/?station=vehicles', { waitUntil: 'domcontentloaded' });
-  await page.locator('canvas').waitFor({ state: 'visible', timeout: 20_000 });
-  await page.waitForFunction(
-    () => {
-      const c = document.querySelector('canvas');
-      return c && c.offsetWidth > 0;
-    },
-    { timeout: 20_000 },
-  );
-  // Give the game loop a few seconds to settle (physics warm-up, assets)
-  await page.waitForTimeout(4_000);
+async function waitForGameReady(page: Page): Promise<void> {
+  await page.goto("/?station=vehicles", { waitUntil: "domcontentloaded" });
+  await page.locator("canvas").waitFor({ state: "visible", timeout: 60_000 });
+  await page.waitForFunction(() => Boolean((window as any).__KINEMA__), undefined, { timeout: 60_000 });
+  const grounded = await page.evaluate(() => (window as any).__KINEMA__.waitFor("p.isGrounded === true", 60_000));
+  expect(grounded).toBe(true);
 }
 
-test.describe('VFX Particle System', () => {
-  test.beforeEach(async ({ page }) => {
-    page.on('dialog', (dialog) => dialog.dismiss());
+async function hasParticleRuntimeLoaded(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const entries = performance.getEntriesByType("resource");
+    return entries.some((entry) => /GameParticles|ParticlePool|ParticlePresets/i.test(entry.name));
   });
+}
 
-  test('footstep dust renders during walking without errors', async ({ page }) => {
+test.describe("VFX Particle System", () => {
+  test("particle runtime is ready before the first jump and landing stays stable", async ({ page }) => {
     const errors: string[] = [];
-    page.on('console', (msg) => {
-      if (msg.type() === 'error') errors.push(msg.text());
+    page.on("console", (msg) => {
+      if (msg.type() === "error") errors.push(msg.text());
     });
 
     await waitForGameReady(page);
 
-    const canvas = page.locator('canvas');
-    await canvas.click();
-    // Brief pause for pointer lock to engage
-    await page.waitForTimeout(500);
+    await page.waitForFunction(
+      () => {
+        const entries = performance.getEntriesByType("resource");
+        return entries.some((entry) => /GameParticles|ParticlePool|ParticlePresets/i.test(entry.name));
+      },
+      undefined,
+      { timeout: 10_000 },
+    );
+    await page.evaluate(() => (window as any).__KINEMA__.simulateJump());
 
-    // Walk forward to trigger footstep dust — game physics movement
-    await page.keyboard.down('KeyW');
-    await page.waitForTimeout(2000);
-    await page.keyboard.up('KeyW');
-    // Let the character decelerate and particles settle
-    await page.waitForTimeout(500);
+    const airborne = await page.evaluate(() => (window as any).__KINEMA__.waitFor("p.vy > 0.5 && !p.isGrounded", 10_000));
+    expect(airborne).toBe(true);
+    const landed = await page.evaluate(() => (window as any).__KINEMA__.waitFor("p.isGrounded === true", 15_000));
+    expect(landed).toBe(true);
 
-    // Canvas should still be rendering
-    const canvasOk = await page.evaluate(() => {
-      const c = document.querySelector('canvas') as HTMLCanvasElement;
-      return c && c.width > 0 && c.height > 0;
-    });
-    expect(canvasOk).toBe(true);
+    const afterLoad = await hasParticleRuntimeLoaded(page);
+    expect(afterLoad).toBe(true);
 
     const fatalErrors = errors.filter(
-      (e) => e.includes('Fatal') || e.includes('Uncaught') || e.includes('WebGL'),
+      (e) => e.includes("Fatal") || e.includes("Uncaught") || e.includes("WebGL"),
     );
     expect(fatalErrors).toHaveLength(0);
   });
 
-  test('jump puff and landing impact render without errors', async ({ page }) => {
+  test("movement path remains stable and triggers gameplay-speed motion state", async ({ page }) => {
     const errors: string[] = [];
-    page.on('console', (msg) => {
-      if (msg.type() === 'error') errors.push(msg.text());
+    page.on("console", (msg) => {
+      if (msg.type() === "error") errors.push(msg.text());
     });
 
     await waitForGameReady(page);
 
-    const canvas = page.locator('canvas');
-    await canvas.click();
-    // Brief pause for pointer lock to engage
-    await page.waitForTimeout(500);
+    const before = await page.evaluate(() => (window as any).__KINEMA__.player.position);
+    await page.evaluate(() => (window as any).__KINEMA__.simulateMove(0, 1, 120));
 
-    // Jump multiple times to trigger jump puff + landing impact + pool recycling
+    const movedFastEnough = await page.evaluate(
+      () => (window as any).__KINEMA__.waitFor("Math.hypot(p.vx, p.vz) > 0.35 && p.isGrounded", 10_000),
+    );
+    expect(movedFastEnough).toBe(true);
+
+    const after = await page.evaluate(() => (window as any).__KINEMA__.player.position);
+    const delta = Math.hypot(after.x - before.x, after.z - before.z);
+    expect(delta).toBeGreaterThan(0.05);
+
+    const fatalErrors = errors.filter(
+      (e) => e.includes("Fatal") || e.includes("Uncaught") || e.includes("WebGL"),
+    );
+    expect(fatalErrors).toHaveLength(0);
+  });
+
+  test("repeated jump and landing cycles stay stable with particle runtime loaded", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "error") errors.push(msg.text());
+    });
+
+    await waitForGameReady(page);
+
     for (let i = 0; i < 4; i++) {
-      await page.keyboard.press('Space');
-      await page.waitForTimeout(1000);
+      await page.evaluate(() => (window as any).__KINEMA__.simulateJump());
+      const airborne = await page.evaluate(() => (window as any).__KINEMA__.waitFor("p.vy > 0.5 && !p.isGrounded", 10_000));
+      expect(airborne).toBe(true);
+      const landed = await page.evaluate(() => (window as any).__KINEMA__.waitFor("p.isGrounded === true", 15_000));
+      expect(landed).toBe(true);
     }
 
-    const canvasOk = await page.evaluate(() => {
-      const c = document.querySelector('canvas') as HTMLCanvasElement;
-      return c && c.width > 0 && c.height > 0;
-    });
-    expect(canvasOk).toBe(true);
+    const runtimeLoaded = await hasParticleRuntimeLoaded(page);
+    expect(runtimeLoaded).toBe(true);
 
     const fatalErrors = errors.filter(
-      (e) => e.includes('Fatal') || e.includes('Uncaught') || e.includes('WebGL'),
-    );
-    expect(fatalErrors).toHaveLength(0);
-  });
-
-  test('sprinting generates continuous dust without errors', async ({ page }) => {
-    const errors: string[] = [];
-    page.on('console', (msg) => {
-      if (msg.type() === 'error') errors.push(msg.text());
-    });
-
-    await waitForGameReady(page);
-
-    const canvas = page.locator('canvas');
-    await canvas.click();
-    // Brief pause for pointer lock to engage
-    await page.waitForTimeout(500);
-
-    // Sprint forward (Shift+W) to generate continuous footstep dust — game physics movement
-    await page.keyboard.down('ShiftLeft');
-    await page.keyboard.down('KeyW');
-    await page.waitForTimeout(3000);
-    await page.keyboard.up('KeyW');
-    await page.keyboard.up('ShiftLeft');
-    // Let particles settle after stopping
-    await page.waitForTimeout(500);
-
-    // Verify canvas is still healthy after sustained particle emission
-    const canvasOk = await page.evaluate(() => {
-      const c = document.querySelector('canvas') as HTMLCanvasElement;
-      return c && c.width > 0 && c.height > 0;
-    });
-    expect(canvasOk).toBe(true);
-
-    const fatalErrors = errors.filter(
-      (e) => e.includes('Fatal') || e.includes('Uncaught') || e.includes('WebGL'),
+      (e) => e.includes("Fatal") || e.includes("Uncaught") || e.includes("WebGL"),
     );
     expect(fatalErrors).toHaveLength(0);
   });

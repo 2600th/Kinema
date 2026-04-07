@@ -303,6 +303,29 @@ export class SFXEngine {
     setTimeout(() => { fm.dispose(); chorus.dispose(); this.delay.wet.value = 0; }, 1500);
   }
 
+  coinCollect(): void {
+    if (Tone.getContext().state !== 'running') return;
+    const now = this.safeToneTime();
+    const sparkleNow = this.safeSparkleSynthTime();
+    const baseFreq = randRange(540, 20);
+    const sweepTarget = baseFreq * 1.35;
+
+    this.delay.wet.value = 0.15;
+    this.toneSynth.oscillator.type = 'triangle';
+    this.toneSynth.envelope.attack = 0.002;
+    this.toneSynth.envelope.decay = 0.12;
+    this.toneSynth.envelope.sustain = 0;
+    this.toneSynth.envelope.release = 0.08;
+    this.toneSynth.volume.value = -10;
+    this.toneSynth.triggerAttackRelease(baseFreq, 0.14, now);
+    this.toneSynth.frequency.setValueAtTime(baseFreq, now);
+    this.toneSynth.frequency.exponentialRampToValueAtTime(sweepTarget, now + 0.12);
+
+    this.sparkleSynth.volume.value = -12;
+    this.sparkleSynth.triggerAttackRelease(baseFreq * 2.4, 0.16, sparkleNow + 0.02);
+    setTimeout(() => { this.delay.wet.value = 0; }, 250);
+  }
+
   objectiveComplete(): void {
     // Sustained major chord C-E-G with shimmer
     const now = Tone.now();

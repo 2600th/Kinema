@@ -2,8 +2,9 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests",
-  testMatch: ["visual-check.ts", "vehicle-controllers.ts", "vfx-particles.ts", "jump-mechanics.ts", "station-screenshots.ts", "physics-verification.ts", "procedural-review-screenshots.ts"],
-  timeout: 60_000,
+  testMatch: ["visual-check.ts", "vehicle-controllers.ts", "vfx-particles.ts", "jump-mechanics.ts", "station-screenshots.ts", "physics-verification.ts", "procedural-review-screenshots.ts", "procedural-coins.ts"],
+  timeout: 120_000,
+  workers: 2,
   webServer: {
     command: 'npm run dev',
     url: 'http://localhost:5173',

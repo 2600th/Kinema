@@ -23,6 +23,7 @@ import type { ShowcaseStationKey } from "@level/ShowcaseLayout";
 import type { PhysicsWorld } from "@physics/PhysicsWorld";
 import type { RendererManager } from "@renderer/RendererManager";
 import { CheckpointObjectiveSystem } from "@systems/CheckpointObjectiveSystem";
+import { CoinCollectibleSystem, type CoinDebugEntry } from "@systems/CoinCollectibleSystem";
 import { DebugRuntimeSystem } from "@systems/DebugRuntimeSystem";
 import { InteractableSystem } from "@systems/InteractableSystem";
 import { ParticleSystem } from "@systems/ParticleSystem";
@@ -73,6 +74,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
   // Runtime subsystems
   private systems: RuntimeSystem[] = [];
   private readonly interactableSystem: InteractableSystem;
+  private readonly coinSystem: CoinCollectibleSystem;
   private readonly debugSystem: DebugRuntimeSystem;
 
   constructor(
@@ -106,6 +108,9 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       uiManager,
     );
     this.registerSystem(this.interactableSystem);
+
+    this.coinSystem = new CoinCollectibleSystem(renderer.scene, eventBus, playerController, vehicleManager);
+    this.registerSystem(this.coinSystem);
 
     const particleSystem = new ParticleSystem(renderer, eventBus, playerController, vehicleManager);
     this.registerSystem(particleSystem);
@@ -528,11 +533,13 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
 
   /** Minimal level setup for custom/editor levels -- no procedural showcase content. */
   setupCustomLevel(): void {
+    this.coinSystem.setupCustomLevel();
     this.interactableSystem.setupCustomLevel();
   }
 
   /** Setup only the interactables for a single showcase station (debug/test). */
   setupStation(key: ShowcaseStationKey): void {
+    this.coinSystem.setupStation(key);
     this.interactableSystem.setupStation(key);
   }
 
@@ -545,6 +552,27 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
   setEditorManager(manager: EditorManager): void {
     this.editorManager = manager;
     this.debugSystem.setEditorManager(manager);
+  }
+
+  getCollectibleCount(): number {
+    return this.coinSystem.getCollectedCount();
+  }
+
+  listRemainingCollectibles(): CoinDebugEntry[] {
+    return this.coinSystem.listRemainingCoins();
+  }
+
+  teleportPlayerToCollectible(id?: string): boolean {
+    const target = this.coinSystem.getTeleportTarget(id);
+    if (!target) {
+      return false;
+    }
+
+    this.playerController.spawn({
+      position: target.clone().add(new THREE.Vector3(0, 0.25, 0)),
+    });
+    this.camera.snapToTarget();
+    return true;
   }
 
   private handleDebugKeyDown(e: KeyboardEvent): void {

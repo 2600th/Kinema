@@ -105,6 +105,11 @@ export interface ProceduralBuildResult {
  * (loading, unloading, runtime updates) while this class owns geometry creation.
  */
 export class ProceduralBuilder {
+  private static groundGridTextureTemplate: THREE.CanvasTexture | null = null;
+  private static floorRoughnessTextureTemplate: THREE.CanvasTexture | null = null;
+  private static vfxNoiseTextureTemplate: THREE.CanvasTexture | null = null;
+  private static sectionLabelTextureTemplates = new Map<string, THREE.CanvasTexture>();
+
   // Accumulator arrays populated during build and returned as ProceduralBuildResult.
   private meshes: THREE.Object3D[] = [];
   private colliders: RAPIER.Collider[] = [];
@@ -177,20 +182,21 @@ export class ProceduralBuilder {
     if (!buildAll) {
       // Minimal floor so the player doesn't fall through
       const stationZ = getShowcaseStationZ(this.stationFilterKey!);
-      const stationFloor = new THREE.Mesh(new THREE.BoxGeometry(60, 1, 30), floorMat);
+      const stationFloorSize = new THREE.Vector3(60, 1, 30);
+      const stationFloor = new THREE.Mesh(new THREE.BoxGeometry(stationFloorSize.x, stationFloorSize.y, stationFloorSize.z), floorMat);
       stationFloor.position.set(0, -1.5, stationZ);
       stationFloor.name = 'StationFloor_col';
       stationFloor.receiveShadow = true;
       this.scene.add(stationFloor);
       this.meshes.push(stationFloor);
-      stationFloor.updateWorldMatrix(true, false);
-      this.colliders.push(this.colliderFactory.createTrimesh(stationFloor));
+      this.colliders.push(this.colliderFactory.createFixedCuboid(stationFloor.position, stationFloorSize, 0.7));
     }
 
     // Broad floor
     if (buildAll) {
+    const floorSize = new THREE.Vector3(SHOWCASE_LAYOUT.hall.width, 5, SHOWCASE_LAYOUT.hall.length);
     const floor = new THREE.Mesh(
-      new THREE.BoxGeometry(SHOWCASE_LAYOUT.hall.width, 5, SHOWCASE_LAYOUT.hall.length),
+      new THREE.BoxGeometry(floorSize.x, floorSize.y, floorSize.z),
       floorMat,
     );
     // WHY: The showcase hall floor surface sits at y=-1.0. If the broad floor
@@ -201,8 +207,7 @@ export class ProceduralBuilder {
     floor.receiveShadow = true;
     this.scene.add(floor);
     this.meshes.push(floor);
-    floor.updateWorldMatrix(true, false);
-    this.colliders.push(this.colliderFactory.createTrimesh(floor));
+    this.colliders.push(this.colliderFactory.createFixedCuboid(floor.position, floorSize, 0.7));
     } // end buildAll broad floor
 
     await this.yieldProgress(0.1);
@@ -217,14 +222,15 @@ export class ProceduralBuilder {
     const bayPedestalY = SHOWCASE_LAYOUT.bay.pedestalY;
     const bayPedestalHeight = SHOWCASE_LAYOUT.bay.pedestalHeight;
     const bayTopY = getShowcaseBayTopY();
-    const floorRoughnessNoise = this.createFloorRoughnessTexture();
+    // Corridor-only assets are created lazily below so station-filter loads skip the work.
     // Correct texture repeat for corridor aspect ratio (60w x 700l ≈ 1:12).
     // Both grid and roughness maps need proportional repeat so tiles are square in world space.
-    const corridorAspect = hallLength / hallWidth;
-    const hallGridTex = gridTexture.clone();
-    hallGridTex.repeat.set(10, 10 * corridorAspect);
-    hallGridTex.needsUpdate = true;
-    floorRoughnessNoise.repeat.set(3, 3 * corridorAspect);
+    const floorRoughnessNoise = buildAll ? this.createFloorRoughnessTexture() : null;
+    const corridorAspect = buildAll ? hallLength / hallWidth : 1;
+    const hallGridTex = buildAll ? gridTexture.clone() : null;
+    hallGridTex?.repeat.set(10, 10 * corridorAspect);
+    if (hallGridTex) hallGridTex.needsUpdate = true;
+    floorRoughnessNoise?.repeat.set(3, 3 * corridorAspect);
     // Bright white clearcoat floor — shiny Astro Bot toybox plastic.
     const hallFloorMat = new THREE.MeshPhysicalMaterial({
       color: 0xf0f4f8,
@@ -243,14 +249,14 @@ export class ProceduralBuilder {
 
     // Corridor structure (skip in single-station mode)
     if (buildAll) {
-    const hallFloor = new THREE.Mesh(new THREE.BoxGeometry(hallWidth, 0.6, hallLength), hallFloorMat);
+    const hallFloorSize = new THREE.Vector3(hallWidth, 0.6, hallLength);
+    const hallFloor = new THREE.Mesh(new THREE.BoxGeometry(hallFloorSize.x, hallFloorSize.y, hallFloorSize.z), hallFloorMat);
     hallFloor.position.set(0, -1.3, showcaseCenterZ);
     hallFloor.name = 'ShowcaseFloor_col';
     hallFloor.receiveShadow = true;
     this.scene.add(hallFloor);
     this.meshes.push(hallFloor);
-    hallFloor.updateWorldMatrix(true, false);
-    this.colliders.push(this.colliderFactory.createTrimesh(hallFloor));
+    this.colliders.push(this.colliderFactory.createFixedCuboid(hallFloor.position, hallFloorSize, 0.7));
 
     const boundaryWallMat = new THREE.MeshStandardMaterial({
       color: 0x7b8aa5,
@@ -1373,7 +1379,7 @@ export class ProceduralBuilder {
       11.4,
       2.15,
     );
-    void this.createVfxBayV2(new THREE.Vector3(0, bayTopY, zVfx), bayWidth);
+    await this.createVfxBayV2(new THREE.Vector3(0, bayTopY, zVfx), bayWidth);
     } // end vfx
 
     if (isTarget('navigation')) {
@@ -1384,7 +1390,7 @@ export class ProceduralBuilder {
       11.4,
       2.25,
     );
-    this.createNavcatBay(zNavigation, bayTopY);
+    await this.createNavcatBay(zNavigation, bayTopY);
     } // end navigation
 
     if (isTarget('futureA')) {
@@ -1421,6 +1427,14 @@ export class ProceduralBuilder {
   }
 
   private createGroundGridTexture(): THREE.CanvasTexture {
+    const cached = ProceduralBuilder.groundGridTextureTemplate;
+    if (cached) {
+      const clone = cached.clone();
+      clone.anisotropy = this.maxAnisotropy;
+      clone.needsUpdate = true;
+      return clone;
+    }
+
     const canvas = document.createElement('canvas');
     canvas.width = 2048;
     canvas.height = 2048;
@@ -1522,11 +1536,22 @@ export class ProceduralBuilder {
     texture.generateMipmaps = true;
     texture.anisotropy = this.maxAnisotropy;
     texture.needsUpdate = true;
-    return texture;
+    ProceduralBuilder.groundGridTextureTemplate = texture;
+    const clone = texture.clone();
+    clone.anisotropy = this.maxAnisotropy;
+    clone.needsUpdate = true;
+    return clone;
   }
 
   /** Procedural noise texture for floor roughness — breaks up flat specularity. */
   private createFloorRoughnessTexture(): THREE.CanvasTexture {
+    const cached = ProceduralBuilder.floorRoughnessTextureTemplate;
+    if (cached) {
+      const clone = cached.clone();
+      clone.needsUpdate = true;
+      return clone;
+    }
+
     const size = 512;
     const canvas = document.createElement('canvas');
     canvas.width = size;
@@ -1558,7 +1583,10 @@ export class ProceduralBuilder {
     texture.colorSpace = THREE.NoColorSpace;
     texture.generateMipmaps = true;
     texture.needsUpdate = true;
-    return texture;
+    ProceduralBuilder.floorRoughnessTextureTemplate = texture;
+    const clone = texture.clone();
+    clone.needsUpdate = true;
+    return clone;
   }
 
   private createDynamicBox(
@@ -2108,7 +2136,7 @@ export class ProceduralBuilder {
    * Navigation showcase bay: creates a dedicated platform, generates a navmesh from it,
    * and spawns patrol agents constrained to the navigation station area.
    */
-  private createNavcatBay(zStation: number, bayTopY: number): void {
+  private async createNavcatBay(zStation: number, bayTopY: number): Promise<void> {
     // Dedicated navigation platform — agents are confined to this area only.
     const platformWidth = 24;
     const platformDepth = 12; // fits within bay pedestal (bayLength = 14)
@@ -2217,7 +2245,7 @@ export class ProceduralBuilder {
     // regions are pruned before any agents spawn.
     const seedPoint = new THREE.Vector3(0, surfaceY, zStation);
     this.navMeshManagerRef = new NavMeshManager();
-    this.navMeshManagerRef.generate([navInputMesh, ...obstacles], seedPoint);
+    await this.navMeshManagerRef.generateAsync([navInputMesh, ...obstacles], seedPoint);
     navInputGeo.dispose();
 
     const navMesh = this.navMeshManagerRef.getNavMesh();
@@ -2271,7 +2299,7 @@ export class ProceduralBuilder {
     const halfL = hallLength / 2 - 2;
 
     for (let i = 0; i < count; i++) {
-      const sprite = new THREE.Sprite(moteMat.clone());
+      const sprite = new THREE.Sprite(moteMat);
       const s = 0.08 + Math.random() * 0.15;
       sprite.scale.set(s, s, 1);
       const x = (Math.random() - 0.5) * 2 * halfW;
@@ -2319,6 +2347,31 @@ export class ProceduralBuilder {
     scaleY = 2.7,
   ): void {
     const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
+    const textureCacheKey = `${dpr}:${text}`;
+    const cachedTexture = ProceduralBuilder.sectionLabelTextureTemplates.get(textureCacheKey);
+    if (cachedTexture) {
+      const texture = cachedTexture.clone();
+      texture.anisotropy = this.maxAnisotropy;
+      texture.needsUpdate = true;
+      const material = new THREE.SpriteMaterial({
+        map: texture,
+        depthTest: true,
+        depthWrite: false,
+        transparent: true,
+        opacity: 1,
+      });
+      material.premultipliedAlpha = false;
+      material.blending = THREE.NormalBlending;
+      const sprite = new THREE.Sprite(material);
+      sprite.position.copy(position);
+      sprite.scale.set(scaleX * 0.92, scaleY * 0.9, 1);
+      sprite.name = `Label_${text.slice(0, 18)}`;
+      sprite.renderOrder = 20;
+      this.scene.add(sprite);
+      this.meshes.push(sprite);
+      return;
+    }
+
     const logicalWidth = 1440;
     const logicalHeight = 420;
     const panelPad = 56;
@@ -2495,6 +2548,7 @@ export class ProceduralBuilder {
     // NOTE: Keep straight alpha; this is more consistent across WebGL/WebGPU for SpriteMaterial.
     texture.premultiplyAlpha = false;
     texture.needsUpdate = true;
+    ProceduralBuilder.sectionLabelTextureTemplates.set(textureCacheKey, texture);
     const material = new THREE.SpriteMaterial({
       map: texture,
       depthTest: true,
@@ -2611,6 +2665,13 @@ export class ProceduralBuilder {
 
   /** Generate a 256x256 tileable noise texture (3 independent channels) for TSL VFX. */
   private createNoiseTexture(): THREE.CanvasTexture {
+    const cached = ProceduralBuilder.vfxNoiseTextureTemplate;
+    if (cached) {
+      const clone = cached.clone();
+      clone.needsUpdate = true;
+      return clone;
+    }
+
     const size = 256;
     const canvas = document.createElement('canvas');
     canvas.width = size;
@@ -2657,7 +2718,10 @@ export class ProceduralBuilder {
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
     tex.needsUpdate = true;
-    return tex;
+    ProceduralBuilder.vfxNoiseTextureTemplate = tex;
+    const clone = tex.clone();
+    clone.needsUpdate = true;
+    return clone;
   }
 
   /** New VFX showcase with 4 demos: dissolve, fire+smoke, lightning+rain, glowing ring. */

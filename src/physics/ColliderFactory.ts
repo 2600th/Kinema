@@ -14,6 +14,20 @@ import type { PhysicsWorld } from './PhysicsWorld';
 export class ColliderFactory {
   constructor(private physicsWorld: PhysicsWorld) {}
 
+  /** Create a fixed cuboid collider centered at `position` with full `size` dimensions. */
+  createFixedCuboid(position: THREE.Vector3, size: THREE.Vector3, friction = 0.7): RAPIER.Collider {
+    const colliderDesc = RAPIER.ColliderDesc.cuboid(
+      Math.max(size.x / 2, 0.01),
+      Math.max(size.y / 2, 0.01),
+      Math.max(size.z / 2, 0.01),
+    )
+      .setTranslation(position.x, position.y, position.z)
+      .setFriction(friction)
+      .setCollisionGroups(COLLISION_GROUP_WORLD);
+
+    return this.physicsWorld.world.createCollider(colliderDesc);
+  }
+
   /** Create a static trimesh collider from a mesh, baking its world transform. */
   createTrimesh(mesh: THREE.Mesh): RAPIER.Collider {
     mesh.updateWorldMatrix(true, false);

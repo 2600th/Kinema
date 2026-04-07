@@ -836,6 +836,9 @@ export class EditorManager {
     if ((mesh as THREE.Sprite).isSprite) {
       return { type: 'sprite' };
     }
+    if ((mesh as THREE.Group).isGroup) {
+      return { type: 'primitive', primitive: 'group' };
+    }
     if ((mesh as THREE.Mesh).isMesh && (mesh as THREE.Mesh).geometry) {
       const geomType = (mesh as THREE.Mesh).geometry.type;
       if (geomType.includes('Box')) return { type: 'primitive', primitive: 'cube' };
@@ -1319,16 +1322,21 @@ export class EditorManager {
     // spawnSerializedObject adds all objects as direct scene children.
     // Resolve parentId references and re-attach children to their parents.
     for (const obj of this.document.objects) {
-      if (obj.parentId) {
-        const parent = this.document.findById(obj.parentId);
-        if (parent) {
-          parent.mesh.add(obj.mesh);
-          if (!parent.children) parent.children = [];
-          if (!parent.children.includes(obj.id)) {
-            parent.children.push(obj.id);
-          }
-        }
+      obj.children = [];
+    }
+    for (const obj of this.document.objects) {
+      if (!obj.parentId) continue;
+      const parent = this.document.findById(obj.parentId);
+      if (!parent) {
+        obj.parentId = null;
+        continue;
       }
+      parent.mesh.add(obj.mesh);
+      if (!parent.children) parent.children = [];
+      if (!parent.children.includes(obj.id)) {
+        parent.children.push(obj.id);
+      }
+      this.updateEditorObjectTransform(obj);
     }
 
     this.syncHierarchy();
@@ -1338,14 +1346,18 @@ export class EditorManager {
   private async spawnSerializedObject(entry: LevelData['objects'][number]): Promise<void> {
     let obj: THREE.Object3D | null = null;
     if (entry.source.type === 'primitive' && entry.source.primitive) {
-      let geometry: THREE.BufferGeometry;
       const p = entry.source.primitive;
-      if (p === 'sphere') geometry = new THREE.SphereGeometry(0.5, 16, 16);
-      else if (p === 'cylinder') geometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 16);
-      else if (p === 'capsule') geometry = new THREE.CapsuleGeometry(0.4, 0.6, 6, 12);
-      else if (p === 'plane') geometry = new THREE.PlaneGeometry(1, 1);
-      else geometry = new THREE.BoxGeometry(1, 1, 1);
-      obj = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0xb0c4de, roughness: 0.6 }));
+      if (p === 'group') {
+        obj = new THREE.Group();
+      } else {
+        let geometry: THREE.BufferGeometry;
+        if (p === 'sphere') geometry = new THREE.SphereGeometry(0.5, 16, 16);
+        else if (p === 'cylinder') geometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 16);
+        else if (p === 'capsule') geometry = new THREE.CapsuleGeometry(0.4, 0.6, 6, 12);
+        else if (p === 'plane') geometry = new THREE.PlaneGeometry(1, 1);
+        else geometry = new THREE.BoxGeometry(1, 1, 1);
+        obj = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0xb0c4de, roughness: 0.6 }));
+      }
     } else if (entry.source.type === 'brush' && entry.source.brush) {
       const brush = getBrushById(entry.source.brush);
       if (brush) {
@@ -1382,12 +1394,17 @@ export class EditorManager {
     obj.position.set(entry.transform.position[0], entry.transform.position[1], entry.transform.position[2]);
     obj.rotation.set(entry.transform.rotation[0], entry.transform.rotation[1], entry.transform.rotation[2]);
     obj.scale.set(entry.transform.scale[0], entry.transform.scale[1], entry.transform.scale[2]);
+    obj.name = entry.name;
     obj.userData.editorSource = entry.source;
 
     const editorObj = this.buildEditorObject(obj);
     editorObj.name = entry.name;
     editorObj.source = entry.source;
     editorObj.parentId = entry.parentId ?? null;
+    editorObj.visible = entry.visible ?? true;
+    editorObj.locked = entry.locked ?? false;
+    editorObj.spawnTag = entry.spawnTag;
+    obj.visible = editorObj.visible;
 
     // Apply material properties from serialized data.
     // For GLBs (Groups), traverse children to find the first MeshStandardMaterial.
@@ -1419,7 +1436,9 @@ export class EditorManager {
     }
 
     // Create physics body if applicable
-    if (entry.physics) {
+    const isTransformOnlyGroup =
+      entry.source.type === 'primitive' && entry.source.primitive === 'group';
+    if (entry.physics && !isTransformOnlyGroup) {
       let bodyDesc: RAPIER.RigidBodyDesc;
       if (entry.physics.type === 'static') {
         bodyDesc = RAPIER.RigidBodyDesc.fixed();

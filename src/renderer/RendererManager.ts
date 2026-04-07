@@ -612,7 +612,7 @@ export class RendererManager implements Disposable {
   /** Load a single LUT by name (fallback for presets not yet cached). */
   private async loadSingleLut(name: string): Promise<void> {
     const texture = await this.assetLibrary.ensureLut(name);
-    if (texture) {
+    if (texture && this.lutName === name) {
       this.applyLutFromCache(name);
     }
   }

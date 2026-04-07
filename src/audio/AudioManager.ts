@@ -34,6 +34,7 @@ export class AudioManager implements FixedUpdatable, Disposable {
   private inVehicle = false;
   private vehicleType: 'car' | 'drone' | null = null;
   private holdLastThreshold = -1;
+  private slopeSlideActive = false;
 
   constructor(
     private eventBus: EventBus,
@@ -111,6 +112,14 @@ export class AudioManager implements FixedUpdatable, Disposable {
     this.musicEngine.setIntensity(clamp(intensity, 0, 1));
 
     // Footsteps are driven by animation:footstep event (see subscribeEvents)
+    if (this.slopeSlideActive) {
+      if (this.inVehicle || !this.player.isGrounded) {
+        this.sfxEngine.slopeSlideStop();
+        this.slopeSlideActive = false;
+      } else {
+        this.sfxEngine.slopeSlideUpdate(clamp(planarSpeed / 8, 0, 1));
+      }
+    }
   }
 
   playMusic(fadeInSec = 2.0): void {
@@ -169,6 +178,8 @@ export class AudioManager implements FixedUpdatable, Disposable {
 
   dispose(): void {
     this.stopEngine();
+    this.sfxEngine.slopeSlideStop();
+    this.slopeSlideActive = false;
     for (const unsub of this.unsubscribers) {
       unsub();
     }
@@ -210,6 +221,21 @@ export class AudioManager implements FixedUpdatable, Disposable {
         const planarSpeed = Math.hypot(vel.x, vel.z);
         if (planarSpeed > 0.8) {
           this.sfxEngine.footstep(planarSpeed);
+        }
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on('animation:event', ({ event }) => {
+        if (event === 'slopeSlideStart') {
+          if (this.inVehicle) return;
+          this.slopeSlideActive = true;
+          this.sfxEngine.slopeSlideStart();
+          return;
+        }
+        if (event === 'slopeSlideStop') {
+          this.slopeSlideActive = false;
+          this.sfxEngine.slopeSlideStop();
         }
       }),
     );
@@ -342,6 +368,12 @@ export class AudioManager implements FixedUpdatable, Disposable {
       }),
     );
 
+    this.unsubscribers.push(
+      this.eventBus.on('collectible:collected', () => {
+        this.sfxEngine.coinCollect();
+      }),
+    );
+
     // ── Death / Respawn ────────────────────────────────
     this.unsubscribers.push(
       this.eventBus.on('player:dying', () => {
@@ -368,8 +400,11 @@ export class AudioManager implements FixedUpdatable, Disposable {
     this.unsubscribers.push(
       this.eventBus.on('vehicle:enter', ({ vehicle }) => {
         this.inVehicle = true;
-        // Detect vehicle type from the controller
-        this.vehicleType = (vehicle as { type?: string }).type === 'drone' ? 'drone' : 'car';
+        this.vehicleType = vehicle.type;
+        if (this.slopeSlideActive) {
+          this.sfxEngine.slopeSlideStop();
+          this.slopeSlideActive = false;
+        }
         this.sfxEngine.vehicleEnter();
       }),
     );

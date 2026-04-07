@@ -194,6 +194,7 @@ export interface EventMap {
   'level:unloaded': { name: string };
   'loading:progress': { progress: number };
   'collectible:changed': { count: number };
+  'collectible:collected': { id: string; position: THREE.Vector3; count: number; value: number };
   'health:changed': { current: number; max: number };
   'player:dying': { reason: string };
   'player:deathMidpoint': undefined;

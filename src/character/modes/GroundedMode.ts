@@ -78,6 +78,11 @@ const SLOPE_SLIDE_STRENGTH = 2.0;
 export class GroundedMode implements CharacterMode {
   readonly id = 'grounded';
   private stepAssistCooldown = 0;
+  private slopeSlideAudioActive = false;
+
+  exit(ctx: PlayerContext): void {
+    this.updateSlopeSlideAudio(ctx, false);
+  }
 
   prepareForGroundRefresh(ctx: PlayerContext, wantsCrouch: boolean, dt: number): void {
     this.updateCrouchState(ctx, wantsCrouch, ctx.currentPos, dt);
@@ -90,6 +95,7 @@ export class GroundedMode implements CharacterMode {
     _actualSlopeNormal.copy(groundInfo.slopeNormal);
     _standingForcePoint.copy(groundInfo.standingForcePoint);
     if (!ctx.stableGrounded) {
+      this.updateSlopeSlideAudio(ctx, false);
       return 'air';
     }
 
@@ -102,6 +108,7 @@ export class GroundedMode implements CharacterMode {
     }
 
     // -- Slope slide: push player off surfaces steeper than slopeMaxAngle --
+    let slopeSliding = false;
     if (groundInfo.closeToGround && !groundInfo.standingSlopeAllowed) {
       // Project gravity direction onto slope surface to get downhill direction.
       // gravity = (0, -1, 0), project onto plane with normal = standingSlopeNormal
@@ -114,6 +121,7 @@ export class GroundedMode implements CharacterMode {
       const slideLen = _slopeSlideDir.length();
       if (slideLen > 0.001) {
         _slopeSlideDir.divideScalar(slideLen);
+        slopeSliding = true;
         ctx.body.applyImpulse(
           _setRV(_rv3A,
             _slopeSlideDir.x * SLOPE_SLIDE_STRENGTH,
@@ -124,6 +132,7 @@ export class GroundedMode implements CharacterMode {
         );
       }
     }
+    this.updateSlopeSlideAudio(ctx, slopeSliding);
 
     // -- Moving platform tracking --
     ctx.currentGroundBody = null;
@@ -182,6 +191,7 @@ export class GroundedMode implements CharacterMode {
     }
 
     if (ctx.justGrounded && shouldAutoBounce(ctx.currentGroundBody)) {
+      this.updateSlopeSlideAudio(ctx, false);
       ctx.fsm.requestState(STATE.jump);
       this.applyJumpImpulse(ctx, false, false);
       ctx.jumpBufferRemaining = 0;
@@ -651,5 +661,14 @@ export class GroundedMode implements CharacterMode {
       (c) => !c.isSensor(),
     );
     return hit != null;
+  }
+
+  private updateSlopeSlideAudio(ctx: PlayerContext, active: boolean): void {
+    if (active === this.slopeSlideAudioActive) return;
+    this.slopeSlideAudioActive = active;
+    ctx.eventBus.emit('animation:event', {
+      clip: 'grounded',
+      event: active ? 'slopeSlideStart' : 'slopeSlideStop',
+    });
   }
 }

@@ -26,6 +26,9 @@ const _exitCandidates = [
   new THREE.Vector3(1.5, 0, 0),
   new THREE.Vector3(0, 0, 2.5),
 ] as const;
+const CAR_EXIT_CAPSULE_CLEARANCE = 1.1;
+const CAR_EXIT_GROUND_PROBE_RAY_HEIGHT = 2;
+const CAR_EXIT_GROUND_PROBE_MAX_TOI = 50;
 
 function _setCRV(v: RAPIER.Vector3, x: number, y: number, z: number): RAPIER.Vector3 {
   v.x = x; v.y = y; v.z = z;
@@ -344,6 +347,7 @@ export function resolveCarDriveCommand(
 
 export class CarController implements VehicleController {
   readonly id: string;
+  readonly type = 'car' as const;
   readonly body: RAPIER.RigidBody;
   readonly mesh: THREE.Object3D;
   readonly exitOffset = new THREE.Vector3(-1.5, 0, 0);
@@ -455,8 +459,6 @@ export class CarController implements VehicleController {
     this.steerAngle = 0;
     this.braking = false;
     this.jumpVisualKick = 0;
-    this.body.setLinvel(_setCRV(_rv3A, 0, 0, 0), true);
-    this.body.setAngvel(_setCRV(_rv3B, 0, 0, 0), true);
 
     _quat.set(rot.x, rot.y, rot.z, rot.w);
     _tempEuler.setFromQuaternion(_quat, 'YXZ');
@@ -464,13 +466,16 @@ export class CarController implements VehicleController {
     _quat.setFromEuler(_yawEuler);
 
     const basePos = new THREE.Vector3(pos.x, pos.y, pos.z);
-    const exitY = basePos.y + 1.1;
+    const exitY = basePos.y + CAR_EXIT_CAPSULE_CLEARANCE;
     const transformedCandidates = _exitCandidates.map((candidate) =>
       candidate.clone().applyQuaternion(_quat).add(basePos).setY(exitY),
     );
+    const projectedCandidates = transformedCandidates.map((candidate) =>
+      this.projectExitCandidateToGround(candidate, exitY),
+    );
     return {
       position: pickFirstClearCarExitCandidate(
-        transformedCandidates,
+        projectedCandidates,
         (candidate) => this.isExitCandidateClear(candidate),
       ),
     };
@@ -526,7 +531,7 @@ export class CarController implements VehicleController {
       this.steerAngle,
       this.speed,
       groundedForDrive,
-      input?.crouch ?? false,
+      input?.jump ?? false,
       input?.sprint ?? false,
       dt,
     );
@@ -551,7 +556,7 @@ export class CarController implements VehicleController {
       }
     }
 
-    if (input?.jumpPressed && canCarJump(this.groundedWheelCount, this.groundedGraceRemaining, this.hopCooldown)) {
+    if (input?.crouchPressed && canCarJump(this.groundedWheelCount, this.groundedGraceRemaining, this.hopCooldown)) {
       this.body.applyImpulse(_setCRV(_rv3A, 0, this.body.mass() * CAR_TUNING.jumpVelocity, 0), true);
       this.body.wakeUp();
       this.hopCooldown = CAR_TUNING.jumpCooldownSeconds;
@@ -993,5 +998,31 @@ export class CarController implements VehicleController {
         return !(parent && this.wheelQueryExcludedBody && parent.handle === this.wheelQueryExcludedBody.handle);
       },
     );
+  }
+
+  private projectExitCandidateToGround(candidate: THREE.Vector3, fallbackY: number): THREE.Vector3 {
+    const projected = candidate.clone();
+    const groundHit = this.physicsWorld.castRay(
+      _setCRV(
+        _rv3A,
+        candidate.x,
+        candidate.y + CAR_EXIT_GROUND_PROBE_RAY_HEIGHT,
+        candidate.z,
+      ),
+      _setCRV(_rv3B, 0, -1, 0),
+      CAR_EXIT_GROUND_PROBE_MAX_TOI,
+      undefined,
+      this.body,
+      (collider) => !collider.isSensor(),
+    );
+
+    if (!groundHit) {
+      projected.y = fallbackY;
+      return projected;
+    }
+
+    projected.y =
+      candidate.y + CAR_EXIT_GROUND_PROBE_RAY_HEIGHT - groundHit.timeOfImpact + CAR_EXIT_CAPSULE_CLEARANCE;
+    return projected;
   }
 }

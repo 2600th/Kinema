@@ -36,6 +36,7 @@ function _setDRV(v: RAPIER.Vector3, x: number, y: number, z: number): RAPIER.Vec
 
 export class DroneController implements VehicleController {
   readonly id: string;
+  readonly type = 'drone' as const;
   readonly body: RAPIER.RigidBody;
   readonly mesh: THREE.Object3D;
   readonly exitOffset = new THREE.Vector3(1.2, 0, 0);

@@ -114,4 +114,21 @@ describe('UIManager', () => {
     expect(hud.showStatus).toHaveBeenCalledWith('Objective complete: Reach the beacon');
     ui.dispose();
   });
+
+  it('routes collectible count updates to the HUD collectible chip', () => {
+    const listeners = new Map<string, (payload: any) => void>();
+    const on = vi.fn((event: string, handler: (payload: any) => void) => {
+      listeners.set(event, handler);
+      return () => {};
+    });
+    const eventBus = { on };
+
+    const ui = new UIManager(eventBus as any);
+    const hud = hudInstances[0];
+
+    listeners.get('collectible:changed')?.({ count: 5 });
+
+    expect(hud.updateCollectibles).toHaveBeenCalledWith(5);
+    ui.dispose();
+  });
 });

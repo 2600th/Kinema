@@ -136,6 +136,7 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
 
   private enterVehicle(vehicle: VehicleController): void {
     if (this.active || this.exitCooldown > 0) return;
+    this.releaseHeldInteractionBeforeEntry();
     this.active = vehicle;
     this.player.setActive(false);
     this.player.setEnabled(false);
@@ -175,6 +176,23 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
     this.exitCooldown = 2;
     this.eventBus.emit('vehicle:engineStop', undefined);
     this.eventBus.emit('vehicle:exit', { position: spawn.position });
+  }
+
+  private releaseHeldInteractionBeforeEntry(): void {
+    if (this.player.grabCarry.isGrabbing) {
+      this.player.endGrab();
+    }
+    if (!this.player.grabCarry.isCarrying) return;
+
+    const standingHalfHeight = this.player.config.capsuleHalfHeight;
+    const crouchedHalfHeight = Math.max(0.16, standingHalfHeight - this.player.config.crouchHeightOffset);
+    const capsuleHalfHeight = this.player.crouching ? crouchedHalfHeight : standingHalfHeight;
+    this.player.grabCarry.dropCarried(
+      this.player.position,
+      capsuleHalfHeight,
+      this.player.getCameraForward(),
+      this.eventBus,
+    );
   }
 
   private ensureSpawnPoint(spawn: SpawnPointData): SpawnPointData {

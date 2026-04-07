@@ -5,6 +5,7 @@ import type { CameraConfig } from '@core/types';
 
 export interface VehicleController extends FixedUpdatable, PostPhysicsUpdatable, Updatable, Disposable {
   readonly id: string;
+  readonly type: 'car' | 'drone';
   readonly body: RAPIER.RigidBody;
   readonly mesh: THREE.Object3D;
   readonly exitOffset: THREE.Vector3;

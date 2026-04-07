@@ -72,6 +72,12 @@ function createDefaultSpawnPoint(): SpawnPointData {
   return { position: new THREE.Vector3(0, DEFAULT_SPAWN_Y, 0) };
 }
 
+type SpawnedJsonObject = {
+  entry: SerializedObjectV2;
+  obj: THREE.Object3D;
+  isEditorGizmo: boolean;
+};
+
 /**
  * Manages level loading, scene traversal, collider creation, and cleanup.
  */
@@ -263,9 +269,33 @@ export class LevelManager implements Disposable {
       this.spawnPoint = { position: new THREE.Vector3(x, y, z) };
     }
 
-    // Spawn each object
+    const spawnedObjects = new Map<string, SpawnedJsonObject>();
+
+    // Create each object first so hierarchy can be reconstructed before physics is built.
     for (const entry of data.objects) {
-      await this.spawnJSONObject(entry);
+      const spawned = await this.spawnJSONObject(entry);
+      if (spawned) {
+        spawnedObjects.set(entry.id, spawned);
+      }
+    }
+
+    // Rebuild the authored hierarchy using serialized local transforms.
+    for (const entry of data.objects) {
+      const spawned = spawnedObjects.get(entry.id);
+      if (!spawned) continue;
+      const parent = entry.parentId ? spawnedObjects.get(entry.parentId)?.obj ?? null : null;
+      if (parent) {
+        parent.add(spawned.obj);
+      } else {
+        this.scene.add(spawned.obj);
+      }
+    }
+
+    // Finalize tracking and physics once world transforms are correct.
+    for (const entry of data.objects) {
+      const spawned = spawnedObjects.get(entry.id);
+      if (!spawned) continue;
+      this.finalizeSpawnedJSONObject(spawned);
     }
 
     this.eventBus.emit('loading:progress', { progress: 0.5 });
@@ -278,7 +308,7 @@ export class LevelManager implements Disposable {
     console.log(`[LevelManager] JSON level "${this.currentLevelName}" loaded (${data.objects.length} objects)`);
   }
 
-  private async spawnJSONObject(entry: SerializedObjectV2): Promise<void> {
+  private async spawnJSONObject(entry: SerializedObjectV2): Promise<SpawnedJsonObject | null> {
     let obj: THREE.Object3D | null = null;
 
     if (entry.source.type === 'primitive' && entry.source.primitive) {
@@ -289,7 +319,7 @@ export class LevelManager implements Disposable {
       obj = await this.loadGLBObject(entry.source.asset);
     }
 
-    if (!obj) return;
+    if (!obj) return null;
 
     // Apply transform
     const [px, py, pz] = entry.transform.position;
@@ -324,12 +354,15 @@ export class LevelManager implements Disposable {
       }
     });
     obj.name = entry.name;
-    this.scene.add(obj);
-    this.levelObjects.push(obj);
 
     // Editor-only gizmos (spawn, trigger) — hide in play mode, skip physics
     const isEditorGizmo = entry.source.type === 'brush' &&
       (entry.source.brush === 'spawn' || entry.source.brush === 'trigger');
+    return { entry, obj, isEditorGizmo };
+  }
+
+  private finalizeSpawnedJSONObject({ entry, obj, isEditorGizmo }: SpawnedJsonObject): void {
+    this.levelObjects.push(obj);
     if (isEditorGizmo) {
       obj.visible = false;
       return;
@@ -345,43 +378,20 @@ export class LevelManager implements Disposable {
     } else {
       bodyDesc = RAPIER.RigidBodyDesc.fixed();
     }
-    bodyDesc.setTranslation(px, py, pz);
-    const q = obj.quaternion;
-    bodyDesc.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w });
+    obj.updateWorldMatrix(true, false);
+    const worldPos = obj.getWorldPosition(new THREE.Vector3());
+    const worldQuat = obj.getWorldQuaternion(new THREE.Quaternion());
+    bodyDesc.setTranslation(worldPos.x, worldPos.y, worldPos.z);
+    bodyDesc.setRotation({ x: worldQuat.x, y: worldQuat.y, z: worldQuat.z, w: worldQuat.w });
     const body = this.physicsWorld.world.createRigidBody(bodyDesc);
 
-    // Approximate collider from bounding box — compute from full hierarchy
-    const bb = new THREE.Box3();
-    let bbIncludesScale = false;
-    if (obj instanceof THREE.Mesh && obj.geometry) {
-      // Single mesh: geometry BB is in local (pre-scale) space.
-      obj.geometry.computeBoundingBox();
-      bb.copy(obj.geometry.boundingBox!);
-    } else {
-      // Grouped GLB: matrixWorld already includes obj.scale, so the resulting
-      // bounding box is in world space and must NOT be multiplied by scale again.
-      obj.updateMatrixWorld(true);
-      obj.traverse((child) => {
-        if (child instanceof THREE.Mesh && child.geometry) {
-          child.geometry.computeBoundingBox();
-          const childBox = child.geometry.boundingBox!.clone();
-          childBox.applyMatrix4(child.matrixWorld);
-          bb.union(childBox);
-        }
-      });
-      bbIncludesScale = true;
-    }
-    if (bb.isEmpty()) {
-      bb.set(new THREE.Vector3(-0.5, -0.5, -0.5), new THREE.Vector3(0.5, 0.5, 0.5));
-    }
-    const halfW = ((bb.max.x - bb.min.x) / 2) * (bbIncludesScale ? 1 : sx);
-    const halfH = ((bb.max.y - bb.min.y) / 2) * (bbIncludesScale ? 1 : sy);
-    const halfD = ((bb.max.z - bb.min.z) / 2) * (bbIncludesScale ? 1 : sz);
+    const { center, halfExtents } = this.computeColliderBounds(obj);
     const colliderDesc = RAPIER.ColliderDesc.cuboid(
-      Math.max(halfW, 0.01),
-      Math.max(halfH, 0.01),
-      Math.max(halfD, 0.01),
+      Math.max(halfExtents.x, 0.01),
+      Math.max(halfExtents.y, 0.01),
+      Math.max(halfExtents.z, 0.01),
     ).setCollisionGroups(COLLISION_GROUP_WORLD);
+    colliderDesc.setTranslation(center.x, center.y, center.z);
     const collider = this.physicsWorld.world.createCollider(colliderDesc, body);
 
     this.levelBodies.push(body);
@@ -392,16 +402,64 @@ export class LevelManager implements Disposable {
       this.dynamicBodies.push({
         mesh: obj,
         body,
-        prevPos: obj.position.clone(),
-        currPos: obj.position.clone(),
-        prevQuat: obj.quaternion.clone(),
-        currQuat: obj.quaternion.clone(),
+        prevPos: worldPos.clone(),
+        currPos: worldPos.clone(),
+        prevQuat: worldQuat.clone(),
+        currQuat: worldQuat.clone(),
         hasPose: false,
       });
     }
   }
 
-  private createPrimitiveMesh(primitive: string): THREE.Mesh {
+  private computeColliderBounds(obj: THREE.Object3D): {
+    center: THREE.Vector3;
+    halfExtents: THREE.Vector3;
+  } {
+    const localBounds = new THREE.Box3();
+    const childBounds = new THREE.Box3();
+    const inverseRoot = obj.matrixWorld.clone().invert();
+    const childLocalMatrix = new THREE.Matrix4();
+    const scaledCenter = new THREE.Vector3();
+    const scaledSize = new THREE.Vector3();
+
+    obj.traverse((child) => {
+      if (!(child instanceof THREE.Mesh) || !child.geometry) return;
+      child.geometry.computeBoundingBox();
+      const boundingBox = child.geometry.boundingBox;
+      if (!boundingBox) return;
+      childBounds.copy(boundingBox);
+      childLocalMatrix.multiplyMatrices(inverseRoot, child.matrixWorld);
+      childBounds.applyMatrix4(childLocalMatrix);
+      localBounds.union(childBounds);
+    });
+
+    if (localBounds.isEmpty()) {
+      localBounds.set(new THREE.Vector3(-0.5, -0.5, -0.5), new THREE.Vector3(0.5, 0.5, 0.5));
+    }
+
+    localBounds.getCenter(scaledCenter);
+    localBounds.getSize(scaledSize);
+    scaledCenter.set(
+      scaledCenter.x * obj.scale.x,
+      scaledCenter.y * obj.scale.y,
+      scaledCenter.z * obj.scale.z,
+    );
+    scaledSize.set(
+      scaledSize.x * Math.abs(obj.scale.x),
+      scaledSize.y * Math.abs(obj.scale.y),
+      scaledSize.z * Math.abs(obj.scale.z),
+    );
+
+    return {
+      center: scaledCenter,
+      halfExtents: scaledSize.multiplyScalar(0.5),
+    };
+  }
+
+  private createPrimitiveMesh(primitive: string): THREE.Object3D {
+    if (primitive === 'group') {
+      return new THREE.Group();
+    }
     let geometry: THREE.BufferGeometry;
     if (primitive === 'sphere') geometry = new THREE.SphereGeometry(0.5, 16, 16);
     else if (primitive === 'cylinder') geometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 16);
@@ -479,8 +537,14 @@ export class LevelManager implements Disposable {
     this.vfxDisposeCallbacks = [];
     this.vfxUpdateCallbacks = [];
 
-    // Remove scene objects
-    for (const obj of this.levelObjects) {
+    // Remove scene objects starting from tracked roots so hierarchy children
+    // are only disposed once.
+    const trackedObjects = new Set(this.levelObjects);
+    const rootObjects = this.levelObjects.filter((obj) => {
+      const parent = obj.parent;
+      return !(parent && trackedObjects.has(parent));
+    });
+    for (const obj of rootObjects) {
       this.scene.remove(obj);
       obj.traverse((child) => {
         if (child instanceof THREE.Mesh) {
