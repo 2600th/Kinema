@@ -33,13 +33,14 @@ export class MenuManager {
   private settingsMenu: SettingsMenu;
   private levelSelectMenu: LevelSelectMenu;
   private helpMenu: HelpMenu;
+  private _onOverlayClick = this.handleOverlayClick.bind(this);
 
   constructor(
     private eventBus: EventBus,
     private gameLoop: GameLoop,
     private renderer: RendererManager,
     settings: UserSettingsStore,
-    inputManager: InputManager,
+    private inputManager: InputManager,
     camera: OrbitFollowCamera,
     audioManager: AudioManager,
     private onPlay: () => Promise<void>,
@@ -49,6 +50,7 @@ export class MenuManager {
   ) {
     this.overlay = document.createElement('div');
     this.overlay.className = 'menu-overlay';
+    this.overlay.addEventListener('click', this._onOverlayClick);
     document.body.appendChild(this.overlay);
     this.addCosmicBackground();
 
@@ -122,6 +124,7 @@ export class MenuManager {
     this.settingsMenu.dispose();
     this.levelSelectMenu.dispose();
     this.helpMenu.dispose();
+    this.overlay.removeEventListener('click', this._onOverlayClick);
     this.overlay.remove();
     this.stopBackgroundLoop();
   }
@@ -264,6 +267,23 @@ export class MenuManager {
     });
   }
 
+  private handleOverlayClick(event: MouseEvent): void {
+    if (!this.resumeOnClose || this.stack.length === 0) return;
+
+    const top = this.stack[this.stack.length - 1];
+    if (top.id === 'main') return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest('button, input, select, textarea, label, a, [role="button"]')) return;
+
+    const isBackdropClick = target === this.overlay;
+    const isPauseCardClick = top.id === 'pause' && top.root.contains(target);
+    if (!isBackdropClick && !isPauseCardClick) return;
+
+    event.preventDefault();
+    this.pop();
+  }
+
   private addCosmicBackground(): void {
     const backdrop = document.createElement('div');
     backdrop.className = 'menu-backdrop';
@@ -329,7 +349,7 @@ export class MenuManager {
 
   private async requestPointerLock(): Promise<void> {
     try {
-      await this.renderer.canvas.requestPointerLock();
+      await this.inputManager.requestPointerLock({ preferRaw: false });
     } catch {
       // Pointer lock may fail without user gesture; ignore.
     }

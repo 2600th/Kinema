@@ -33,6 +33,22 @@ test('procedural review spawns render from reusable review points', async ({ pag
   await page.waitForFunction(() => !document.querySelector('.loading-screen'), undefined, { timeout: 120_000 });
   await page.waitForTimeout(1500);
 
+  const boundaryWalls = await page.evaluate(() => {
+    const k = (window as any).__KINEMA__;
+    return {
+      entrance: k?.getLevelObjectState?.('ShowcaseBoundaryWall_Entrance_col') ?? null,
+      exit: k?.getLevelObjectState?.('ShowcaseBoundaryWall_End_col') ?? null,
+    };
+  });
+  expect(boundaryWalls.entrance).not.toBeNull();
+  expect(boundaryWalls.exit).not.toBeNull();
+  expect(boundaryWalls.entrance.position.z).toBeGreaterThan(250);
+  expect(boundaryWalls.exit.position.z).toBeLessThan(-250);
+  expect(boundaryWalls.entrance.size.x).toBeGreaterThan(58);
+  expect(boundaryWalls.entrance.size.y).toBeLessThan(1);
+  expect(Math.abs(boundaryWalls.entrance.position.x)).toBeLessThan(0.1);
+  expect(Math.abs(boundaryWalls.exit.position.x)).toBeLessThan(0.1);
+
   for (const spawn of REVIEW_SPAWNS) {
     const teleported = await page.evaluate((spawnKey) => {
       return (window as any).__KINEMA__?.teleportToReviewSpawn?.(spawnKey) ?? false;

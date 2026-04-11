@@ -294,30 +294,40 @@ export class CharacterModel implements Disposable {
       ? material
       : CharacterModel.upgradeStandardToPhysical(material);
 
-    const baseColor = new THREE.Color().setHSL(
-      0.55 + (materialIndex % 3) * 0.02,
-      0.34 + (materialIndex % 2) * 0.05,
-      0.82 + (materialIndex % 3) * 0.025,
-    );
-    const pearlAccent = new THREE.Color(materialIndex % 2 === 0 ? 0x8af2ff : 0xff79ba);
-    const emissiveColor = baseColor.clone().lerp(pearlAccent, 0.34);
+    const basePalette = [
+      new THREE.Color(0x5a41c7),
+      new THREE.Color(0x37bb82),
+      new THREE.Color(0x7a52de),
+      new THREE.Color(0x4bd19a),
+    ];
+    const accentPalette = [
+      new THREE.Color(0xb688ff),
+      new THREE.Color(0x98ffd0),
+      new THREE.Color(0x7dffbf),
+      new THREE.Color(0xd39dff),
+    ];
+    // Bias the finish toward orchid and mint so the hero reads green-purple,
+    // while the physical response still catches iridescent highlights.
+    const baseColor = basePalette[materialIndex % basePalette.length].clone();
+    const accentColor = accentPalette[materialIndex % accentPalette.length].clone();
+    const emissiveColor = accentColor.clone().lerp(baseColor, 0.42);
 
-    physical.color.copy(baseColor);
-    physical.metalness = 0.68;
-    physical.roughness = 0.08 + (materialIndex % 3) * 0.02;
-    physical.clearcoat = 1.0;
-    physical.clearcoatRoughness = 0.04;
-    physical.iridescence = 1.0;
-    physical.iridescenceIOR = 1.16;
-    physical.iridescenceThicknessRange = [120, 960];
-    physical.sheen = 0.12;
+    physical.color.copy(baseColor).lerp(accentColor, 0.18);
+    physical.metalness = 0.42;
+    physical.roughness = 0.18 + (materialIndex % 3) * 0.025;
+    physical.clearcoat = 0.96;
+    physical.clearcoatRoughness = 0.08;
+    physical.iridescence = 0.95;
+    physical.iridescenceIOR = 1.18;
+    physical.iridescenceThicknessRange = [180, 760];
+    physical.sheen = 0.2;
     physical.sheenColor.copy(emissiveColor);
-    physical.sheenRoughness = 0.34;
+    physical.sheenRoughness = 0.42;
     physical.specularIntensity = 1;
     physical.specularColor.copy(emissiveColor);
-    physical.envMapIntensity = Math.max(physical.envMapIntensity, 2.0);
+    physical.envMapIntensity = Math.max(physical.envMapIntensity, 1.7);
     physical.emissive.copy(emissiveColor);
-    physical.emissiveIntensity = 0.03;
+    physical.emissiveIntensity = 0.06;
 
     return physical;
   }

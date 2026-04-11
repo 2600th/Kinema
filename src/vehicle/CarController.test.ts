@@ -1,9 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
+import RAPIER from '@dimforge/rapier3d-compat';
 import {
   canCarJump,
+  computeCarContactPushImpulse,
+  computeCarDriveSpeedDelta,
+  computeCarLateralGripDelta,
+  computeCarYawDirectionSign,
+  computeCarYawAssistAuthority,
   deriveCarRideGeometry,
   isCarWheelQueryCandidate,
+  isCarWheelSupportingContact,
   pickFirstClearCarExitCandidate,
   resolveCarDriveCommand,
 } from './CarController';
@@ -70,18 +77,31 @@ describe('CarController helpers', () => {
   });
 
   describe('wheel query filtering', () => {
-    it('rejects sensors, excluded bodies, throwables, and other vehicles', () => {
-      expect(isCarWheelQueryCandidate(true, null, false)).toBe(false);
-      expect(isCarWheelQueryCandidate(false, null, true)).toBe(false);
-      expect(isCarWheelQueryCandidate(false, 'player', false)).toBe(false);
-      expect(isCarWheelQueryCandidate(false, 'throwable', false)).toBe(false);
-      expect(isCarWheelQueryCandidate(false, 'vehicle', false)).toBe(false);
+    it('rejects sensors, excluded bodies, throwables, other vehicles, and shoveable dynamic props', () => {
+      expect(isCarWheelQueryCandidate(true, null, null, false)).toBe(false);
+      expect(isCarWheelQueryCandidate(false, null, null, true)).toBe(false);
+      expect(isCarWheelQueryCandidate(false, 'player', RAPIER.RigidBodyType.Dynamic, false)).toBe(false);
+      expect(isCarWheelQueryCandidate(false, 'throwable', RAPIER.RigidBodyType.Dynamic, false)).toBe(false);
+      expect(isCarWheelQueryCandidate(false, 'vehicle', RAPIER.RigidBodyType.Dynamic, false)).toBe(false);
+      expect(isCarWheelQueryCandidate(false, 'showcase-prop', RAPIER.RigidBodyType.Dynamic, false)).toBe(false);
     });
 
     it('keeps world and platform bodies eligible for wheel support', () => {
-      expect(isCarWheelQueryCandidate(false, null, false)).toBe(true);
-      expect(isCarWheelQueryCandidate(false, 'moving-platform', false)).toBe(true);
-      expect(isCarWheelQueryCandidate(false, 'floating-platform', false)).toBe(true);
+      expect(isCarWheelQueryCandidate(false, null, RAPIER.RigidBodyType.Fixed, false)).toBe(true);
+      expect(isCarWheelQueryCandidate(false, 'moving-platform', RAPIER.RigidBodyType.KinematicPositionBased, false)).toBe(true);
+      expect(isCarWheelQueryCandidate(false, 'floating-platform', RAPIER.RigidBodyType.Dynamic, false)).toBe(true);
+    });
+  });
+
+  describe('wheel support classification', () => {
+    it('rejects wall-like or zero-force contacts from grounded support', () => {
+      expect(isCarWheelSupportingContact(false, 1, 30)).toBe(false);
+      expect(isCarWheelSupportingContact(true, 0.18, 24)).toBe(false);
+      expect(isCarWheelSupportingContact(true, 0.92, 0.4)).toBe(false);
+    });
+
+    it('accepts upward contacts that are carrying real suspension load', () => {
+      expect(isCarWheelSupportingContact(true, 0.85, 9)).toBe(true);
     });
   });
 
@@ -109,6 +129,64 @@ describe('CarController helpers', () => {
       );
 
       expect(selected.equals(candidates[1])).toBe(true);
+    });
+  });
+
+  describe('arcade traction helpers', () => {
+    it('applies coast drag when throttle is released', () => {
+      const slowing = computeCarDriveSpeedDelta(0, 8, true, false, 1 / 60);
+      const stoppingReverse = computeCarDriveSpeedDelta(0, -6, true, false, 1 / 60);
+
+      expect(slowing).toBeLessThan(0);
+      expect(stoppingReverse).toBeGreaterThan(0);
+    });
+
+    it('accelerates forward on the ground and brakes before reversing', () => {
+      const launch = computeCarDriveSpeedDelta(1, 0, true, false, 1 / 60);
+      const boost = computeCarDriveSpeedDelta(1, 12, true, true, 1 / 60);
+      const brakeToReverse = computeCarDriveSpeedDelta(-1, 7, true, false, 1 / 60);
+
+      expect(launch).toBeGreaterThan(0);
+      expect(boost).toBeGreaterThan(launch);
+      expect(brakeToReverse).toBeLessThan(0);
+    });
+
+    it('keeps less grip while handbraking or airborne', () => {
+      const grounded = Math.abs(computeCarLateralGripDelta(5, true, false, 1 / 60));
+      const handbrake = Math.abs(computeCarLateralGripDelta(5, true, true, 1 / 60));
+      const airborne = Math.abs(computeCarLateralGripDelta(5, false, false, 1 / 60));
+
+      expect(grounded).toBeGreaterThan(handbrake);
+      expect(handbrake).toBeGreaterThan(airborne);
+    });
+
+    it('drops yaw assist when either axle has lost support', () => {
+      expect(computeCarYawAssistAuthority(4, 2, 2)).toBe(1);
+      expect(computeCarYawAssistAuthority(3, 1, 2)).toBe(1);
+      expect(computeCarYawAssistAuthority(2, 1, 1)).toBe(0.45);
+      expect(computeCarYawAssistAuthority(2, 2, 0)).toBe(0);
+      expect(computeCarYawAssistAuthority(2, 0, 2)).toBe(0);
+      expect(computeCarYawAssistAuthority(1, 1, 0)).toBe(0);
+    });
+
+    it('matches yaw direction to steering input for forward and reverse travel', () => {
+      expect(computeCarYawDirectionSign(1, 8)).toBe(-1);
+      expect(computeCarYawDirectionSign(-1, 8)).toBe(1);
+      expect(computeCarYawDirectionSign(1, -4)).toBe(1);
+      expect(computeCarYawDirectionSign(-1, -4)).toBe(-1);
+      expect(computeCarYawDirectionSign(0, 8)).toBe(0);
+      expect(computeCarYawDirectionSign(1, 0)).toBe(0);
+    });
+
+    it('transfers sustained drive into a capped contact push impulse', () => {
+      const none = computeCarContactPushImpulse(0, 0.1, 5, 1 / 60);
+      const sustained = computeCarContactPushImpulse(1.3, 0.05, 6, 1 / 60);
+      const burst = computeCarContactPushImpulse(2.2, 12, 9, 1 / 60);
+
+      expect(none).toBe(0);
+      expect(sustained).toBeGreaterThan(0.4);
+      expect(burst).toBeGreaterThan(sustained);
+      expect(burst).toBe(2.35);
     });
   });
 });

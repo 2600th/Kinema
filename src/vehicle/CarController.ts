@@ -14,6 +14,13 @@ const _yawEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 const _worldUp = new THREE.Vector3(0, 1, 0);
 const _chassisUp = new THREE.Vector3(0, 1, 0);
 const _uprightAxis = new THREE.Vector3();
+const _carForward = new THREE.Vector3();
+const _carRight = new THREE.Vector3();
+const _carVelocity = new THREE.Vector3();
+const _otherVelocity = new THREE.Vector3();
+const _impactDirection = new THREE.Vector3();
+const _contactPoint = new THREE.Vector3();
+const _contactPointSum = new THREE.Vector3();
 const _rv3A = new RAPIER.Vector3(0, 0, 0);
 const _rv3B = new RAPIER.Vector3(0, 0, 0);
 const _rqIdentity = new RAPIER.Quaternion(0, 0, 0, 1);
@@ -22,13 +29,15 @@ const _playerExitShape = new RAPIER.Capsule(
   DEFAULT_PLAYER_CONFIG.capsuleRadius,
 );
 const _exitCandidates = [
-  new THREE.Vector3(-1.5, 0, 0),
-  new THREE.Vector3(1.5, 0, 0),
-  new THREE.Vector3(0, 0, 2.5),
+  new THREE.Vector3(-1.75, 0, 0),
+  new THREE.Vector3(1.75, 0, 0),
+  new THREE.Vector3(0, 0, 2.8),
 ] as const;
 const CAR_EXIT_CAPSULE_CLEARANCE = 1.1;
 const CAR_EXIT_GROUND_PROBE_RAY_HEIGHT = 2;
 const CAR_EXIT_GROUND_PROBE_MAX_TOI = 50;
+const ACTIVE_CAR_DOMINANCE_GROUP = 0;
+const STEERING_DEBUG_AUTO_LOG_INTERVAL_FRAMES = 180;
 
 function _setCRV(v: RAPIER.Vector3, x: number, y: number, z: number): RAPIER.Vector3 {
   v.x = x; v.y = y; v.z = z;
@@ -41,6 +50,17 @@ function getRigidBodyKind(body: RAPIER.RigidBody | null): string | null {
   if (typeof data !== 'object' || data === null) return null;
   const kind = (data as { kind?: unknown }).kind;
   return typeof kind === 'string' ? kind : null;
+}
+
+export function isCarWheelQueryCandidate(
+  isSensor: boolean,
+  bodyKind: string | null,
+  bodyType: RAPIER.RigidBodyType | null,
+  excludedBody: boolean,
+): boolean {
+  if (isSensor || excludedBody) return false;
+  if (bodyType === RAPIER.RigidBodyType.Dynamic && bodyKind !== 'floating-platform') return false;
+  return bodyKind !== 'vehicle' && bodyKind !== 'throwable' && bodyKind !== 'player';
 }
 
 type CarTuning = {
@@ -96,6 +116,30 @@ type CarTuning = {
   readonly cabinPitchScale: number;
   readonly maxForwardSpeed: number;
   readonly maxBoostSpeed: number;
+  readonly maxReverseSpeed: number;
+  readonly driveAssistForwardAccel: number;
+  readonly driveAssistBoostAccel: number;
+  readonly driveAssistReverseAccel: number;
+  readonly driveAssistCoastDecel: number;
+  readonly driveAssistBrakeDecel: number;
+  readonly driveAssistLateralGrip: number;
+  readonly driveAssistHandbrakeGrip: number;
+  readonly driveAssistAirGrip: number;
+  readonly driveAssistYawRate: number;
+  readonly driveAssistHandbrakeYawRate: number;
+  readonly driveAssistYawResponse: number;
+  readonly driveAssistYawTorqueScale: number;
+  readonly contactPushMinClosingSpeed: number;
+  readonly contactPushSpeedScale: number;
+  readonly contactPushDriveTransferScale: number;
+  readonly contactPushMaxImpulse: number;
+  readonly contactPushMinForwardAlignment: number;
+  readonly contactPushMaxVerticalSpeed: number;
+  readonly contactPushMinGroundedWheels: number;
+  readonly contactPushCarDragScale: number;
+  readonly contactPushCarryHeightBlend: number;
+  readonly supportMinNormalY: number;
+  readonly supportMinSuspensionForce: number;
 };
 
 export type CarRideGeometry = {
@@ -118,10 +162,10 @@ export type CarRideGeometry = {
 
 const CAR_TUNING: CarTuning = {
   chassisHalfExtents: new THREE.Vector3(1.15, 0.18, 2.0),
-  additionalMass: 1.8,
+  additionalMass: 8.8,
   centerOfMass: new RAPIER.Vector3(0, -0.35, 0.08),
-  principalAngularInertia: new RAPIER.Vector3(2.2, 3.6, 1.8),
-  additionalSolverIterations: 2,
+  principalAngularInertia: new RAPIER.Vector3(2.7, 4.4, 2.3),
+  additionalSolverIterations: 6,
   wheelRadius: 0.32,
   suspensionRestLength: 0.52,
   suspensionMaxTravel: 0.18,
@@ -129,46 +173,70 @@ const CAR_TUNING: CarTuning = {
   nominalChassisClearance: 0.22,
   selfRightingTiltDot: 0.94,
   selfRightingSnapTiltDot: 0.86,
-  suspensionStiffness: 22,
-  suspensionCompression: 3.8,
-  suspensionRelaxation: 5.2,
-  maxSuspensionForce: 34,
-  forwardEngineFront: 16,
-  forwardEngineRear: 22,
-  boostEngineFront: 21,
-  boostEngineRear: 29,
-  reverseEngineFront: 10,
-  reverseEngineRear: 14,
-  coastBrake: 0.35,
-  serviceBrake: 1.8,
+  suspensionStiffness: 62,
+  suspensionCompression: 4.8,
+  suspensionRelaxation: 10.4,
+  maxSuspensionForce: 136,
+  forwardEngineFront: 2.5,
+  forwardEngineRear: 4.0,
+  boostEngineFront: 3.2,
+  boostEngineRear: 5.2,
+  reverseEngineFront: 1.6,
+  reverseEngineRear: 2.8,
+  coastBrake: 0.45,
+  serviceBrake: 2.0,
   handbrakeFrontBrake: 0.8,
-  handbrakeRearBrake: 3.8,
-  frontFrictionSlip: 2.4,
-  rearFrictionSlip: 2.6,
+  handbrakeRearBrake: 4.0,
+  frontFrictionSlip: 2.0,
+  rearFrictionSlip: 2.2,
   handbrakeRearFrictionSlip: 1.8,
-  frontSideFriction: 1.65,
-  rearSideFriction: 1.8,
-  handbrakeRearSideFriction: 0.75,
+  frontSideFriction: 2.1,
+  rearSideFriction: 2.3,
+  handbrakeRearSideFriction: 0.48,
   maxSteerAngle: Math.PI / 5.8,
-  highSpeedSteerScale: 0.52,
-  steerSpeed: 10.5,
+  highSpeedSteerScale: 0.68,
+  steerSpeed: 12.5,
   jumpVelocity: 4.6,
   jumpCooldownSeconds: 0.55,
   jumpCoyoteSeconds: 0.12,
   landingRecoverySeconds: 0.16,
   airSteerMultiplier: 0.38,
   airEngineMultiplier: 0.28,
-  driveLinearDamping: 0.75,
-  driveAngularDamping: 2.4,
-  landingLinearDamping: 1.7,
-  landingAngularDamping: 4.8,
+  driveLinearDamping: 0.11,
+  driveAngularDamping: 0.82,
+  landingLinearDamping: 0.45,
+  landingAngularDamping: 1.85,
   uprightAssistGrounded: 8.5,
   uprightAssistAir: 2.5,
   wheelVisualDropMax: 0.22,
   cabinRollScale: 0.022,
   cabinPitchScale: 0.018,
-  maxForwardSpeed: 26,
-  maxBoostSpeed: 31,
+  maxForwardSpeed: 28,
+  maxBoostSpeed: 33,
+  maxReverseSpeed: 13,
+  driveAssistForwardAccel: 15.5,
+  driveAssistBoostAccel: 19.5,
+  driveAssistReverseAccel: 11.5,
+  driveAssistCoastDecel: 4.4,
+  driveAssistBrakeDecel: 16,
+  driveAssistLateralGrip: 9.5,
+  driveAssistHandbrakeGrip: 2.2,
+  driveAssistAirGrip: 1.4,
+  driveAssistYawRate: 1.95,
+  driveAssistHandbrakeYawRate: 2.6,
+  driveAssistYawResponse: 9.5,
+  driveAssistYawTorqueScale: 0.9,
+  contactPushMinClosingSpeed: 0.18,
+  contactPushSpeedScale: 16,
+  contactPushDriveTransferScale: 0.34,
+  contactPushMaxImpulse: 2.35,
+  contactPushMinForwardAlignment: 0.62,
+  contactPushMaxVerticalSpeed: 1.2,
+  contactPushMinGroundedWheels: 2,
+  contactPushCarDragScale: 0.82,
+  contactPushCarryHeightBlend: 1,
+  supportMinNormalY: 0.56,
+  supportMinSuspensionForce: 3.4,
 };
 
 export function deriveCarRideGeometry(tuning: CarTuning = CAR_TUNING): CarRideGeometry {
@@ -214,15 +282,6 @@ function createWheelBaseCenters(ride: CarRideGeometry): readonly THREE.Vector3[]
   ] as const;
 }
 
-export function isCarWheelQueryCandidate(
-  isSensor: boolean,
-  bodyKind: string | null,
-  excludedBody: boolean,
-): boolean {
-  if (isSensor || excludedBody) return false;
-  return bodyKind !== 'vehicle' && bodyKind !== 'throwable' && bodyKind !== 'player';
-}
-
 export function pickFirstClearCarExitCandidate(
   candidates: readonly THREE.Vector3[],
   isClear: (candidate: THREE.Vector3) => boolean,
@@ -253,12 +312,211 @@ export type CarDriveCommand = {
   braking: boolean;
 };
 
+export type CarSteeringDebugSample = {
+  frame: number;
+  timeSeconds: number;
+  input: {
+    moveX: number;
+    moveY: number;
+    sprint: boolean;
+    jump: boolean;
+  };
+  command: CarDriveCommand;
+  state: {
+    contactWheelCount: number;
+    groundedWheelCount: number;
+    frontGroundedWheelCount: number;
+    rearGroundedWheelCount: number;
+    groundedTraction: number;
+    averageSuspensionCompression: number;
+    averageSuspensionForce: number;
+    verticalVelocity: number;
+    forwardSpeed: number;
+    lateralSpeed: number;
+    steerAngle: number;
+    headingYaw: number;
+    yawRate: number;
+    driveImpulseMagnitude: number;
+    contactPushImpulse: number;
+    contactPushCarDrag: number;
+    activeContactPushBodies: number;
+  };
+  wheels: {
+    inContact: readonly boolean[];
+    contactNormalY: readonly number[];
+    groundKinds: readonly (string | null)[];
+    suspensionLengths: readonly number[];
+    suspensionForces: readonly number[];
+    forwardImpulses: readonly number[];
+    sideImpulses: readonly number[];
+  };
+  derived: {
+    driveMode: 'forward' | 'reverse' | 'coast';
+    expectedYawSign: number;
+    actualYawSign: number;
+    yawAgreement: boolean;
+    steeringEffectiveness: number;
+    suspectedForwardSteerLoss: boolean;
+  };
+};
+
+type CarSteeringDebugTrace = {
+  enabled: boolean;
+  autoLog: boolean;
+  label: string;
+  capacity: number;
+  sampleCount: number;
+  incidentSampleCapacity: number;
+  incidentSampleCount: number;
+  incidentCount: number;
+  samples: readonly CarSteeringDebugSample[];
+  incidentSamples: readonly CarSteeringDebugSample[];
+};
+
+const DEFAULT_CAR_DRIVE_COMMAND: CarDriveCommand = {
+  steerAngle: 0,
+  physicsSteerAngle: 0,
+  frontEngineForce: 0,
+  rearEngineForce: 0,
+  frontBrake: 0,
+  rearBrake: 0,
+  frontFrictionSlip: CAR_TUNING.frontFrictionSlip,
+  rearFrictionSlip: CAR_TUNING.rearFrictionSlip,
+  frontSideFriction: CAR_TUNING.frontSideFriction,
+  rearSideFriction: CAR_TUNING.rearSideFriction,
+  braking: false,
+};
+
+const DEFAULT_STEERING_DEBUG_TRACE_CAPACITY = 360;
+const DEFAULT_STEERING_DEBUG_INCIDENT_CAPACITY = 120;
+
+function computeSteeringDebugIncidentCapacity(sampleCapacity: number): number {
+  return THREE.MathUtils.clamp(Math.floor(sampleCapacity / 3), 12, DEFAULT_STEERING_DEBUG_INCIDENT_CAPACITY);
+}
+
+function cloneCarSteeringDebugSample(sample: CarSteeringDebugSample): CarSteeringDebugSample {
+  return {
+    ...sample,
+    input: { ...sample.input },
+    command: { ...sample.command },
+    state: { ...sample.state },
+    wheels: {
+      inContact: [...sample.wheels.inContact],
+      contactNormalY: [...sample.wheels.contactNormalY],
+      groundKinds: [...sample.wheels.groundKinds],
+      suspensionLengths: [...sample.wheels.suspensionLengths],
+      suspensionForces: [...sample.wheels.suspensionForces],
+      forwardImpulses: [...sample.wheels.forwardImpulses],
+      sideImpulses: [...sample.wheels.sideImpulses],
+    },
+    derived: { ...sample.derived },
+  };
+}
+
 export function canCarJump(
   groundedWheelCount: number,
   groundedGraceRemaining: number,
   hopCooldown: number,
 ): boolean {
   return hopCooldown <= 0 && (groundedWheelCount >= 2 || groundedGraceRemaining > 0);
+}
+
+export function isCarWheelSupportingContact(
+  inContact: boolean,
+  contactNormalY: number,
+  suspensionForce: number,
+  tuning: CarTuning = CAR_TUNING,
+): boolean {
+  if (!inContact) return false;
+  return contactNormalY >= tuning.supportMinNormalY && suspensionForce >= tuning.supportMinSuspensionForce;
+}
+
+export function computeCarDriveSpeedDelta(
+  throttle: number,
+  forwardSpeed: number,
+  grounded: boolean,
+  boosting: boolean,
+  dt: number,
+  tuning: CarTuning = CAR_TUNING,
+): number {
+  if (dt <= 0) return 0;
+  const tractionScale = grounded ? 1 : tuning.airEngineMultiplier;
+  const coastStep = tuning.driveAssistCoastDecel * tractionScale * dt;
+  const brakeStep = tuning.driveAssistBrakeDecel * tractionScale * dt;
+
+  if (Math.abs(throttle) <= 0.01) {
+    return THREE.MathUtils.clamp(-forwardSpeed, -coastStep, coastStep);
+  }
+
+  if (throttle > 0) {
+    if (forwardSpeed < -0.5) {
+      return THREE.MathUtils.clamp(-forwardSpeed, -brakeStep, brakeStep);
+    }
+    const accelStep = (boosting ? tuning.driveAssistBoostAccel : tuning.driveAssistForwardAccel) * tractionScale * dt;
+    const targetSpeed = throttle * (boosting ? tuning.maxBoostSpeed : tuning.maxForwardSpeed);
+    return THREE.MathUtils.clamp(targetSpeed - forwardSpeed, -coastStep, accelStep);
+  }
+
+  const targetSpeed = -Math.abs(throttle) * tuning.maxReverseSpeed;
+  if (forwardSpeed > 0.5) {
+    return THREE.MathUtils.clamp(targetSpeed - forwardSpeed, -brakeStep, 0);
+  }
+
+  const reverseStep = tuning.driveAssistReverseAccel * tractionScale * dt;
+  return THREE.MathUtils.clamp(targetSpeed - forwardSpeed, -reverseStep, reverseStep);
+}
+
+export function computeCarLateralGripDelta(
+  lateralSpeed: number,
+  grounded: boolean,
+  handbrake: boolean,
+  dt: number,
+  tuning: CarTuning = CAR_TUNING,
+): number {
+  if (dt <= 0 || Math.abs(lateralSpeed) <= 0.0001) return 0;
+  const grip = grounded
+    ? (handbrake ? tuning.driveAssistHandbrakeGrip : tuning.driveAssistLateralGrip)
+    : tuning.driveAssistAirGrip;
+  const nextLateralSpeed = THREE.MathUtils.damp(lateralSpeed, 0, grip, dt);
+  return nextLateralSpeed - lateralSpeed;
+}
+
+export function computeCarYawAssistAuthority(
+  groundedWheelCount: number,
+  frontGroundedWheelCount: number,
+  rearGroundedWheelCount: number,
+): number {
+  if (groundedWheelCount < 2) return 0;
+  if (frontGroundedWheelCount <= 0 || rearGroundedWheelCount <= 0) return 0;
+  return groundedWheelCount >= 3 ? 1 : 0.45;
+}
+
+export function computeCarYawDirectionSign(
+  steerInput: number,
+  forwardSpeed: number,
+): number {
+  if (Math.abs(steerInput) <= 0.0001 || Math.abs(forwardSpeed) <= 0.0001) return 0;
+  const steerYawSign = -Math.sign(steerInput);
+  const travelYawSign = forwardSpeed >= 0 ? 1 : -1;
+  return steerYawSign * travelYawSign;
+}
+
+export function computeCarContactPushImpulse(
+  driveImpulseMagnitude: number,
+  closingSpeed: number,
+  targetMass: number,
+  dt: number,
+  tuning: CarTuning = CAR_TUNING,
+): number {
+  if (dt <= 0 || targetMass <= 0) return 0;
+  const sustainedImpulse = Math.max(0, driveImpulseMagnitude) * tuning.contactPushDriveTransferScale;
+  const speedImpulse = closingSpeed > tuning.contactPushMinClosingSpeed
+    ? (closingSpeed - tuning.contactPushMinClosingSpeed)
+      * THREE.MathUtils.clamp(Math.sqrt(targetMass), 0.85, 1.8)
+      * tuning.contactPushSpeedScale
+      * dt
+    : 0;
+  return Math.min(tuning.contactPushMaxImpulse, Math.max(sustainedImpulse, speedImpulse));
 }
 
 export function resolveCarDriveCommand(
@@ -350,7 +608,7 @@ export class CarController implements VehicleController {
   readonly type = 'car' as const;
   readonly body: RAPIER.RigidBody;
   readonly mesh: THREE.Object3D;
-  readonly exitOffset = new THREE.Vector3(-1.5, 0, 0);
+  readonly exitOffset = new THREE.Vector3(-1.75, 0, 0);
   readonly cameraConfig = {
     distance: 10,
     heightOffset: 2.5,
@@ -358,6 +616,7 @@ export class CarController implements VehicleController {
   };
 
   private readonly vehicleController: RAPIER.DynamicRayCastVehicleController;
+  private readonly chassisCollider: RAPIER.Collider;
   private readonly rideGeometry = DEFAULT_CAR_RIDE_GEOMETRY;
   private readonly wheelVisualBaseCenters = createWheelBaseCenters(this.rideGeometry);
   private readonly wheelQueryExcludedBody: RAPIER.RigidBody | null;
@@ -366,14 +625,27 @@ export class CarController implements VehicleController {
   private steerAngle = 0;
   private braking = false;
   private hasPose = false;
+  private contactWheelCount = 0;
   private groundedWheelCount = 0;
+  private frontGroundedWheelCount = 0;
+  private rearGroundedWheelCount = 0;
+  private groundedTraction = 0;
   private hopCooldown = 0;
   private groundedGraceRemaining = 0;
   private landingRecoveryRemaining = 0;
   private jumpVisualKick = 0;
   private suspensionOffset = 0;
+  private averageSuspensionCompression = 0;
+  private averageSuspensionForce = 0;
+  private forwardSpeed = 0;
+  private lateralSpeed = 0;
+  private lastDriveImpulseMagnitude = 0;
+  private lastContactPushImpulse = 0;
+  private lastContactPushCarDrag = 0;
+  private activeContactPushBodies = 0;
   private visualRoll = 0;
   private visualPitch = 0;
+  private headingYaw = 0;
   private readonly _prevPos = new THREE.Vector3();
   private readonly _currPos = new THREE.Vector3();
   private readonly _prevQuat = new THREE.Quaternion();
@@ -382,12 +654,29 @@ export class CarController implements VehicleController {
   private readonly wheelVisuals: WheelVisualNode[] = [];
   private readonly wheelSuspensionLengths = Array<number>(4).fill(this.rideGeometry.suspensionRestLength);
   private readonly wheelRotations = Array<number>(4).fill(0);
+  private readonly wheelForwardImpulses = Array<number>(4).fill(0);
+  private readonly wheelSideImpulses = Array<number>(4).fill(0);
+  private readonly wheelSuspensionForces = Array<number>(4).fill(0);
+  private readonly wheelContactNormalY = Array<number>(4).fill(1);
   private readonly wheelInContact = Array<boolean>(4).fill(false);
   private readonly wheelGroundHandles = Array<number | null>(4).fill(null);
+  private readonly wheelGroundKinds = Array<string | null>(4).fill(null);
   private readonly averageGroundNormal = new THREE.Vector3(0, 1, 0);
   private cabinMesh: THREE.Object3D | null = null;
   private readonly spawnPosition = new THREE.Vector3();
   private readonly spawnQuaternion = new THREE.Quaternion();
+  private lastDriveCommand: CarDriveCommand = { ...DEFAULT_CAR_DRIVE_COMMAND };
+  private steeringDebugEnabled = false;
+  private steeringDebugAutoLog = false;
+  private steeringDebugLabel = '';
+  private steeringDebugCapacity = DEFAULT_STEERING_DEBUG_TRACE_CAPACITY;
+  private steeringDebugIncidentCapacity = computeSteeringDebugIncidentCapacity(DEFAULT_STEERING_DEBUG_TRACE_CAPACITY);
+  private steeringDebugTrace: CarSteeringDebugSample[] = [];
+  private steeringDebugIncidentSamples: CarSteeringDebugSample[] = [];
+  private steeringDebugFrame = 0;
+  private steeringDebugTimeSeconds = 0;
+  private steeringDebugIncidentCount = 0;
+  private lastSteeringDebugLogFrame = Number.NEGATIVE_INFINITY;
 
   constructor(
     id: string,
@@ -397,6 +686,7 @@ export class CarController implements VehicleController {
     ignoredWheelQueryBody?: RAPIER.RigidBody | null,
   ) {
     this.id = id;
+    this.steeringDebugLabel = id;
     this.spawnPosition.copy(position);
     this.spawnQuaternion.identity();
     this.wheelQueryExcludedBody = ignoredWheelQueryBody ?? null;
@@ -419,10 +709,10 @@ export class CarController implements VehicleController {
     )
       .setTranslation(0, this.rideGeometry.chassisColliderOffsetY, 0)
       .setDensity(0)
-      .setFriction(0.35)
+      .setFriction(0.46)
       .setRestitution(0.05)
       .setCollisionGroups(COLLISION_GROUP_VEHICLE);
-    this.physicsWorld.world.createCollider(colliderDesc, this.body);
+    this.chassisCollider = this.physicsWorld.world.createCollider(colliderDesc, this.body);
     this.body.setAdditionalMassProperties(
       CAR_TUNING.additionalMass,
       CAR_TUNING.centerOfMass,
@@ -444,6 +734,7 @@ export class CarController implements VehicleController {
 
   enter(input: InputState): void {
     this.input = input;
+    this.body.setDominanceGroup(ACTIVE_CAR_DOMINANCE_GROUP);
     this.body.wakeUp();
     this.hopCooldown = 0;
     this.groundedGraceRemaining = 0;
@@ -456,6 +747,7 @@ export class CarController implements VehicleController {
     const pos = this.body.translation();
     const rot = this.body.rotation();
     this.input = null;
+    this.body.setDominanceGroup(VEHICLE_DOMINANCE_GROUP);
     this.steerAngle = 0;
     this.braking = false;
     this.jumpVisualKick = 0;
@@ -486,18 +778,35 @@ export class CarController implements VehicleController {
     this.speed = 0;
     this.steerAngle = 0;
     this.braking = false;
+    this.contactWheelCount = 0;
     this.groundedWheelCount = 0;
+    this.frontGroundedWheelCount = 0;
+    this.rearGroundedWheelCount = 0;
+    this.groundedTraction = 0;
     this.hopCooldown = 0;
     this.groundedGraceRemaining = 0;
     this.landingRecoveryRemaining = 0;
     this.jumpVisualKick = 0;
     this.suspensionOffset = 0;
+    this.averageSuspensionCompression = 0;
+    this.averageSuspensionForce = 0;
+    this.forwardSpeed = 0;
+    this.lateralSpeed = 0;
+    this.lastDriveImpulseMagnitude = 0;
+    this.lastContactPushImpulse = 0;
+    this.lastContactPushCarDrag = 0;
+    this.activeContactPushBodies = 0;
     this.visualRoll = 0;
     this.visualPitch = 0;
+    this.headingYaw = 0;
+    this.lastDriveCommand = { ...DEFAULT_CAR_DRIVE_COMMAND };
     this.hasPose = false;
+    this.wheelContactNormalY.fill(1);
+    this.wheelGroundKinds.fill(null);
 
     this.body.setTranslation(_setCRV(_rv3A, this.spawnPosition.x, this.spawnPosition.y, this.spawnPosition.z), true);
     this.body.setRotation(toRapierQuat(this.spawnQuaternion), true);
+    this.body.setDominanceGroup(VEHICLE_DOMINANCE_GROUP);
     this.body.setLinvel(_setCRV(_rv3A, 0, 0, 0), true);
     this.body.setAngvel(_setCRV(_rv3B, 0, 0, 0), true);
     this.body.resetForces(true);
@@ -535,6 +844,7 @@ export class CarController implements VehicleController {
       input?.sprint ?? false,
       dt,
     );
+    this.lastDriveCommand = { ...command };
     this.steerAngle = command.steerAngle;
     this.braking = command.braking;
 
@@ -546,9 +856,13 @@ export class CarController implements VehicleController {
       this.wheelQueryFilterPredicate,
     );
     this.syncVehicleStateFromController(dt);
-    this.speed = -this.vehicleController.currentVehicleSpeed();
 
     const groundedNow = this.groundedWheelCount >= 2;
+    this.applyArcadeDriveAssists(dt, input, groundedNow);
+    this.applyContactPushAssist(dt, input, groundedNow);
+    this.updateArcadeMotionState();
+    this.speed = this.forwardSpeed;
+
     if (groundedNow) {
       this.groundedGraceRemaining = CAR_TUNING.jumpCoyoteSeconds;
       if (!wasGrounded) {
@@ -567,6 +881,7 @@ export class CarController implements VehicleController {
 
     this.applyUprightAssist(dt, groundedNow);
     this.updateDamping();
+    this.recordSteeringDebugSample(dt, input, command);
     this.updateVisualState(dt);
     this.applyWheelVisualState();
   }
@@ -620,13 +935,62 @@ export class CarController implements VehicleController {
   }
 
   getDebugState(): {
+    contactWheelCount: number;
     groundedWheelCount: number;
+    frontGroundedWheelCount: number;
+    rearGroundedWheelCount: number;
+    groundedTraction: number;
     wheelGroundHandles: readonly (number | null)[];
+    wheelGroundKinds: readonly (string | null)[];
+    wheelContactNormalY: readonly number[];
+    wheelSuspensionLengths: readonly number[];
+    wheelForwardImpulses: readonly number[];
+    wheelSideImpulses: readonly number[];
+    wheelSuspensionForces: readonly number[];
+    averageSuspensionCompression: number;
+    averageSuspensionForce: number;
+    suspensionOffset: number;
+    verticalVelocity: number;
+    forwardSpeed: number;
+    lateralSpeed: number;
+    steerAngle: number;
+    headingYaw: number;
+    yawRate: number;
+    driveImpulseMagnitude: number;
+    contactPushImpulse: number;
+    contactPushCarDrag: number;
+    activeContactPushBodies: number;
+    lastDriveCommand: CarDriveCommand;
     rideGeometry: Pick<CarRideGeometry, 'nominalChassisClearance' | 'chassisBottomY' | 'nominalGroundPlaneY'>;
   } {
+    const linvel = this.body.linvel();
     return {
+      contactWheelCount: this.contactWheelCount,
       groundedWheelCount: this.groundedWheelCount,
+      frontGroundedWheelCount: this.frontGroundedWheelCount,
+      rearGroundedWheelCount: this.rearGroundedWheelCount,
+      groundedTraction: this.groundedTraction,
       wheelGroundHandles: [...this.wheelGroundHandles],
+      wheelGroundKinds: [...this.wheelGroundKinds],
+      wheelContactNormalY: [...this.wheelContactNormalY],
+      wheelSuspensionLengths: [...this.wheelSuspensionLengths],
+      wheelForwardImpulses: [...this.wheelForwardImpulses],
+      wheelSideImpulses: [...this.wheelSideImpulses],
+      wheelSuspensionForces: [...this.wheelSuspensionForces],
+      averageSuspensionCompression: this.averageSuspensionCompression,
+      averageSuspensionForce: this.averageSuspensionForce,
+      suspensionOffset: this.suspensionOffset,
+      verticalVelocity: linvel.y,
+      forwardSpeed: this.forwardSpeed,
+      lateralSpeed: this.lateralSpeed,
+      steerAngle: this.steerAngle,
+      headingYaw: this.headingYaw,
+      yawRate: this.body.angvel().y,
+      driveImpulseMagnitude: this.lastDriveImpulseMagnitude,
+      contactPushImpulse: this.lastContactPushImpulse,
+      contactPushCarDrag: this.lastContactPushCarDrag,
+      activeContactPushBodies: this.activeContactPushBodies,
+      lastDriveCommand: { ...this.lastDriveCommand },
       rideGeometry: {
         nominalChassisClearance: this.rideGeometry.nominalChassisClearance,
         chassisBottomY: this.rideGeometry.chassisBottomY,
@@ -635,13 +999,99 @@ export class CarController implements VehicleController {
     };
   }
 
+  enableSteeringDebugTrace(options?: { capacity?: number; autoLog?: boolean; label?: string | null }): CarSteeringDebugTrace {
+    this.steeringDebugEnabled = true;
+    this.steeringDebugAutoLog = options?.autoLog ?? false;
+    this.steeringDebugCapacity = THREE.MathUtils.clamp(
+      Math.floor(options?.capacity ?? DEFAULT_STEERING_DEBUG_TRACE_CAPACITY),
+      30,
+      2400,
+    );
+    this.steeringDebugIncidentCapacity = computeSteeringDebugIncidentCapacity(this.steeringDebugCapacity);
+    this.steeringDebugLabel = options?.label?.trim() || this.id;
+    this.clearSteeringDebugTrace();
+    return this.getSteeringDebugTrace();
+  }
+
+  disableSteeringDebugTrace(): CarSteeringDebugTrace {
+    this.steeringDebugEnabled = false;
+    return this.getSteeringDebugTrace();
+  }
+
+  clearSteeringDebugTrace(): void {
+    this.steeringDebugTrace = [];
+    this.steeringDebugIncidentSamples = [];
+    this.steeringDebugFrame = 0;
+    this.steeringDebugTimeSeconds = 0;
+    this.steeringDebugIncidentCount = 0;
+    this.lastSteeringDebugLogFrame = Number.NEGATIVE_INFINITY;
+  }
+
+  getSteeringDebugTrace(): CarSteeringDebugTrace {
+    return {
+      enabled: this.steeringDebugEnabled,
+      autoLog: this.steeringDebugAutoLog,
+      label: this.steeringDebugLabel,
+      capacity: this.steeringDebugCapacity,
+      sampleCount: this.steeringDebugTrace.length,
+      incidentSampleCapacity: this.steeringDebugIncidentCapacity,
+      incidentSampleCount: this.steeringDebugIncidentSamples.length,
+      incidentCount: this.steeringDebugIncidentCount,
+      samples: this.steeringDebugTrace.map(cloneCarSteeringDebugSample),
+      incidentSamples: this.steeringDebugIncidentSamples.map(cloneCarSteeringDebugSample),
+    };
+  }
+
+  dumpSteeringDebugTrace(): CarSteeringDebugTrace {
+    const trace = this.getSteeringDebugTrace();
+    console.groupCollapsed(
+      `[CarSteeringDebug:${trace.label}] samples=${trace.sampleCount} incidents=${trace.incidentCount} retainedIncidents=${trace.incidentSampleCount}`,
+    );
+    console.log(trace);
+    console.table(trace.samples.map((sample) => ({
+      frame: sample.frame,
+      t: Number(sample.timeSeconds.toFixed(3)),
+      moveX: sample.input.moveX,
+      moveY: sample.input.moveY,
+      forwardSpeed: Number(sample.state.forwardSpeed.toFixed(3)),
+      lateralSpeed: Number(sample.state.lateralSpeed.toFixed(3)),
+      yawRate: Number(sample.state.yawRate.toFixed(3)),
+      steerAngle: Number(sample.command.physicsSteerAngle.toFixed(3)),
+      grounded: sample.state.groundedWheelCount,
+      contact: sample.state.contactWheelCount,
+      traction: Number(sample.state.groundedTraction.toFixed(3)),
+      suspectedForwardSteerLoss: sample.derived.suspectedForwardSteerLoss,
+    })));
+    if (trace.incidentSamples.length > 0) {
+      console.table(trace.incidentSamples.map((sample) => ({
+        frame: sample.frame,
+        t: Number(sample.timeSeconds.toFixed(3)),
+        moveX: sample.input.moveX,
+        moveY: sample.input.moveY,
+        forwardSpeed: Number(sample.state.forwardSpeed.toFixed(3)),
+        lateralSpeed: Number(sample.state.lateralSpeed.toFixed(3)),
+        yawRate: Number(sample.state.yawRate.toFixed(3)),
+        grounded: sample.state.groundedWheelCount,
+        frontGrounded: sample.state.frontGroundedWheelCount,
+        rearGrounded: sample.state.rearGroundedWheelCount,
+      })));
+    }
+    console.groupEnd();
+    return trace;
+  }
+
   private readonly wheelQueryFilterPredicate = (collider: RAPIER.Collider): boolean => {
     const parent = collider.parent();
     const excludedBody =
       parent !== null &&
       this.wheelQueryExcludedBody !== null &&
       parent.handle === this.wheelQueryExcludedBody.handle;
-    return isCarWheelQueryCandidate(collider.isSensor(), getRigidBodyKind(parent), excludedBody);
+    return isCarWheelQueryCandidate(
+      collider.isSensor(),
+      getRigidBodyKind(parent),
+      parent?.bodyType() ?? null,
+      excludedBody,
+    );
   };
 
   private configureVehicleController(): void {
@@ -686,15 +1136,21 @@ export class CarController implements VehicleController {
 
   private syncVehicleStateFromController(dt: number): void {
     let avgCompression = 0;
+    let totalSuspensionForce = 0;
+    let contactCount = 0;
     let groundedCount = 0;
+    let frontGroundedCount = 0;
+    let rearGroundedCount = 0;
     this.averageGroundNormal.set(0, 0, 0);
 
     for (let i = 0; i < this.wheelVisualBaseCenters.length; i++) {
       const contact = this.vehicleController.wheelIsInContact(i);
       this.wheelInContact[i] = contact;
-      this.wheelGroundHandles[i] = this.vehicleController.wheelGroundObject(i)?.handle ?? null;
+      const groundBody = this.vehicleController.wheelGroundObject(i);
+      this.wheelGroundHandles[i] = groundBody?.handle ?? null;
+      this.wheelGroundKinds[i] = getRigidBodyKind(groundBody);
       if (contact) {
-        groundedCount++;
+        contactCount++;
       }
 
       const suspensionLength = this.vehicleController.wheelSuspensionLength(i);
@@ -711,14 +1167,30 @@ export class CarController implements VehicleController {
       if (wheelRotation != null) {
         this.wheelRotations[i] = wheelRotation;
       }
+      this.wheelForwardImpulses[i] = this.vehicleController.wheelForwardImpulse(i) ?? 0;
+      this.wheelSideImpulses[i] = this.vehicleController.wheelSideImpulse(i) ?? 0;
+      this.wheelSuspensionForces[i] = this.vehicleController.wheelSuspensionForce(i) ?? 0;
+      totalSuspensionForce += this.wheelSuspensionForces[i];
 
       const contactNormal = this.vehicleController.wheelContactNormal(i);
-      if (contactNormal) {
-        this.averageGroundNormal.add(_chassisUp.set(contactNormal.x, contactNormal.y, contactNormal.z));
+      this.wheelContactNormalY[i] = contactNormal?.y ?? 0;
+      if (isCarWheelSupportingContact(contact, contactNormal?.y ?? 0, this.wheelSuspensionForces[i])) {
+        groundedCount++;
+        if (i < 2) {
+          frontGroundedCount++;
+        } else {
+          rearGroundedCount++;
+        }
+        if (contactNormal) {
+          this.averageGroundNormal.add(_chassisUp.set(contactNormal.x, contactNormal.y, contactNormal.z));
+        }
       }
     }
 
+    this.contactWheelCount = contactCount;
     this.groundedWheelCount = groundedCount;
+    this.frontGroundedWheelCount = frontGroundedCount;
+    this.rearGroundedWheelCount = rearGroundedCount;
     if (groundedCount > 0 && this.averageGroundNormal.lengthSq() > 0.0001) {
       this.averageGroundNormal.normalize();
     } else {
@@ -726,7 +1198,345 @@ export class CarController implements VehicleController {
     }
 
     const avgWheelCompression = avgCompression / this.wheelVisualBaseCenters.length;
-    this.suspensionOffset = THREE.MathUtils.damp(this.suspensionOffset, avgWheelCompression * 0.08, 10, dt);
+    this.averageSuspensionCompression = avgWheelCompression;
+    this.averageSuspensionForce = totalSuspensionForce / this.wheelVisualBaseCenters.length;
+    this.groundedTraction = groundedCount > 0
+      ? THREE.MathUtils.clamp(totalSuspensionForce / Math.max(1, this.body.mass() * 9.81), 0, 1)
+      : 0;
+    this.suspensionOffset = THREE.MathUtils.damp(this.suspensionOffset, avgWheelCompression * 0.06, 12, dt);
+    this.updateArcadeMotionState();
+  }
+
+  private updateArcadeMotionState(): void {
+    const rot = this.body.rotation();
+    _quat.set(rot.x, rot.y, rot.z, rot.w);
+    _tempEuler.setFromQuaternion(_quat, 'YXZ');
+    this.headingYaw = _tempEuler.y;
+    _carForward.set(0, 0, -1).applyQuaternion(_quat).setY(0);
+    if (_carForward.lengthSq() <= 0.0001) {
+      _carForward.set(0, 0, -1);
+    } else {
+      _carForward.normalize();
+    }
+    _carRight.set(1, 0, 0).applyQuaternion(_quat).setY(0);
+    if (_carRight.lengthSq() <= 0.0001) {
+      _carRight.set(1, 0, 0);
+    } else {
+      _carRight.normalize();
+    }
+
+    const linvel = this.body.linvel();
+    _carVelocity.set(linvel.x, 0, linvel.z);
+    this.forwardSpeed = _carVelocity.dot(_carForward);
+    this.lateralSpeed = _carVelocity.dot(_carRight);
+  }
+
+  private applyArcadeDriveAssists(dt: number, input: InputState | null, grounded: boolean): void {
+    const throttle = input?.moveY ?? 0;
+    const steerInput = input?.moveX ?? 0;
+    const handbrake = input?.jump ?? false;
+    const boosting = input?.sprint ?? false;
+    const tractionScale = grounded ? Math.max(0.35, this.groundedTraction) : CAR_TUNING.airEngineMultiplier;
+    const driveSpeedDelta =
+      computeCarDriveSpeedDelta(throttle, this.forwardSpeed, grounded, boosting, dt) * tractionScale;
+    const appliedDriveImpulseMagnitude = Math.abs(this.body.mass() * driveSpeedDelta);
+    const requestedDriveAccel = throttle > 0.01
+      ? (boosting ? CAR_TUNING.driveAssistBoostAccel : CAR_TUNING.driveAssistForwardAccel) * throttle
+      : throttle < -0.01
+        ? CAR_TUNING.driveAssistReverseAccel * Math.abs(throttle)
+        : 0;
+    const driveIntentImpulseMagnitude = this.body.mass() * requestedDriveAccel * tractionScale * dt;
+    const wheelDriveImpulseMagnitude = this.wheelForwardImpulses.reduce(
+      (sum, impulse) => sum + Math.max(0, -impulse),
+      0,
+    );
+    this.lastDriveImpulseMagnitude = Math.max(
+      0,
+      appliedDriveImpulseMagnitude,
+      driveIntentImpulseMagnitude,
+      wheelDriveImpulseMagnitude,
+    );
+
+    if (Math.abs(driveSpeedDelta) > 0.0001) {
+      this.body.applyImpulse(
+        _setCRV(
+          _rv3A,
+          _carForward.x * this.body.mass() * driveSpeedDelta,
+          0,
+          _carForward.z * this.body.mass() * driveSpeedDelta,
+        ),
+        true,
+      );
+    }
+
+    const lateralDelta = computeCarLateralGripDelta(this.lateralSpeed, grounded, handbrake, dt) * tractionScale;
+    if (Math.abs(lateralDelta) > 0.0001) {
+      this.body.applyImpulse(
+        _setCRV(
+          _rv3A,
+          _carRight.x * this.body.mass() * lateralDelta,
+          0,
+          _carRight.z * this.body.mass() * lateralDelta,
+        ),
+        true,
+      );
+    }
+
+    const speedNorm = THREE.MathUtils.clamp(Math.abs(this.forwardSpeed) / CAR_TUNING.maxBoostSpeed, 0, 1);
+    const yawAssistAuthority = computeCarYawAssistAuthority(
+      this.groundedWheelCount,
+      this.frontGroundedWheelCount,
+      this.rearGroundedWheelCount,
+    );
+    const yawDirectionSign = computeCarYawDirectionSign(steerInput, this.forwardSpeed);
+    if (Math.abs(steerInput) > 0.01 && yawAssistAuthority > 0 && yawDirectionSign !== 0 && (grounded || speedNorm > 0.1)) {
+      const targetYawRate =
+        Math.abs(steerInput)
+        * yawDirectionSign
+        * yawAssistAuthority
+        * THREE.MathUtils.lerp(
+          0.55,
+          handbrake ? CAR_TUNING.driveAssistHandbrakeYawRate : CAR_TUNING.driveAssistYawRate,
+          speedNorm,
+        );
+      const currentYawRate = this.body.angvel().y;
+      const nextYawRate = THREE.MathUtils.damp(currentYawRate, targetYawRate, CAR_TUNING.driveAssistYawResponse, dt);
+      const yawRateDelta = nextYawRate - currentYawRate;
+      if (Math.abs(yawRateDelta) > 0.0001) {
+        this.body.applyTorqueImpulse(
+          _setCRV(_rv3B, 0, yawRateDelta * this.body.mass() * CAR_TUNING.driveAssistYawTorqueScale, 0),
+          true,
+        );
+      }
+    }
+  }
+
+  private applyContactPushAssist(dt: number, input: InputState | null, grounded: boolean): void {
+    this.lastContactPushImpulse = 0;
+    this.lastContactPushCarDrag = 0;
+    this.activeContactPushBodies = 0;
+
+    if (!input || input.moveY <= 0.05) return;
+    if (!grounded || this.groundedWheelCount < CAR_TUNING.contactPushMinGroundedWheels) return;
+
+    const carLinvel = this.body.linvel();
+    if (Math.abs(carLinvel.y) > CAR_TUNING.contactPushMaxVerticalSpeed) return;
+
+    const carTranslation = this.body.translation();
+    this.physicsWorld.world.contactPairsWith(this.chassisCollider, (otherCollider) => {
+      const otherBody = otherCollider.parent();
+      if (!otherBody || otherBody.handle === this.body.handle) return;
+      if (otherBody.bodyType() !== RAPIER.RigidBodyType.Dynamic) return;
+
+      const otherKind = getRigidBodyKind(otherBody);
+      if (
+        otherKind === 'vehicle'
+        || otherKind === 'player'
+        || otherKind === 'throwable'
+        || otherKind === 'floating-platform'
+      ) return;
+
+      let frontContacts = 0;
+      let bestAlignment = 0;
+      _contactPointSum.set(0, 0, 0);
+
+      this.physicsWorld.world.contactPair(this.chassisCollider, otherCollider, (manifold) => {
+        const solverContacts = manifold.numSolverContacts();
+        for (let i = 0; i < solverContacts; i++) {
+          const solverPoint = manifold.solverContactPoint(i);
+          _contactPoint.set(solverPoint.x, solverPoint.y, solverPoint.z);
+          _impactDirection
+            .set(_contactPoint.x - carTranslation.x, 0, _contactPoint.z - carTranslation.z);
+
+          if (_impactDirection.lengthSq() <= 0.0001) {
+            _impactDirection.copy(_carForward);
+          } else {
+            _impactDirection.normalize();
+          }
+
+          const forwardAlignment = _carForward.dot(_impactDirection);
+          if (forwardAlignment < CAR_TUNING.contactPushMinForwardAlignment) continue;
+
+          frontContacts++;
+          bestAlignment = Math.max(bestAlignment, forwardAlignment);
+          _contactPointSum.add(_contactPoint);
+        }
+      });
+
+      if (frontContacts === 0) return;
+
+      _contactPointSum.multiplyScalar(1 / frontContacts);
+      const otherLinvel = otherBody.linvel();
+      const otherTranslation = otherBody.translation();
+      _otherVelocity.set(otherLinvel.x, 0, otherLinvel.z);
+      const closingSpeed = this.forwardSpeed - _otherVelocity.dot(_carForward);
+      const impulseMagnitude = computeCarContactPushImpulse(
+        this.lastDriveImpulseMagnitude,
+        closingSpeed,
+        otherBody.mass(),
+        dt,
+      );
+      if (impulseMagnitude <= 0) return;
+
+      const alignmentScale = THREE.MathUtils.lerp(
+        0.72,
+        1,
+        THREE.MathUtils.clamp(
+          (bestAlignment - CAR_TUNING.contactPushMinForwardAlignment)
+            / Math.max(0.001, 1 - CAR_TUNING.contactPushMinForwardAlignment),
+          0,
+          1,
+        ),
+      );
+      const resolvedImpulse = impulseMagnitude * alignmentScale;
+      otherBody.applyImpulseAtPoint(
+        _setCRV(
+          _rv3A,
+          _carForward.x * resolvedImpulse,
+          0,
+          _carForward.z * resolvedImpulse,
+        ),
+        _setCRV(
+          _rv3B,
+          _contactPointSum.x,
+          THREE.MathUtils.lerp(_contactPointSum.y, otherTranslation.y, CAR_TUNING.contactPushCarryHeightBlend),
+          _contactPointSum.z,
+        ),
+        true,
+      );
+      const carDragImpulse = resolvedImpulse
+        * CAR_TUNING.contactPushCarDragScale
+        * THREE.MathUtils.clamp(otherBody.mass() / Math.max(0.001, otherBody.mass() + this.body.mass()), 0.38, 0.72);
+      if (carDragImpulse > 0) {
+        this.body.applyImpulse(
+          _setCRV(
+            _rv3A,
+            -_carForward.x * carDragImpulse,
+            0,
+            -_carForward.z * carDragImpulse,
+          ),
+          true,
+        );
+        const angvel = this.body.angvel();
+        this.body.setAngvel(
+          _setCRV(_rv3B, angvel.x * 0.72, angvel.y, angvel.z * 0.72),
+          true,
+        );
+        this.lastContactPushCarDrag += carDragImpulse;
+      }
+      this.lastContactPushImpulse += resolvedImpulse;
+      this.activeContactPushBodies += 1;
+    });
+  }
+
+  private recordSteeringDebugSample(dt: number, input: InputState | null, command: CarDriveCommand): void {
+    this.steeringDebugFrame += 1;
+    this.steeringDebugTimeSeconds += dt;
+    if (!this.steeringDebugEnabled) return;
+
+    const moveX = input?.moveX ?? 0;
+    const moveY = input?.moveY ?? 0;
+    const yawRate = this.body.angvel().y;
+    const verticalVelocity = this.body.linvel().y;
+    const driveMode: 'forward' | 'reverse' | 'coast' = moveY > 0.1 ? 'forward' : moveY < -0.1 ? 'reverse' : 'coast';
+    const expectedYawSign =
+      Math.abs(moveX) > 0.15 && Math.abs(this.forwardSpeed) > 0.8
+        ? computeCarYawDirectionSign(moveX, this.forwardSpeed)
+        : 0;
+    const actualYawSign = Math.abs(yawRate) > 0.08 ? Math.sign(yawRate) : 0;
+    const yawAgreement = expectedYawSign === 0 || actualYawSign === 0 || expectedYawSign === actualYawSign;
+    const steeringEffectiveness =
+      Math.abs(command.physicsSteerAngle) > 0.001
+        ? Math.abs(yawRate) / Math.abs(command.physicsSteerAngle)
+        : 0;
+    const suspectedForwardSteerLoss =
+      moveY > 0.35
+      && Math.abs(moveX) > 0.35
+      && this.forwardSpeed > 2
+      && this.groundedWheelCount >= 2
+      && (!yawAgreement || (Math.abs(yawRate) < 0.18 && Math.abs(this.lateralSpeed) < 0.3));
+
+    const sample: CarSteeringDebugSample = {
+      frame: this.steeringDebugFrame,
+      timeSeconds: this.steeringDebugTimeSeconds,
+      input: {
+        moveX,
+        moveY,
+        sprint: input?.sprint ?? false,
+        jump: input?.jump ?? false,
+      },
+      command: { ...command },
+      state: {
+        contactWheelCount: this.contactWheelCount,
+        groundedWheelCount: this.groundedWheelCount,
+        frontGroundedWheelCount: this.frontGroundedWheelCount,
+        rearGroundedWheelCount: this.rearGroundedWheelCount,
+        groundedTraction: this.groundedTraction,
+        averageSuspensionCompression: this.averageSuspensionCompression,
+        averageSuspensionForce: this.averageSuspensionForce,
+        verticalVelocity,
+        forwardSpeed: this.forwardSpeed,
+        lateralSpeed: this.lateralSpeed,
+        steerAngle: this.steerAngle,
+        headingYaw: this.headingYaw,
+        yawRate,
+        driveImpulseMagnitude: this.lastDriveImpulseMagnitude,
+        contactPushImpulse: this.lastContactPushImpulse,
+        contactPushCarDrag: this.lastContactPushCarDrag,
+        activeContactPushBodies: this.activeContactPushBodies,
+      },
+      wheels: {
+        inContact: [...this.wheelInContact],
+        contactNormalY: [...this.wheelContactNormalY],
+        groundKinds: [...this.wheelGroundKinds],
+        suspensionLengths: [...this.wheelSuspensionLengths],
+        suspensionForces: [...this.wheelSuspensionForces],
+        forwardImpulses: [...this.wheelForwardImpulses],
+        sideImpulses: [...this.wheelSideImpulses],
+      },
+      derived: {
+        driveMode,
+        expectedYawSign,
+        actualYawSign,
+        yawAgreement,
+        steeringEffectiveness,
+        suspectedForwardSteerLoss,
+      },
+    };
+
+    this.steeringDebugTrace.push(sample);
+    if (this.steeringDebugTrace.length > this.steeringDebugCapacity) {
+      this.steeringDebugTrace.splice(0, this.steeringDebugTrace.length - this.steeringDebugCapacity);
+    }
+
+    if (!suspectedForwardSteerLoss) return;
+    this.steeringDebugIncidentCount += 1;
+    this.steeringDebugIncidentSamples.push(sample);
+    if (this.steeringDebugIncidentSamples.length > this.steeringDebugIncidentCapacity) {
+      this.steeringDebugIncidentSamples.splice(
+        0,
+        this.steeringDebugIncidentSamples.length - this.steeringDebugIncidentCapacity,
+      );
+    }
+    if (
+      !this.steeringDebugAutoLog
+      || this.steeringDebugFrame - this.lastSteeringDebugLogFrame < STEERING_DEBUG_AUTO_LOG_INTERVAL_FRAMES
+    ) return;
+    this.lastSteeringDebugLogFrame = this.steeringDebugFrame;
+    console.warn(`[CarSteeringDebug:${this.steeringDebugLabel}] suspected forward steering loss`, {
+      frame: sample.frame,
+      retainedIncidentSamples: this.steeringDebugIncidentSamples.length,
+      incidentCount: this.steeringDebugIncidentCount,
+      moveX: sample.input.moveX,
+      moveY: sample.input.moveY,
+      forwardSpeed: sample.state.forwardSpeed,
+      lateralSpeed: sample.state.lateralSpeed,
+      yawRate: sample.state.yawRate,
+      groundedWheelCount: sample.state.groundedWheelCount,
+      frontGroundedWheelCount: sample.state.frontGroundedWheelCount,
+      rearGroundedWheelCount: sample.state.rearGroundedWheelCount,
+      groundedTraction: sample.state.groundedTraction,
+    });
   }
 
   private applyUprightAssist(dt: number, grounded: boolean): void {
@@ -888,7 +1698,10 @@ export class CarController implements VehicleController {
     const rot = this.body.rotation();
     _quat.set(rot.x, rot.y, rot.z, rot.w);
 
+    let contactCount = 0;
     let groundedCount = 0;
+    let frontGroundedCount = 0;
+    let rearGroundedCount = 0;
     let avgCompression = 0;
     this.averageGroundNormal.set(0, 0, 0);
 
@@ -911,10 +1724,12 @@ export class CarController implements VehicleController {
       );
 
       if (rayHit) {
-        groundedCount++;
+        contactCount++;
         const suspensionLength = Math.max(0, rayHit.timeOfImpact - this.rideGeometry.wheelRadius);
         this.wheelSuspensionLengths[i] = suspensionLength;
         this.wheelInContact[i] = true;
+        this.wheelContactNormalY[i] = 0;
+        this.wheelGroundKinds[i] = null;
         avgCompression += Math.max(0, this.rideGeometry.suspensionRestLength - suspensionLength);
 
         const normalHit = this.physicsWorld.castRayAndGetNormal(
@@ -927,7 +1742,16 @@ export class CarController implements VehicleController {
           COLLISION_GROUP_VEHICLE,
         );
         if (normalHit) {
-          this.averageGroundNormal.add(_chassisUp.set(normalHit.normal.x, normalHit.normal.y, normalHit.normal.z));
+          this.wheelContactNormalY[i] = normalHit.normal.y;
+          if (normalHit.normal.y >= CAR_TUNING.supportMinNormalY) {
+            groundedCount++;
+            if (i < 2) {
+              frontGroundedCount++;
+            } else {
+              rearGroundedCount++;
+            }
+            this.averageGroundNormal.add(_chassisUp.set(normalHit.normal.x, normalHit.normal.y, normalHit.normal.z));
+          }
         }
       } else {
         this.wheelSuspensionLengths[i] = Math.min(
@@ -935,10 +1759,15 @@ export class CarController implements VehicleController {
           this.rideGeometry.suspensionRestLength + CAR_TUNING.wheelVisualDropMax,
         );
         this.wheelInContact[i] = false;
+        this.wheelContactNormalY[i] = 0;
+        this.wheelGroundKinds[i] = null;
       }
     }
 
+    this.contactWheelCount = contactCount;
     this.groundedWheelCount = groundedCount;
+    this.frontGroundedWheelCount = frontGroundedCount;
+    this.rearGroundedWheelCount = rearGroundedCount;
     if (groundedCount > 0 && this.averageGroundNormal.lengthSq() > 0.0001) {
       this.averageGroundNormal.normalize();
       this.suspensionOffset = (avgCompression / this.wheelVisuals.length) * 0.08;
@@ -946,6 +1775,7 @@ export class CarController implements VehicleController {
       this.averageGroundNormal.set(0, 1, 0);
       this.suspensionOffset = 0;
     }
+    this.updateArcadeMotionState();
     this.syncVisualPoseImmediate();
   }
 

@@ -410,6 +410,9 @@ export class InteractableSystem implements RuntimeSystem {
     vehicle: DroneController | CarController,
     offset: THREE.Vector3,
   ): VehicleSeat {
+    // Keep seat prompts physically inert: Rapier sensors don't generate
+    // contacts, and zero density keeps this attached trigger from biasing
+    // the vehicle's mass properties.
     const colliderDesc = RAPIER.ColliderDesc.cuboid(0.6, 0.8, 0.6)
       .setSensor(true)
       .setDensity(0)

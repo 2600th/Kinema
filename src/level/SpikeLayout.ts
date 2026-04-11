@@ -18,30 +18,40 @@ interface LocalSpikePlacement {
 }
 
 const HAZARD_Y = getShowcaseBayTopY() + 0.06;
+const spike = (
+  offset: readonly [number, number, number],
+  size: readonly [number, number, number],
+  accentColor: number,
+  rotationY = 0,
+): LocalSpikePlacement => ({
+  offset,
+  size,
+  rotationY,
+  accentColor,
+});
 
 const STATION_LOCAL_SPIKES: Partial<Record<ShowcaseStationKey, readonly LocalSpikePlacement[]>> = {
   steps: [
-    { offset: [-8, HAZARD_Y, 1.1], size: [4.6, 1.2, 1.6], accentColor: 0x00d8ff },
-    { offset: [7.8, HAZARD_Y, -1.8], size: [4.8, 1.2, 1.6], accentColor: 0xff7a38 },
+    spike([-2.6, HAZARD_Y, -2.5], [3.4, 1.2, 2.0], 0x00d8ff),
+    spike([12.2, HAZARD_Y, 2.8], [4.0, 1.2, 1.5], 0xff7a38),
   ],
   slopes: [
-    { offset: [-10, HAZARD_Y, 9.5], size: [5.4, 1.2, 1.5], accentColor: 0x00d8ff },
-    { offset: [0, HAZARD_Y, 9.9], size: [5.4, 1.2, 1.5], accentColor: 0xff59c7 },
-    { offset: [10, HAZARD_Y, 10.3], size: [5.4, 1.2, 1.5], accentColor: 0xffa142 },
+    spike([-10, HAZARD_Y, -4.2], [4.2, 1.2, 1.4], 0x00d8ff),
+    spike([0, HAZARD_Y, -3.8], [4.2, 1.2, 1.4], 0xff59c7),
+    spike([10, HAZARD_Y, -3.4], [4.2, 1.2, 1.4], 0xffa142),
   ],
   doubleJump: [
-    { offset: [-1.2, HAZARD_Y, 0], size: [4.2, 1.2, 3.8], accentColor: 0xff59c7 },
-    { offset: [4.6, HAZARD_Y, 0], size: [4.2, 1.2, 3.8], accentColor: 0x00d8ff },
+    spike([-0.8, HAZARD_Y, 3.25], [12.4, 1.2, 1.3], 0xff59c7),
+    spike([-0.8, HAZARD_Y, -3.25], [10.8, 1.2, 1.3], 0x00d8ff),
   ],
   platformsMoving: [
-    { offset: [-12, HAZARD_Y, 3], size: [5.8, 1.2, 4.4], accentColor: 0x00d8ff },
-    { offset: [0, HAZARD_Y, 3], size: [5.8, 1.2, 4.4], accentColor: 0xff59c7 },
-    { offset: [12, HAZARD_Y, 3], size: [5.8, 1.2, 4.4], accentColor: 0xffa142 },
+    spike([-6, HAZARD_Y, 3], [4.6, 1.2, 4.0], 0x00d8ff),
+    spike([6, HAZARD_Y, 3], [4.6, 1.2, 4.0], 0xffa142),
   ],
   platformsPhysics: [
-    { offset: [-11, HAZARD_Y, 2.25], size: [5.8, 1.2, 4.2], accentColor: 0x00d8ff },
-    { offset: [0, HAZARD_Y, 2.1], size: [8.4, 1.2, 3.6], accentColor: 0xff59c7 },
-    { offset: [10.5, HAZARD_Y, -2.75], size: [8.6, 1.2, 3.8], accentColor: 0xffa142 },
+    spike([-4.8, HAZARD_Y, -4.2], [3.4, 1.2, 1.8], 0x00d8ff),
+    spike([4.8, HAZARD_Y, 5.8], [2.4, 1.2, 1.6], 0xff59c7),
+    spike([-17.5, HAZARD_Y, -1.4], [3.0, 1.2, 1.8], 0xffa142),
   ],
 };
 

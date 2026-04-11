@@ -187,7 +187,7 @@ export interface EventMap {
   'interaction:pickUp': { object: ThrowableObject };
   'interaction:throw': { direction: THREE.Vector3; force: number };
   'interaction:drop': undefined;
-  'interaction:holdProgress': { id: string; progress: number } | null;
+  'interaction:holdProgress': { id: string; progress: number; position: THREE.Vector3 } | null;
   'checkpoint:activated': { id: string; position: { x: number; y: number; z: number } };
   'objective:set': { id: string; text: string };
   'objective:completed': { id: string; text: string };

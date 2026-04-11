@@ -26,4 +26,11 @@ export interface VehicleController extends FixedUpdatable, PostPhysicsUpdatable,
   setControlYaw?(yaw: number): void;
   /** Optional: restore the vehicle to its authored spawn if it leaves the playable space. */
   resetToSpawn?(): void;
+  /** Optional: expose runtime diagnostics for dev tools and browser automation. */
+  getDebugState?(): unknown;
+  enableSteeringDebugTrace?(options?: { capacity?: number; autoLog?: boolean; label?: string | null }): unknown;
+  disableSteeringDebugTrace?(): unknown;
+  clearSteeringDebugTrace?(): void;
+  getSteeringDebugTrace?(): unknown;
+  dumpSteeringDebugTrace?(): unknown;
 }

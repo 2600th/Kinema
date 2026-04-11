@@ -44,7 +44,6 @@ export async function createVfxShowcase(
       cos,
     } = await import('three/tsl');
     const { mx_fractal_noise_float } = await import('three/tsl');
-    const { mrt: mrtFn, vec4: vec4Fn } = await import('three/tsl');
 
     // =====================================================================
     // EFFECT A — DISSOLVE SPHERE
@@ -105,6 +104,7 @@ export async function createVfxShowcase(
       const posZ = base.z;
 
       const fireGroup = new THREE.Group();
+      fireGroup.name = 'VFX_FireGroup';
       fireGroup.position.set(posX, posY, posZ);
       scene.add(fireGroup);
       created.push(fireGroup);
@@ -215,9 +215,79 @@ export async function createVfxShowcase(
         (emberGeo.attributes.position as THREE.BufferAttribute).needsUpdate = true;
       });
 
-      // --- FIRE SHEETS (TSL volumetric flames above the logs) ---
       const flameWidth = 1.6;
       const flameHeight = 3.2;
+
+      // --- FIRE CORE (alpha-blended center so flames stay readable without bloom) ---
+      const coreSheetCount = 3;
+      const coreFlameGeo = new THREE.PlaneGeometry(flameWidth * 0.82, flameHeight * 0.96, 1, 1);
+      coreFlameGeo.translate(0, flameHeight * 0.5, 0);
+
+      for (let i = 0; i < coreSheetCount; i++) {
+        const phase = float(i * 0.91 + 0.27);
+        const coreMat = new MeshBasicNodeMaterial();
+        coreMat.transparent = true;
+        coreMat.side = THREE.DoubleSide;
+        coreMat.depthWrite = false;
+        coreMat.blending = THREE.NormalBlending;
+        coreMat.forceSinglePass = true;
+
+        const v = uv();
+        const centeredX = v.x.sub(0.5).mul(2.0);
+        const t = time.mul(1.05).add(phase);
+        const sway = sin(t.add(v.y.mul(5.9))).mul(0.05)
+          .add(cos(t.mul(1.33).sub(v.y.mul(6.8))).mul(0.028));
+        const flameW = mix(float(0.84), float(0.11), smoothstep(0.0, 1.0, v.y));
+        const flameX = centeredX.add(sway.mul(mix(float(0.22), float(0.95), v.y)));
+        const widthCoord = abs(flameX).div(flameW);
+        const bodyMask = float(1.0).sub(smoothstep(0.12, 0.92, widthCoord));
+        const bodyNoise = mx_fractal_noise_float(
+          vec3(flameX.mul(2.4), v.y.mul(4.1).sub(t.mul(2.25)), t.mul(0.36).add(3.1))
+        );
+        const detailNoise = mx_fractal_noise_float(
+          vec3(flameX.mul(5.1), v.y.mul(7.0).sub(t.mul(3.1)), t.mul(0.43).add(6.4))
+        );
+        const bottomFade = smoothstep(0.0, 0.08, v.y);
+        const topFade = float(1.0).sub(smoothstep(0.72, 1.0, v.y));
+        const alpha = bodyMask
+          .mul(bottomFade)
+          .mul(topFade)
+          .mul(smoothstep(0.16, 0.94, bodyNoise.add(bodyMask.mul(0.48)).add(detailNoise.mul(0.14)).sub(v.y.mul(0.12))))
+          .mul(0.92)
+          .add(bodyMask.mul(bottomFade).mul(float(0.1)))
+          .clamp(0, 0.98);
+
+        const heat = alpha.mul(0.82)
+          .add(float(1.0).sub(smoothstep(0.0, 0.58, v.y)).mul(0.36))
+          .add(bodyMask.mul(0.22))
+          .clamp(0, 1);
+
+        let coreColor = mix(
+          vec3(0.55, 0.04, 0.0),
+          vec3(1.0, 0.34, 0.03),
+          smoothstep(0.08, 0.36, heat),
+        );
+        coreColor = mix(coreColor, vec3(1.0, 0.78, 0.22), smoothstep(0.34, 0.72, heat));
+        coreColor = mix(coreColor, vec3(1.0, 0.98, 0.9), smoothstep(0.72, 1.0, heat));
+
+        coreMat.colorNode = coreColor;
+        coreMat.opacityNode = alpha;
+
+        const coreSheet = new THREE.Mesh(coreFlameGeo, coreMat);
+        const angle = (i / coreSheetCount) * Math.PI;
+        coreSheet.rotation.y = angle;
+        coreSheet.position.set(
+          Math.cos(angle) * 0.03,
+          0,
+          Math.sin(angle) * 0.03,
+        );
+        coreSheet.renderOrder = 8;
+        coreSheet.castShadow = false;
+        coreSheet.name = i === 0 ? 'VFX_FireCore' : `VFX_FireCore_${i + 1}`;
+        fireGroup.add(coreSheet);
+      }
+
+      // --- FIRE SHEETS (TSL volumetric flames above the logs) ---
       const SHEET_COUNT = 7;
       const flameGeo = new THREE.PlaneGeometry(flameWidth, flameHeight, 1, 1);
       flameGeo.translate(0, flameHeight * 0.5, 0); // pivot at base
@@ -232,7 +302,6 @@ export async function createVfxShowcase(
         flameMat.depthWrite = false;
         flameMat.blending = THREE.AdditiveBlending;
         flameMat.forceSinglePass = true;
-        flameMat.mrtNode = mrtFn({ emissive: vec4Fn(1, 0.5, 0.1, 1) });
 
         // --- Fire alpha computation ---
         const v = uv();
@@ -438,6 +507,63 @@ export async function createVfxShowcase(
           }
         });
 
+        const boostBoltMaterial = (material: THREE.Material): THREE.Material => {
+          if (
+            material instanceof THREE.MeshStandardMaterial
+            || material instanceof THREE.MeshPhysicalMaterial
+            || material instanceof THREE.MeshPhongMaterial
+            || material instanceof THREE.MeshLambertMaterial
+            || material instanceof THREE.MeshToonMaterial
+          ) {
+            const boosted = material.clone();
+            const emissiveColor = ('color' in boosted ? boosted.color.clone() : new THREE.Color(0xaedaff))
+              .lerp(new THREE.Color(0xffffff), 0.28);
+            boosted.emissive.copy(emissiveColor);
+            boosted.emissiveIntensity = Math.max(boosted.emissiveIntensity, 2.25);
+            return boosted;
+          }
+
+          if (material instanceof THREE.MeshBasicMaterial) {
+            return new THREE.MeshStandardMaterial({
+              color: material.color.clone(),
+              map: material.map ?? null,
+              transparent: material.transparent,
+              opacity: material.opacity,
+              side: material.side,
+              depthWrite: material.depthWrite,
+              depthTest: material.depthTest,
+              alphaTest: material.alphaTest,
+              blending: material.blending,
+              emissive: material.color.clone().lerp(new THREE.Color(0xffffff), 0.35),
+              emissiveIntensity: 2.25,
+              roughness: 0.28,
+              metalness: 0.05,
+            });
+          }
+
+          return material.clone();
+        };
+
+        const setBoltEmission = (intensity: number) => {
+          for (const bolt of boltMeshes) {
+            const materials = Array.isArray(bolt.material) ? bolt.material : [bolt.material];
+            for (const material of materials) {
+              if ('emissiveIntensity' in material && typeof material.emissiveIntensity === 'number') {
+                material.emissiveIntensity = intensity;
+              }
+            }
+          }
+        };
+
+        boltMeshes.forEach((bolt, index) => {
+          bolt.name = `VFX_LightningBolt${index + 1}`;
+          if (Array.isArray(bolt.material)) {
+            bolt.material = bolt.material.map((material) => boostBoltMaterial(material));
+          } else {
+            bolt.material = boostBoltMaterial(bolt.material);
+          }
+        });
+
         scene.add(model);
         created.push(model);
 
@@ -498,6 +624,7 @@ export async function createVfxShowcase(
         const flashLight = new THREE.PointLight(0x88ccff, 0, 20, 2);
         flashLight.position.set(posX, base.y + 6, posZ);
         flashLight.castShadow = false;
+        flashLight.name = 'VFX_LightningFlashLight';
         scene.add(flashLight);
         created.push(flashLight);
 
@@ -505,9 +632,14 @@ export async function createVfxShowcase(
         let strikeTimer = 2 + Math.random() * 2;
         let flashActive = false;
         let flashDuration = 0;
+        let flashTotalDuration = 0;
+        let strikeX = rainCenterX;
+        let strikeZ = rainCenterZ;
         const dummy = new THREE.Object3D();
 
         updateFns.push((dt: number) => {
+          let justTriggeredFlash = false;
+
           // --- Rain particle animation ---
           if (rainInstancedMesh) {
             for (let i = 0; i < RAIN_COUNT; i++) {
@@ -529,17 +661,27 @@ export async function createVfxShowcase(
           strikeTimer -= dt;
           if (strikeTimer <= 0 && !flashActive) {
             flashActive = true;
-            flashDuration = 0.15 + Math.random() * 0.1;
+            flashDuration = 0.15 + Math.random() * 0.12;
+            flashTotalDuration = flashDuration;
+            justTriggeredFlash = true;
+            strikeX = rainCenterX + (Math.random() - 0.5) * 2.2;
+            strikeZ = rainCenterZ + (Math.random() - 0.5) * 1.8;
             for (const bolt of boltMeshes) bolt.visible = true;
-            flashLight.intensity = 20;
+            setBoltEmission(4.6);
+            flashLight.position.set(strikeX, base.y + 5.6, strikeZ);
+            flashLight.intensity = 22;
             strikeTimer = 2 + Math.random() * 3;
           }
-          if (flashActive) {
+          if (flashActive && !justTriggeredFlash) {
             flashDuration -= dt;
-            flashLight.intensity *= 0.88;
+            const life = Math.max(0, flashDuration / Math.max(0.001, flashTotalDuration));
+            const flicker = 0.72 + Math.random() * 0.45;
+            flashLight.intensity = (6 + life * 18) * flicker;
+            setBoltEmission((1.2 + life * 2.8) * flicker);
             if (flashDuration <= 0) {
               flashActive = false;
               for (const bolt of boltMeshes) bolt.visible = false;
+              setBoltEmission(2.25);
               flashLight.intensity = 0;
             }
           }

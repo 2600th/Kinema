@@ -55,32 +55,107 @@
 .hud-hold-track {
   position: absolute;
   left: 50%;
-  bottom: calc(20% - 26px);
-  width: clamp(160px, 40vw, 240px);
-  height: 10px;
-  transform: translateX(-50%);
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  overflow: hidden;
+  bottom: calc(20% - 106px);
+  width: 88px;
+  height: 88px;
+  transform: translateX(-50%) scale(0.88);
+  border-radius: 50%;
   opacity: 0;
   pointer-events: none;
   z-index: 1000;
-  transition: opacity 0.16s ease;
+  --hold-progress: 0;
+  --hold-progress-angle: 0deg;
+  transition: opacity 0.16s ease, transform 0.2s cubic-bezier(0.2, 0.84, 0.24, 1), filter 0.18s ease;
+  filter: drop-shadow(0 0 18px rgba(98, 230, 255, 0.2));
 }
 
 .hud-hold-track.is-visible {
   opacity: 1;
+  transform: translateX(-50%) scale(1);
+}
+
+.hud-hold-track::before,
+.hud-hold-track::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+}
+
+.hud-hold-track::before {
+  background:
+    radial-gradient(circle at 50% 32%, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 45%),
+    conic-gradient(
+      from -90deg,
+      rgba(152, 255, 205, 0.98) 0deg,
+      rgba(124, 126, 255, 0.96) calc(var(--hold-progress-angle) * 0.65),
+      rgba(152, 255, 205, 0.98) var(--hold-progress-angle),
+      rgba(255, 255, 255, 0.08) 0deg 360deg
+    );
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 0 24px rgba(98, 230, 255, 0.18);
+}
+
+.hud-hold-track::after {
+  inset: 8px;
+  background:
+    radial-gradient(circle at 50% 34%, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0) 48%),
+    linear-gradient(180deg, rgba(10, 18, 34, 0.94), rgba(6, 11, 22, 0.88));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -1px 0 rgba(98, 230, 255, 0.08);
 }
 
 .hud-hold-fill {
-  height: 100%;
-  width: 0%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #62e6ff 0%, #7b6cff 55%, #ff79ba 100%);
-  box-shadow: 0 0 18px rgba(98, 230, 255, 0.34);
-  transition: width 0.08s linear;
+  position: absolute;
+  inset: 18px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 28%, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0) 46%),
+    linear-gradient(180deg, rgba(16, 30, 56, 0.94), rgba(10, 18, 36, 0.92));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 0 22px rgba(98, 230, 255, 0.14);
+  transform: scale(calc(0.96 + var(--hold-progress) * 0.06));
+  transition: transform 0.1s linear, box-shadow 0.14s ease;
+}
+
+.hud-hold-key {
+  color: #f6fffd;
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.4px;
+  text-shadow: 0 0 14px rgba(152, 255, 205, 0.24);
+}
+
+.hud-hold-caption {
+  color: rgba(190, 247, 255, 0.8);
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+}
+
+.hud-hold-track.is-complete {
+  animation: hud-hold-complete 0.26s cubic-bezier(0.16, 0.84, 0.22, 1);
+  filter: drop-shadow(0 0 26px rgba(152, 255, 205, 0.36));
+}
+
+.hud-hold-track.is-complete .hud-hold-fill {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 0 28px rgba(152, 255, 205, 0.24);
 }
 
 .hud-objective-region {
@@ -566,6 +641,18 @@
   }
 }
 
+@keyframes hud-hold-complete {
+  0% {
+    transform: translateX(-50%) scale(1);
+  }
+  45% {
+    transform: translateX(-50%) scale(1.08);
+  }
+  100% {
+    transform: translateX(-50%) scale(1);
+  }
+}
+
 @keyframes hud-damage-flash {
   0% {
     opacity: 0;
@@ -603,9 +690,14 @@
   .hud-prompt {
     bottom: 18%;
   }
+
+  .hud-hold-track {
+    bottom: calc(18% - 100px);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .hud-hold-track.is-complete,
   .hud-damage-overlay.is-hit::before,
   .hud-damage-overlay.is-hit::after,
   .hud-health-chip.is-hit,
@@ -624,6 +716,8 @@
   .hud-floating-delta.is-visible,
   .hud-status-card,
   .hud-prompt,
+  .hud-hold-track,
+  .hud-hold-fill,
   .hud-objective-card,
   .hud-stat-chip,
   .collectible-count,

@@ -21,6 +21,8 @@ export class GameParticles {
   private coinGlowPool: ParticlePool;
   private hurtSparkPool: ParticlePool;
   private hurtGlowPool: ParticlePool;
+  private beaconSparkPool: ParticlePool;
+  private beaconGlowPool: ParticlePool;
 
   constructor(scene: THREE.Scene) {
     // Dust: earthy brown, normal blending, soft and floaty
@@ -73,6 +75,26 @@ export class GameParticles {
       color: new THREE.Color(0x66ecff),
       gravity: 0.7,
       drag: 2,
+      additive: true,
+    });
+
+    this.beaconSparkPool = new ParticlePool(scene, {
+      maxParticles: 128,
+      size: 0.09,
+      sizeVariation: 0.5,
+      color: new THREE.Color(0xb784ff),
+      gravity: 1.1,
+      drag: 1.15,
+      additive: true,
+    });
+
+    this.beaconGlowPool = new ParticlePool(scene, {
+      maxParticles: 128,
+      size: 0.2,
+      sizeVariation: 0.7,
+      color: new THREE.Color(0x8dffd5),
+      gravity: 0.18,
+      drag: 1.9,
       additive: true,
     });
   }
@@ -217,6 +239,55 @@ export class GameParticles {
     });
   }
 
+  beaconChargePulse(position: THREE.Vector3, progress: number): void {
+    const charge = THREE.MathUtils.clamp(progress, 0, 1);
+    _emitPos.copy(position);
+    _emitPos.y += 0.15;
+
+    const glowCount = 3 + Math.round(charge * 4);
+    _glowVelMin.set(-0.22 - charge * 0.18, 0.4, -0.22 - charge * 0.18);
+    _glowVelMax.set(0.22 + charge * 0.18, 1.0 + charge * 0.45, 0.22 + charge * 0.18);
+    this.beaconGlowPool.emit(_emitPos, glowCount, {
+      velocityMin: _glowVelMin,
+      velocityMax: _glowVelMax,
+      lifetime: 0.3 + charge * 0.18,
+      spread: 0.09 + charge * 0.09,
+    });
+
+    const sparkCount = 2 + Math.round(charge * 3);
+    _sparkVelMin.set(-0.95 - charge * 0.75, 0.35, -0.95 - charge * 0.75);
+    _sparkVelMax.set(0.95 + charge * 0.75, 1.1 + charge * 0.65, 0.95 + charge * 0.75);
+    this.beaconSparkPool.emit(_emitPos, sparkCount, {
+      velocityMin: _sparkVelMin,
+      velocityMax: _sparkVelMax,
+      lifetime: 0.2 + charge * 0.12,
+      spread: 0.04 + charge * 0.05,
+    });
+  }
+
+  beaconComplete(position: THREE.Vector3): void {
+    _emitPos.copy(position);
+    _emitPos.y += 0.18;
+
+    _glowVelMin.set(-0.55, 0.7, -0.55);
+    _glowVelMax.set(0.55, 1.8, 0.55);
+    this.beaconGlowPool.emit(_emitPos, 20, {
+      velocityMin: _glowVelMin,
+      velocityMax: _glowVelMax,
+      lifetime: 0.48,
+      spread: 0.18,
+    });
+
+    _sparkVelMin.set(-2.2, 0.6, -2.2);
+    _sparkVelMax.set(2.2, 2.2, 2.2);
+    this.beaconSparkPool.emit(_emitPos, 18, {
+      velocityMin: _sparkVelMin,
+      velocityMax: _sparkVelMax,
+      lifetime: 0.36,
+      spread: 0.12,
+    });
+  }
+
   /**
    * Small outward puff at the player's feet when jumping.
    */
@@ -241,6 +312,8 @@ export class GameParticles {
     this.coinGlowPool.update(dt, camera);
     this.hurtSparkPool.update(dt, camera);
     this.hurtGlowPool.update(dt, camera);
+    this.beaconSparkPool.update(dt, camera);
+    this.beaconGlowPool.update(dt, camera);
   }
 
   dispose(): void {
@@ -249,5 +322,7 @@ export class GameParticles {
     this.coinGlowPool.dispose();
     this.hurtSparkPool.dispose();
     this.hurtGlowPool.dispose();
+    this.beaconSparkPool.dispose();
+    this.beaconGlowPool.dispose();
   }
 }

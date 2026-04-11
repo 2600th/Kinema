@@ -350,7 +350,18 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
    *  physics ticks because a subsequent render-frame poll clears it. */
   beginFrame(dt: number): void {
     if (this.testInputOverride && this.testInputFrames > 0) {
-      this.frameInput = this.testInputOverride;
+      const fresh = this.testInputOverride;
+      if (this.frameInput) {
+        this.frameInput = {
+          ...fresh,
+          jumpPressed: this.frameInput.jumpPressed || fresh.jumpPressed,
+          crouchPressed: this.frameInput.crouchPressed || fresh.crouchPressed,
+          interactPressed: this.frameInput.interactPressed || fresh.interactPressed,
+          primaryPressed: this.frameInput.primaryPressed || fresh.primaryPressed,
+        };
+      } else {
+        this.frameInput = fresh;
+      }
       this.testInputFrames--;
       if (this.testInputFrames <= 0) {
         this.testInputOverride = null;
@@ -378,7 +389,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
   fixedUpdate(dt: number): void {
     // Consume cached input from beginFrame. Nulling it ensures edge triggers
     // (jumpPressed etc.) don't re-fire on subsequent substeps in the same frame.
-    const input = this.frameInput ?? this.inputManager.poll();
+    const input = this.frameInput ?? this.testInputOverride ?? this.inputManager.poll();
     this.frameInput = null;
     this.playerController.setInput(input);
     this.vehicleManager.setInput(input);

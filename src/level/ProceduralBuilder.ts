@@ -6,6 +6,7 @@ import type { PhysicsWorld } from '@physics/PhysicsWorld';
 import { ColliderFactory } from '@physics/ColliderFactory';
 import {
   SHOWCASE_LAYOUT,
+  SHOWCASE_ENTRANCE_START_Z,
   SHOWCASE_STATION_ORDER,
   STATION_SPAWN_OVERRIDES,
   getShowcaseBayTopY,
@@ -109,6 +110,7 @@ export class ProceduralBuilder {
   private static floorRoughnessTextureTemplate: THREE.CanvasTexture | null = null;
   private static vfxNoiseTextureTemplate: THREE.CanvasTexture | null = null;
   private static sectionLabelTextureTemplates = new Map<string, THREE.CanvasTexture>();
+  private static propTextureTemplates = new Map<string, THREE.CanvasTexture>();
 
   // Accumulator arrays populated during build and returned as ProceduralBuildResult.
   private meshes: THREE.Object3D[] = [];
@@ -264,7 +266,9 @@ export class ProceduralBuilder {
       metalness: 0.08,
     });
     const boundaryWallSize = new THREE.Vector3(0.5, 0.7, hallLength);
+    const boundaryEndWallSize = new THREE.Vector3(hallWidth - boundaryWallSize.x * 2, boundaryWallSize.y, boundaryWallSize.x);
     const boundaryWallY = -1.0 + boundaryWallSize.y * 0.5;
+    const boundaryEndWallZ = hallLength * 0.5 - boundaryEndWallSize.z * 0.5;
     this.createFixedStaticBox(
       'ShowcaseBoundaryWall_L',
       boundaryWallSize,
@@ -277,6 +281,22 @@ export class ProceduralBuilder {
       'ShowcaseBoundaryWall_R',
       boundaryWallSize,
       new THREE.Vector3(hallWidth * 0.5 - boundaryWallSize.x * 0.5, boundaryWallY, showcaseCenterZ),
+      new THREE.Euler(),
+      boundaryWallMat,
+      'showcase-boundary',
+    );
+    this.createFixedStaticBox(
+      'ShowcaseBoundaryWall_Entrance',
+      boundaryEndWallSize,
+      new THREE.Vector3(0, boundaryWallY, showcaseCenterZ + boundaryEndWallZ),
+      new THREE.Euler(),
+      boundaryWallMat,
+      'showcase-boundary',
+    );
+    this.createFixedStaticBox(
+      'ShowcaseBoundaryWall_End',
+      boundaryEndWallSize,
+      new THREE.Vector3(0, boundaryWallY, showcaseCenterZ - boundaryEndWallZ),
       new THREE.Euler(),
       boundaryWallMat,
       'showcase-boundary',
@@ -485,7 +505,7 @@ export class ProceduralBuilder {
     // Spawn point: near corridor entrance in full mode, near target station in station mode.
     if (buildAll) {
       this.spawnPointData = {
-        position: new THREE.Vector3(0, 2, showcaseCenterZ + hallLength / 2 - 160),
+        position: new THREE.Vector3(0, 2, showcaseCenterZ + SHOWCASE_ENTRANCE_START_Z),
         rotation: new THREE.Euler(0, Math.PI, 0),
       };
     } else {
@@ -558,6 +578,7 @@ export class ProceduralBuilder {
       1.75,
     );
     this.createStaircase(new THREE.Vector3(8, bayTopY, zSteps - 6), 10, 0.14, 0.78, 4.8, stepMat);
+    this.createStepsPhysicsPlayground(zSteps, bayTopY);
     } // end steps
 
     if (isTarget('slopes')) {
@@ -1260,6 +1281,7 @@ export class ProceduralBuilder {
       9.2,
       2.05,
     );
+    this.createVehicleCrashPlayground(zVehicles, bayTopY);
     } // end vehicles
 
     await this.yieldProgress(0.7);
@@ -1367,6 +1389,7 @@ export class ProceduralBuilder {
       2.45,
     );
     this.createMaterialsBay(new THREE.Vector3(0, bayTopY, zMaterials), bayWidth, obstacleMat);
+    this.createMaterialsPhysicsProps(new THREE.Vector3(0, bayTopY, zMaterials), bayWidth);
     } // end materials
 
     await this.yieldProgress(0.85);
@@ -1589,19 +1612,376 @@ export class ProceduralBuilder {
     return clone;
   }
 
+  private createPropTexture(
+    key: string,
+    draw: (ctx: CanvasRenderingContext2D, size: number) => void,
+    repeatX = 1,
+    repeatY = 1,
+  ): THREE.CanvasTexture {
+    const cached = ProceduralBuilder.propTextureTemplates.get(key);
+    if (cached) {
+      const clone = cached.clone();
+      clone.repeat.set(repeatX, repeatY);
+      clone.anisotropy = this.maxAnisotropy;
+      clone.needsUpdate = true;
+      return clone;
+    }
+
+    const size = 512;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      const fallback = new THREE.CanvasTexture(canvas);
+      fallback.needsUpdate = true;
+      return fallback;
+    }
+
+    draw(ctx, size);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(repeatX, repeatY);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = this.maxAnisotropy;
+    texture.needsUpdate = true;
+    ProceduralBuilder.propTextureTemplates.set(key, texture);
+
+    const clone = texture.clone();
+    clone.repeat.set(repeatX, repeatY);
+    clone.anisotropy = this.maxAnisotropy;
+    clone.needsUpdate = true;
+    return clone;
+  }
+
+  private createToyBallTexture(
+    key: string,
+    shell: string,
+    accent: string,
+    trim: string,
+    motif: 'beach' | 'pinball' | 'target' | 'reactor' | 'bubble',
+  ): THREE.CanvasTexture {
+    return this.createPropTexture(
+      key,
+      (ctx, size) => {
+        const bg = ctx.createRadialGradient(size * 0.36, size * 0.28, size * 0.02, size * 0.5, size * 0.5, size * 0.56);
+        bg.addColorStop(0, trim);
+        bg.addColorStop(0.28, shell);
+        bg.addColorStop(1, '#0d1320');
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, size, size);
+
+        if (motif === 'beach') {
+          const spokes = 6;
+          for (let i = 0; i < spokes; i += 1) {
+            const start = (Math.PI * 2 * i) / spokes;
+            ctx.beginPath();
+            ctx.moveTo(size * 0.5, size * 0.5);
+            ctx.arc(size * 0.5, size * 0.5, size * 0.6, start, start + Math.PI / spokes);
+            ctx.closePath();
+            ctx.fillStyle = i % 2 === 0 ? accent : 'rgba(255,255,255,0.12)';
+            ctx.fill();
+          }
+          ctx.strokeStyle = 'rgba(255,255,255,0.38)';
+          ctx.lineWidth = 20;
+          ctx.beginPath();
+          ctx.arc(size * 0.5, size * 0.5, size * 0.25, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
+        if (motif === 'pinball') {
+          ctx.strokeStyle = accent;
+          ctx.lineWidth = 30;
+          for (let x = -size * 0.15; x < size * 1.2; x += size * 0.24) {
+            ctx.beginPath();
+            ctx.moveTo(x, size);
+            ctx.lineTo(x + size * 0.3, 0);
+            ctx.stroke();
+          }
+          ctx.fillStyle = trim;
+          ctx.beginPath();
+          ctx.arc(size * 0.5, size * 0.5, size * 0.12, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(255,255,255,0.42)';
+          ctx.lineWidth = 12;
+          ctx.beginPath();
+          ctx.arc(size * 0.5, size * 0.5, size * 0.28, -0.2, Math.PI * 1.7);
+          ctx.stroke();
+        }
+
+        if (motif === 'target') {
+          const rings = [0.42, 0.3, 0.19];
+          const fills = [accent, 'rgba(255,255,255,0.14)', trim];
+          rings.forEach((ring, index) => {
+            ctx.fillStyle = fills[index] ?? accent;
+            ctx.beginPath();
+            ctx.arc(size * 0.5, size * 0.5, size * ring, 0, Math.PI * 2);
+            ctx.fill();
+          });
+          ctx.fillStyle = 'rgba(255,255,255,0.9)';
+          ctx.beginPath();
+          ctx.arc(size * 0.5, size * 0.5, size * 0.07, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = accent;
+          for (let i = 0; i < 4; i += 1) {
+            ctx.save();
+            ctx.translate(size * 0.5, size * 0.5);
+            ctx.rotate((Math.PI * 0.5 * i) + Math.PI * 0.25);
+            ctx.beginPath();
+            ctx.moveTo(0, -size * 0.43);
+            ctx.lineTo(size * 0.04, -size * 0.32);
+            ctx.lineTo(-size * 0.04, -size * 0.32);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+          }
+        }
+
+        if (motif === 'reactor') {
+          ctx.fillStyle = 'rgba(255,255,255,0.12)';
+          for (let i = 0; i < 8; i += 1) {
+            ctx.save();
+            ctx.translate(size * 0.5, size * 0.5);
+            ctx.rotate((Math.PI * 2 * i) / 8);
+            ctx.fillRect(-size * 0.04, -size * 0.38, size * 0.08, size * 0.16);
+            ctx.restore();
+          }
+          ctx.strokeStyle = accent;
+          ctx.lineWidth = 18;
+          ctx.beginPath();
+          ctx.arc(size * 0.5, size * 0.5, size * 0.29, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.strokeStyle = trim;
+          ctx.lineWidth = 10;
+          ctx.beginPath();
+          ctx.arc(size * 0.5, size * 0.5, size * 0.18, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.fillStyle = trim;
+          ctx.beginPath();
+          ctx.arc(size * 0.5, size * 0.5, size * 0.08, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        if (motif === 'bubble') {
+          ctx.globalAlpha = 0.42;
+          ctx.strokeStyle = accent;
+          ctx.lineWidth = 12;
+          for (let i = 0; i < 3; i += 1) {
+            ctx.beginPath();
+            ctx.arc(size * (0.42 + i * 0.08), size * (0.46 - i * 0.06), size * (0.18 + i * 0.03), -0.4, Math.PI * 1.45);
+            ctx.stroke();
+          }
+          ctx.globalAlpha = 1;
+          ctx.fillStyle = 'rgba(255,255,255,0.14)';
+          for (let i = 0; i < 7; i += 1) {
+            const x = 80 + i * 54;
+            const y = 110 + (i % 2) * 70;
+            ctx.beginPath();
+            ctx.arc(x, y, 16 + (i % 3) * 5, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+
+        ctx.fillStyle = 'rgba(255,255,255,0.12)';
+        ctx.beginPath();
+        ctx.arc(size * 0.34, size * 0.28, size * 0.1, 0, Math.PI * 2);
+        ctx.fill();
+      },
+      1,
+      1,
+    );
+  }
+
+  private createImpactPanelTexture(
+    key: string,
+    base: string,
+    accent: string,
+    glow: string,
+    motif: 'crate' | 'bumper' | 'gate',
+  ): THREE.CanvasTexture {
+    return this.createPropTexture(
+      key,
+      (ctx, size) => {
+        const bg = ctx.createLinearGradient(0, 0, size, size);
+        bg.addColorStop(0, base);
+        bg.addColorStop(1, '#101722');
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, size, size);
+
+        ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+        ctx.lineWidth = 10;
+        ctx.strokeRect(24, 24, size - 48, size - 48);
+
+        ctx.fillStyle = 'rgba(0,0,0,0.18)';
+        ctx.fillRect(52, 52, size - 104, size - 104);
+
+        ctx.fillStyle = accent;
+        for (const [x, y] of [[52, 52], [size - 96, 52], [52, size - 96], [size - 96, size - 96]]) {
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.lineTo(x + 44, y);
+          ctx.lineTo(x, y + 44);
+          ctx.closePath();
+          ctx.fill();
+        }
+
+        if (motif === 'crate') {
+          ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+          ctx.lineWidth = 12;
+          ctx.beginPath();
+          ctx.moveTo(100, 100);
+          ctx.lineTo(size - 100, size - 100);
+          ctx.moveTo(size - 100, 100);
+          ctx.lineTo(100, size - 100);
+          ctx.stroke();
+
+          ctx.strokeStyle = glow;
+          ctx.lineWidth = 18;
+          ctx.strokeRect(size * 0.34, size * 0.34, size * 0.32, size * 0.32);
+        }
+
+        if (motif === 'bumper') {
+          ctx.strokeStyle = glow;
+          ctx.lineWidth = 24;
+          ctx.beginPath();
+          ctx.arc(size * 0.5, size * 0.5, size * 0.22, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.strokeStyle = accent;
+          ctx.lineWidth = 10;
+          ctx.beginPath();
+          ctx.arc(size * 0.5, size * 0.5, size * 0.34, 0, Math.PI * 2);
+          ctx.stroke();
+          for (let i = 0; i < 4; i += 1) {
+            ctx.save();
+            ctx.translate(size * 0.5, size * 0.5);
+            ctx.rotate((Math.PI * 0.5 * i) + Math.PI * 0.25);
+            ctx.fillStyle = glow;
+            ctx.fillRect(-8, -size * 0.37, 16, 74);
+            ctx.restore();
+          }
+        }
+
+        if (motif === 'gate') {
+          ctx.fillStyle = glow;
+          ctx.globalAlpha = 0.28;
+          ctx.fillRect(size * 0.18, 0, size * 0.12, size);
+          ctx.fillRect(size * 0.7, 0, size * 0.12, size);
+          ctx.globalAlpha = 1;
+
+          ctx.strokeStyle = accent;
+          ctx.lineWidth = 22;
+          for (let y = -size * 0.2; y < size; y += 110) {
+            ctx.beginPath();
+            ctx.moveTo(size * 0.18, y + 70);
+            ctx.lineTo(size * 0.32, y);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(size * 0.68, y + 70);
+            ctx.lineTo(size * 0.82, y);
+            ctx.stroke();
+          }
+
+          ctx.fillStyle = 'rgba(255,255,255,0.18)';
+          ctx.fillRect(size * 0.42, 88, size * 0.16, size - 176);
+        }
+      },
+      1.4,
+      1.4,
+    );
+  }
+
+  private registerAnimatedMaterial(mat: THREE.MeshStandardMaterial, baseIntensity: number, speed: number): void {
+    this.animatedMaterialsArr.push({ mat, baseIntensity, speed });
+  }
+
+  private createShowcasePropMaterial(
+    preset: 'frosted-sphere' | 'reactor-sphere' | 'matte-panel' | 'gloss-panel',
+    color: number,
+    emissive: number,
+  ): THREE.MeshPhysicalMaterial {
+    switch (preset) {
+      case 'frosted-sphere':
+        return new THREE.MeshPhysicalMaterial({
+          color,
+          roughness: 0.22,
+          metalness: 0.0,
+          transmission: 0.76,
+          thickness: 0.38,
+          ior: 1.26,
+          clearcoat: 0.42,
+          clearcoatRoughness: 0.16,
+          emissive,
+          emissiveIntensity: 0.12,
+        });
+      case 'reactor-sphere':
+        return new THREE.MeshPhysicalMaterial({
+          color,
+          roughness: 0.14,
+          metalness: 0.08,
+          clearcoat: 1.0,
+          clearcoatRoughness: 0.05,
+          iridescence: 0.28,
+          iridescenceIOR: 1.24,
+          emissive,
+          emissiveIntensity: 0.22,
+        });
+      case 'matte-panel':
+        return new THREE.MeshPhysicalMaterial({
+          color,
+          roughness: 0.72,
+          metalness: 0.05,
+          clearcoat: 0.14,
+          clearcoatRoughness: 0.3,
+          emissive,
+          emissiveIntensity: 0.12,
+        });
+      case 'gloss-panel':
+      default:
+        return new THREE.MeshPhysicalMaterial({
+          color,
+          roughness: 0.28,
+          metalness: 0.12,
+          clearcoat: 0.9,
+          clearcoatRoughness: 0.09,
+          emissive,
+          emissiveIntensity: 0.16,
+        });
+    }
+  }
+
   private createDynamicBox(
     name: string,
     position: THREE.Vector3,
     size: THREE.Vector3,
     material: THREE.Material,
-    options?: { grabbable?: boolean; grabWeight?: number; mass?: number; linearDamping?: number; angularDamping?: number },
+    options?: {
+      grabbable?: boolean;
+      grabWeight?: number;
+      mass?: number;
+      linearDamping?: number;
+      angularDamping?: number;
+      friction?: number;
+      restitution?: number;
+      rotation?: THREE.Euler;
+      rounded?: boolean;
+      roundness?: number;
+    },
   ): void {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), material);
+    const geometry = options?.rounded
+      ? new RoundedBoxGeometry(size.x, size.y, size.z, 4, options.roundness ?? Math.min(size.x, size.y, size.z) * 0.12)
+      : new THREE.BoxGeometry(size.x, size.y, size.z);
+    const mesh = new THREE.Mesh(geometry, material);
     mesh.position.copy(position);
+    if (options?.rotation) {
+      mesh.rotation.copy(options.rotation);
+    }
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.name = `${name}_dyn`;
     mesh.userData.grabbable = options?.grabbable === true;
+    mesh.userData.debugName = name;
     if (options?.grabWeight != null) mesh.userData.grabWeight = options.grabWeight;
     this.scene.add(mesh);
     this.meshes.push(mesh);
@@ -1610,11 +1990,16 @@ export class ProceduralBuilder {
       .setLinearDamping(options?.linearDamping ?? 0.18)
       .setAngularDamping(options?.angularDamping ?? 0.45)
       .setTranslation(position.x, position.y, position.z);
+    if (options?.rotation) {
+      const quat = new THREE.Quaternion().setFromEuler(options.rotation);
+      bodyDesc.setRotation({ x: quat.x, y: quat.y, z: quat.z, w: quat.w });
+    }
     const body = this.physicsWorld.world.createRigidBody(bodyDesc);
+    body.userData = { kind: 'showcase-prop', name };
     body.enableCcd(true);
     const colliderDesc = RAPIER.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2)
-      .setFriction(0.7)
-      .setRestitution(0.05)
+      .setFriction(options?.friction ?? 0.7)
+      .setRestitution(options?.restitution ?? 0.05)
       .setCollisionGroups(COLLISION_GROUP_WORLD);
     if (options?.mass != null) {
       colliderDesc.setMass(options.mass);
@@ -1632,6 +2017,223 @@ export class ProceduralBuilder {
       currQuat: new THREE.Quaternion(),
       hasPose: false,
     });
+  }
+
+  private createDynamicSphere(
+    name: string,
+    position: THREE.Vector3,
+    radius: number,
+    material: THREE.Material,
+    options?: {
+      mass?: number;
+      linearDamping?: number;
+      angularDamping?: number;
+      restitution?: number;
+      friction?: number;
+    },
+  ): void {
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 24, 20), material);
+    mesh.position.copy(position);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.name = `${name}_dyn`;
+    mesh.userData.debugName = name;
+    this.scene.add(mesh);
+    this.meshes.push(mesh);
+
+    const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
+      .setLinearDamping(options?.linearDamping ?? 0.14)
+      .setAngularDamping(options?.angularDamping ?? 0.3)
+      .setTranslation(position.x, position.y, position.z);
+    const body = this.physicsWorld.world.createRigidBody(bodyDesc);
+    body.userData = { kind: 'showcase-prop', name };
+    body.enableCcd(true);
+    const colliderDesc = RAPIER.ColliderDesc.ball(radius)
+      .setFriction(options?.friction ?? 0.64)
+      .setRestitution(options?.restitution ?? 0.12)
+      .setCollisionGroups(COLLISION_GROUP_WORLD);
+    if (options?.mass != null) {
+      colliderDesc.setMass(options.mass);
+    }
+    const collider = this.physicsWorld.world.createCollider(colliderDesc, body);
+
+    this.bodies.push(body);
+    this.colliders.push(collider);
+    this.dynamicBodiesArr.push({
+      mesh,
+      body,
+      prevPos: new THREE.Vector3(),
+      currPos: new THREE.Vector3(),
+      prevQuat: new THREE.Quaternion(),
+      currQuat: new THREE.Quaternion(),
+      hasPose: false,
+    });
+  }
+
+  private createStepsPhysicsPlayground(zSteps: number, bayTopY: number): void {
+    const rollerBeachMat = this.createShowcasePropMaterial('frosted-sphere', 0x8adfff, 0x5fd3ff);
+    const rollerPinballMat = this.createShowcasePropMaterial('reactor-sphere', 0x6f81ff, 0xff72ba);
+    const cubeMat = this.createShowcasePropMaterial('gloss-panel', 0x2e475e, 0x78d8ff);
+    const slabMat = this.createShowcasePropMaterial('matte-panel', 0x35363c, 0xffab59);
+    this.registerAnimatedMaterial(rollerPinballMat, 0.22, 2.2);
+    this.registerAnimatedMaterial(cubeMat, 0.16, 1.7);
+    this.registerAnimatedMaterial(slabMat, 0.14, 1.9);
+
+    this.createDynamicSphere(
+      'StepsRollerA',
+      new THREE.Vector3(15.6, bayTopY + 1.3, zSteps + 1.4),
+      0.72,
+      rollerBeachMat,
+      { mass: 9, linearDamping: 0.1, angularDamping: 0.12, restitution: 0.16 },
+    );
+    this.createDynamicSphere(
+      'StepsRollerB',
+      new THREE.Vector3(18.5, bayTopY + 1.35, zSteps + 2.5),
+      0.62,
+      rollerPinballMat,
+      { mass: 7.5, linearDamping: 0.1, angularDamping: 0.12, restitution: 0.14 },
+    );
+    this.createDynamicBox(
+      'StepsPanelCube',
+      new THREE.Vector3(16.9, bayTopY + 1.05, zSteps + 2.05),
+      new THREE.Vector3(1.15, 1.15, 1.15),
+      cubeMat,
+      { mass: 14, linearDamping: 0.28, angularDamping: 0.82, rounded: true, roundness: 0.16 },
+    );
+    this.createDynamicBox(
+      'StepsSignalSlab',
+      new THREE.Vector3(19.2, bayTopY + 1.22, zSteps + 0.7),
+      new THREE.Vector3(0.4, 2.05, 1.55),
+      slabMat,
+      {
+        mass: 18,
+        linearDamping: 0.42,
+        angularDamping: 0.96,
+        restitution: 0.08,
+        rotation: new THREE.Euler(0, 0.28, 0),
+        rounded: true,
+        roundness: 0.08,
+      },
+    );
+  }
+
+  private createVehicleCrashPlayground(zVehicles: number, bayTopY: number): void {
+    const cubeMat = this.createShowcasePropMaterial('gloss-panel', 0x35516e, 0x86deff);
+    const targetSphereMat = this.createShowcasePropMaterial('frosted-sphere', 0x8dd9ff, 0xffbf6e);
+    const reactorSphereMat = this.createShowcasePropMaterial('reactor-sphere', 0x6b75ff, 0x8effdf);
+    const wallMat = this.createShowcasePropMaterial('matte-panel', 0x39332d, 0xff9d52);
+    this.registerAnimatedMaterial(cubeMat, 0.18, 1.8);
+    this.registerAnimatedMaterial(targetSphereMat, 0.14, 2.1);
+    this.registerAnimatedMaterial(reactorSphereMat, 0.24, 1.9);
+    this.registerAnimatedMaterial(wallMat, 0.12, 1.6);
+
+    this.createDynamicBox(
+      'CrashCubeA',
+      new THREE.Vector3(-2.5, bayTopY + 0.72, zVehicles - 3.4),
+      new THREE.Vector3(1.25, 1.25, 1.25),
+      cubeMat,
+      { mass: 7.5, linearDamping: 0.12, angularDamping: 0.32, friction: 0.32, restitution: 0.16, rounded: true, roundness: 0.18 },
+    );
+    this.createDynamicBox(
+      'CrashCubeB',
+      new THREE.Vector3(0.2, bayTopY + 0.62, zVehicles - 6.0),
+      new THREE.Vector3(1.05, 1.05, 1.05),
+      cubeMat,
+      { mass: 5.8, linearDamping: 0.1, angularDamping: 0.28, friction: 0.28, restitution: 0.18, rounded: true, roundness: 0.14 },
+    );
+    this.createDynamicBox(
+      'CrashCubeC',
+      new THREE.Vector3(2.9, bayTopY + 0.82, zVehicles - 4.6),
+      new THREE.Vector3(1.45, 1.45, 1.45),
+      cubeMat,
+      { mass: 9.6, linearDamping: 0.14, angularDamping: 0.36, friction: 0.34, restitution: 0.14, rounded: true, roundness: 0.2 },
+    );
+    this.createDynamicSphere(
+      'CrashSphereA',
+      new THREE.Vector3(-5.2, bayTopY + 0.74, zVehicles - 7.2),
+      0.74,
+      targetSphereMat,
+      { mass: 3.6, linearDamping: 0.04, angularDamping: 0.06, restitution: 0.42, friction: 0.22 },
+    );
+    this.createDynamicSphere(
+      'CrashSphereB',
+      new THREE.Vector3(5.1, bayTopY + 0.88, zVehicles - 8.1),
+      0.88,
+      reactorSphereMat,
+      { mass: 4.8, linearDamping: 0.05, angularDamping: 0.08, restitution: 0.36, friction: 0.24 },
+    );
+    this.createDynamicBox(
+      'CrashWallA',
+      new THREE.Vector3(-0.9, bayTopY + 1.16, zVehicles - 9.1),
+      new THREE.Vector3(0.42, 2.15, 1.95),
+      wallMat,
+      {
+        mass: 10.5,
+        linearDamping: 0.18,
+        angularDamping: 0.42,
+        friction: 0.36,
+        restitution: 0.14,
+        rotation: new THREE.Euler(0, 0.34, 0),
+        rounded: true,
+        roundness: 0.08,
+      },
+    );
+    this.createDynamicBox(
+      'CrashWallB',
+      new THREE.Vector3(2.8, bayTopY + 1.04, zVehicles - 11.0),
+      new THREE.Vector3(0.36, 1.95, 1.5),
+      wallMat,
+      {
+        mass: 8.4,
+        linearDamping: 0.16,
+        angularDamping: 0.38,
+        friction: 0.34,
+        restitution: 0.16,
+        rotation: new THREE.Euler(0, -0.22, 0),
+        rounded: true,
+        roundness: 0.07,
+      },
+    );
+  }
+
+  private createMaterialsPhysicsProps(base: THREE.Vector3, bayWidth: number): void {
+    const edgeX = Math.max(18, bayWidth * 0.36);
+    const glassMat = this.createShowcasePropMaterial('frosted-sphere', 0xbfe9ff, 0x72e7ef);
+    const panelMat = this.createShowcasePropMaterial('gloss-panel', 0x5b6070, 0xc698ff);
+    const wallMat = this.createShowcasePropMaterial('matte-panel', 0x293445, 0x9de88c);
+    this.registerAnimatedMaterial(glassMat, 0.12, 1.4);
+    this.registerAnimatedMaterial(panelMat, 0.16, 1.8);
+    this.registerAnimatedMaterial(wallMat, 0.12, 1.7);
+
+    this.createDynamicSphere(
+      'MaterialsGlassOrb',
+      new THREE.Vector3(-edgeX, base.y + 0.78, base.z + 4.35),
+      0.78,
+      glassMat,
+      { mass: 10.5, linearDamping: 0.1, angularDamping: 0.14, restitution: 0.18, friction: 0.3 },
+    );
+    this.createDynamicBox(
+      'MaterialsIridescentCube',
+      new THREE.Vector3(edgeX, base.y + 0.82, base.z - 4.25),
+      new THREE.Vector3(1.2, 1.2, 1.2),
+      panelMat,
+      { mass: 18, linearDamping: 0.26, angularDamping: 0.78, rounded: true, roundness: 0.14 },
+    );
+    this.createDynamicBox(
+      'MaterialsSignalWall',
+      new THREE.Vector3(edgeX - 1.4, base.y + 1.08, base.z + 4.9),
+      new THREE.Vector3(0.38, 2.05, 1.2),
+      wallMat,
+      {
+        mass: 19,
+        linearDamping: 0.42,
+        angularDamping: 0.98,
+        restitution: 0.05,
+        rotation: new THREE.Euler(0, -0.32, 0),
+        rounded: true,
+        roundness: 0.07,
+      },
+    );
   }
 
   private createStaircase(
@@ -2756,7 +3358,6 @@ export class ProceduralBuilder {
         texture, color, PI, TWO_PI, luminance,
       } = await import('three/tsl');
       const { mx_fractal_noise_float } = await import('three/tsl');
-      const { mrt: mrtFn, vec4: vec4Fn } = await import('three/tsl');
 
       // Guard: if a new load/unload happened while awaiting imports, bail out
       if (this.loadGenerationRef.value !== gen) {
@@ -2819,7 +3420,6 @@ export class ProceduralBuilder {
       tornadoEmissiveMat.blending = THREE.AdditiveBlending;
       tornadoEmissiveMat.depthWrite = false;
       tornadoEmissiveMat.forceSinglePass = true;
-      tornadoEmissiveMat.mrtNode = mrtFn({ emissive: vec4Fn(1, 0.4, 0.15, 1) });
 
       tornadoEmissiveMat.positionNode = twistedCylinder(
         positionLocal, float(1), float(0.3), float(0.2), tornadoTime,
@@ -2946,7 +3546,6 @@ export class ProceduralBuilder {
       fireInnerMat.blending = THREE.AdditiveBlending;
       fireInnerMat.depthWrite = false;
       fireInnerMat.forceSinglePass = true;
-      fireInnerMat.mrtNode = mrtFn({ emissive: vec4Fn(1, 0.3, 0.05, 1) });
 
       fireInnerMat.positionNode = twistedCylinder(positionLocal, float(0.5), float(0.0), float(0.6), fireTime);
 

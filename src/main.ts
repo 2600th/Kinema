@@ -27,7 +27,24 @@ async function bootstrap(): Promise<void> {
   const forceWebGL = /^(1|true)$/i.test(bootstrapParams.get('forceWebGL') ?? '');
 
   // Initialize Rapier WASM
-  await RAPIER.init();
+  // `@dimforge/rapier3d-compat@0.19.3` emits this deprecation from inside its bundled
+  // init wrapper and does not expose the newer object-form signature at the app layer.
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    const first = args[0];
+    if (
+      typeof first === 'string' &&
+      first.includes('using deprecated parameters for the initialization function; pass a single object instead')
+    ) {
+      return;
+    }
+    originalWarn(...args);
+  };
+  try {
+    await RAPIER.init();
+  } finally {
+    console.warn = originalWarn;
+  }
   console.log('[Kinema] Rapier WASM initialized');
 
   // Dynamic imports — parallelized so bundler/browser can fetch all chunks concurrently.
@@ -395,6 +412,44 @@ async function bootstrap(): Promise<void> {
       game.testInputOverride = moveInput;
       game.testInputFrames = frames;
     },
+    /** Simulate an interact hold: press on the first frames, then keep holding. */
+    simulateHoldInteract(frames = 210) {
+      const pressInput: InputState = {
+        forward: false,
+        backward: false,
+        left: false,
+        right: false,
+        crouch: false,
+        crouchPressed: false,
+        jump: false,
+        jumpPressed: false,
+        interact: true,
+        interactPressed: true,
+        primary: false,
+        primaryPressed: false,
+        altitudeUp: false,
+        altitudeDown: false,
+        vehicleVertical: 0,
+        moveX: 0,
+        moveY: 0,
+        sprint: false,
+        mouseDeltaX: 0,
+        mouseDeltaY: 0,
+        mouseWheelDelta: 0,
+      };
+      const holdInput: InputState = {
+        ...pressInput,
+        interactPressed: false,
+      };
+      (game as unknown as { frameInput: InputState | null }).frameInput = pressInput;
+      game.testInputOverride = holdInput;
+      game.testInputFrames = Math.max(0, frames - 1);
+    },
+    clearSimulatedInput() {
+      (game as unknown as { frameInput: InputState | null }).frameInput = null;
+      game.testInputOverride = null;
+      game.testInputFrames = 0;
+    },
     listVehicles() {
       return vehicleManager.getVehicleIds();
     },
@@ -403,7 +458,7 @@ async function bootstrap(): Promise<void> {
       if (!vehicle) return null;
       const pos = vehicle.body.translation();
       const vel = vehicle.body.linvel();
-      const debug = (vehicle as { getDebugState?: () => unknown }).getDebugState?.();
+      const debug = vehicle.getDebugState?.();
       return {
         id,
         active: vehicleManager.isActive() && vehicleManager.getVehicle(id) === vehicle,
@@ -411,6 +466,94 @@ async function bootstrap(): Promise<void> {
         velocity: { x: vel.x, y: vel.y, z: vel.z },
         debug,
       };
+    },
+    enableVehicleSteeringDebug(
+      id: string,
+      options?: { capacity?: number; autoLog?: boolean; label?: string | null },
+    ) {
+      const vehicle = vehicleManager.getVehicle(id);
+      return vehicle?.enableSteeringDebugTrace?.(options) ?? null;
+    },
+    disableVehicleSteeringDebug(id: string) {
+      const vehicle = vehicleManager.getVehicle(id);
+      return vehicle?.disableSteeringDebugTrace?.() ?? null;
+    },
+    clearVehicleSteeringDebug(id: string) {
+      const vehicle = vehicleManager.getVehicle(id);
+      vehicle?.clearSteeringDebugTrace?.();
+      return vehicle?.getSteeringDebugTrace?.() ?? null;
+    },
+    getVehicleSteeringDebug(id: string) {
+      const vehicle = vehicleManager.getVehicle(id);
+      return vehicle?.getSteeringDebugTrace?.() ?? null;
+    },
+    dumpVehicleSteeringDebug(id: string) {
+      const vehicle = vehicleManager.getVehicle(id);
+      return vehicle?.dumpSteeringDebugTrace?.() ?? null;
+    },
+    getDynamicBodyState(name: string) {
+      const entry = levelManager.getDynamicBodies().find((candidate) => candidate.mesh.name === name);
+      if (!entry) return null;
+      const pos = entry.body.translation();
+      const vel = entry.body.linvel();
+      return {
+        name,
+        position: { x: pos.x, y: pos.y, z: pos.z },
+        velocity: { x: vel.x, y: vel.y, z: vel.z },
+      };
+    },
+    getLevelObjectState(name: string) {
+      const object = levelManager.getLevelObjects().find((candidate) => candidate.name === name)
+        ?? levelManager.getLevelObjects().flatMap((candidate) => {
+          const found = candidate.getObjectByName(name);
+          return found ? [found] : [];
+        })[0]
+        ?? null;
+      if (!object) return null;
+      const bounds = new THREE.Box3().setFromObject(object);
+      const size = bounds.getSize(new THREE.Vector3());
+      const mesh = object as THREE.Mesh;
+      const material = !('material' in mesh) ? null : Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+      return {
+        name,
+        visible: object.visible,
+        position: { x: object.position.x, y: object.position.y, z: object.position.z },
+        size: { x: size.x, y: size.y, z: size.z },
+        material: material ? {
+          transparent: material.transparent,
+          opacity: material.opacity,
+          blending: material.blending,
+          depthWrite: material.depthWrite,
+          emissive: 'emissive' in material && material.emissive instanceof THREE.Color
+            ? '#' + material.emissive.getHexString()
+            : null,
+          emissiveIntensity: 'emissiveIntensity' in material && typeof material.emissiveIntensity === 'number'
+            ? material.emissiveIntensity
+            : null,
+        } : null,
+      };
+    },
+    getGraphicsProfile() {
+      return renderer.getDebugFlags().graphicsProfile;
+    },
+    setGraphicsProfile(profile: 'performance' | 'balanced' | 'cinematic') {
+      eventBus.emit('debug:graphicsProfile', { profile });
+      return renderer.getDebugFlags().graphicsProfile;
+    },
+    forceVehicleTransform(id: string, position: { x: number; y: number; z: number }, yaw = 0) {
+      const vehicle = vehicleManager.getVehicle(id);
+      if (!vehicle) return false;
+      vehicle.body.setTranslation(new RAPIER.Vector3(position.x, position.y, position.z), true);
+      vehicle.body.setRotation(new RAPIER.Quaternion(0, Math.sin(yaw * 0.5), 0, Math.cos(yaw * 0.5)), true);
+      vehicle.body.setLinvel(new RAPIER.Vector3(0, 0, 0), true);
+      vehicle.body.setAngvel(new RAPIER.Vector3(0, 0, 0), true);
+      return true;
+    },
+    forceVehicleVelocity(id: string, velocity: { x: number; y: number; z: number }) {
+      const vehicle = vehicleManager.getVehicle(id);
+      if (!vehicle) return false;
+      vehicle.body.setLinvel(new RAPIER.Vector3(velocity.x, velocity.y, velocity.z), true);
+      return true;
     },
     enterVehicle(id: string) {
       const vehicle = vehicleManager.getVehicle(id);

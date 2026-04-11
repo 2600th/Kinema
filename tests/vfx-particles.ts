@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
-async function waitForGameReady(page: Page): Promise<void> {
-  await page.goto("/?station=vehicles", { waitUntil: "domcontentloaded" });
+async function waitForGameReady(page: Page, station = "vehicles"): Promise<void> {
+  await page.goto(`/?station=${station}`, { waitUntil: "domcontentloaded" });
   await page.locator("canvas").waitFor({ state: "visible", timeout: 60_000 });
   await page.waitForFunction(() => Boolean((window as any).__KINEMA__), undefined, { timeout: 60_000 });
   const grounded = await page.evaluate(() => (window as any).__KINEMA__.waitFor("p.isGrounded === true", 60_000));
@@ -97,5 +97,50 @@ test.describe("VFX Particle System", () => {
       (e) => e.includes("Fatal") || e.includes("Uncaught") || e.includes("WebGL"),
     );
     expect(fatalErrors).toHaveLength(0);
+  });
+
+  test("vfx station keeps a performance-safe fire core and lightning strike assets wired in", async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem("kinema.user-settings.v1", JSON.stringify({ graphicsProfile: "performance" }));
+    });
+
+    const errors: string[] = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "error") errors.push(msg.text());
+    });
+
+    await waitForGameReady(page, "vfx");
+    await page.waitForFunction(() => (window as any).__KINEMA__.getGraphicsProfile?.() === "performance", undefined, {
+      timeout: 10_000,
+    });
+
+    const fireCore = await page.evaluate(() => (window as any).__KINEMA__.getLevelObjectState("VFX_FireCore"));
+    expect(fireCore).not.toBeNull();
+    expect(fireCore.visible).toBe(true);
+    expect(fireCore.material).not.toBeNull();
+    expect(fireCore.material.blending).toBe(1);
+    expect(fireCore.material.opacity).toBeGreaterThan(0);
+
+    const bolt = await page.evaluate(() => (window as any).__KINEMA__.getLevelObjectState("VFX_LightningBolt1"));
+    const flashLight = await page.evaluate(() => (window as any).__KINEMA__.getLevelObjectState("VFX_LightningFlashLight"));
+    const strikeGlow = await page.evaluate(() => (window as any).__KINEMA__.getLevelObjectState("VFX_LightningStrikeGlow"));
+    const strikeColumn = await page.evaluate(() => (window as any).__KINEMA__.getLevelObjectState("VFX_LightningStrikeColumn"));
+    expect(bolt).not.toBeNull();
+    expect(bolt.material).not.toBeNull();
+    expect(bolt.material.emissive).not.toBeNull();
+    expect(bolt.material.emissiveIntensity).toBeGreaterThan(0);
+    expect(flashLight).not.toBeNull();
+    expect(strikeGlow).toBeNull();
+    expect(strikeColumn).toBeNull();
+
+    const fatalErrors = errors.filter(
+      (e) => e.includes("Fatal") || e.includes("Uncaught") || e.includes("WebGL"),
+    );
+    expect(fatalErrors).toHaveLength(0);
+
+    const webGpuShaderErrors = errors.filter(
+      (e) => e.includes("WGSL") || e.includes("Invalid ShaderModule"),
+    );
+    expect(webGpuShaderErrors).toHaveLength(0);
   });
 });

@@ -156,6 +156,9 @@ export class MusicEngine {
     this.stopGeneration++;
 
     Tone.getTransport().bpm.value = 72;
+    const padHoldSeconds = Tone.Time('2n').toSeconds();
+    const melodyHoldSeconds = Tone.Time('4n').toSeconds();
+    const percHitSeconds = Tone.Time('16n').toSeconds();
     this.chordIndex = 0;
     this.barCounter = 0;
     this.currentScale = C_SCALE;
@@ -164,7 +167,7 @@ export class MusicEngine {
     // Pad loop — every half note, play chord from progression
     this.padLoop = new Tone.Loop((time) => {
       const chord = this.currentChords[this.chordIndex % this.currentChords.length];
-      this.padSynth.triggerAttackRelease([...chord], '2n', time);
+      this.padSynth.triggerAttackRelease([...chord], padHoldSeconds, time);
       this.chordIndex++;
 
       // Every 4 bars (8 half-notes), consider key change
@@ -197,7 +200,7 @@ export class MusicEngine {
       if (Math.random() < 0.4) return; // 40% rest
       const notes = buildScale(this.currentScale, 4, 5);
       const note = pick(notes);
-      this.melodySynth.triggerAttackRelease(note, '4n', time);
+      this.melodySynth.triggerAttackRelease(note, melodyHoldSeconds, time);
     }, '4n');
     this.melodyLoop.start('1m'); // start after first measure
 
@@ -205,8 +208,8 @@ export class MusicEngine {
     this.percLoop = new Tone.Loop((time) => {
       if (Math.random() < 0.6) return; // 60% rest
       const freqs = [200, 300, 400, 500, 600];
-      this.percSynth.frequency.value = pick(freqs);
-      this.percSynth.triggerAttackRelease('16n', time);
+      this.percSynth.frequency.setValueAtTime(pick(freqs), time);
+      this.percSynth.triggerAttackRelease(percHitSeconds, time);
     }, '8n');
     this.percLoop.start('2m'); // start after two measures
 

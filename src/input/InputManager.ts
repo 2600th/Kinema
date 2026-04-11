@@ -56,6 +56,7 @@ export class InputManager implements Disposable {
   private editorActive = false;
   private touchControls: TouchControlsManager | null = null;
   private touchActive = false;
+  private rawPointerLockAvailable = true;
   private unsubs: (() => void)[] = [];
 
   private _onKeyDown = this.handleKeyDown.bind(this);
@@ -77,7 +78,7 @@ export class InputManager implements Disposable {
     canvas.addEventListener('mousedown', this._onMouseDown);
     window.addEventListener('mouseup', this._onMouseUp);
     canvas.addEventListener('wheel', this._onWheel, { passive: false });
-    canvas.addEventListener('click', this._onClick);
+    document.addEventListener('click', this._onClick);
     document.addEventListener('pointerlockchange', this._onPointerLockChange);
 
     this.unsubs.push(
@@ -247,6 +248,7 @@ export class InputManager implements Disposable {
 
   setRawMouseInput(enabled: boolean): void {
     this.rawMouseInput = enabled;
+    this.rawPointerLockAvailable = true;
   }
 
   setGamepadTuning(deadzone: number, curve: number): void {
@@ -256,6 +258,28 @@ export class InputManager implements Disposable {
     if (Number.isFinite(curve)) {
       this.gamepadCurve = Math.max(0.6, Math.min(3.0, curve));
     }
+  }
+
+  async requestPointerLock(options?: { preferRaw?: boolean }): Promise<void> {
+    if (this.editorActive || this.locked) return;
+
+    const request = this.canvas.requestPointerLock.bind(this.canvas) as unknown as (
+      options?: unknown,
+    ) => Promise<void> | void;
+    const preferRaw = options?.preferRaw ?? true;
+
+    if (preferRaw && this.rawMouseInput && this.rawPointerLockAvailable) {
+      try {
+        await request({ unadjustedMovement: true });
+        return;
+      } catch {
+        this.rawPointerLockAvailable = false;
+        // Some embeds reject raw input when re-entering pointer lock.
+        // Fall back to a normal lock request so gameplay can resume.
+      }
+    }
+
+    await request();
   }
 
   private handleKeyDown(e: KeyboardEvent): void {
@@ -308,22 +332,17 @@ export class InputManager implements Disposable {
     }
   }
 
-  private handleClick(): void {
-    if (this.editorActive) return;
-    if (!this.locked) {
-      if (this.rawMouseInput) {
-        const request = this.canvas.requestPointerLock.bind(this.canvas) as unknown as (
-          options?: unknown,
-        ) => Promise<void> | void;
-        try {
-          void request({ unadjustedMovement: true });
-          return;
-        } catch {
-          // Fallback for browsers that don't support unadjusted movement.
-        }
-      }
-      this.canvas.requestPointerLock();
+  private handleClick(event: MouseEvent): void {
+    if (this.inputSuppressed || this.editorActive || this.locked) return;
+    const target = event.target;
+    if (
+      typeof Element !== 'undefined'
+      && target instanceof Element
+      && target.closest('button, input, select, textarea, label, a, [role="button"]')
+    ) {
+      return;
     }
+    void this.requestPointerLock();
   }
 
   private handlePointerLockChange(): void {
@@ -405,7 +424,7 @@ export class InputManager implements Disposable {
     this.canvas.removeEventListener('mousedown', this._onMouseDown);
     window.removeEventListener('mouseup', this._onMouseUp);
     this.canvas.removeEventListener('wheel', this._onWheel);
-    this.canvas.removeEventListener('click', this._onClick);
+    document.removeEventListener('click', this._onClick);
     document.removeEventListener('pointerlockchange', this._onPointerLockChange);
   }
 }

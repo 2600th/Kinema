@@ -126,6 +126,30 @@ describe('InteractionManager', () => {
     expect(eventBus.emit).toHaveBeenCalledWith('interaction:triggered', { id: 'hold' });
   });
 
+  it('feeds hold progress into the interactable and emits world position for hold VFX', () => {
+    physicsWorld.castRay.mockReturnValue(null);
+    const manager = new InteractionManager(physicsWorld as any, player as any, eventBus as any);
+    const holdTarget = makeInteractable('hold', 1, 0, 64, { mode: 'hold', holdDuration: 0.5 });
+    holdTarget.setHoldProgress = vi.fn();
+    manager.register(holdTarget);
+    (player as any).lastInputSnapshot = { interact: true };
+
+    manager.refreshFocusFromPosition({ x: 0, y: 0, z: 0 });
+    manager.triggerInteraction();
+    manager.fixedUpdate(0.25);
+    (player as any).lastInputSnapshot = { interact: false };
+    manager.fixedUpdate(0.05);
+
+    expect(holdTarget.setHoldProgress).toHaveBeenCalledWith(0);
+    expect(holdTarget.setHoldProgress).toHaveBeenCalledWith(0.5);
+    expect(holdTarget.setHoldProgress).toHaveBeenLastCalledWith(null);
+    expect(eventBus.emit).toHaveBeenCalledWith('interaction:holdProgress', {
+      id: 'hold',
+      progress: 0.5,
+      position: holdTarget.position.clone(),
+    });
+  });
+
   it('does not treat interactable-owned collider as LOS blocker', () => {
     const ownSolidHandle = 777;
     physicsWorld.castRay.mockImplementation(

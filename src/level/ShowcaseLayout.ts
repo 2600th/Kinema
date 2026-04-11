@@ -1,12 +1,14 @@
 import * as THREE from 'three';
 import type { SpawnPointData } from '@core/types';
 
+const SHOWCASE_STATION_SHIFT_Z = 50;
+
 export const SHOWCASE_LAYOUT = {
   centerZ: 0,
   hall: {
     width: 60,
     // Long enough to host multiple feature bays + reserved space.
-    length: 700,
+    length: 520,
   },
   bay: {
     // Bay pedestals are shallow stages placed on top of the hall floor.
@@ -19,26 +21,27 @@ export const SHOWCASE_LAYOUT = {
     widthInset: 6,
   },
   stations: {
-    steps: 170,
-    slopes: 140,
-    movement: 110, // ladder + crouch + rope
-    doubleJump: 80,
-    grab: 50,
-    throw: 20,
-    door: -10,
-    vehicles: -40,
-    platformsMoving: -80,
-    platformsPhysics: -120,
-    materials: -160,
-    vfx: -200,
-    navigation: -240,
+    steps: 170 + SHOWCASE_STATION_SHIFT_Z,
+    slopes: 140 + SHOWCASE_STATION_SHIFT_Z,
+    movement: 110 + SHOWCASE_STATION_SHIFT_Z, // ladder + crouch + rope
+    doubleJump: 80 + SHOWCASE_STATION_SHIFT_Z,
+    grab: 50 + SHOWCASE_STATION_SHIFT_Z,
+    throw: 20 + SHOWCASE_STATION_SHIFT_Z,
+    door: -10 + SHOWCASE_STATION_SHIFT_Z,
+    vehicles: -40 + SHOWCASE_STATION_SHIFT_Z,
+    platformsMoving: -80 + SHOWCASE_STATION_SHIFT_Z,
+    platformsPhysics: -120 + SHOWCASE_STATION_SHIFT_Z,
+    materials: -160 + SHOWCASE_STATION_SHIFT_Z,
+    vfx: -200 + SHOWCASE_STATION_SHIFT_Z,
+    navigation: -240 + SHOWCASE_STATION_SHIFT_Z,
     // Reserved empty stage near the corridor end for future features.
-    futureA: -270,
+    futureA: -270 + SHOWCASE_STATION_SHIFT_Z,
   },
 } as const;
 
 export type ShowcaseStationKey = keyof typeof SHOWCASE_LAYOUT.stations;
 export type ShowcaseReviewSpawnKey = ShowcaseStationKey | 'entrance' | 'overviewMid' | 'overviewEnd';
+export const SHOWCASE_ENTRANCE_START_Z = SHOWCASE_LAYOUT.stations.steps + 14;
 
 // Corridor order from entrance (positive Z) to end wall (negative Z).
 export const SHOWCASE_STATION_ORDER: ShowcaseStationKey[] = [
@@ -103,7 +106,7 @@ export const PROCEDURAL_REVIEW_SPAWNS: Record<ShowcaseReviewSpawnKey, ShowcaseRe
     key: 'entrance',
     label: 'Corridor Entrance',
     station: null,
-    offset: [0, REVIEW_GROUND_Y, SHOWCASE_LAYOUT.hall.length * 0.5 - 162],
+    offset: [0, REVIEW_GROUND_Y, SHOWCASE_ENTRANCE_START_Z],
     rotation: [0, 0, 0],
     cameraYaw: 0,
     cameraPitch: -0.1,
@@ -303,4 +306,3 @@ export function resolveProceduralReviewSpawn(
     cameraPitch: reviewSpawn.cameraPitch,
   };
 }
-

@@ -152,6 +152,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   private readonly capsuleMesh: THREE.Mesh;
   private pendingThrow = false;
   private damagePulse = 0;
+  private spikeDamageClipName: string | null = null;
 
   constructor(
     private physicsWorld: PhysicsWorld,
@@ -210,8 +211,11 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
         this.animator.playOneShot(PLAYER_PROFILE.deathClip ?? 'Death01');
       }
     });
-    this.eventBus.on('player:damaged', () => {
+    this.eventBus.on('player:damaged', ({ reason }) => {
       this.damagePulse = 1;
+      if (reason === 'spike' && this.spikeDamageClipName && this.animator) {
+        this.animator.playOneShot(this.spikeDamageClipName, 0.08);
+      }
     });
     this.eventBus.on('player:respawned', () => {
       this.damagePulse = 0;
@@ -231,6 +235,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       );
       this.characterModel = model;
       this.animator = animator;
+      this.spikeDamageClipName = PLAYER_PROFILE.spikeDamageClipCandidates?.find((clipName) => model.clips.has(clipName)) ?? null;
       this.animator.setEventListener({
         onFootstep: () => this.eventBus.emit('animation:footstep', undefined),
         onActionEvent: (clip, event) => {
@@ -242,6 +247,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       });
     } catch (err) {
       console.warn('[PlayerController] Character load failed, using capsule fallback:', err);
+      this.spikeDamageClipName = null;
     }
   }
 

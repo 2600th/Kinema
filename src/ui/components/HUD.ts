@@ -25,6 +25,7 @@ export class HUD implements Disposable {
   private heartTimers = new Map<HTMLSpanElement, ReturnType<typeof setTimeout>>();
   private elementTimers = new Map<HTMLElement, ReturnType<typeof setTimeout>>();
   private healthHitTimer: ReturnType<typeof setTimeout> | null = null;
+  private holdResetTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(parent: HTMLElement) {
     this.container = parent;
@@ -38,6 +39,14 @@ export class HUD implements Disposable {
     this.holdWrap.className = 'hud-hold-track';
     this.holdFill = document.createElement('div');
     this.holdFill.className = 'hud-hold-fill';
+    const holdKey = document.createElement('div');
+    holdKey.className = 'hud-hold-key';
+    holdKey.textContent = 'F';
+    const holdCaption = document.createElement('div');
+    holdCaption.className = 'hud-hold-caption';
+    holdCaption.textContent = 'Hold';
+    this.holdFill.appendChild(holdKey);
+    this.holdFill.appendChild(holdCaption);
     this.holdWrap.appendChild(this.holdFill);
     parent.appendChild(this.holdWrap);
 
@@ -85,13 +94,28 @@ export class HUD implements Disposable {
 
   setHoldProgress(progress: number | null): void {
     if (progress === null) {
-      this.holdWrap.classList.remove('is-visible');
-      this.holdFill.style.width = '0%';
+      if (this.holdWrap.classList.contains('is-complete')) {
+        if (this.holdResetTimer) {
+          clearTimeout(this.holdResetTimer);
+        }
+        this.holdResetTimer = setTimeout(() => {
+          this.resetHoldProgressVisuals();
+          this.holdResetTimer = null;
+        }, 180);
+        return;
+      }
+      this.resetHoldProgressVisuals();
       return;
+    }
+    if (this.holdResetTimer) {
+      clearTimeout(this.holdResetTimer);
+      this.holdResetTimer = null;
     }
     const clamped = Math.max(0, Math.min(1, progress));
     this.holdWrap.classList.add('is-visible');
-    this.holdFill.style.width = `${(clamped * 100).toFixed(2)}%`;
+    this.holdWrap.classList.toggle('is-complete', clamped >= 1);
+    this.holdWrap.style.setProperty('--hold-progress', clamped.toFixed(3));
+    this.holdWrap.style.setProperty('--hold-progress-angle', `${(clamped * 360).toFixed(1)}deg`);
   }
 
   setObjective(text: string): void {
@@ -266,6 +290,10 @@ export class HUD implements Disposable {
       clearTimeout(this.healthHitTimer);
       this.healthHitTimer = null;
     }
+    if (this.holdResetTimer) {
+      clearTimeout(this.holdResetTimer);
+      this.holdResetTimer = null;
+    }
     this.prompt.remove();
     this.holdWrap.remove();
     this.objectiveRegion.remove();
@@ -290,6 +318,12 @@ export class HUD implements Disposable {
 
     status.classList.remove('is-visible');
     window.setTimeout(() => status.remove(), 180);
+  }
+
+  private resetHoldProgressVisuals(): void {
+    this.holdWrap.classList.remove('is-visible', 'is-complete');
+    this.holdWrap.style.setProperty('--hold-progress', '0');
+    this.holdWrap.style.setProperty('--hold-progress-angle', '0deg');
   }
 
   private triggerPulse(element: HTMLElement, className: string, durationMs: number): void {

@@ -4,12 +4,15 @@ import type { RuntimeSystem } from "@core/RuntimeSystem";
 import type { GameParticles } from "@juice/GameParticles";
 import type { RendererManager } from "@renderer/RendererManager";
 import type { VehicleManager } from "@vehicle/VehicleManager";
+import * as THREE from "three";
 
 export class ParticleSystem implements RuntimeSystem {
   readonly id = "particles";
 
   private gameParticles: GameParticles | null = null;
   private unsubs: (() => void)[] = [];
+  private beaconChargeState: { position: THREE.Vector3; progress: number } | null = null;
+  private beaconChargeTimer = 0;
 
   constructor(
     private renderer: RendererManager,
@@ -104,6 +107,37 @@ export class ParticleSystem implements RuntimeSystem {
         }
       }),
     );
+    this.unsubs.push(
+      this.eventBus.on("interaction:holdProgress", (payload) => {
+        if (!payload || payload.id !== "beacon1") {
+          this.beaconChargeState = null;
+          this.beaconChargeTimer = 0;
+          return;
+        }
+        this.beaconChargeState = {
+          position: payload.position.clone(),
+          progress: payload.progress,
+        };
+      }),
+      this.eventBus.on("interaction:triggered", ({ id }) => {
+        if (id !== "beacon1" || !this.beaconChargeState) {
+          return;
+        }
+        const position = this.beaconChargeState.position.clone();
+        const emitComplete = (particles: GameParticles): void => {
+          particles.beaconComplete(position);
+        };
+        if (this.gameParticles) {
+          emitComplete(this.gameParticles);
+        } else {
+          void this.ensureGameParticles().then((p) => {
+            emitComplete(p);
+          });
+        }
+        this.beaconChargeState = null;
+        this.beaconChargeTimer = 0;
+      }),
+    );
   }
 
   fixedUpdate(_dt: number): void {
@@ -111,6 +145,25 @@ export class ParticleSystem implements RuntimeSystem {
   }
 
   update(dt: number, _alpha: number): void {
+    if (this.beaconChargeState) {
+      const interval = 0.2 - this.beaconChargeState.progress * 0.13;
+      this.beaconChargeTimer += dt;
+      while (this.beaconChargeTimer >= interval) {
+        this.beaconChargeTimer -= interval;
+        const position = this.beaconChargeState.position.clone();
+        const progress = this.beaconChargeState.progress;
+        const emitCharge = (particles: GameParticles): void => {
+          particles.beaconChargePulse(position, progress);
+        };
+        if (this.gameParticles) {
+          emitCharge(this.gameParticles);
+        } else {
+          void this.ensureGameParticles().then((p) => {
+            emitCharge(p);
+          });
+        }
+      }
+    }
     this.gameParticles?.update(dt, this.renderer.camera);
   }
 
