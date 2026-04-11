@@ -24,7 +24,7 @@ export interface DamageResult {
 }
 
 const DEFAULT_HEARTS = 3;
-const SPIKE_IFRAMES_SECONDS = 0.9;
+const SPIKE_IFRAMES_SECONDS = 2.5;
 
 export class PlayerHealthSystem implements RuntimeSystem {
   readonly id = "player-health";

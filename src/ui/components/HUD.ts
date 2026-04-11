@@ -260,7 +260,7 @@ export class HUD implements Disposable {
 
   flashDamage(reason: 'spike' | 'fall'): void {
     this.damageOverlay.classList.toggle('is-fall', reason === 'fall');
-    this.triggerPulse(this.damageOverlay, 'is-hit', 420);
+    this.triggerPulse(this.damageOverlay, 'is-hit', reason === 'fall' ? 420 : 2500);
   }
 
   showGameHUD(): void {

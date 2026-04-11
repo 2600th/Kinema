@@ -302,26 +302,34 @@
 
 .hud-damage-overlay::before {
   background:
-    radial-gradient(circle at center, rgba(255, 255, 255, 0) 0 34%, rgba(255, 104, 170, 0.12) 58%, rgba(255, 74, 122, 0.26) 88%, rgba(255, 42, 98, 0.38) 100%);
+    radial-gradient(circle at center, rgba(255, 255, 255, 0) 0 30%, rgba(255, 40, 40, 0.22) 58%, rgba(220, 20, 20, 0.46) 86%, rgba(180, 0, 0, 0.62) 100%);
 }
 
 .hud-damage-overlay::after {
   background:
-    radial-gradient(circle at 50% 58%, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 32%),
-    radial-gradient(circle at center, rgba(255, 170, 214, 0.16), rgba(255, 255, 255, 0) 52%);
+    radial-gradient(circle at 50% 58%, rgba(255, 220, 220, 0.22), rgba(255, 255, 255, 0) 32%),
+    radial-gradient(circle at center, rgba(255, 80, 80, 0.22), rgba(255, 255, 255, 0) 52%);
 }
 
 .hud-damage-overlay.is-hit::before {
-  animation: hud-damage-flash 0.42s ease;
+  animation: hud-damage-flash-sustained 2.5s ease forwards;
 }
 
 .hud-damage-overlay.is-hit::after {
-  animation: hud-damage-core 0.32s ease;
+  animation: hud-damage-core-sustained 2.5s ease forwards;
 }
 
 .hud-damage-overlay.is-fall::before {
   background:
     radial-gradient(circle at center, rgba(255, 255, 255, 0) 0 28%, rgba(166, 120, 255, 0.12) 54%, rgba(117, 82, 255, 0.28) 84%, rgba(82, 54, 210, 0.4) 100%);
+}
+
+.hud-damage-overlay.is-fall.is-hit::before {
+  animation: hud-damage-flash 0.42s ease;
+}
+
+.hud-damage-overlay.is-fall.is-hit::after {
+  animation: hud-damage-core 0.32s ease;
 }
 
 .hud-stat-chip {
@@ -677,6 +685,40 @@
   100% {
     opacity: 0;
     transform: scale(1.04);
+  }
+}
+
+@keyframes hud-damage-flash-sustained {
+  0% {
+    opacity: 0;
+  }
+  6% {
+    opacity: 1;
+  }
+  82% {
+    opacity: 0.92;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes hud-damage-core-sustained {
+  0% {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  10% {
+    opacity: 0.85;
+    transform: scale(1);
+  }
+  82% {
+    opacity: 0.7;
+    transform: scale(1.02);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.05);
   }
 }
 

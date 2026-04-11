@@ -160,7 +160,7 @@ export type CarRideGeometry = {
   readonly cabinVisualCenterY: number;
 };
 
-const CAR_TUNING: CarTuning = {
+export const CAR_TUNING: CarTuning = {
   chassisHalfExtents: new THREE.Vector3(1.15, 0.18, 2.0),
   additionalMass: 8.8,
   centerOfMass: new RAPIER.Vector3(0, -0.35, 0.08),
@@ -319,7 +319,7 @@ export type CarSteeringDebugSample = {
     moveX: number;
     moveY: number;
     sprint: boolean;
-    jump: boolean;
+    handbrake: boolean;
   };
   command: CarDriveCommand;
   state: {
@@ -489,6 +489,17 @@ export function computeCarYawAssistAuthority(
   if (groundedWheelCount < 2) return 0;
   if (frontGroundedWheelCount <= 0 || rearGroundedWheelCount <= 0) return 0;
   return groundedWheelCount >= 3 ? 1 : 0.45;
+}
+
+export function resolveCarYawAssistEffectiveAuthority(
+  groundedAuthority: number,
+  grounded: boolean,
+  speedNorm: number,
+  tuning: CarTuning = CAR_TUNING,
+): number {
+  if (groundedAuthority > 0) return groundedAuthority;
+  if (!grounded && speedNorm > 0.1) return tuning.airSteerMultiplier;
+  return 0;
 }
 
 export function computeCarYawDirectionSign(
@@ -840,7 +851,7 @@ export class CarController implements VehicleController {
       this.steerAngle,
       this.speed,
       groundedForDrive,
-      input?.jump ?? false,
+      input?.crouch ?? false,
       input?.sprint ?? false,
       dt,
     );
@@ -870,7 +881,7 @@ export class CarController implements VehicleController {
       }
     }
 
-    if (input?.crouchPressed && canCarJump(this.groundedWheelCount, this.groundedGraceRemaining, this.hopCooldown)) {
+    if (input?.jumpPressed && canCarJump(this.groundedWheelCount, this.groundedGraceRemaining, this.hopCooldown)) {
       this.body.applyImpulse(_setCRV(_rv3A, 0, this.body.mass() * CAR_TUNING.jumpVelocity, 0), true);
       this.body.wakeUp();
       this.hopCooldown = CAR_TUNING.jumpCooldownSeconds;
@@ -1234,7 +1245,7 @@ export class CarController implements VehicleController {
   private applyArcadeDriveAssists(dt: number, input: InputState | null, grounded: boolean): void {
     const throttle = input?.moveY ?? 0;
     const steerInput = input?.moveX ?? 0;
-    const handbrake = input?.jump ?? false;
+    const handbrake = input?.crouch ?? false;
     const boosting = input?.sprint ?? false;
     const tractionScale = grounded ? Math.max(0.35, this.groundedTraction) : CAR_TUNING.airEngineMultiplier;
     const driveSpeedDelta =
@@ -1283,17 +1294,22 @@ export class CarController implements VehicleController {
     }
 
     const speedNorm = THREE.MathUtils.clamp(Math.abs(this.forwardSpeed) / CAR_TUNING.maxBoostSpeed, 0, 1);
-    const yawAssistAuthority = computeCarYawAssistAuthority(
+    const groundedYawAuthority = computeCarYawAssistAuthority(
       this.groundedWheelCount,
       this.frontGroundedWheelCount,
       this.rearGroundedWheelCount,
     );
+    const effectiveYawAuthority = resolveCarYawAssistEffectiveAuthority(
+      groundedYawAuthority,
+      grounded,
+      speedNorm,
+    );
     const yawDirectionSign = computeCarYawDirectionSign(steerInput, this.forwardSpeed);
-    if (Math.abs(steerInput) > 0.01 && yawAssistAuthority > 0 && yawDirectionSign !== 0 && (grounded || speedNorm > 0.1)) {
+    if (Math.abs(steerInput) > 0.01 && effectiveYawAuthority > 0 && yawDirectionSign !== 0) {
       const targetYawRate =
         Math.abs(steerInput)
         * yawDirectionSign
-        * yawAssistAuthority
+        * effectiveYawAuthority
         * THREE.MathUtils.lerp(
           0.55,
           handbrake ? CAR_TUNING.driveAssistHandbrakeYawRate : CAR_TUNING.driveAssistYawRate,
@@ -1463,7 +1479,7 @@ export class CarController implements VehicleController {
         moveX,
         moveY,
         sprint: input?.sprint ?? false,
-        jump: input?.jump ?? false,
+        handbrake: input?.crouch ?? false,
       },
       command: { ...command },
       state: {

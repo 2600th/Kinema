@@ -1352,7 +1352,7 @@ export class ProceduralBuilder {
       new THREE.Euler(),
       boostPlatformMat,
       'boost-platform',
-      { jumpBoostMultiplier: 1.78, autoBounce: true },
+      { jumpBoostMultiplier: 3.0, autoBounce: true },
     );
     this.createKinematicDrum(
       'RollingDrum',
@@ -1370,7 +1370,7 @@ export class ProceduralBuilder {
       floatingPlatformMat,
       { lockX: false, lockY: false, lockZ: true, rotX: true, rotY: false, rotZ: true },
       { minX: 6.5, maxX: 14.5, speedX: 2.35 },
-      { kind: 'boost-platform', jumpBoostMultiplier: 1.9, autoBounce: true },
+      { kind: 'boost-platform', jumpBoostMultiplier: 3.0, autoBounce: true },
     );
     this.createSectionLabel(
       'Physics Platforms\nBoost Pad \u2022 Rolling Drum \u2022 Moving Boost Pad',

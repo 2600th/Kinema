@@ -41,7 +41,7 @@ describe("PlayerHealthSystem", () => {
     expect(damaged).toHaveBeenCalledTimes(1);
     expect(dying).not.toHaveBeenCalled();
 
-    system.fixedUpdate(1);
+    system.fixedUpdate(3);
     const third = system.applySpikeDamage(new THREE.Vector3(1, 2, 3));
     expect(third).toMatchObject({ accepted: true, deathTriggered: false });
     expect(system.getHealthState().current).toBe(1);
@@ -79,9 +79,9 @@ describe("PlayerHealthSystem", () => {
     system.setupLevel();
 
     system.applySpikeDamage(new THREE.Vector3(0, 0, 0));
-    system.fixedUpdate(1);
+    system.fixedUpdate(3);
     system.applySpikeDamage(new THREE.Vector3(0, 0, 0));
-    system.fixedUpdate(1);
+    system.fixedUpdate(3);
     const lethal = system.applySpikeDamage(new THREE.Vector3(0, 0, 0));
 
     expect(lethal).toMatchObject({ accepted: true, deathTriggered: true });

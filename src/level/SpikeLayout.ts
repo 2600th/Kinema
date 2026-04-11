@@ -45,7 +45,6 @@ const STATION_LOCAL_SPIKES: Partial<Record<ShowcaseStationKey, readonly LocalSpi
     spike([-0.8, HAZARD_Y, -3.25], [10.8, 1.2, 1.3], 0x00d8ff),
   ],
   platformsMoving: [
-    spike([-6, HAZARD_Y, 3], [4.6, 1.2, 4.0], 0x00d8ff),
     spike([6, HAZARD_Y, 3], [4.6, 1.2, 4.0], 0xffa142),
   ],
   platformsPhysics: [

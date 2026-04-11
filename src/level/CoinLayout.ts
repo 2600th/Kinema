@@ -96,7 +96,7 @@ const STATION_LOCAL_COIN_LAYOUTS: Record<ShowcaseStationKey, readonly LocalCoinP
   ],
   vfx: [
     coin([-15, ROUTE_COIN_HEIGHT + 0.65, 0]),
-    coin([-5, REWARD_COIN_HEIGHT + 0.15, 0]),
+    coin([-5, REWARD_COIN_HEIGHT + 1.85, 0]),
     coin([0, REWARD_COIN_HEIGHT + 0.65, 0]),
     coin([5, REWARD_COIN_HEIGHT + 0.15, 0]),
     coin([15, ROUTE_COIN_HEIGHT + 0.65, 0]),

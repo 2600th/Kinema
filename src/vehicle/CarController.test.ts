@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import {
+  CAR_TUNING,
   canCarJump,
   computeCarContactPushImpulse,
   computeCarDriveSpeedDelta,
@@ -13,6 +14,7 @@ import {
   isCarWheelSupportingContact,
   pickFirstClearCarExitCandidate,
   resolveCarDriveCommand,
+  resolveCarYawAssistEffectiveAuthority,
 } from './CarController';
 
 describe('CarController helpers', () => {
@@ -167,6 +169,28 @@ describe('CarController helpers', () => {
       expect(computeCarYawAssistAuthority(2, 2, 0)).toBe(0);
       expect(computeCarYawAssistAuthority(2, 0, 2)).toBe(0);
       expect(computeCarYawAssistAuthority(1, 1, 0)).toBe(0);
+    });
+
+    describe('resolveCarYawAssistEffectiveAuthority', () => {
+      it('passes grounded authority through unchanged', () => {
+        expect(resolveCarYawAssistEffectiveAuthority(1, true, 0.5)).toBe(1);
+        expect(resolveCarYawAssistEffectiveAuthority(0.45, true, 0)).toBe(0.45);
+      });
+
+      it('falls back to airSteerMultiplier when airborne above the speed floor', () => {
+        expect(resolveCarYawAssistEffectiveAuthority(0, false, 0.5)).toBeCloseTo(
+          CAR_TUNING.airSteerMultiplier,
+        );
+        expect(resolveCarYawAssistEffectiveAuthority(0, false, 0.11)).toBeCloseTo(
+          CAR_TUNING.airSteerMultiplier,
+        );
+      });
+
+      it('stays zero when airborne and too slow to steer', () => {
+        expect(resolveCarYawAssistEffectiveAuthority(0, false, 0.1)).toBe(0);
+        expect(resolveCarYawAssistEffectiveAuthority(0, false, 0.05)).toBe(0);
+        expect(resolveCarYawAssistEffectiveAuthority(0, false, 0)).toBe(0);
+      });
     });
 
     it('matches yaw direction to steering input for forward and reverse travel', () => {

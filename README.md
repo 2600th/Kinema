@@ -200,9 +200,10 @@ When running via `?station=`, a `window.__KINEMA__` debug API is available:
 |---|---|
 | `F` | Enter/exit |
 | `W/S` | Throttle / brake-reverse |
-| `A/D` | Steer |
+| `A/D` | Steer (air and ground) |
 | `Shift` | Speed boost |
-| `Space` | Handbrake |
+| `Space` | Jump |
+| `C` / `Left Ctrl` | Handbrake |
 
 ### Drone
 
