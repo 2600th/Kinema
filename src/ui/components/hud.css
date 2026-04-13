@@ -368,8 +368,23 @@
   gap: 6px;
 }
 
+.hud-health-chip::after {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 120, 152, 0);
+  box-shadow: 0 0 0 rgba(255, 120, 152, 0);
+  opacity: 0;
+  pointer-events: none;
+}
+
 .hud-health-chip.is-hit {
-  animation: hud-health-hit 0.38s ease;
+  animation: hud-health-hit 0.62s cubic-bezier(0.2, 0.84, 0.24, 1);
+}
+
+.hud-health-chip.is-hit::after {
+  animation: hud-health-ring 0.62s cubic-bezier(0.2, 0.84, 0.24, 1);
 }
 
 .hud-health-chip.is-restored {
@@ -432,6 +447,10 @@
   animation: hud-heart-lost 0.38s ease;
 }
 
+.hud-heart.is-alert {
+  animation: hud-heart-alert 0.52s ease;
+}
+
 .hud-heart.is-refilled {
   animation: hud-heart-refilled 0.42s cubic-bezier(0.2, 0.84, 0.24, 1);
 }
@@ -469,6 +488,12 @@
   color: #86f3ff;
   text-shadow: 0 0 12px rgba(98, 230, 255, 0.42);
   font-size: 12px;
+}
+
+.hud-floating-delta.health-loss {
+  color: #ffc8d7;
+  text-shadow: 0 0 14px rgba(255, 88, 132, 0.46);
+  font-size: 13px;
 }
 
 .hud-floating-delta.is-visible {
@@ -511,17 +536,38 @@
   0% {
     transform: translateX(0) scale(1);
   }
-  18% {
-    transform: translateX(-5px) scale(1.04);
+  16% {
+    transform: translateX(-8px) scale(1.08) rotate(-2deg);
   }
-  38% {
-    transform: translateX(5px) scale(1.02);
+  32% {
+    transform: translateX(7px) scale(1.03) rotate(1.6deg);
   }
-  62% {
-    transform: translateX(-3px) scale(1.01);
+  54% {
+    transform: translateX(-4px) scale(1.01) rotate(-0.8deg);
   }
   100% {
     transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes hud-health-ring {
+  0% {
+    opacity: 0;
+    transform: scale(0.92);
+    border-color: rgba(255, 120, 152, 0.72);
+    box-shadow: 0 0 0 rgba(255, 120, 152, 0);
+  }
+  28% {
+    opacity: 1;
+    transform: scale(1.04);
+    border-color: rgba(255, 200, 214, 0.96);
+    box-shadow: 0 0 22px rgba(255, 120, 152, 0.34);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.12);
+    border-color: rgba(255, 120, 152, 0);
+    box-shadow: 0 0 0 rgba(255, 120, 152, 0);
   }
 }
 
@@ -537,6 +583,21 @@
   100% {
     transform: scale(0.92);
     filter: drop-shadow(0 0 2px rgba(255, 121, 186, 0.18));
+  }
+}
+
+@keyframes hud-heart-alert {
+  0% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 8px rgba(255, 121, 186, 0.42));
+  }
+  40% {
+    transform: scale(1.22);
+    filter: drop-shadow(0 0 18px rgba(255, 228, 239, 0.92));
+  }
+  100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 8px rgba(255, 121, 186, 0.42));
   }
 }
 
@@ -747,6 +808,7 @@
   .hud-collectible-chip.is-boosted,
   .hud-collectible-chip.is-celebrating,
   .hud-heart.is-lost,
+  .hud-heart.is-alert,
   .hud-heart.is-refilled,
   .hud-objective-card.is-updated,
   .hud-objective-card.is-complete,

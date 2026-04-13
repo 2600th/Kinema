@@ -203,6 +203,7 @@ export class HUD implements Disposable {
 
   updateHealth(current: number, _max: number): void {
     if (this.previousHealth !== null && current < this.previousHealth) {
+      const lostCount = this.previousHealth - current;
       this.healthEl.classList.remove('is-hit');
       void this.healthEl.offsetWidth;
       this.healthEl.classList.add('is-hit');
@@ -212,7 +213,7 @@ export class HUD implements Disposable {
       this.healthHitTimer = setTimeout(() => {
         this.healthEl.classList.remove('is-hit');
         this.healthHitTimer = null;
-      }, 420);
+      }, 620);
 
       for (let index = current; index < this.previousHealth; index++) {
         const heart = this.hearts[index];
@@ -230,6 +231,16 @@ export class HUD implements Disposable {
         }, 420);
         this.heartTimers.set(heart, timer);
       }
+      for (let index = 0; index < current; index++) {
+        const heart = this.hearts[index];
+        if (!heart) continue;
+        this.triggerPulse(heart, 'is-alert', 520);
+      }
+      this.spawnFloatingDelta(
+        this.healthEl,
+        lostCount === 1 ? '-1 Heart' : `-${lostCount} Hearts`,
+        'hud-floating-delta health-loss',
+      );
     } else if (this.previousHealth !== null && current > this.previousHealth) {
       this.triggerPulse(this.healthEl, 'is-restored', 460);
       for (let index = this.previousHealth; index < current; index++) {

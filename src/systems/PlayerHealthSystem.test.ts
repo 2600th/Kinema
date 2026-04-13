@@ -24,8 +24,10 @@ describe("PlayerHealthSystem", () => {
     const eventBus = new EventBus();
     const damaged = vi.fn();
     const dying = vi.fn();
+    const invulnerabilityChanged = vi.fn();
     eventBus.on("player:damaged", damaged);
     eventBus.on("player:dying", dying);
+    eventBus.on("player:invulnerabilityChanged", invulnerabilityChanged);
     const system = new PlayerHealthSystem(eventBus);
     system.setupLevel();
 
@@ -40,8 +42,18 @@ describe("PlayerHealthSystem", () => {
     });
     expect(damaged).toHaveBeenCalledTimes(1);
     expect(dying).not.toHaveBeenCalled();
+    expect(invulnerabilityChanged).toHaveBeenNthCalledWith(1, {
+      active: true,
+      remaining: 2.5,
+      reason: "spike",
+    });
 
     system.fixedUpdate(3);
+    expect(invulnerabilityChanged).toHaveBeenNthCalledWith(2, {
+      active: false,
+      remaining: 0,
+      reason: null,
+    });
     const third = system.applySpikeDamage(new THREE.Vector3(1, 2, 3));
     expect(third).toMatchObject({ accepted: true, deathTriggered: false });
     expect(system.getHealthState().current).toBe(1);

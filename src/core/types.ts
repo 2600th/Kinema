@@ -179,6 +179,7 @@ export interface EventMap {
   'player:jumped': { airJump: boolean; run: boolean; jumpVel: number; position: THREE.Vector3; groundPosition: THREE.Vector3 };
   'player:respawned': { reason: string };
   'player:damaged': { current: number; max: number; reason: 'spike' | 'fall'; position: THREE.Vector3 };
+  'player:invulnerabilityChanged': { active: boolean; remaining: number; reason: 'spike' | 'fall' | null };
   'interaction:focusChanged': { id: string | null; label: string | null };
   'interaction:triggered': { id: string };
   'interaction:blocked': { id: string; reason: string };

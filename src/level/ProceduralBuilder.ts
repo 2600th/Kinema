@@ -1327,6 +1327,7 @@ export class ProceduralBuilder {
 
     if (isTarget('platformsPhysics')) {
     // Platform stage B: readable physics interactions.
+    const boostPadJumpMultiplier = 6.0;
     const boostPlatformMat = new THREE.MeshPhysicalMaterial({
       color: 0x6cf7c9,
       roughness: 0.22,
@@ -1348,11 +1349,11 @@ export class ProceduralBuilder {
     this.createFixedStaticBox(
       'BoostPlatformStatic',
       new THREE.Vector3(5.2, 0.28, 5.2),
-      new THREE.Vector3(-11, bayTopY + 0.14, zPlatformsPhysics + 2.25),
+      new THREE.Vector3(-12, bayTopY + 0.14, zPlatformsPhysics + 2.25),
       new THREE.Euler(),
       boostPlatformMat,
       'boost-platform',
-      { jumpBoostMultiplier: 3.0, autoBounce: true },
+      { jumpBoostMultiplier: boostPadJumpMultiplier, autoBounce: true },
     );
     this.createKinematicDrum(
       'RollingDrum',
@@ -1366,11 +1367,11 @@ export class ProceduralBuilder {
     this.createFloatingPlatform(
       'BoostMovingPlatform',
       new THREE.Vector3(4.2, 0.22, 4.2),
-      new THREE.Vector3(10.5, bayTopY + 1.15, zPlatformsPhysics - 2.75),
+      new THREE.Vector3(12, bayTopY + 1.15, zPlatformsPhysics - 2.75),
       floatingPlatformMat,
       { lockX: false, lockY: false, lockZ: true, rotX: true, rotY: false, rotZ: true },
-      { minX: 6.5, maxX: 14.5, speedX: 2.35 },
-      { kind: 'boost-platform', jumpBoostMultiplier: 3.0, autoBounce: true },
+      { minX: 8, maxX: 16, speedX: 2.35 },
+      { kind: 'boost-platform', jumpBoostMultiplier: boostPadJumpMultiplier, autoBounce: true },
     );
     this.createSectionLabel(
       'Physics Platforms\nBoost Pad \u2022 Rolling Drum \u2022 Moving Boost Pad',

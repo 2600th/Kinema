@@ -32,6 +32,7 @@ export class PlayerHealthSystem implements RuntimeSystem {
   private currentHearts = DEFAULT_HEARTS;
   private readonly maxHearts = DEFAULT_HEARTS;
   private invulnerabilityRemaining = 0;
+  private invulnerabilityReason: DamageReason | null = null;
   private pendingDeath: PendingDeathResolution | null = null;
 
   constructor(private readonly eventBus: EventBus) {}
@@ -49,7 +50,7 @@ export class PlayerHealthSystem implements RuntimeSystem {
   }
 
   teardownLevel(): void {
-    this.invulnerabilityRemaining = 0;
+    this.setInvulnerability(0, null);
     this.pendingDeath = null;
   }
 
@@ -57,7 +58,8 @@ export class PlayerHealthSystem implements RuntimeSystem {
     if (this.invulnerabilityRemaining <= 0) {
       return;
     }
-    this.invulnerabilityRemaining = Math.max(0, this.invulnerabilityRemaining - dt);
+    const remaining = Math.max(0, this.invulnerabilityRemaining - dt);
+    this.setInvulnerability(remaining, remaining > 0 ? this.invulnerabilityReason : null);
   }
 
   getHealthState(): HealthDebugState {
@@ -96,13 +98,13 @@ export class PlayerHealthSystem implements RuntimeSystem {
   }
 
   dispose(): void {
-    this.invulnerabilityRemaining = 0;
+    this.setInvulnerability(0, null);
     this.pendingDeath = null;
   }
 
   private resetHearts(): void {
     this.currentHearts = this.maxHearts;
-    this.invulnerabilityRemaining = 0;
+    this.setInvulnerability(0, null);
     this.pendingDeath = null;
     this.eventBus.emit("health:changed", { current: this.currentHearts, max: this.maxHearts });
   }
@@ -112,17 +114,17 @@ export class PlayerHealthSystem implements RuntimeSystem {
     this.eventBus.emit("health:changed", { current: this.currentHearts, max: this.maxHearts });
 
     if (this.currentHearts <= 0) {
-      this.invulnerabilityRemaining = 0;
+      this.setInvulnerability(0, null);
       this.pendingDeath = { mode: "full-reset", reason };
       this.eventBus.emit("player:dying", { reason });
       return { accepted: true, deathTriggered: true, resolution: { ...this.pendingDeath } };
     }
 
     if (grantsIFrames) {
-      this.invulnerabilityRemaining = SPIKE_IFRAMES_SECONDS;
+      this.setInvulnerability(SPIKE_IFRAMES_SECONDS, reason);
       this.pendingDeath = null;
     } else {
-      this.invulnerabilityRemaining = 0;
+      this.setInvulnerability(0, null);
       this.pendingDeath = { mode: "respawn", reason };
     }
 
@@ -142,5 +144,28 @@ export class PlayerHealthSystem implements RuntimeSystem {
       deathTriggered: !grantsIFrames,
       resolution: this.pendingDeath ? { ...this.pendingDeath } : null,
     };
+  }
+
+  private setInvulnerability(remaining: number, reason: DamageReason | null): void {
+    const nextRemaining = Math.max(0, remaining);
+    const nextReason = nextRemaining > 0 ? reason : null;
+    const prevActive = this.invulnerabilityRemaining > 0;
+    const nextActive = nextRemaining > 0;
+    const shouldEmit =
+      prevActive !== nextActive
+      || (nextActive && this.invulnerabilityReason !== nextReason);
+
+    this.invulnerabilityRemaining = nextRemaining;
+    this.invulnerabilityReason = nextReason;
+
+    if (!shouldEmit) {
+      return;
+    }
+
+    this.eventBus.emit("player:invulnerabilityChanged", {
+      active: nextActive,
+      remaining: this.invulnerabilityRemaining,
+      reason: this.invulnerabilityReason,
+    });
   }
 }

@@ -46,6 +46,9 @@ const _throwAimPoint = new THREE.Vector3();
 const _throwDirection = new THREE.Vector3();
 const _carryTargetRot = new THREE.Quaternion();
 const _carryHandRot = new THREE.Quaternion();
+const _capsuleBaseColor = new THREE.Color(0x3388ff);
+const _capsuleDamageColor = new THREE.Color(0xff6ea8);
+const _capsuleWorkColor = new THREE.Color();
 
 /** Default GroundInfo used before the first motor query. */
 const NULL_GROUND_INFO: GroundInfo = {
@@ -152,6 +155,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   private readonly capsuleMesh: THREE.Mesh;
   private pendingThrow = false;
   private damagePulse = 0;
+  private damageBlinkActive = false;
+  private damageBlinkTime = 0;
   private spikeDamageClipName: string | null = null;
 
   constructor(
@@ -217,9 +222,18 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
         this.animator.playOneShot(this.spikeDamageClipName, 0.08);
       }
     });
+    this.eventBus.on('player:invulnerabilityChanged', ({ active, reason }) => {
+      this.damageBlinkActive = active && reason === 'spike';
+      this.damageBlinkTime = 0;
+      if (!this.damageBlinkActive) {
+        this.applyDamageVisual(this.damagePulse);
+      }
+    });
     this.eventBus.on('player:respawned', () => {
       this.damagePulse = 0;
-      this.characterModel?.setDamagePulse(0);
+      this.damageBlinkActive = false;
+      this.damageBlinkTime = 0;
+      this.applyDamageVisual(0);
     });
 
     const pos = this.body.translation();
@@ -287,6 +301,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.crouchVisual = 0;
     this.mesh.scale.set(1, 1, 1);
     this.characterModel?.setVisualLift(0);
+    this.applyDamageVisual(0);
     this.currentCapsuleHalfHeight = this.standingCapsuleHalfHeight;
     this.collider.setHalfHeight(this.standingCapsuleHalfHeight);
     const resetMode = this.modes.get("grounded");
@@ -618,7 +633,14 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       (this.standingCapsuleHalfHeight - this.currentCapsuleHalfHeight) * this.crouchVisual;
     this.characterModel?.setVisualLift(crouchVisualLift);
     this.damagePulse += (0 - this.damagePulse) * (1 - Math.exp(-18 * _dt));
-    this.characterModel?.setDamagePulse(this.damagePulse);
+    if (this.damageBlinkActive) {
+      this.damageBlinkTime += _dt;
+    }
+    const blinkPulse =
+      this.damageBlinkActive && Math.floor(this.damageBlinkTime / 0.12) % 2 === 0
+        ? 0.95
+        : 0;
+    this.applyDamageVisual(Math.max(this.damagePulse, blinkPulse));
     const animSpeed = this.currentMode.id === 'ladder'
       ? Math.abs(this.body.linvel().y)
       : this.cachedHorizontalSpeed;
@@ -766,6 +788,21 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       .add(new THREE.Vector3(0, 0.075, 0.018).applyQuaternion(_carryHandRot));
     this.cachedCarrySocketRot.copy(_carryHandRot);
     this.hasCarrySocket = true;
+  }
+
+  private applyDamageVisual(weight: number): void {
+    const clamped = Math.max(0, Math.min(1, weight));
+    this.characterModel?.setDamagePulse(clamped);
+
+    const capsuleMaterial = this.capsuleMesh.material;
+    if (!(capsuleMaterial instanceof THREE.MeshStandardMaterial)) {
+      return;
+    }
+
+    _capsuleWorkColor.copy(_capsuleBaseColor).lerp(_capsuleDamageColor, clamped * 0.24);
+    capsuleMaterial.color.copy(_capsuleWorkColor);
+    capsuleMaterial.emissive.copy(_capsuleDamageColor).multiplyScalar(clamped * 0.58);
+    capsuleMaterial.emissiveIntensity = clamped * 0.95;
   }
 
   private getThrowAimDirection(releaseOrigin: THREE.Vector3): THREE.Vector3 {

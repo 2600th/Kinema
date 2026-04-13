@@ -82,7 +82,7 @@ const STATION_LOCAL_COIN_LAYOUTS: Record<ShowcaseStationKey, readonly LocalCoinP
   ],
   platformsPhysics: [
     coin([-11, ROUTE_COIN_HEIGHT + 0.4, 2.25]),
-    coin([0, REWARD_COIN_HEIGHT + 0.15, 2.1]),
+    coin([0, REWARD_COIN_HEIGHT + 1.15, 2.1]),
     coin([8.5, REWARD_COIN_HEIGHT + 0.75, -2.75]),
     coin([12.6, REWARD_COIN_HEIGHT + 0.95, -2.75]),
     coin([15.6, REWARD_COIN_HEIGHT + 0.45, -4.6]),

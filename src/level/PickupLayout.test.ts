@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getProceduralCoinPlacements } from "./CoinLayout";
+import { getShowcaseBayTopY } from "./ShowcaseLayout";
 import { getProceduralSpikePlacements } from "./SpikeLayout";
 
 interface Footprint {
@@ -53,10 +54,10 @@ describe("procedural pickup layouts", () => {
       { x: 12, z: 3, width: 5, depth: 5 },
     ].map((platform) => inflate(platform, safetyPadding));
     const physicsPlatforms: Footprint[] = [
-      { x: -11, z: 2.25, width: 5.2, depth: 5.2 },
+      { x: -12, z: 2.25, width: 5.2, depth: 5.2 },
       { x: 0, z: 2.1, width: 3.1, depth: 9.5 },
-      // Full moving boost-pad travel from x=6.5 to x=14.5, including platform width.
-      { x: 10.5, z: -2.75, width: 12.2, depth: 4.2 },
+      // Full moving boost-pad travel from x=8.0 to x=16.0, including platform width.
+      { x: 12, z: -2.75, width: 12.2, depth: 4.2 },
     ].map((platform) => inflate(platform, safetyPadding));
 
     const movingHazards = getProceduralSpikePlacements("platformsMoving").map((hazard) => ({
@@ -99,6 +100,9 @@ describe("procedural pickup layouts", () => {
 
     const materials = getProceduralCoinPlacements("materials");
     expect(materials.map((coin) => coin.position.x)).toEqual([-16.8, -8.4, 0, 8.4, 16.8]);
+
+    const physicsPlatforms = getProceduralCoinPlacements("platformsPhysics");
+    expect(physicsPlatforms[1]?.position.y).toBeCloseTo(getShowcaseBayTopY() + 3.3);
   });
 
   it("keeps movement and materials coins out of the ladder, crouch roof, and sample volumes", () => {
