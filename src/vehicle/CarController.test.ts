@@ -7,6 +7,7 @@ import {
   computeCarContactPushImpulse,
   computeCarDriveSpeedDelta,
   computeCarLateralGripDelta,
+  computeCarSlipAngle,
   computeCarYawDirectionSign,
   computeCarYawAssistAuthority,
   deriveCarRideGeometry,
@@ -14,6 +15,7 @@ import {
   isCarWheelSupportingContact,
   pickFirstClearCarExitCandidate,
   resolveCarDriveCommand,
+  resolveCarHandlingFeelState,
   resolveCarYawAssistEffectiveAuthority,
 } from './CarController';
 
@@ -211,6 +213,47 @@ describe('CarController helpers', () => {
       expect(sustained).toBeGreaterThan(0.4);
       expect(burst).toBeGreaterThan(sustained);
       expect(burst).toBe(2.35);
+    });
+  });
+
+  describe('handling feel helpers', () => {
+    it('preserves slip sign for left and right drift angles', () => {
+      expect(computeCarSlipAngle(10, 3)).toBeGreaterThan(0);
+      expect(computeCarSlipAngle(10, -3)).toBeLessThan(0);
+      expect(computeCarSlipAngle(0, 0)).toBe(0);
+    });
+
+    it('stays neutral at low speed even with some lateral motion', () => {
+      const feel = resolveCarHandlingFeelState(1.5, 0.9, true, 4, false);
+
+      expect(feel.driftState).toBe('none');
+      expect(feel.driftAmount).toBe(0);
+      expect(feel.slipRatio).toBe(0);
+    });
+
+    it('reports a stable drift state once slip builds at speed', () => {
+      const feel = resolveCarHandlingFeelState(14, 4.2, true, 4, false);
+
+      expect(feel.slipAngle).toBeGreaterThan(CAR_TUNING.handlingSlipAngleDrift);
+      expect(feel.slipRatio).toBeGreaterThan(0.5);
+      expect(feel.driftAmount).toBeGreaterThan(0.4);
+      expect(feel.driftState === 'drift' || feel.driftState === 'slide').toBe(true);
+    });
+
+    it('boosts drift feel under handbrake', () => {
+      const base = resolveCarHandlingFeelState(11, 2.2, true, 4, false);
+      const handbrake = resolveCarHandlingFeelState(11, 2.2, true, 4, true);
+
+      expect(handbrake.driftAmount).toBeGreaterThan(base.driftAmount);
+      expect(handbrake.handbrake).toBe(true);
+    });
+
+    it('drops back to none when the car is airborne or under-supported', () => {
+      const airborne = resolveCarHandlingFeelState(14, 4, false, 0, false);
+      const unsupported = resolveCarHandlingFeelState(14, 4, true, 1, false);
+
+      expect(airborne.driftState).toBe('none');
+      expect(unsupported.driftState).toBe('none');
     });
   });
 });

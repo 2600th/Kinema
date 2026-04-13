@@ -50,6 +50,9 @@ export class SFXEngine {
   private engineAirNoise: Tone.Noise | null = null;
   private engineAirFilter: Tone.Filter | null = null;
   private engineAirGain: Tone.Gain | null = null;
+  private engineSkidNoise: Tone.Noise | null = null;
+  private engineSkidFilter: Tone.Filter | null = null;
+  private engineSkidGain: Tone.Gain | null = null;
 
   // Drone rotor sustained sound
   private droneOsc: Tone.Oscillator | null = null;
@@ -835,20 +838,39 @@ export class SFXEngine {
     this.engineAirGain = new Tone.Gain(0.01).connect(this.engineGain);
     this.engineAirFilter = new Tone.Filter({ type: 'bandpass', frequency: 1100, Q: 0.9 }).connect(this.engineAirGain);
     this.engineAirNoise = new Tone.Noise('pink').connect(this.engineAirFilter);
+    this.engineSkidGain = new Tone.Gain(0).connect(this.engineGain);
+    this.engineSkidFilter = new Tone.Filter({ type: 'bandpass', frequency: 1600, Q: 1.8 }).connect(this.engineSkidGain);
+    this.engineSkidNoise = new Tone.Noise('white').connect(this.engineSkidFilter);
     this.engineOsc.start();
     this.engineSub.start();
     this.engineAirNoise.start();
+    this.engineSkidNoise.start();
     this.engineGain.gain.rampTo(0.03, 0.2);
   }
 
-  updateEngine(speedNorm: number): void {
-    if (!this.engineOsc || !this.engineSub || !this.engineGain || !this.engineFilter || !this.engineAirFilter || !this.engineAirGain) return;
+  updateEngine(speedNorm: number, driftAmount = 0, handbrake = false): void {
+    if (
+      !this.engineOsc
+      || !this.engineSub
+      || !this.engineGain
+      || !this.engineFilter
+      || !this.engineAirFilter
+      || !this.engineAirGain
+      || !this.engineSkidFilter
+      || !this.engineSkidGain
+    ) return;
     const speed = clamp(speedNorm, 0, 1);
+    const drift = clamp(driftAmount, 0, 1);
+    const skidGain = drift <= 0.02
+      ? 0
+      : clamp(0.002 + drift * (handbrake ? 0.095 : 0.07), 0, handbrake ? 0.09 : 0.065);
     this.engineOsc.frequency.rampTo(68 + speed * 88, 0.08);
     this.engineSub.frequency.rampTo(34 + speed * 46, 0.08);
     this.engineFilter.frequency.rampTo(240 + speed * 1050, 0.08);
     this.engineAirFilter.frequency.rampTo(900 + speed * 2300, 0.08);
+    this.engineSkidFilter.frequency.rampTo(1450 + speed * 900 + drift * 900, 0.08);
     this.engineAirGain.gain.rampTo(0.006 + speed * 0.03, 0.08);
+    this.engineSkidGain.gain.rampTo(skidGain, 0.05);
     this.engineGain.gain.rampTo(0.022 + speed * 0.05, 0.08);
   }
 
@@ -860,6 +882,9 @@ export class SFXEngine {
     const airNoise = this.engineAirNoise;
     const airFilter = this.engineAirFilter;
     const airGain = this.engineAirGain;
+    const skidNoise = this.engineSkidNoise;
+    const skidFilter = this.engineSkidFilter;
+    const skidGain = this.engineSkidGain;
     gain?.gain.rampTo(0, 0.18);
     this.engineOsc = null;
     this.engineSub = null;
@@ -868,6 +893,9 @@ export class SFXEngine {
     this.engineAirNoise = null;
     this.engineAirFilter = null;
     this.engineAirGain = null;
+    this.engineSkidNoise = null;
+    this.engineSkidFilter = null;
+    this.engineSkidGain = null;
     setTimeout(() => {
       osc?.stop();
       osc?.dispose();
@@ -875,9 +903,13 @@ export class SFXEngine {
       sub?.dispose();
       airNoise?.stop();
       airNoise?.dispose();
+      skidNoise?.stop();
+      skidNoise?.dispose();
       filter?.dispose();
       airFilter?.dispose();
       airGain?.dispose();
+      skidFilter?.dispose();
+      skidGain?.dispose();
       gain?.dispose();
     }, 220);
   }

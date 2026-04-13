@@ -4,6 +4,7 @@ import type { EventBus } from '@core/EventBus';
 import { STATE, type Disposable, type FixedUpdatable } from '@core/types';
 import type { InputManager } from '@input/InputManager';
 import type { UserSettingsStore } from '@core/UserSettings';
+import type { VehicleHandlingFeelState } from '@vehicle/VehicleController';
 import { SFXEngine } from './SFXEngine';
 import { MusicEngine } from './MusicEngine';
 
@@ -33,6 +34,9 @@ export class AudioManager implements FixedUpdatable, Disposable {
   // State tracking for audio triggers
   private inVehicle = false;
   private vehicleType: 'car' | 'drone' | null = null;
+  private vehicleSpeedNorm = 0;
+  private vehicleDriftAmount = 0;
+  private vehicleHandbrake = false;
   private holdLastThreshold = -1;
   private slopeSlideActive = false;
 
@@ -155,25 +159,37 @@ export class AudioManager implements FixedUpdatable, Disposable {
       this.sfxEngine.droneRotorStart();
     } else {
       this.sfxEngine.startEngine();
+      this.sfxEngine.updateEngine(this.vehicleSpeedNorm, this.vehicleDriftAmount, this.vehicleHandbrake);
     }
   }
 
   updateEngine(speedNorm: number): void {
+    this.vehicleSpeedNorm = speedNorm;
     if (!this.toneStarted) return;
     if (this.vehicleType === 'drone') {
       this.sfxEngine.droneRotorUpdate(speedNorm);
     } else {
-      this.sfxEngine.updateEngine(speedNorm);
+      this.sfxEngine.updateEngine(speedNorm, this.vehicleDriftAmount, this.vehicleHandbrake);
     }
   }
 
   stopEngine(): void {
+    this.vehicleSpeedNorm = 0;
+    this.vehicleDriftAmount = 0;
+    this.vehicleHandbrake = false;
     if (!this.toneStarted) return;
     if (this.vehicleType === 'drone') {
       this.sfxEngine.droneRotorStop();
     } else {
       this.sfxEngine.stopEngine();
     }
+  }
+
+  private updateVehicleHandlingFeel(state: VehicleHandlingFeelState | null): void {
+    this.vehicleDriftAmount = state?.driftAmount ?? 0;
+    this.vehicleHandbrake = state?.handbrake ?? false;
+    if (!this.toneStarted || this.vehicleType === 'drone') return;
+    this.sfxEngine.updateEngine(this.vehicleSpeedNorm, this.vehicleDriftAmount, this.vehicleHandbrake);
   }
 
   dispose(): void {
@@ -409,6 +425,9 @@ export class AudioManager implements FixedUpdatable, Disposable {
       this.eventBus.on('vehicle:enter', ({ vehicle }) => {
         this.inVehicle = true;
         this.vehicleType = vehicle.type;
+        this.vehicleSpeedNorm = 0;
+        this.vehicleDriftAmount = 0;
+        this.vehicleHandbrake = false;
         if (this.slopeSlideActive) {
           this.sfxEngine.slopeSlideStop();
           this.slopeSlideActive = false;
@@ -422,6 +441,9 @@ export class AudioManager implements FixedUpdatable, Disposable {
         this.sfxEngine.vehicleExit();
         this.inVehicle = false;
         this.vehicleType = null;
+        this.vehicleSpeedNorm = 0;
+        this.vehicleDriftAmount = 0;
+        this.vehicleHandbrake = false;
       }),
     );
 
@@ -433,6 +455,9 @@ export class AudioManager implements FixedUpdatable, Disposable {
     );
     this.unsubscribers.push(
       this.eventBus.on('vehicle:speedUpdate', ({ speedNorm }) => this.updateEngine(speedNorm)),
+    );
+    this.unsubscribers.push(
+      this.eventBus.on('vehicle:handlingUpdate', (state) => this.updateVehicleHandlingFeel(state)),
     );
 
     // ── Menu / UI ──────────────────────────────────────

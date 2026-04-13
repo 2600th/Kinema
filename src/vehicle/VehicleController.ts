@@ -3,6 +3,22 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import type { FixedUpdatable, PostPhysicsUpdatable, Updatable, Disposable, InputState, SpawnPointData } from '@core/types';
 import type { CameraConfig } from '@core/types';
 
+export type VehicleDriftState = 'none' | 'light' | 'drift' | 'slide';
+
+export interface VehicleHandlingFeelState {
+  readonly speedNorm: number;
+  readonly forwardSpeed: number;
+  readonly lateralSpeed: number;
+  readonly slipAngle: number;
+  readonly slipRatio: number;
+  readonly slipSign: number;
+  readonly driftAmount: number;
+  readonly driftState: VehicleDriftState;
+  readonly handbrake: boolean;
+  readonly grounded: boolean;
+  readonly groundedWheelCount: number;
+}
+
 export interface VehicleController extends FixedUpdatable, PostPhysicsUpdatable, Updatable, Disposable {
   readonly id: string;
   readonly type: 'car' | 'drone';
@@ -33,4 +49,5 @@ export interface VehicleController extends FixedUpdatable, PostPhysicsUpdatable,
   clearSteeringDebugTrace?(): void;
   getSteeringDebugTrace?(): unknown;
   dumpSteeringDebugTrace?(): unknown;
+  getHandlingFeelState?(): VehicleHandlingFeelState | null;
 }

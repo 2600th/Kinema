@@ -8,6 +8,7 @@ import type { PhysicsWorld } from '@physics/PhysicsWorld';
 import type { PlayerController } from '@character/PlayerController';
 import { ScreenShake } from '@juice/ScreenShake';
 import type { FOVPunch } from '@juice/FOVPunch';
+import type { VehicleHandlingFeelState } from '@vehicle/VehicleController';
 
 // Pre-allocated temp objects
 const _pivotPos = new THREE.Vector3();
@@ -59,6 +60,10 @@ export class OrbitFollowCamera implements Updatable, Disposable {
   // Speed-feel: dynamic FOV and distance offsets driven by vehicle speed
   private speedFovOffset = 0;
   private speedDistanceOffset = 0;
+  private driftFovOffset = 0;
+  private driftDistanceOffset = 0;
+  private driftLateralTarget = 0;
+  private driftLateralCurrent = 0;
 
   // Pre-allocated Rapier temps for castShape (avoid per-frame heap allocs).
   private _rv3Origin = new RAPIER.Vector3(0, 0, 0);
@@ -187,6 +192,10 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     this.chaseModeEnabled = false;
     this.speedFovOffset = 0;
     this.speedDistanceOffset = 0;
+    this.driftFovOffset = 0;
+    this.driftDistanceOffset = 0;
+    this.driftLateralTarget = 0;
+    this.driftLateralCurrent = 0;
   }
 
   /**
@@ -205,6 +214,19 @@ export class OrbitFollowCamera implements Updatable, Disposable {
   setVehicleSpeedRatio(ratio: number): void {
     this.speedFovOffset = ratio * 15;       // up to +15° FOV at top speed
     this.speedDistanceOffset = ratio * 3;   // up to +3 m pullback at top speed
+  }
+
+  setVehicleHandlingFeel(state: VehicleHandlingFeelState | null): void {
+    if (!state) {
+      this.driftFovOffset = 0;
+      this.driftDistanceOffset = 0;
+      this.driftLateralTarget = 0;
+      return;
+    }
+    const driftAmount = Math.min(Math.max(state.driftAmount, 0), 1);
+    this.driftFovOffset = driftAmount * 4.5;
+    this.driftDistanceOffset = driftAmount * 0.9;
+    this.driftLateralTarget = -state.slipSign * driftAmount * this.config.lateralDriftScale * 3.8;
   }
 
   applyCameraConfig(overrides: Partial<CameraConfig>): void {
@@ -328,6 +350,11 @@ export class OrbitFollowCamera implements Updatable, Disposable {
       _camRight.set(1, 0, 0).applyAxisAngle(_worldUp, this.yaw);
       _pivotPos.addScaledVector(_camRight, this.lateralDriftCurrent);
     }
+    this.driftLateralCurrent = THREE.MathUtils.damp(this.driftLateralCurrent, this.driftLateralTarget, 4.5, dt);
+    if (Math.abs(this.driftLateralCurrent) > 0.0001) {
+      _camRight.set(1, 0, 0).applyAxisAngle(_worldUp, this.yaw);
+      _pivotPos.addScaledVector(_camRight, this.driftLateralCurrent);
+    }
 
     if (this.pivotPosition.lengthSq() < 0.0001) {
       this.pivotPosition.copy(_pivotPos);
@@ -344,7 +371,7 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     const ropeAttached = this.target ? false : this.player.isRopeAttached;
     let desiredDistance = ropeAttached
       ? Math.max(this.targetDistance, this.ropeCameraMinDistance)
-      : this.targetDistance + this.speedDistanceOffset;
+      : this.targetDistance + this.speedDistanceOffset + this.driftDistanceOffset;
 
     // Collision caching at 30 Hz: run castShape only when the timer expires,
     // then reuse cachedCollisionToi every render frame in between.
@@ -412,7 +439,7 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     const sprintFov = sprinting ? this.config.sprintFovBoost : 0;
     const locomotionFov = Math.min(12, speedFov + sprintFov);
     const punchFov = this.fovPunch?.update(dt) ?? 0;
-    const targetFov = this.baseFov + locomotionFov + this.speedFovOffset + punchFov;
+    const targetFov = this.baseFov + locomotionFov + this.speedFovOffset + this.driftFovOffset + punchFov;
     const fovDamp = 1 - Math.exp(-this.config.fovDamping * dt);
     let nextFov = this.camera.fov + (targetFov - this.camera.fov) * fovDamp;
     // Avoid endless subpixel projection jitter from asymptotic damping convergence.

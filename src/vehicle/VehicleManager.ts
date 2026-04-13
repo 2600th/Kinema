@@ -76,8 +76,11 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
       this.resetIfOutOfBounds(this.active);
       const lv = this.active.body.linvel();
       const sn = Math.min(Math.hypot(lv.x, lv.z) / 18, 1);
+      const handlingFeel = this.active.getHandlingFeelState?.() ?? null;
       this.camera.setVehicleSpeedRatio(sn);
+      this.camera.setVehicleHandlingFeel(handlingFeel);
       this.eventBus.emit('vehicle:speedUpdate', { speedNorm: sn });
+      this.eventBus.emit('vehicle:handlingUpdate', handlingFeel);
       return;
     }
     // Keep parked vehicles simulating (e.g., drone auto-landing).
@@ -119,8 +122,10 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
     // If the player is seated, restore ownership before disposing vehicles.
     if (this.active) {
       this.eventBus.emit('vehicle:engineStop', undefined);
+      this.eventBus.emit('vehicle:handlingUpdate', null);
       this.camera.setChaseMode(false);
       this.camera.setVehicleSpeedRatio(0);
+      this.camera.setVehicleHandlingFeel(null);
       this.camera.resetTarget();
       this.camera.resetCameraConfig();
       this.player.setEnabled(true);
@@ -167,6 +172,7 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
     this.player.spawn(this.ensureSpawnPoint(spawn));
     this.camera.setChaseMode(false);
     this.camera.setVehicleSpeedRatio(0);
+    this.camera.setVehicleHandlingFeel(null);
     this.camera.resetTarget();
     this.camera.resetCameraConfig();
     this.camera.snapToTarget();
@@ -175,6 +181,7 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
     // from the interactPressed that triggered the exit.
     this.exitCooldown = 2;
     this.eventBus.emit('vehicle:engineStop', undefined);
+    this.eventBus.emit('vehicle:handlingUpdate', null);
     this.eventBus.emit('vehicle:exit', { position: spawn.position });
   }
 
@@ -208,7 +215,9 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
     if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z) || p.y < VehicleManager.VEHICLE_RESET_Y) {
       vehicle.resetToSpawn();
       this.camera.setVehicleSpeedRatio(0);
+      this.camera.setVehicleHandlingFeel(vehicle.getHandlingFeelState?.() ?? null);
       this.eventBus.emit('vehicle:speedUpdate', { speedNorm: 0 });
+      this.eventBus.emit('vehicle:handlingUpdate', vehicle.getHandlingFeelState?.() ?? null);
     }
   }
 }

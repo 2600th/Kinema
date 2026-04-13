@@ -1,6 +1,6 @@
 import type * as THREE from 'three';
 import type * as RAPIER from '@dimforge/rapier3d-compat';
-import type { VehicleController } from '@vehicle/VehicleController';
+import type { VehicleController, VehicleHandlingFeelState } from '@vehicle/VehicleController';
 import type { ThrowableObject } from '@interaction/interactables/ThrowableObject';
 
 /** Frozen snapshot of input state — safe to read from any system */
@@ -206,6 +206,7 @@ export interface EventMap {
   'vehicle:engineStart': undefined;
   'vehicle:engineStop': undefined;
   'vehicle:speedUpdate': { speedNorm: number };
+  'vehicle:handlingUpdate': VehicleHandlingFeelState | null;
   'menu:toggle': undefined;
   'menu:opened': { screen: string };
   'menu:closed': undefined;

@@ -5,7 +5,7 @@ import { DEFAULT_PLAYER_CONFIG } from '@core/constants';
 import type { PhysicsWorld } from '@physics/PhysicsWorld';
 import { toRapierQuat } from '@physics/PhysicsHelpers';
 import { COLLISION_GROUP_VEHICLE, VEHICLE_DOMINANCE_GROUP } from '@core/constants';
-import type { VehicleController } from './VehicleController';
+import type { VehicleController, VehicleDriftState, VehicleHandlingFeelState } from './VehicleController';
 
 const _quat = new THREE.Quaternion();
 const _targetQuat = new THREE.Quaternion();
@@ -113,7 +113,9 @@ type CarTuning = {
   readonly uprightAssistAir: number;
   readonly wheelVisualDropMax: number;
   readonly cabinRollScale: number;
+  readonly cabinDriftRollScale: number;
   readonly cabinPitchScale: number;
+  readonly cabinYawScale: number;
   readonly maxForwardSpeed: number;
   readonly maxBoostSpeed: number;
   readonly maxReverseSpeed: number;
@@ -140,6 +142,10 @@ type CarTuning = {
   readonly contactPushCarryHeightBlend: number;
   readonly supportMinNormalY: number;
   readonly supportMinSuspensionForce: number;
+  readonly handlingDriftSpeedMin: number;
+  readonly handlingSlipAngleLight: number;
+  readonly handlingSlipAngleDrift: number;
+  readonly handlingSlipAngleMax: number;
 };
 
 export type CarRideGeometry = {
@@ -210,7 +216,9 @@ export const CAR_TUNING: CarTuning = {
   uprightAssistAir: 2.5,
   wheelVisualDropMax: 0.22,
   cabinRollScale: 0.022,
+  cabinDriftRollScale: 0.05,
   cabinPitchScale: 0.018,
+  cabinYawScale: 0.2,
   maxForwardSpeed: 28,
   maxBoostSpeed: 33,
   maxReverseSpeed: 13,
@@ -237,6 +245,10 @@ export const CAR_TUNING: CarTuning = {
   contactPushCarryHeightBlend: 1,
   supportMinNormalY: 0.56,
   supportMinSuspensionForce: 3.4,
+  handlingDriftSpeedMin: 3.2,
+  handlingSlipAngleLight: 0.08,
+  handlingSlipAngleDrift: 0.16,
+  handlingSlipAngleMax: 0.5,
 };
 
 export function deriveCarRideGeometry(tuning: CarTuning = CAR_TUNING): CarRideGeometry {
@@ -512,6 +524,83 @@ export function computeCarYawDirectionSign(
   return steerYawSign * travelYawSign;
 }
 
+export function computeCarSlipAngle(
+  forwardSpeed: number,
+  lateralSpeed: number,
+): number {
+  if (Math.abs(forwardSpeed) <= 0.0001 && Math.abs(lateralSpeed) <= 0.0001) return 0;
+  const longitudinalReference = Math.max(Math.abs(forwardSpeed), 0.85);
+  return Math.atan2(lateralSpeed, longitudinalReference);
+}
+
+function resolveVehicleDriftState(
+  driftAmount: number,
+  slipAngle: number,
+  tuning: CarTuning = CAR_TUNING,
+): VehicleDriftState {
+  const absSlipAngle = Math.abs(slipAngle);
+  if (driftAmount < 0.12 || absSlipAngle < tuning.handlingSlipAngleLight * 0.65) return 'none';
+  if (driftAmount < 0.34 || absSlipAngle < tuning.handlingSlipAngleDrift) return 'light';
+  if (driftAmount < 0.72) return 'drift';
+  return 'slide';
+}
+
+export function resolveCarHandlingFeelState(
+  forwardSpeed: number,
+  lateralSpeed: number,
+  grounded: boolean,
+  groundedWheelCount: number,
+  handbrake: boolean,
+  tuning: CarTuning = CAR_TUNING,
+): VehicleHandlingFeelState {
+  const planarSpeed = Math.hypot(forwardSpeed, lateralSpeed);
+  const speedNorm = THREE.MathUtils.clamp(planarSpeed / Math.max(0.01, tuning.maxBoostSpeed), 0, 1);
+
+  if (!grounded || groundedWheelCount < 2 || planarSpeed < tuning.handlingDriftSpeedMin) {
+    return {
+      speedNorm,
+      forwardSpeed,
+      lateralSpeed,
+      slipAngle: 0,
+      slipRatio: 0,
+      slipSign: 0,
+      driftAmount: 0,
+      driftState: 'none',
+      handbrake,
+      grounded,
+      groundedWheelCount,
+    };
+  }
+
+  const slipAngle = computeCarSlipAngle(forwardSpeed, lateralSpeed);
+  const absSlipAngle = Math.abs(slipAngle);
+  const slipRatio = THREE.MathUtils.clamp(absSlipAngle / Math.max(0.001, tuning.handlingSlipAngleMax), 0, 1);
+  const speedFactor = THREE.MathUtils.clamp(
+    (planarSpeed - tuning.handlingDriftSpeedMin) / Math.max(0.01, tuning.maxForwardSpeed * 0.45),
+    0,
+    1,
+  );
+  const driftFromSlip = slipRatio * (0.3 + speedFactor * 0.7);
+  const thresholdBoost = absSlipAngle >= tuning.handlingSlipAngleDrift ? 0.16 : 0;
+  const handbrakeBoost = handbrake ? 0.2 : 0;
+  const driftAmount = THREE.MathUtils.clamp(driftFromSlip + thresholdBoost + handbrakeBoost, 0, 1);
+  const slipSign = Math.abs(slipAngle) > 0.0001 ? Math.sign(slipAngle) : 0;
+
+  return {
+    speedNorm,
+    forwardSpeed,
+    lateralSpeed,
+    slipAngle,
+    slipRatio,
+    slipSign,
+    driftAmount,
+    driftState: resolveVehicleDriftState(driftAmount, slipAngle, tuning),
+    handbrake,
+    grounded,
+    groundedWheelCount,
+  };
+}
+
 export function computeCarContactPushImpulse(
   driveImpulseMagnitude: number,
   closingSpeed: number,
@@ -654,8 +743,13 @@ export class CarController implements VehicleController {
   private lastContactPushImpulse = 0;
   private lastContactPushCarDrag = 0;
   private activeContactPushBodies = 0;
+  private handlingSlipAngle = 0;
+  private handlingSlipRatio = 0;
+  private handlingDriftAmount = 0;
+  private handlingDriftState: VehicleDriftState = 'none';
   private visualRoll = 0;
   private visualPitch = 0;
+  private visualYaw = 0;
   private headingYaw = 0;
   private readonly _prevPos = new THREE.Vector3();
   private readonly _currPos = new THREE.Vector3();
@@ -807,8 +901,13 @@ export class CarController implements VehicleController {
     this.lastContactPushImpulse = 0;
     this.lastContactPushCarDrag = 0;
     this.activeContactPushBodies = 0;
+    this.handlingSlipAngle = 0;
+    this.handlingSlipRatio = 0;
+    this.handlingDriftAmount = 0;
+    this.handlingDriftState = 'none';
     this.visualRoll = 0;
     this.visualPitch = 0;
+    this.visualYaw = 0;
     this.headingYaw = 0;
     this.lastDriveCommand = { ...DEFAULT_CAR_DRIVE_COMMAND };
     this.hasPose = false;
@@ -873,6 +972,7 @@ export class CarController implements VehicleController {
     this.applyContactPushAssist(dt, input, groundedNow);
     this.updateArcadeMotionState();
     this.speed = this.forwardSpeed;
+    this.updateHandlingFeelState(dt);
 
     if (groundedNow) {
       this.groundedGraceRemaining = CAR_TUNING.jumpCoyoteSeconds;
@@ -922,6 +1022,7 @@ export class CarController implements VehicleController {
     this.applyWheelVisualState();
     if (this.cabinMesh) {
       this.cabinMesh.rotation.x = this.visualPitch;
+      this.cabinMesh.rotation.y = this.visualYaw;
       this.cabinMesh.rotation.z = this.visualRoll;
     }
     const brakeIntensity = this.braking ? 6.0 : 1.5;
@@ -971,6 +1072,7 @@ export class CarController implements VehicleController {
     contactPushImpulse: number;
     contactPushCarDrag: number;
     activeContactPushBodies: number;
+    handlingFeel: VehicleHandlingFeelState;
     lastDriveCommand: CarDriveCommand;
     rideGeometry: Pick<CarRideGeometry, 'nominalChassisClearance' | 'chassisBottomY' | 'nominalGroundPlaneY'>;
   } {
@@ -1001,6 +1103,19 @@ export class CarController implements VehicleController {
       contactPushImpulse: this.lastContactPushImpulse,
       contactPushCarDrag: this.lastContactPushCarDrag,
       activeContactPushBodies: this.activeContactPushBodies,
+      handlingFeel: this.getHandlingFeelState() ?? {
+        speedNorm: 0,
+        forwardSpeed: 0,
+        lateralSpeed: 0,
+        slipAngle: 0,
+        slipRatio: 0,
+        slipSign: 0,
+        driftAmount: 0,
+        driftState: 'none',
+        handbrake: false,
+        grounded: false,
+        groundedWheelCount: 0,
+      },
       lastDriveCommand: { ...this.lastDriveCommand },
       rideGeometry: {
         nominalChassisClearance: this.rideGeometry.nominalChassisClearance,
@@ -1091,6 +1206,25 @@ export class CarController implements VehicleController {
     return trace;
   }
 
+  getHandlingFeelState(): VehicleHandlingFeelState | null {
+    const planarSpeed = Math.hypot(this.forwardSpeed, this.lateralSpeed);
+    const speedNorm = THREE.MathUtils.clamp(planarSpeed / Math.max(0.01, CAR_TUNING.maxBoostSpeed), 0, 1);
+    const slipSign = Math.abs(this.handlingSlipAngle) > 0.0001 ? Math.sign(this.handlingSlipAngle) : 0;
+    return {
+      speedNorm,
+      forwardSpeed: this.forwardSpeed,
+      lateralSpeed: this.lateralSpeed,
+      slipAngle: this.handlingSlipAngle,
+      slipRatio: this.handlingSlipRatio,
+      slipSign,
+      driftAmount: this.handlingDriftAmount,
+      driftState: this.handlingDriftState,
+      handbrake: this.input?.crouch ?? false,
+      grounded: this.groundedWheelCount >= 2,
+      groundedWheelCount: this.groundedWheelCount,
+    };
+  }
+
   private readonly wheelQueryFilterPredicate = (collider: RAPIER.Collider): boolean => {
     const parent = collider.parent();
     const excludedBody =
@@ -1157,7 +1291,8 @@ export class CarController implements VehicleController {
     for (let i = 0; i < this.wheelVisualBaseCenters.length; i++) {
       const contact = this.vehicleController.wheelIsInContact(i);
       this.wheelInContact[i] = contact;
-      const groundBody = this.vehicleController.wheelGroundObject(i);
+      const groundCollider = this.vehicleController.wheelGroundObject(i);
+      const groundBody = groundCollider?.parent() ?? null;
       this.wheelGroundHandles[i] = groundBody?.handle ?? null;
       this.wheelGroundKinds[i] = getRigidBodyKind(groundBody);
       if (contact) {
@@ -1240,6 +1375,20 @@ export class CarController implements VehicleController {
     _carVelocity.set(linvel.x, 0, linvel.z);
     this.forwardSpeed = _carVelocity.dot(_carForward);
     this.lateralSpeed = _carVelocity.dot(_carRight);
+  }
+
+  private updateHandlingFeelState(dt: number): void {
+    const target = resolveCarHandlingFeelState(
+      this.forwardSpeed,
+      this.lateralSpeed,
+      this.groundedWheelCount >= 2,
+      this.groundedWheelCount,
+      this.input?.crouch ?? false,
+    );
+    this.handlingSlipAngle = THREE.MathUtils.damp(this.handlingSlipAngle, target.slipAngle, 10.5, dt);
+    this.handlingSlipRatio = THREE.MathUtils.damp(this.handlingSlipRatio, target.slipRatio, 11.5, dt);
+    this.handlingDriftAmount = THREE.MathUtils.damp(this.handlingDriftAmount, target.driftAmount, 9.5, dt);
+    this.handlingDriftState = resolveVehicleDriftState(this.handlingDriftAmount, this.handlingSlipAngle);
   }
 
   private applyArcadeDriveAssists(dt: number, input: InputState | null, grounded: boolean): void {
@@ -1620,11 +1769,14 @@ export class CarController implements VehicleController {
 
   private updateVisualState(dt: number): void {
     const speedNorm = THREE.MathUtils.clamp(Math.abs(this.speed) / CAR_TUNING.maxBoostSpeed, 0, 1);
-    const targetRoll = -this.steerAngle * speedNorm * CAR_TUNING.cabinRollScale;
+    const targetRoll = -this.steerAngle * speedNorm * CAR_TUNING.cabinRollScale
+      - this.handlingSlipAngle * this.handlingDriftAmount * CAR_TUNING.cabinDriftRollScale;
     const targetPitch = (-Math.sign(this.speed) * (this.braking ? 1 : 0) * CAR_TUNING.cabinPitchScale * 0.8)
       + (this.jumpVisualKick * CAR_TUNING.cabinPitchScale * 1.8);
+    const targetYaw = this.handlingSlipAngle * this.handlingDriftAmount * CAR_TUNING.cabinYawScale;
     this.visualRoll = THREE.MathUtils.damp(this.visualRoll, targetRoll, 8, dt);
     this.visualPitch = THREE.MathUtils.damp(this.visualPitch, targetPitch, 8, dt);
+    this.visualYaw = THREE.MathUtils.damp(this.visualYaw, targetYaw, 7.5, dt);
   }
 
   private createCarMesh(): THREE.Object3D {
