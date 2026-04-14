@@ -5,6 +5,7 @@ import type { UserSettingsStore } from "@core/UserSettings";
 import type { InputManager } from "@input/InputManager";
 import type { VehicleHandlingFeelState } from "@vehicle/VehicleController";
 import * as Tone from "tone";
+import { createSafeDynamicsStage } from "./createSafeDynamicsStage";
 import { MusicEngine } from "./MusicEngine";
 import { SFXEngine } from "./SFXEngine";
 
@@ -12,18 +13,40 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+export interface AudioController extends FixedUpdatable, Disposable {
+  playMusic(fadeInSec?: number): void;
+  stopMusic(fadeOutSec?: number): void;
+  setMasterVolume(value: number): void;
+  setMusicVolume(value: number): void;
+  setSfxVolume(value: number): void;
+}
+
+class SilentAudioController implements AudioController {
+  fixedUpdate(): void {}
+  playMusic(): void {}
+  stopMusic(): void {}
+  setMasterVolume(): void {}
+  setMusicVolume(): void {}
+  setSfxVolume(): void {}
+  dispose(): void {}
+}
+
+export function createSilentAudioController(): AudioController {
+  return new SilentAudioController();
+}
+
 /**
  * Audio manager delegating to Tone.js-based SFX and Music engines.
  * Master bus: sfx/music → gains → compressor → limiter → destination.
  */
-export class AudioManager implements FixedUpdatable, Disposable {
+export class AudioManager implements AudioController {
   private sfxEngine: SFXEngine;
   private musicEngine: MusicEngine;
   private masterGain: Tone.Gain;
   private sfxGain: Tone.Gain;
   private musicGain: Tone.Gain;
-  private masterCompressor: Tone.Compressor;
-  private masterLimiter: Tone.Limiter;
+  private masterCompressor: Tone.Compressor | Tone.Gain;
+  private masterLimiter: Tone.Limiter | Tone.Gain;
   private unsubscribers: Array<() => void> = [];
   private toneStarted = false;
   private pendingMusicFadeIn: number | null = null;
@@ -47,13 +70,21 @@ export class AudioManager implements FixedUpdatable, Disposable {
     private settings: UserSettingsStore,
   ) {
     // Master bus: gains → compressor → limiter → destination
-    this.masterCompressor = new Tone.Compressor({
-      threshold: -24,
-      ratio: 3,
-      attack: 0.003,
-      release: 0.12,
-    });
-    this.masterLimiter = new Tone.Limiter(-1);
+    const dynamicsStage = createSafeDynamicsStage(
+      "Master bus",
+      {
+        threshold: -24,
+        ratio: 3,
+        attack: 0.003,
+        release: 0.12,
+      },
+      { threshold: -1 },
+    );
+    this.masterCompressor = dynamicsStage.compressor;
+    this.masterLimiter = dynamicsStage.limiter;
+    if (dynamicsStage.degraded) {
+      console.warn("[AudioManager] Master dynamics processing disabled on this device for compatibility.");
+    }
     this.masterGain = new Tone.Gain(1);
     this.masterGain.chain(this.masterCompressor, this.masterLimiter, Tone.getDestination());
 

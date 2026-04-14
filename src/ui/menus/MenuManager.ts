@@ -1,4 +1,4 @@
-import type { AudioManager } from "@audio/AudioManager";
+import type { AudioController } from "@audio/AudioManager";
 import type { OrbitFollowCamera } from "@camera/OrbitFollowCamera";
 import type { EventBus } from "@core/EventBus";
 import type { GameLoop } from "@core/GameLoop";
@@ -43,7 +43,7 @@ export class MenuManager {
     settings: UserSettingsStore,
     private inputManager: InputManager,
     camera: OrbitFollowCamera,
-    audioManager: AudioManager,
+    audioManager: AudioController,
     private onPlay: () => Promise<void>,
     private onPlayLevel: (key: string) => Promise<void>,
     private onReturnToMainMenu: () => Promise<void>,

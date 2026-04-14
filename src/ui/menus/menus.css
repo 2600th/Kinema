@@ -8,6 +8,7 @@
   --menu-line: rgba(255, 255, 255, 0.08);
   --font-body: "Outfit", system-ui, sans-serif;
   --font-heading: "Outfit", system-ui, sans-serif;
+  --menu-overlay-padding: clamp(16px, 3vw, 32px);
 }
 
 @keyframes menuPaneGlow {
@@ -90,21 +91,24 @@
 /* ---- Overlay ---- */
 
 .menu-overlay {
-  position: absolute;
+  position: fixed;
   inset: 0;
   display: none;
-  align-items: center;
-  justify-content: center;
   background: radial-gradient(circle at 50% 50%, #0c1020 0%, #060911 68%, #020307 100%);
   z-index: 1200;
   font-family: var(--font-body);
   color: var(--menu-text);
   transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  overflow: hidden;
+  padding: var(--menu-overlay-padding);
+  box-sizing: border-box;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .menu-overlay.active {
-  display: flex;
+  display: grid;
+  place-items: center;
 }
 
 .menu-backdrop,
@@ -323,8 +327,12 @@
 .menu-screen {
   min-width: 360px;
   max-width: 520px;
-  max-height: 90vh;
-  overflow: hidden;
+  width: min(520px, calc(100vw - var(--menu-overlay-padding) * 2));
+  max-height: calc(100dvh - var(--menu-overlay-padding) * 2);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   padding: 32px 36px;
   border-radius: 22px;
   background:
@@ -896,6 +904,7 @@
   .menu-screen {
     min-width: 300px;
     max-width: 440px;
+    width: min(440px, calc(100vw - var(--menu-overlay-padding) * 2));
     padding: 24px 28px;
   }
 
@@ -920,14 +929,14 @@
 
   .menu-backdrop-pane {
     width: 92vw;
-    height: 72vh;
+    height: min(72vh, calc(100dvh - var(--menu-overlay-padding) * 2));
   }
 }
 
 @media (max-width: 480px) {
   .menu-screen {
     min-width: 0;
-    width: calc(100vw - 32px);
+    width: calc(100vw - var(--menu-overlay-padding) * 2);
     max-width: 100%;
     padding: 20px 18px;
     border-radius: 16px;
@@ -1001,5 +1010,58 @@
   .menu-button-small {
     padding: 5px 10px;
     font-size: 11px;
+  }
+}
+
+@media (max-height: 720px) {
+  .menu-screen {
+    max-height: calc(100dvh - var(--menu-overlay-padding) * 2);
+    padding: 24px 28px;
+  }
+
+  .menu-title {
+    font-size: 28px;
+    margin-bottom: 18px;
+    padding-bottom: 10px;
+  }
+
+  .menu-button {
+    margin-top: 8px;
+    padding: 12px 16px;
+  }
+
+  .menu-version {
+    margin-top: 16px;
+  }
+
+  .menu-backdrop-pane {
+    height: min(78vh, calc(100dvh - var(--menu-overlay-padding) * 2));
+  }
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .menu-overlay {
+    align-items: start;
+  }
+
+  .menu-screen {
+    padding: 18px 22px;
+    border-radius: 18px;
+  }
+
+  .menu-title {
+    font-size: 24px;
+    letter-spacing: 3px;
+    margin-bottom: 14px;
+  }
+
+  .menu-button {
+    margin-top: 6px;
+    padding: 10px 14px;
+    font-size: 14px;
+  }
+
+  .menu-version {
+    margin-top: 12px;
   }
 }

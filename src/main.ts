@@ -62,7 +62,7 @@ async function bootstrap(): Promise<void> {
     { InteractionManager },
     { UIManager },
     { UserSettingsStore },
-    { AudioManager },
+    { AudioManager, createSilentAudioController },
     { VehicleManager },
     { MenuManager },
     { LevelSaveStore },
@@ -134,7 +134,13 @@ async function bootstrap(): Promise<void> {
   renderer.camera.updateProjectionMatrix();
   const interactionManager = new InteractionManager(physicsWorld, playerController, eventBus);
   const uiManager = new UIManager(eventBus);
-  const audioManager = new AudioManager(eventBus, playerController, inputManager, settings);
+  let audioManager: import("@audio/AudioManager").AudioController;
+  try {
+    audioManager = new AudioManager(eventBus, playerController, inputManager, settings);
+  } catch (err) {
+    console.warn("[Kinema] Audio disabled due to browser compatibility issue:", err);
+    audioManager = createSilentAudioController();
+  }
   const vehicleManager = new VehicleManager(eventBus, playerController, camera, interactionManager);
 
   const game = new Game(

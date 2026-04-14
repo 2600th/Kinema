@@ -1,4 +1,4 @@
-import type { AudioManager } from "@audio/AudioManager";
+import type { AudioController } from "@audio/AudioManager";
 import type { OrbitFollowCamera } from "@camera/OrbitFollowCamera";
 import type { EventBus } from "@core/EventBus";
 import type { AntiAliasingMode, GraphicsProfile, ShadowQualityTier, UserSettingsStore } from "@core/UserSettings";
@@ -10,7 +10,7 @@ interface SettingsMenuOptions {
   inputManager: InputManager;
   camera: OrbitFollowCamera;
   renderer: RendererManager;
-  audioManager: AudioManager;
+  audioManager: AudioController;
   eventBus: EventBus;
   onBack: () => void;
 }

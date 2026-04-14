@@ -1,4 +1,5 @@
 import * as Tone from "tone";
+import { createSafeDynamicsStage } from "./createSafeDynamicsStage";
 
 // C major pentatonic
 const C_SCALE = ["C", "D", "E", "G", "A"] as const;
@@ -66,8 +67,8 @@ export class MusicEngine {
   private autoFilter: Tone.AutoFilter;
   private feedbackDelay: Tone.FeedbackDelay;
   private reverb: Tone.Reverb;
-  private compressor: Tone.Compressor;
-  private limiter: Tone.Limiter;
+  private compressor: Tone.Compressor | Tone.Gain;
+  private limiter: Tone.Limiter | Tone.Gain;
   private effectsBus: Tone.Gain;
 
   // Loops
@@ -93,8 +94,16 @@ export class MusicEngine {
     this.autoFilter = new Tone.AutoFilter({ frequency: 0.06, baseFrequency: 300, octaves: 3, wet: 0.3 }).start();
     this.feedbackDelay = new Tone.FeedbackDelay({ delayTime: "4n", feedback: 0.3, wet: 0.25 });
     this.reverb = new Tone.Reverb({ decay: 6, wet: 0.5 });
-    this.compressor = new Tone.Compressor({ threshold: -18, ratio: 2.5, attack: 0.05, release: 0.2 });
-    this.limiter = new Tone.Limiter(-1);
+    const dynamicsStage = createSafeDynamicsStage(
+      "Music bus",
+      { threshold: -18, ratio: 2.5, attack: 0.05, release: 0.2 },
+      { threshold: -1 },
+    );
+    this.compressor = dynamicsStage.compressor;
+    this.limiter = dynamicsStage.limiter;
+    if (dynamicsStage.degraded) {
+      console.warn("[MusicEngine] Dynamics processing disabled on this device for compatibility.");
+    }
 
     this.effectsBus = new Tone.Gain(1);
     this.effectsBus.chain(this.autoFilter, this.feedbackDelay, this.reverb, this.compressor, this.limiter, this.output);

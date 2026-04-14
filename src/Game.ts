@@ -1,4 +1,4 @@
-import type { AudioManager } from "@audio/AudioManager";
+import type { AudioController } from "@audio/AudioManager";
 import type { OrbitFollowCamera } from "@camera/OrbitFollowCamera";
 import type { PlayerController } from "@character/PlayerController";
 import type { EventBus } from "@core/EventBus";
@@ -55,7 +55,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
   private prevPlayerPos = new THREE.Vector3();
   private hasSpeedSample = false;
   private _onDebugKeyDown = this.handleDebugKeyDown.bind(this);
-  private audioManager: AudioManager;
+  private audioManager: AudioController;
   private editorManager: EditorManager | null = null;
   private readonly fallRespawnY = -25;
   private isDying = false;
@@ -97,7 +97,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     private uiManager: UIManager,
     private settings: UserSettingsStore,
     private vehicleManager: VehicleManager,
-    audioManager: AudioManager,
+    audioManager: AudioController,
   ) {
     this.audioManager = audioManager;
 

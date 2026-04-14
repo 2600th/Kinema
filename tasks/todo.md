@@ -2,32 +2,30 @@
 
 ## Goal
 
-Fix the remaining iOS-browser regressions: landscape touch controls must fit without overlap, and the procedural level must load completely instead of stopping after the static ground/ramp subset.
+Research reliable iOS/Android support patterns for three.js, and identify the root cause of the iOS 16 load that appears to stop after showing only the player/ground/static frame in Chrome on iOS.
 
 ## Assumptions
 
-- The Vercel deployment at `https://kinema-play.vercel.com` is the best live repro target for the reported iOS browser behavior.
-- Chrome on iOS shares WebKit engine constraints with Safari, so the solution should target Apple mobile browser behavior rather than Chrome-desktop-specific behavior.
-- The procedural loader issue is more likely a runtime/asset-loading failure than a content bug, because the player ground and a few early-built meshes still appear.
+- Chrome on iOS still runs on Apple WebKit, so iOS 16 constraints are fundamentally WebKit/WKWebView constraints rather than Chromium desktop behavior.
+- The reported static-frame symptom likely happens after partial world bootstrap, so the key failure may be in asynchronous procedural building, asset loading, render-loop continuity, or another platform-incompatible code path rather than initial app startup.
+- The right answer should combine platform research with repo-specific diagnosis instead of assuming one generic mobile three.js fix.
 
 ## Success Criteria
 
-- [x] Landscape touch controls remain fully visible on mobile-sized viewports without joystick/button overlap.
-- [x] The procedural level fully loads on Apple mobile browser conditions instead of exiting early.
-- [x] The fix matches current iOS/WebKit browser constraints where possible and degrades gracefully where not.
-- [x] Verification includes relevant automated tests/build/lint.
-- [x] `tasks/todo.md` reflects the final state of this task.
+- [x] Research captures current, platform-specific guidance for supporting three.js on iOS and Android, with emphasis on browser/runtime constraints relevant to this repo.
+- [x] The iOS 16 loader/static-frame failure is traced to a concrete likely cause in this codebase or runtime behavior.
+- [x] Findings distinguish between platform limits, probable repo bugs, and next-step fixes.
+- [x] `tasks/todo.md` reflects the final state of this investigation.
 
 ## Execution Plan
 
-- [x] Step 1 -> verify: Reproduce the landscape layout break and compatibility-renderer procedural failure under iPhone-like browser conditions, capture runtime evidence, and identify the failing code path.
-- [x] Step 2 -> verify: Research current iOS/WebKit browser limits for orientation handling and WebGL/WebGPU behavior, then map those findings to the repo implementation.
-- [x] Step 3 -> verify: Implement the smallest code changes that fix the touch-control layout and procedural load reliability issues.
-- [x] Step 4 -> verify: Run focused Playwright coverage plus `npm run test`, `npm run build`, and `npm run lint`, then push the final commit to GitHub.
+- [x] Step 1 -> verify: Researched mobile support constraints: iOS Chrome still follows WebKit/WKWebView limits, orientation lock remains limited, `visualViewport` is the correct visible-viewport source, and the repo should stay on compatibility WebGL plus capability-gated scene features for Apple mobile browsers.
+- [x] Step 2 -> verify: Inspected the renderer/load path, procedural builder, asset loaders, and audio bootstrap; reproduced an iOS-like WebKit failure locally with Playwright WebKit using an iOS 16-style Chrome UA.
+- [x] Step 3 -> verify: Traced the blocking failure to Tone/Tone.js audio initialization aborting bootstrap in a WebKit-like environment; once audio init was allowed to degrade to a silent controller, the menu loaded and the procedural level completed with late-stage objects (`NavPlatform`, `VFX_Scanner`, `FutureA_barrier_0`) visible.
+- [x] Step 4 -> verify: Added safe audio fallbacks plus silent-controller bootstrap recovery, then verified with `npm run test`, `npm run build`, `npx playwright test tests/mobile-compat-procedural.ts --reporter=line`, and a Playwright WebKit iOS-16-style local probe.
 
 ## Review
 
-- Verified with `npx playwright test tests/mobile-touch-controls.ts tests/mobile-orientation.ts tests/mobile-landscape-layout.ts tests/mobile-compat-procedural.ts`.
-- Verified with `npm run test`.
-- Verified with `npm run build`.
-- Verified with `npm run lint` (existing repo-wide warnings/infos remain unchanged and non-blocking).
+- Root cause identified: audio bootstrap compatibility was aborting app startup on a WebKit-like mobile path, which matches the user-observed partial/static scene better than a pure procedural geometry failure.
+- Repo now degrades audio safely instead of failing bootstrap when Tone dynamics or downstream nodes are not supported.
+- Local WebKit is still only a close proxy for iOS Chrome, not a physical iOS 16 device, so the next strongest confirmation is a real-device pass on Chrome/Safari iOS 16+.
