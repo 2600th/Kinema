@@ -20,10 +20,7 @@ function inflate(footprint: Footprint, padding: number): Footprint {
 }
 
 function overlaps(a: Footprint, b: Footprint): boolean {
-  return (
-    Math.abs(a.x - b.x) * 2 < a.width + b.width
-    && Math.abs(a.z - b.z) * 2 < a.depth + b.depth
-  );
+  return Math.abs(a.x - b.x) * 2 < a.width + b.width && Math.abs(a.z - b.z) * 2 < a.depth + b.depth;
 }
 
 interface Volume {
@@ -37,9 +34,9 @@ interface Volume {
 
 function overlapsVolume(volume: Volume, x: number, y: number, z: number, radius: number): boolean {
   return (
-    Math.abs(volume.x - x) < volume.width * 0.5 + radius
-    && Math.abs(volume.y - y) < volume.height * 0.5 + radius
-    && Math.abs(volume.z - z) < volume.depth * 0.5 + radius
+    Math.abs(volume.x - x) < volume.width * 0.5 + radius &&
+    Math.abs(volume.y - y) < volume.height * 0.5 + radius &&
+    Math.abs(volume.z - z) < volume.depth * 0.5 + radius
   );
 }
 
@@ -127,8 +124,12 @@ describe("procedural pickup layouts", () => {
     };
 
     movementCoins.forEach((coin) => {
-      expect(overlapsVolume(crouchRoof, coin.position.x, coin.position.y, coin.position.z - 110, COIN_VISUAL_RADIUS)).toBe(false);
-      expect(overlapsVolume(ladderLane, coin.position.x, coin.position.y, coin.position.z - 110, COIN_VISUAL_RADIUS)).toBe(false);
+      expect(
+        overlapsVolume(crouchRoof, coin.position.x, coin.position.y, coin.position.z - 110, COIN_VISUAL_RADIUS),
+      ).toBe(false);
+      expect(
+        overlapsVolume(ladderLane, coin.position.x, coin.position.y, coin.position.z - 110, COIN_VISUAL_RADIUS),
+      ).toBe(false);
     });
 
     const materialSampleCenters = [

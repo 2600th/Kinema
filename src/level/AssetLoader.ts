@@ -1,10 +1,10 @@
-import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
-import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
-import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
-import type { WebGPURenderer } from 'three/webgpu';
+import * as THREE from "three";
+import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
+import type { GLTF } from "three/addons/loaders/GLTFLoader.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { KTX2Loader } from "three/addons/loaders/KTX2Loader.js";
+import { clone as skeletonClone } from "three/addons/utils/SkeletonUtils.js";
+import type { WebGPURenderer } from "three/webgpu";
 
 /**
  * GLTF/GLB loader with caching.
@@ -27,11 +27,11 @@ export class AssetLoader {
     this.loader = new GLTFLoader();
 
     this.dracoLoader = new DRACOLoader();
-    this.dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/');
+    this.dracoLoader.setDecoderPath("https://www.gstatic.com/draco/versioned/decoders/1.5.7/");
     this.loader.setDRACOLoader(this.dracoLoader);
 
     this.ktx2Loader = new KTX2Loader();
-    this.ktx2Loader.setTranscoderPath('https://www.gstatic.com/basis-universal/versioned/2021-04-15-ba1c3e4/');
+    this.ktx2Loader.setTranscoderPath("https://www.gstatic.com/basis-universal/versioned/2021-04-15-ba1c3e4/");
     const effectiveRenderer = renderer ?? AssetLoader.sharedRenderer;
     if (effectiveRenderer) {
       this.ktx2Loader.detectSupport(effectiveRenderer);
@@ -64,7 +64,10 @@ export class AssetLoader {
           child.geometry.dispose();
           const mat = child.material;
           if (Array.isArray(mat)) {
-            mat.forEach((m) => { this.disposeMaterialTextures(m); m.dispose(); });
+            mat.forEach((m) => {
+              this.disposeMaterialTextures(m);
+              m.dispose();
+            });
           } else {
             this.disposeMaterialTextures(mat);
             mat.dispose();
@@ -83,7 +86,10 @@ export class AssetLoader {
           child.geometry.dispose();
           const mat = child.material;
           if (Array.isArray(mat)) {
-            mat.forEach((m) => { this.disposeMaterialTextures(m); m.dispose(); });
+            mat.forEach((m) => {
+              this.disposeMaterialTextures(m);
+              m.dispose();
+            });
           } else {
             this.disposeMaterialTextures(mat);
             mat.dispose();

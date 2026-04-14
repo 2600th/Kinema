@@ -298,12 +298,66 @@ export class InteractableSystem implements RuntimeSystem {
     this.throwableRecycleRadiusSq = THROWABLE_RECYCLE_RADIUS * THROWABLE_RECYCLE_RADIUS;
     this.throwableRecycleFloorY = bayTopY - 2.4;
     const placements: ThrowablePlacement[] = [
-      { shape: "sphere", pos: new THREE.Vector3(-6.65, 0, zThrow + 2.03), surfaceY: 0.795, size: 0.16, force: 7.9, mass: 1.35, linearDamping: 0.26, angularDamping: 0.72 },
-      { shape: "box", pos: new THREE.Vector3(-5.4, 0, zThrow + 2.03), surfaceY: 0.795, size: 0.15, force: 8.1, mass: 1.95, linearDamping: 0.32, angularDamping: 0.9 },
-      { shape: "cylinder", pos: new THREE.Vector3(-4.15, 0, zThrow + 2.03), surfaceY: 0.795, size: 0.15, force: 7.7, mass: 1.15, linearDamping: 0.34, angularDamping: 1.05 },
-      { shape: "sphere", pos: new THREE.Vector3(4.15, 0, zThrow + 2.03), surfaceY: 0.795, size: 0.15, force: 7.7, mass: 1.2, linearDamping: 0.26, angularDamping: 0.72 },
-      { shape: "box", pos: new THREE.Vector3(5.4, 0, zThrow + 2.03), surfaceY: 0.795, size: 0.17, force: 8.2, mass: 2.15, linearDamping: 0.34, angularDamping: 0.95 },
-      { shape: "cylinder", pos: new THREE.Vector3(6.65, 0, zThrow + 2.03), surfaceY: 0.795, size: 0.16, force: 7.9, mass: 1.25, linearDamping: 0.34, angularDamping: 1.05 },
+      {
+        shape: "sphere",
+        pos: new THREE.Vector3(-6.65, 0, zThrow + 2.03),
+        surfaceY: 0.795,
+        size: 0.16,
+        force: 7.9,
+        mass: 1.35,
+        linearDamping: 0.26,
+        angularDamping: 0.72,
+      },
+      {
+        shape: "box",
+        pos: new THREE.Vector3(-5.4, 0, zThrow + 2.03),
+        surfaceY: 0.795,
+        size: 0.15,
+        force: 8.1,
+        mass: 1.95,
+        linearDamping: 0.32,
+        angularDamping: 0.9,
+      },
+      {
+        shape: "cylinder",
+        pos: new THREE.Vector3(-4.15, 0, zThrow + 2.03),
+        surfaceY: 0.795,
+        size: 0.15,
+        force: 7.7,
+        mass: 1.15,
+        linearDamping: 0.34,
+        angularDamping: 1.05,
+      },
+      {
+        shape: "sphere",
+        pos: new THREE.Vector3(4.15, 0, zThrow + 2.03),
+        surfaceY: 0.795,
+        size: 0.15,
+        force: 7.7,
+        mass: 1.2,
+        linearDamping: 0.26,
+        angularDamping: 0.72,
+      },
+      {
+        shape: "box",
+        pos: new THREE.Vector3(5.4, 0, zThrow + 2.03),
+        surfaceY: 0.795,
+        size: 0.17,
+        force: 8.2,
+        mass: 2.15,
+        linearDamping: 0.34,
+        angularDamping: 0.95,
+      },
+      {
+        shape: "cylinder",
+        pos: new THREE.Vector3(6.65, 0, zThrow + 2.03),
+        surfaceY: 0.795,
+        size: 0.16,
+        force: 7.9,
+        mass: 1.25,
+        linearDamping: 0.34,
+        angularDamping: 1.05,
+      },
     ];
 
     placements.forEach((entry, slotIndex) => {
@@ -354,7 +408,11 @@ export class InteractableSystem implements RuntimeSystem {
           object: throwable,
           slotIndex,
           spawnPosition: spawnPosition.clone(),
-          hiddenPosition: new THREE.Vector3(entry.pos.x, bayTopY - 16 - slotIndex * 0.35 - poolIndex * 0.2, entry.pos.z),
+          hiddenPosition: new THREE.Vector3(
+            entry.pos.x,
+            bayTopY - 16 - slotIndex * 0.35 - poolIndex * 0.2,
+            entry.pos.z,
+          ),
           activeOnTable: false,
           recycleDelay: 0,
         };
@@ -367,11 +425,7 @@ export class InteractableSystem implements RuntimeSystem {
     });
   }
 
-  private createThrowableMesh(
-    shape: ThrowableShape,
-    size: number,
-    material: THREE.Material,
-  ): THREE.Mesh {
+  private createThrowableMesh(shape: ThrowableShape, size: number, material: THREE.Material): THREE.Mesh {
     const mesh = new THREE.Mesh(this.throwableGeometries[shape], material);
     mesh.scale.setScalar(size);
     return mesh;

@@ -1,14 +1,14 @@
-import * as THREE from 'three';
-import { generateSoloNavMesh, floodFillNavMesh, type SoloNavMeshResult } from 'navcat/blocks';
-import { getPositionsAndIndices, createNavMeshHelper, type DebugObject } from 'navcat/three';
 import {
+  createDefaultQueryFilter,
+  createFindNearestPolyResult,
+  findNearestPoly,
   type NavMesh,
   type NodeRef,
   type QueryFilter,
-  findNearestPoly,
-  createFindNearestPolyResult,
-  createDefaultQueryFilter,
-} from 'navcat';
+} from "navcat";
+import { floodFillNavMesh, generateSoloNavMesh, type SoloNavMeshResult } from "navcat/blocks";
+import { createNavMeshHelper, type DebugObject, getPositionsAndIndices } from "navcat/three";
+import type * as THREE from "three";
 
 export class NavMeshManager {
   private navMesh: NavMesh | null = null;
@@ -55,7 +55,9 @@ export class NavMeshManager {
     const ms = performance.now() - t0;
     console.log(`[NavMeshManager] Navmesh generated in ${ms.toFixed(1)}ms`);
     if (ms > 50) {
-      console.warn(`[NavMeshManager] Navmesh generation took ${ms.toFixed(1)}ms — consider using generateAsync() for larger levels`);
+      console.warn(
+        `[NavMeshManager] Navmesh generation took ${ms.toFixed(1)}ms — consider using generateAsync() for larger levels`,
+      );
     }
   }
 
@@ -86,7 +88,7 @@ export class NavMeshManager {
     findNearestPoly(nearestResult, this.navMesh, [seed.x, seed.y, seed.z], [2, 4, 2], defaultFilter);
 
     if (!nearestResult.success) {
-      console.warn('[NavMeshManager] Could not find seed poly for flood fill — skipping prune');
+      console.warn("[NavMeshManager] Could not find seed poly for flood fill — skipping prune");
       return;
     }
 

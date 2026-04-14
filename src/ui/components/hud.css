@@ -2,7 +2,13 @@
 .hud-stat-chip,
 .kinema-ui-hint {
   background:
-    linear-gradient(140deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.025) 22%, rgba(255, 255, 255, 0.06) 56%, rgba(255, 255, 255, 0.02) 82%),
+    linear-gradient(
+      140deg,
+      rgba(255, 255, 255, 0.11),
+      rgba(255, 255, 255, 0.025) 22%,
+      rgba(255, 255, 255, 0.06) 56%,
+      rgba(255, 255, 255, 0.02) 82%
+    ),
     linear-gradient(180deg, rgba(13, 20, 36, 0.88), rgba(8, 12, 22, 0.82));
   border: 1px solid rgba(255, 255, 255, 0.09);
   box-shadow:
@@ -15,12 +21,19 @@
 .hud-glass-card::before,
 .hud-stat-chip::before,
 .kinema-ui-hint::before {
-  content: '';
+  content: "";
   position: absolute;
   inset: 0;
   border-radius: inherit;
   background:
-    linear-gradient(118deg, rgba(255, 255, 255, 0.06), transparent 18%, transparent 58%, rgba(98, 230, 255, 0.06) 72%, transparent 86%),
+    linear-gradient(
+      118deg,
+      rgba(255, 255, 255, 0.06),
+      transparent 18%,
+      transparent 58%,
+      rgba(98, 230, 255, 0.06) 72%,
+      transparent 86%
+    ),
     radial-gradient(circle at 16% 16%, rgba(255, 255, 255, 0.08), transparent 28%);
   opacity: 0.74;
   pointer-events: none;
@@ -35,7 +48,7 @@
   padding: clamp(11px, 2vw, 15px) clamp(18px, 4vw, 30px);
   border-radius: 16px;
   color: #f5fbff;
-  font-family: 'Outfit', system-ui, sans-serif;
+  font-family: "Outfit", system-ui, sans-serif;
   font-size: clamp(14px, 2.3vw, 18px);
   font-weight: 600;
   letter-spacing: 0.3px;
@@ -44,7 +57,9 @@
   pointer-events: none;
   user-select: none;
   z-index: 1000;
-  transition: opacity 0.18s ease, transform 0.18s ease;
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
 }
 
 .hud-prompt.is-visible {
@@ -65,7 +80,10 @@
   z-index: 1000;
   --hold-progress: 0;
   --hold-progress-angle: 0deg;
-  transition: opacity 0.16s ease, transform 0.2s cubic-bezier(0.2, 0.84, 0.24, 1), filter 0.18s ease;
+  transition:
+    opacity 0.16s ease,
+    transform 0.2s cubic-bezier(0.2, 0.84, 0.24, 1),
+    filter 0.18s ease;
   filter: drop-shadow(0 0 18px rgba(98, 230, 255, 0.2));
 }
 
@@ -76,7 +94,7 @@
 
 .hud-hold-track::before,
 .hud-hold-track::after {
-  content: '';
+  content: "";
   position: absolute;
   inset: 0;
   border-radius: 50%;
@@ -125,12 +143,14 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.12),
     0 0 22px rgba(98, 230, 255, 0.14);
   transform: scale(calc(0.96 + var(--hold-progress) * 0.06));
-  transition: transform 0.1s linear, box-shadow 0.14s ease;
+  transition:
+    transform 0.1s linear,
+    box-shadow 0.14s ease;
 }
 
 .hud-hold-key {
   color: #f6fffd;
-  font-family: 'Outfit', system-ui, sans-serif;
+  font-family: "Outfit", system-ui, sans-serif;
   font-size: 26px;
   font-weight: 700;
   line-height: 1;
@@ -140,7 +160,7 @@
 
 .hud-hold-caption {
   color: rgba(190, 247, 255, 0.8);
-  font-family: 'Outfit', system-ui, sans-serif;
+  font-family: "Outfit", system-ui, sans-serif;
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 1.6px;
@@ -194,7 +214,7 @@
   z-index: 1;
   margin-bottom: 6px;
   color: rgba(98, 230, 255, 0.9);
-  font-family: 'Outfit', system-ui, sans-serif;
+  font-family: "Outfit", system-ui, sans-serif;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 1.8px;
@@ -205,7 +225,7 @@
   position: relative;
   z-index: 1;
   color: #f5fbff;
-  font-family: 'Outfit', system-ui, sans-serif;
+  font-family: "Outfit", system-ui, sans-serif;
   font-size: clamp(12px, 1.9vw, 15px);
   font-weight: 500;
   line-height: 1.45;
@@ -222,26 +242,33 @@
 .hud-status-card {
   padding: 10px 14px;
   color: #f2dcef;
-  font-family: 'Outfit', system-ui, sans-serif;
+  font-family: "Outfit", system-ui, sans-serif;
   font-size: clamp(11px, 1.8vw, 14px);
   font-weight: 600;
   line-height: 1.4;
   letter-spacing: 0.2px;
   opacity: 0;
   transform: translateY(-6px);
-  transition: opacity 0.16s ease, transform 0.16s ease;
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease;
 }
 
 .hud-status-card::after,
 .hud-objective-card::after {
-  content: '';
+  content: "";
   position: absolute;
   left: 16px;
   right: 16px;
   top: 0;
   height: 2px;
   border-radius: 999px;
-  background: linear-gradient(90deg, rgba(98, 230, 255, 0.82) 0%, rgba(123, 108, 255, 0.76) 58%, rgba(255, 121, 186, 0.82) 100%);
+  background: linear-gradient(
+    90deg,
+    rgba(98, 230, 255, 0.82) 0%,
+    rgba(123, 108, 255, 0.76) 58%,
+    rgba(255, 121, 186, 0.82) 100%
+  );
   box-shadow: 0 0 14px rgba(98, 230, 255, 0.18);
 }
 
@@ -263,7 +290,7 @@
 
 .hud-crosshair::before,
 .hud-crosshair::after {
-  content: '';
+  content: "";
   position: absolute;
   left: 50%;
   top: 50%;
@@ -294,15 +321,20 @@
 
 .hud-damage-overlay::before,
 .hud-damage-overlay::after {
-  content: '';
+  content: "";
   position: absolute;
   inset: 0;
   opacity: 0;
 }
 
 .hud-damage-overlay::before {
-  background:
-    radial-gradient(circle at center, rgba(255, 255, 255, 0) 0 30%, rgba(255, 40, 40, 0.22) 58%, rgba(220, 20, 20, 0.46) 86%, rgba(180, 0, 0, 0.62) 100%);
+  background: radial-gradient(
+    circle at center,
+    rgba(255, 255, 255, 0) 0 30%,
+    rgba(255, 40, 40, 0.22) 58%,
+    rgba(220, 20, 20, 0.46) 86%,
+    rgba(180, 0, 0, 0.62) 100%
+  );
 }
 
 .hud-damage-overlay::after {
@@ -320,8 +352,13 @@
 }
 
 .hud-damage-overlay.is-fall::before {
-  background:
-    radial-gradient(circle at center, rgba(255, 255, 255, 0) 0 28%, rgba(166, 120, 255, 0.12) 54%, rgba(117, 82, 255, 0.28) 84%, rgba(82, 54, 210, 0.4) 100%);
+  background: radial-gradient(
+    circle at center,
+    rgba(255, 255, 255, 0) 0 28%,
+    rgba(166, 120, 255, 0.12) 54%,
+    rgba(117, 82, 255, 0.28) 84%,
+    rgba(82, 54, 210, 0.4) 100%
+  );
 }
 
 .hud-damage-overlay.is-fall.is-hit::before {
@@ -369,7 +406,7 @@
 }
 
 .hud-health-chip::after {
-  content: '';
+  content: "";
   position: absolute;
   inset: -5px;
   border-radius: 20px;
@@ -412,7 +449,7 @@
 .collectible-count {
   position: relative;
   z-index: 1;
-  font-family: 'Outfit', system-ui, sans-serif;
+  font-family: "Outfit", system-ui, sans-serif;
   font-weight: 700;
   font-size: 18px;
   color: #ffe08f;
@@ -428,7 +465,11 @@
   filter: drop-shadow(0 0 8px rgba(255, 121, 186, 0.42));
   opacity: 1;
   transform: scale(1);
-  transition: transform 0.22s ease, opacity 0.22s ease, filter 0.22s ease, color 0.22s ease;
+  transition:
+    transform 0.22s ease,
+    opacity 0.22s ease,
+    filter 0.22s ease,
+    color 0.22s ease;
 }
 
 .hud-heart.is-filled {
@@ -471,7 +512,7 @@
   opacity: 0;
   transform: translateY(8px) scale(0.92);
   pointer-events: none;
-  font-family: 'Outfit', system-ui, sans-serif;
+  font-family: "Outfit", system-ui, sans-serif;
   font-weight: 700;
   letter-spacing: 0.3px;
   text-transform: uppercase;
@@ -499,7 +540,9 @@
 .hud-floating-delta.is-visible {
   opacity: 1;
   transform: translateY(-12px) scale(1);
-  transition: transform 0.34s ease, opacity 0.34s ease;
+  transition:
+    transform 0.34s ease,
+    opacity 0.34s ease;
 }
 
 .kinema-ui-hint {
@@ -510,7 +553,7 @@
   padding: 10px 18px;
   border-radius: 999px;
   color: rgba(245, 251, 255, 0.9);
-  font-family: 'Outfit', system-ui, sans-serif;
+  font-family: "Outfit", system-ui, sans-serif;
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.5px;

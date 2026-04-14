@@ -1,16 +1,17 @@
-import type { EventBus } from '@core/EventBus';
-import type { GameLoop } from '@core/GameLoop';
-import type { RendererManager } from '@renderer/RendererManager';
-import type { UserSettingsStore } from '@core/UserSettings';
-import type { OrbitFollowCamera } from '@camera/OrbitFollowCamera';
-import type { AudioManager } from '@audio/AudioManager';
-import type { InputManager } from '@input/InputManager';
-import { MainMenu } from './MainMenu';
-import { PauseMenu } from './PauseMenu';
-import { SettingsMenu } from './SettingsMenu';
-import { LevelSelectMenu } from './LevelSelectMenu';
-import { HelpMenu } from './HelpMenu';
-import './menus.css';
+import type { AudioManager } from "@audio/AudioManager";
+import type { OrbitFollowCamera } from "@camera/OrbitFollowCamera";
+import type { EventBus } from "@core/EventBus";
+import type { GameLoop } from "@core/GameLoop";
+import type { UserSettingsStore } from "@core/UserSettings";
+import type { InputManager } from "@input/InputManager";
+import { exitPointerLockIfSupported } from "@input/pointerLock";
+import type { RendererManager } from "@renderer/RendererManager";
+import { HelpMenu } from "./HelpMenu";
+import { LevelSelectMenu } from "./LevelSelectMenu";
+import { MainMenu } from "./MainMenu";
+import { PauseMenu } from "./PauseMenu";
+import { SettingsMenu } from "./SettingsMenu";
+import "./menus.css";
 
 interface MenuScreen {
   readonly id: string;
@@ -48,9 +49,9 @@ export class MenuManager {
     private onReturnToMainMenu: () => Promise<void>,
     private onCreateLevel?: () => Promise<void>,
   ) {
-    this.overlay = document.createElement('div');
-    this.overlay.className = 'menu-overlay';
-    this.overlay.addEventListener('click', this._onOverlayClick);
+    this.overlay = document.createElement("div");
+    this.overlay.className = "menu-overlay";
+    this.overlay.addEventListener("click", this._onOverlayClick);
     document.body.appendChild(this.overlay);
     this.addCosmicBackground();
 
@@ -94,7 +95,7 @@ export class MenuManager {
     this.wireButtonAudio(this.helpMenu.root);
 
     this.unsubs.push(
-      this.eventBus.on('menu:toggle', () => {
+      this.eventBus.on("menu:toggle", () => {
         if (!this.stack.length) {
           if (this.gameLoop.isRunning()) {
             this.push(this.pauseMenu);
@@ -102,7 +103,7 @@ export class MenuManager {
           return;
         }
         const top = this.stack[this.stack.length - 1];
-        if (top.id === 'main') return;
+        if (top.id === "main") return;
         this.pop();
       }),
     );
@@ -124,7 +125,7 @@ export class MenuManager {
     this.settingsMenu.dispose();
     this.levelSelectMenu.dispose();
     this.helpMenu.dispose();
-    this.overlay.removeEventListener('click', this._onOverlayClick);
+    this.overlay.removeEventListener("click", this._onOverlayClick);
     this.overlay.remove();
     this.stopBackgroundLoop();
   }
@@ -134,21 +135,21 @@ export class MenuManager {
       this.overlay.appendChild(screen.root);
     }
     if (this.stack.length === 0) {
-      this.overlay.classList.add('active');
+      this.overlay.classList.add("active");
       this.resumeOnClose = this.gameLoop.isRunning();
       if (this.resumeOnClose) {
         this.gameLoop.stop();
       } else {
         this.startBackgroundLoop();
       }
-      document.exitPointerLock();
+      exitPointerLockIfSupported();
     }
     if (this.stack.length > 0) {
       this.stack[this.stack.length - 1].hide();
     }
     this.stack.push(screen);
     screen.show();
-    this.eventBus.emit('menu:opened', { screen: screen.id });
+    this.eventBus.emit("menu:opened", { screen: screen.id });
   }
 
   private pop(): void {
@@ -159,8 +160,8 @@ export class MenuManager {
       this.stack[this.stack.length - 1].show();
     }
     if (this.stack.length === 0) {
-      this.overlay.classList.remove('active');
-      this.eventBus.emit('menu:closed', undefined);
+      this.overlay.classList.remove("active");
+      this.eventBus.emit("menu:closed", undefined);
       this.stopBackgroundLoop();
       if (this.resumeOnClose) {
         this.gameLoop.start();
@@ -223,7 +224,7 @@ export class MenuManager {
     try {
       window.close();
     } catch {
-      alert('Close the tab to exit.');
+      alert("Close the tab to exit.");
     }
   }
 
@@ -249,20 +250,20 @@ export class MenuManager {
 
   private wireButtonAudio(container: HTMLElement): void {
     let lastHovered: Element | null = null;
-    container.addEventListener('mouseover', (e) => {
+    container.addEventListener("mouseover", (e) => {
       const btn = (e.target as Element).closest('button, [role="button"]');
       if (btn && btn !== lastHovered) {
         lastHovered = btn;
-        this.eventBus.emit('ui:hover', undefined);
+        this.eventBus.emit("ui:hover", undefined);
       }
     });
-    container.addEventListener('mouseout', (e) => {
+    container.addEventListener("mouseout", (e) => {
       const btn = (e.target as Element).closest('button, [role="button"]');
       if (btn === lastHovered) lastHovered = null;
     });
-    container.addEventListener('click', (e) => {
+    container.addEventListener("click", (e) => {
       if ((e.target as Element).closest('button, [role="button"]')) {
-        this.eventBus.emit('ui:click', undefined);
+        this.eventBus.emit("ui:click", undefined);
       }
     });
   }
@@ -271,13 +272,13 @@ export class MenuManager {
     if (!this.resumeOnClose || this.stack.length === 0) return;
 
     const top = this.stack[this.stack.length - 1];
-    if (top.id === 'main') return;
+    if (top.id === "main") return;
     const target = event.target;
     if (!(target instanceof Element)) return;
     if (target.closest('button, input, select, textarea, label, a, [role="button"]')) return;
 
     const isBackdropClick = target === this.overlay;
-    const isPauseCardClick = top.id === 'pause' && top.root.contains(target);
+    const isPauseCardClick = top.id === "pause" && top.root.contains(target);
     if (!isBackdropClick && !isPauseCardClick) return;
 
     event.preventDefault();
@@ -285,61 +286,61 @@ export class MenuManager {
   }
 
   private addCosmicBackground(): void {
-    const backdrop = document.createElement('div');
-    backdrop.className = 'menu-backdrop';
+    const backdrop = document.createElement("div");
+    backdrop.className = "menu-backdrop";
 
-    const glows = document.createElement('div');
-    glows.className = 'menu-backdrop-glows';
-    ['a', 'b', 'c'].forEach((suffix) => {
-      const glow = document.createElement('div');
+    const glows = document.createElement("div");
+    glows.className = "menu-backdrop-glows";
+    ["a", "b", "c"].forEach((suffix) => {
+      const glow = document.createElement("div");
       glow.className = `menu-backdrop-glow menu-backdrop-glow-${suffix}`;
       glows.appendChild(glow);
     });
     backdrop.appendChild(glows);
 
-    const ribbons = document.createElement('div');
-    ribbons.className = 'menu-backdrop-ribbons';
-    ['a', 'b'].forEach((suffix) => {
-      const ribbon = document.createElement('div');
+    const ribbons = document.createElement("div");
+    ribbons.className = "menu-backdrop-ribbons";
+    ["a", "b"].forEach((suffix) => {
+      const ribbon = document.createElement("div");
       ribbon.className = `menu-backdrop-ribbon menu-backdrop-ribbon-${suffix}`;
       ribbons.appendChild(ribbon);
     });
     backdrop.appendChild(ribbons);
 
-    const pane = document.createElement('div');
-    pane.className = 'menu-backdrop-pane';
+    const pane = document.createElement("div");
+    pane.className = "menu-backdrop-pane";
 
-    const paneShine = document.createElement('div');
-    paneShine.className = 'menu-backdrop-pane-shine';
+    const paneShine = document.createElement("div");
+    paneShine.className = "menu-backdrop-pane-shine";
     pane.appendChild(paneShine);
 
-    const particles = document.createElement('div');
-    particles.className = 'menu-backdrop-particles';
+    const particles = document.createElement("div");
+    particles.className = "menu-backdrop-particles";
     const particleConfigs = [
-      { x: '10%', y: '68%', size: '220px', color: 'rgba(97, 229, 255, 0.18)', duration: '22s', delay: '-4s' },
-      { x: '22%', y: '24%', size: '140px', color: 'rgba(255, 95, 174, 0.18)', duration: '18s', delay: '-9s' },
-      { x: '38%', y: '78%', size: '260px', color: 'rgba(122, 103, 255, 0.16)', duration: '26s', delay: '-3s' },
-      { x: '56%', y: '18%', size: '180px', color: 'rgba(97, 229, 255, 0.14)', duration: '20s', delay: '-12s' },
-      { x: '74%', y: '62%', size: '210px', color: 'rgba(255, 208, 105, 0.12)', duration: '24s', delay: '-7s' },
-      { x: '84%', y: '28%', size: '300px', color: 'rgba(255, 95, 174, 0.14)', duration: '28s', delay: '-10s' },
+      { x: "10%", y: "68%", size: "220px", color: "rgba(97, 229, 255, 0.18)", duration: "22s", delay: "-4s" },
+      { x: "22%", y: "24%", size: "140px", color: "rgba(255, 95, 174, 0.18)", duration: "18s", delay: "-9s" },
+      { x: "38%", y: "78%", size: "260px", color: "rgba(122, 103, 255, 0.16)", duration: "26s", delay: "-3s" },
+      { x: "56%", y: "18%", size: "180px", color: "rgba(97, 229, 255, 0.14)", duration: "20s", delay: "-12s" },
+      { x: "74%", y: "62%", size: "210px", color: "rgba(255, 208, 105, 0.12)", duration: "24s", delay: "-7s" },
+      { x: "84%", y: "28%", size: "300px", color: "rgba(255, 95, 174, 0.14)", duration: "28s", delay: "-10s" },
     ];
 
     for (const particle of particleConfigs) {
-      const el = document.createElement('div');
-      el.className = 'menu-backdrop-particle';
+      const el = document.createElement("div");
+      el.className = "menu-backdrop-particle";
       el.style.left = particle.x;
       el.style.top = particle.y;
       el.style.width = particle.size;
       el.style.height = particle.size;
-      el.style.setProperty('--particle-color', particle.color);
-      el.style.setProperty('--particle-duration', particle.duration);
-      el.style.setProperty('--particle-delay', particle.delay);
+      el.style.setProperty("--particle-color", particle.color);
+      el.style.setProperty("--particle-duration", particle.duration);
+      el.style.setProperty("--particle-delay", particle.delay);
       particles.appendChild(el);
     }
     pane.appendChild(particles);
 
-    const contour = document.createElement('div');
-    contour.className = 'menu-backdrop-contour';
+    const contour = document.createElement("div");
+    contour.className = "menu-backdrop-contour";
     pane.appendChild(contour);
 
     backdrop.appendChild(pane);

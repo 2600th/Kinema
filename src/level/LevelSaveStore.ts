@@ -1,4 +1,4 @@
-import type { LevelDataV2 } from '@editor/LevelSerializer';
+import type { LevelDataV2 } from "@editor/LevelSerializer";
 
 export interface LevelSaveMeta {
   key: string;
@@ -7,8 +7,8 @@ export interface LevelSaveMeta {
   objectCount: number;
 }
 
-const INDEX_KEY = 'kinema_level_index';
-const LEVEL_PREFIX = 'kinema_level_';
+const INDEX_KEY = "kinema_level_index";
+const LEVEL_PREFIX = "kinema_level_";
 
 /**
  * Persists editor levels in localStorage with an index/data pattern.
@@ -32,15 +32,13 @@ export class LevelSaveStore {
 
     // For existing levels, reuse the stored key so we don't create duplicates.
     const existingEntry = index.find((m) => m.name === data.name);
-    const key = existingEntry
-      ? existingEntry.key
-      : LEVEL_PREFIX + crypto.randomUUID();
+    const key = existingEntry ? existingEntry.key : LEVEL_PREFIX + crypto.randomUUID();
 
     try {
       localStorage.setItem(key, JSON.stringify(data));
     } catch (err) {
-      if (err instanceof DOMException && err.name === 'QuotaExceededError') {
-        console.error('[LevelSaveStore] Storage quota exceeded — level not saved.', err);
+      if (err instanceof DOMException && err.name === "QuotaExceededError") {
+        console.error("[LevelSaveStore] Storage quota exceeded — level not saved.", err);
         return;
       }
       throw err;

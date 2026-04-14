@@ -1,11 +1,11 @@
-import * as THREE from 'three';
-import RAPIER from '@dimforge/rapier3d-compat';
-import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
-import type { EditorTool, EditorToolContext } from './EditorTool';
-import type { EditorObject } from '../EditorObject';
-import type { LevelManager } from '@level/LevelManager';
+import RAPIER from "@dimforge/rapier3d-compat";
+import type { LevelManager } from "@level/LevelManager";
+import * as THREE from "three";
+import { clone as skeletonClone } from "three/addons/utils/SkeletonUtils.js";
+import type { EditorObject } from "../EditorObject";
+import type { EditorTool, EditorToolContext } from "./EditorTool";
 
-type PlacementPhase = 'idle' | 'position';
+type PlacementPhase = "idle" | "position";
 
 let glbNameCounter = 0;
 
@@ -14,11 +14,11 @@ let glbNameCounter = 0;
  * preview that follows the pointer, and finalises placement on click.
  */
 export class GLBPlacementTool implements EditorTool {
-  readonly id = 'glb-placement';
+  readonly id = "glb-placement";
 
   private glbPreview: THREE.Object3D | null = null;
   private pendingGLBAsset: string | null = null;
-  private placementPhase: PlacementPhase = 'idle';
+  private placementPhase: PlacementPhase = "idle";
   private placementPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
   private readonly levelManager: LevelManager;
@@ -38,15 +38,15 @@ export class GLBPlacementTool implements EditorTool {
   /* ---- Public helpers called by EditorManager ---- */
 
   isPlacing(): boolean {
-    return this.placementPhase === 'position';
+    return this.placementPhase === "position";
   }
 
   /** Open a file picker and start placement of the selected GLB. */
   openFilePicker(ctx: EditorToolContext): void {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.glb,.gltf';
-    input.addEventListener('change', () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".glb,.gltf";
+    input.addEventListener("change", () => {
       const file = input.files?.[0];
       if (file) void this.importFile(ctx, file);
     });
@@ -72,7 +72,7 @@ export class GLBPlacementTool implements EditorTool {
       }
       this.startPlacement(ctx, clone, assetPath);
     } catch (err) {
-      console.error('[Editor] Failed to import GLB:', err);
+      console.error("[Editor] Failed to import GLB:", err);
     } finally {
       // Revoke the blob URL (the GLTF data is now cached under assetPath via put())
       // Don't call evict() — that would dispose the shared scene/materials.
@@ -88,7 +88,7 @@ export class GLBPlacementTool implements EditorTool {
 
   onPointerDown(ctx: EditorToolContext, e: MouseEvent): boolean {
     if (e.button !== 0) return false;
-    if (this.placementPhase === 'position' && this.glbPreview) {
+    if (this.placementPhase === "position" && this.glbPreview) {
       this.confirmPlacement(ctx);
       return true;
     }
@@ -100,7 +100,7 @@ export class GLBPlacementTool implements EditorTool {
   }
 
   onKeyDown(ctx: EditorToolContext, e: KeyboardEvent): boolean {
-    if (e.code === 'Escape') {
+    if (e.code === "Escape") {
       this.cancelPlacement(ctx);
       this.onFinished();
       return true;
@@ -125,11 +125,11 @@ export class GLBPlacementTool implements EditorTool {
       }
     });
     ctx.scene.add(this.glbPreview);
-    this.placementPhase = 'position';
+    this.placementPhase = "position";
   }
 
   private updatePreview(ctx: EditorToolContext): void {
-    if (this.placementPhase !== 'position' || !this.glbPreview) return;
+    if (this.placementPhase !== "position" || !this.glbPreview) return;
     ctx.raycaster.setFromCamera(ctx.mouse, ctx.camera);
     const point = new THREE.Vector3();
     ctx.raycaster.ray.intersectPlane(this.placementPlane, point);
@@ -169,7 +169,7 @@ export class GLBPlacementTool implements EditorTool {
       id: finalObj.uuid,
       name: `GLB_${++glbNameCounter}`,
       mesh: finalObj,
-      source: { type: 'glb', asset: assetPath },
+      source: { type: "glb", asset: assetPath },
       transform: {
         position: [position.x, position.y, position.z],
         rotation: [0, 0, 0],
@@ -179,7 +179,7 @@ export class GLBPlacementTool implements EditorTool {
       children: [],
       visible: true,
       locked: false,
-      physicsType: 'static',
+      physicsType: "static",
     };
 
     finalObj.userData.editorSource = editorObj.source;
@@ -203,19 +203,19 @@ export class GLBPlacementTool implements EditorTool {
       execute: () => {
         ctx.addEditorObject(editorObj, ctx.scene);
         ctx.syncHierarchy();
-        ctx.eventBus.emit('editor:objectAdded', { id: editorObj.id });
+        ctx.eventBus.emit("editor:objectAdded", { id: editorObj.id });
       },
       undo: () => {
         ctx.removeEditorObject(editorObj.id);
         ctx.syncHierarchy();
-        ctx.eventBus.emit('editor:objectRemoved', { id: editorObj.id });
+        ctx.eventBus.emit("editor:objectRemoved", { id: editorObj.id });
       },
     });
 
     ctx.setSelection(editorObj);
     this.glbPreview = null;
     this.pendingGLBAsset = null;
-    this.placementPhase = 'idle';
+    this.placementPhase = "idle";
     this.onFinished();
   }
 
@@ -227,7 +227,7 @@ export class GLBPlacementTool implements EditorTool {
           child.geometry?.dispose();
           const mat = child.material;
           if (Array.isArray(mat)) {
-            mat.forEach((m) => m.dispose());
+            mat.forEach((m) => void m.dispose());
           } else if (mat) {
             (mat as THREE.Material).dispose();
           }
@@ -236,6 +236,6 @@ export class GLBPlacementTool implements EditorTool {
     }
     this.glbPreview = null;
     this.pendingGLBAsset = null;
-    this.placementPhase = 'idle';
+    this.placementPhase = "idle";
   }
 }

@@ -8,10 +8,7 @@ export interface CasStrengthMutationResult {
   requiresRebuild: boolean;
 }
 
-export function resolveCasStrengthMutation(
-  currentValue: number,
-  nextValue: number,
-): CasStrengthMutationResult {
+export function resolveCasStrengthMutation(currentValue: number, nextValue: number): CasStrengthMutationResult {
   const wasZero = currentValue === 0;
   const isZero = nextValue === 0;
   return {

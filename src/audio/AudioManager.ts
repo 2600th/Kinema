@@ -1,12 +1,12 @@
-import * as Tone from 'tone';
-import type { PlayerController } from '@character/PlayerController';
-import type { EventBus } from '@core/EventBus';
-import { STATE, type Disposable, type FixedUpdatable } from '@core/types';
-import type { InputManager } from '@input/InputManager';
-import type { UserSettingsStore } from '@core/UserSettings';
-import type { VehicleHandlingFeelState } from '@vehicle/VehicleController';
-import { SFXEngine } from './SFXEngine';
-import { MusicEngine } from './MusicEngine';
+import type { PlayerController } from "@character/PlayerController";
+import type { EventBus } from "@core/EventBus";
+import { type Disposable, type FixedUpdatable, STATE } from "@core/types";
+import type { UserSettingsStore } from "@core/UserSettings";
+import type { InputManager } from "@input/InputManager";
+import type { VehicleHandlingFeelState } from "@vehicle/VehicleController";
+import * as Tone from "tone";
+import { MusicEngine } from "./MusicEngine";
+import { SFXEngine } from "./SFXEngine";
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -33,7 +33,7 @@ export class AudioManager implements FixedUpdatable, Disposable {
 
   // State tracking for audio triggers
   private inVehicle = false;
-  private vehicleType: 'car' | 'drone' | null = null;
+  private vehicleType: "car" | "drone" | null = null;
   private vehicleSpeedNorm = 0;
   private vehicleDriftAmount = 0;
   private vehicleHandbrake = false;
@@ -59,7 +59,7 @@ export class AudioManager implements FixedUpdatable, Disposable {
 
     // SFX at -2dB relative, Music at -6dB relative
     this.sfxGain = new Tone.Gain(0.79).connect(this.masterGain); // ~-2dB
-    this.musicGain = new Tone.Gain(0.5).connect(this.masterGain);  // ~-6dB
+    this.musicGain = new Tone.Gain(0.5).connect(this.masterGain); // ~-6dB
 
     this.sfxEngine = new SFXEngine();
     this.sfxEngine.output.connect(this.sfxGain);
@@ -78,7 +78,7 @@ export class AudioManager implements FixedUpdatable, Disposable {
   private async ensureToneStarted(): Promise<void> {
     if (this.toneStarted) return;
     try {
-      if (Tone.getContext().state !== 'running') {
+      if (Tone.getContext().state !== "running") {
         await Tone.start();
       }
       this.toneStarted = true;
@@ -155,7 +155,7 @@ export class AudioManager implements FixedUpdatable, Disposable {
 
   startEngine(): void {
     if (!this.toneStarted) return;
-    if (this.vehicleType === 'drone') {
+    if (this.vehicleType === "drone") {
       this.sfxEngine.droneRotorStart();
     } else {
       this.sfxEngine.startEngine();
@@ -166,7 +166,7 @@ export class AudioManager implements FixedUpdatable, Disposable {
   updateEngine(speedNorm: number): void {
     this.vehicleSpeedNorm = speedNorm;
     if (!this.toneStarted) return;
-    if (this.vehicleType === 'drone') {
+    if (this.vehicleType === "drone") {
       this.sfxEngine.droneRotorUpdate(speedNorm);
     } else {
       this.sfxEngine.updateEngine(speedNorm, this.vehicleDriftAmount, this.vehicleHandbrake);
@@ -178,7 +178,7 @@ export class AudioManager implements FixedUpdatable, Disposable {
     this.vehicleDriftAmount = 0;
     this.vehicleHandbrake = false;
     if (!this.toneStarted) return;
-    if (this.vehicleType === 'drone') {
+    if (this.vehicleType === "drone") {
       this.sfxEngine.droneRotorStop();
     } else {
       this.sfxEngine.stopEngine();
@@ -188,7 +188,7 @@ export class AudioManager implements FixedUpdatable, Disposable {
   private updateVehicleHandlingFeel(state: VehicleHandlingFeelState | null): void {
     this.vehicleDriftAmount = state?.driftAmount ?? 0;
     this.vehicleHandbrake = state?.handbrake ?? false;
-    if (!this.toneStarted || this.vehicleType === 'drone') return;
+    if (!this.toneStarted || this.vehicleType === "drone") return;
     this.sfxEngine.updateEngine(this.vehicleSpeedNorm, this.vehicleDriftAmount, this.vehicleHandbrake);
   }
 
@@ -210,7 +210,7 @@ export class AudioManager implements FixedUpdatable, Disposable {
   }
 
   private listenForUserGesture(): void {
-    const gestureEvents = ['click', 'keydown', 'touchstart', 'pointerdown'] as const;
+    const gestureEvents = ["click", "keydown", "touchstart", "pointerdown"] as const;
     const handler = (): void => {
       for (const evt of gestureEvents) {
         document.removeEventListener(evt, handler, true);
@@ -230,7 +230,7 @@ export class AudioManager implements FixedUpdatable, Disposable {
   private bindEvents(): void {
     // ── Animation-driven footsteps ─────────────────────
     this.unsubscribers.push(
-      this.eventBus.on('animation:footstep', () => {
+      this.eventBus.on("animation:footstep", () => {
         if (!this.toneStarted || !this.player.body) return;
         if (!this.player.isGrounded) return;
         const vel = this.player.body.linvel();
@@ -242,14 +242,14 @@ export class AudioManager implements FixedUpdatable, Disposable {
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('animation:event', ({ event }) => {
-        if (event === 'slopeSlideStart') {
+      this.eventBus.on("animation:event", ({ event }) => {
+        if (event === "slopeSlideStart") {
           if (this.inVehicle) return;
           this.slopeSlideActive = true;
           this.sfxEngine.slopeSlideStart();
           return;
         }
-        if (event === 'slopeSlideStop') {
+        if (event === "slopeSlideStop") {
           this.slopeSlideActive = false;
           this.sfxEngine.slopeSlideStop();
         }
@@ -258,7 +258,7 @@ export class AudioManager implements FixedUpdatable, Disposable {
 
     // ── Player Movement ────────────────────────────────
     this.unsubscribers.push(
-      this.eventBus.on('player:stateChanged', ({ previous, current }) => {
+      this.eventBus.on("player:stateChanged", ({ previous, current }) => {
         if (current === STATE.jump) {
           this.sfxEngine.jump();
         }
@@ -276,7 +276,7 @@ export class AudioManager implements FixedUpdatable, Disposable {
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('player:grounded', (grounded) => {
+      this.eventBus.on("player:grounded", (grounded) => {
         if (grounded) {
           // Defer: if player:landed fires on the same frame with a hard impact,
           // skip landSoft to avoid doubling with landHard.
@@ -290,7 +290,7 @@ export class AudioManager implements FixedUpdatable, Disposable {
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('player:landed', ({ impactSpeed }) => {
+      this.eventBus.on("player:landed", ({ impactSpeed }) => {
         this.lastLandedImpact = impactSpeed;
         this.lastLandedFrame = this.frameCounter;
         if (impactSpeed < 3) return;
@@ -300,32 +300,32 @@ export class AudioManager implements FixedUpdatable, Disposable {
 
     // ── Interaction ────────────────────────────────────
     this.unsubscribers.push(
-      this.eventBus.on('interaction:triggered', () => {
+      this.eventBus.on("interaction:triggered", () => {
         this.sfxEngine.interact();
       }),
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('interaction:grabStart', () => {
+      this.eventBus.on("interaction:grabStart", () => {
         this.sfxEngine.grab();
       }),
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('interaction:pickUp', () => {
+      this.eventBus.on("interaction:pickUp", () => {
         this.sfxEngine.interact();
       }),
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('interaction:throw', () => {
+      this.eventBus.on("interaction:throw", () => {
         this.sfxEngine.throw();
       }),
     );
 
     // New interaction SFX
     this.unsubscribers.push(
-      this.eventBus.on('interaction:focusChanged', ({ id }) => {
+      this.eventBus.on("interaction:focusChanged", ({ id }) => {
         if (id != null) {
           this.sfxEngine.focusTick();
         }
@@ -333,7 +333,7 @@ export class AudioManager implements FixedUpdatable, Disposable {
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('interaction:holdProgress', (payload) => {
+      this.eventBus.on("interaction:holdProgress", (payload) => {
         if (!payload) {
           this.holdLastThreshold = -1;
           return;
@@ -348,26 +348,26 @@ export class AudioManager implements FixedUpdatable, Disposable {
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('interaction:blocked', () => {
+      this.eventBus.on("interaction:blocked", () => {
         this.sfxEngine.interactBlocked();
       }),
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('interaction:drop', () => {
+      this.eventBus.on("interaction:drop", () => {
         this.sfxEngine.drop();
       }),
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('interaction:grabEnd', () => {
+      this.eventBus.on("interaction:grabEnd", () => {
         this.sfxEngine.grabRelease();
       }),
     );
 
     // ── Progression ────────────────────────────────────
     this.unsubscribers.push(
-      this.eventBus.on('checkpoint:activated', () => {
+      this.eventBus.on("checkpoint:activated", () => {
         this.sfxEngine.checkpoint();
         // Brief music duck to let chime shine
         this.musicEngine.duck(0.6);
@@ -376,7 +376,7 @@ export class AudioManager implements FixedUpdatable, Disposable {
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('objective:completed', () => {
+      this.eventBus.on("objective:completed", () => {
         this.sfxEngine.objectiveComplete();
         // Brief music duck
         this.musicEngine.duck(0.6);
@@ -385,14 +385,14 @@ export class AudioManager implements FixedUpdatable, Disposable {
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('collectible:collected', () => {
+      this.eventBus.on("collectible:collected", () => {
         this.sfxEngine.coinCollect();
       }),
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('player:damaged', ({ reason }) => {
-        if (reason === 'spike') {
+      this.eventBus.on("player:damaged", ({ reason }) => {
+        if (reason === "spike") {
           this.sfxEngine.damageHit();
         }
       }),
@@ -400,7 +400,7 @@ export class AudioManager implements FixedUpdatable, Disposable {
 
     // ── Death / Respawn ────────────────────────────────
     this.unsubscribers.push(
-      this.eventBus.on('player:dying', () => {
+      this.eventBus.on("player:dying", () => {
         this.sfxEngine.deathDescend();
         // Duck music for death sequence
         this.musicEngine.duck(0.5);
@@ -409,20 +409,20 @@ export class AudioManager implements FixedUpdatable, Disposable {
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('player:deathMidpoint', () => {
+      this.eventBus.on("player:deathMidpoint", () => {
         this.sfxEngine.deathMidpoint();
       }),
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('player:respawned', () => {
+      this.eventBus.on("player:respawned", () => {
         this.sfxEngine.respawnChime();
       }),
     );
 
     // ── Vehicle ────────────────────────────────────────
     this.unsubscribers.push(
-      this.eventBus.on('vehicle:enter', ({ vehicle }) => {
+      this.eventBus.on("vehicle:enter", ({ vehicle }) => {
         this.inVehicle = true;
         this.vehicleType = vehicle.type;
         this.vehicleSpeedNorm = 0;
@@ -437,7 +437,7 @@ export class AudioManager implements FixedUpdatable, Disposable {
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('vehicle:exit', () => {
+      this.eventBus.on("vehicle:exit", () => {
         this.sfxEngine.vehicleExit();
         this.inVehicle = false;
         this.vehicleType = null;
@@ -447,23 +447,17 @@ export class AudioManager implements FixedUpdatable, Disposable {
       }),
     );
 
+    this.unsubscribers.push(this.eventBus.on("vehicle:engineStart", () => this.startEngine()));
+    this.unsubscribers.push(this.eventBus.on("vehicle:engineStop", () => this.stopEngine()));
+    this.unsubscribers.push(this.eventBus.on("vehicle:speedUpdate", ({ speedNorm }) => this.updateEngine(speedNorm)));
     this.unsubscribers.push(
-      this.eventBus.on('vehicle:engineStart', () => this.startEngine()),
-    );
-    this.unsubscribers.push(
-      this.eventBus.on('vehicle:engineStop', () => this.stopEngine()),
-    );
-    this.unsubscribers.push(
-      this.eventBus.on('vehicle:speedUpdate', ({ speedNorm }) => this.updateEngine(speedNorm)),
-    );
-    this.unsubscribers.push(
-      this.eventBus.on('vehicle:handlingUpdate', (state) => this.updateVehicleHandlingFeel(state)),
+      this.eventBus.on("vehicle:handlingUpdate", (state) => this.updateVehicleHandlingFeel(state)),
     );
 
     // ── Menu / UI ──────────────────────────────────────
     this.unsubscribers.push(
-      this.eventBus.on('menu:opened', ({ screen }) => {
-        if (screen === 'pause') {
+      this.eventBus.on("menu:opened", ({ screen }) => {
+        if (screen === "pause") {
           this.sfxEngine.menuOpen();
           this.musicEngine.duck(0.3);
         }
@@ -471,39 +465,39 @@ export class AudioManager implements FixedUpdatable, Disposable {
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('menu:closed', () => {
+      this.eventBus.on("menu:closed", () => {
         this.sfxEngine.menuClose();
         this.musicEngine.unduck();
       }),
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('ui:click', () => {
+      this.eventBus.on("ui:click", () => {
         this.sfxEngine.uiClick();
       }),
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('ui:hover', () => {
+      this.eventBus.on("ui:hover", () => {
         this.sfxEngine.uiHover();
       }),
     );
 
     // ── Volume Controls ────────────────────────────────
     this.unsubscribers.push(
-      this.eventBus.on('audio:masterVolume', (value) => {
+      this.eventBus.on("audio:masterVolume", (value) => {
         this.setMasterVolume(value);
       }),
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('audio:musicVolume', (value) => {
+      this.eventBus.on("audio:musicVolume", (value) => {
         this.setMusicVolume(value);
       }),
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('audio:sfxVolume', (value) => {
+      this.eventBus.on("audio:sfxVolume", (value) => {
         this.setSfxVolume(value);
       }),
     );
@@ -512,7 +506,7 @@ export class AudioManager implements FixedUpdatable, Disposable {
     let lastTickThreshold = 0;
 
     this.unsubscribers.push(
-      this.eventBus.on('loading:progress', ({ progress }) => {
+      this.eventBus.on("loading:progress", ({ progress }) => {
         if (progress <= 0.15) {
           this.sfxEngine.loadingAmbientStart();
           lastTickThreshold = 0;
@@ -526,7 +520,7 @@ export class AudioManager implements FixedUpdatable, Disposable {
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('level:loaded', () => {
+      this.eventBus.on("level:loaded", () => {
         this.sfxEngine.loadingAmbientStop();
         this.sfxEngine.loadingWhoosh();
       }),

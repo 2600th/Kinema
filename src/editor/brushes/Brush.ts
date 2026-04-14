@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import type * as THREE from "three";
 
 /** Minimum dimension for any brush axis to prevent degenerate geometry */
 export const MIN_BRUSH_DIMENSION = 0.1;

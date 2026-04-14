@@ -1,12 +1,12 @@
-import * as THREE from 'three';
-import { type BrushDefinition, type BrushParams, computeRectFootprint, MIN_BRUSH_DIMENSION } from './Brush';
+import * as THREE from "three";
+import { type BrushDefinition, type BrushParams, computeRectFootprint, MIN_BRUSH_DIMENSION } from "./Brush";
 
 export const TriggerBrush: BrushDefinition = {
-  id: 'trigger',
-  label: 'Trigger',
-  shortcut: '8',
+  id: "trigger",
+  label: "Trigger",
+  shortcut: "8",
   // Dashed box icon — trigger zone
-  icon: 'M4 4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M4 8v4M20 8v4',
+  icon: "M4 4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M4 8v4M20 8v4",
   defaultParams: { current: new THREE.Vector3(3, 0, 3), height: 2.5 },
 
   buildPreviewGeometry(params: BrushParams): THREE.BufferGeometry {

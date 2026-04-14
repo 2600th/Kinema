@@ -1,26 +1,26 @@
-import * as THREE from 'three';
-import RAPIER from '@dimforge/rapier3d-compat';
-import { COLLISION_GROUP_WORLD } from '@core/constants';
-import type { SpawnPointData } from '@core/types';
-import type { PhysicsWorld } from '@physics/PhysicsWorld';
-import { ColliderFactory } from '@physics/ColliderFactory';
+import { COLLISION_GROUP_WORLD } from "@core/constants";
+import type { SpawnPointData } from "@core/types";
+import RAPIER from "@dimforge/rapier3d-compat";
+import type { AssetLoader } from "@level/AssetLoader";
+import { GrassEffect } from "@level/GrassEffect";
+import { createBush, createFlower, createRock, createTree, scatterProps } from "@level/ProceduralProps";
 import {
-  SHOWCASE_LAYOUT,
-  SHOWCASE_ENTRANCE_START_Z,
-  SHOWCASE_STATION_ORDER,
-  STATION_SPAWN_OVERRIDES,
   getShowcaseBayTopY,
   getShowcaseStationZ,
+  SHOWCASE_ENTRANCE_START_Z,
+  SHOWCASE_LAYOUT,
+  SHOWCASE_STATION_ORDER,
   type ShowcaseStationKey,
-} from '@level/ShowcaseLayout';
-import { GrassEffect } from '@level/GrassEffect';
-import { SparkleParticles } from '@level/SparkleParticles';
-import { createBush, createTree, createRock, createFlower, scatterProps } from '@level/ProceduralProps';
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { NavMeshManager } from '@navigation/NavMeshManager';
-import { NavPatrolSystem } from '@navigation/NavPatrolSystem';
-import { NavDebugOverlay } from '@navigation/NavDebugOverlay';
-import type { AssetLoader } from '@level/AssetLoader';
+  STATION_SPAWN_OVERRIDES,
+} from "@level/ShowcaseLayout";
+import { SparkleParticles } from "@level/SparkleParticles";
+import { NavDebugOverlay } from "@navigation/NavDebugOverlay";
+import { NavMeshManager } from "@navigation/NavMeshManager";
+import { NavPatrolSystem } from "@navigation/NavPatrolSystem";
+import { ColliderFactory } from "@physics/ColliderFactory";
+import type { PhysicsWorld } from "@physics/PhysicsWorld";
+import * as THREE from "three";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 
 // ---------------------------------------------------------------------------
 // Result type returned to LevelManager after a procedural build.
@@ -30,7 +30,7 @@ export interface MovingPlatformEntry {
   mesh: THREE.Mesh;
   body: RAPIER.RigidBody;
   base: THREE.Vector3;
-  mode: 'x' | 'y' | 'rotateY' | 'rotateX' | 'xy' | 'yRotate';
+  mode: "x" | "y" | "rotateY" | "rotateX" | "xy" | "yRotate";
   speed: number;
   amplitude: number;
   rotationOffset: THREE.Euler;
@@ -145,7 +145,7 @@ export class ProceduralBuilder {
 
   /** Yield control to the browser so CSS animations can paint a frame. */
   private yield(): Promise<void> {
-    return new Promise(r => setTimeout(r, 0));
+    return new Promise((r) => setTimeout(r, 0));
   }
 
   private progressCallback?: (progress: number) => void;
@@ -170,11 +170,45 @@ export class ProceduralBuilder {
       clearcoat: 0.6,
       clearcoatRoughness: 0.15,
     });
-    const stepMat = new THREE.MeshPhysicalMaterial({ color: 0x00a2ff, roughness: 0.35, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.05, emissive: 0x0066cc, emissiveIntensity: 0.1 });
-    const slopeMat = new THREE.MeshPhysicalMaterial({ color: 0x33cc33, roughness: 0.35, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.05 });
-    const obstacleMat = new THREE.MeshPhysicalMaterial({ color: 0xff3366, roughness: 0.3, metalness: 0.0, clearcoat: 0.8, clearcoatRoughness: 0.1, emissive: 0xff1144, emissiveIntensity: 0.08 });
-    const kinematicPlatformMat = new THREE.MeshPhysicalMaterial({ color: 0xffd700, roughness: 0.25, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.05 });
-    const floatingPlatformMat = new THREE.MeshPhysicalMaterial({ color: 0x00cccc, roughness: 0.3, metalness: 0.0, clearcoat: 0.8, clearcoatRoughness: 0.1 });
+    const stepMat = new THREE.MeshPhysicalMaterial({
+      color: 0x00a2ff,
+      roughness: 0.35,
+      metalness: 0.0,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.05,
+      emissive: 0x0066cc,
+      emissiveIntensity: 0.1,
+    });
+    const slopeMat = new THREE.MeshPhysicalMaterial({
+      color: 0x33cc33,
+      roughness: 0.35,
+      metalness: 0.0,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.05,
+    });
+    const obstacleMat = new THREE.MeshPhysicalMaterial({
+      color: 0xff3366,
+      roughness: 0.3,
+      metalness: 0.0,
+      clearcoat: 0.8,
+      clearcoatRoughness: 0.1,
+      emissive: 0xff1144,
+      emissiveIntensity: 0.08,
+    });
+    const kinematicPlatformMat = new THREE.MeshPhysicalMaterial({
+      color: 0xffd700,
+      roughness: 0.25,
+      metalness: 0.0,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.05,
+    });
+    const floatingPlatformMat = new THREE.MeshPhysicalMaterial({
+      color: 0x00cccc,
+      roughness: 0.3,
+      metalness: 0.0,
+      clearcoat: 0.8,
+      clearcoatRoughness: 0.1,
+    });
 
     // Station filter: when set, only build the target station + a minimal floor.
     const buildAll = this.stationFilterKey === null;
@@ -184,9 +218,12 @@ export class ProceduralBuilder {
       // Minimal floor so the player doesn't fall through
       const stationZ = getShowcaseStationZ(this.stationFilterKey!);
       const stationFloorSize = new THREE.Vector3(60, 1, 30);
-      const stationFloor = new THREE.Mesh(new THREE.BoxGeometry(stationFloorSize.x, stationFloorSize.y, stationFloorSize.z), floorMat);
+      const stationFloor = new THREE.Mesh(
+        new THREE.BoxGeometry(stationFloorSize.x, stationFloorSize.y, stationFloorSize.z),
+        floorMat,
+      );
       stationFloor.position.set(0, -1.5, stationZ);
-      stationFloor.name = 'StationFloor_col';
+      stationFloor.name = "StationFloor_col";
       stationFloor.receiveShadow = true;
       this.scene.add(stationFloor);
       this.meshes.push(stationFloor);
@@ -195,20 +232,17 @@ export class ProceduralBuilder {
 
     // Broad floor
     if (buildAll) {
-    const floorSize = new THREE.Vector3(SHOWCASE_LAYOUT.hall.width, 5, SHOWCASE_LAYOUT.hall.length);
-    const floor = new THREE.Mesh(
-      new THREE.BoxGeometry(floorSize.x, floorSize.y, floorSize.z),
-      floorMat,
-    );
-    // WHY: The showcase hall floor surface sits at y=-1.0. If the broad floor
-    // also has its top face at y=-1.0, the two coplanar surfaces z-fight and
-    // the grid flickers. Keep the broad floor below the hall floor plane.
-    floor.position.set(0, -4.0, 0);
-    floor.name = 'Floor_col';
-    floor.receiveShadow = true;
-    this.scene.add(floor);
-    this.meshes.push(floor);
-    this.colliders.push(this.colliderFactory.createFixedCuboid(floor.position, floorSize, 0.7));
+      const floorSize = new THREE.Vector3(SHOWCASE_LAYOUT.hall.width, 5, SHOWCASE_LAYOUT.hall.length);
+      const floor = new THREE.Mesh(new THREE.BoxGeometry(floorSize.x, floorSize.y, floorSize.z), floorMat);
+      // WHY: The showcase hall floor surface sits at y=-1.0. If the broad floor
+      // also has its top face at y=-1.0, the two coplanar surfaces z-fight and
+      // the grid flickers. Keep the broad floor below the hall floor plane.
+      floor.position.set(0, -4.0, 0);
+      floor.name = "Floor_col";
+      floor.receiveShadow = true;
+      this.scene.add(floor);
+      this.meshes.push(floor);
+      this.colliders.push(this.colliderFactory.createFixedCuboid(floor.position, floorSize, 0.7));
     } // end buildAll broad floor
 
     await this.yieldProgress(0.1);
@@ -250,69 +284,76 @@ export class ProceduralBuilder {
 
     // Corridor structure (skip in single-station mode)
     if (buildAll) {
-    const hallFloorSize = new THREE.Vector3(hallWidth, 0.6, hallLength);
-    const hallFloor = new THREE.Mesh(new THREE.BoxGeometry(hallFloorSize.x, hallFloorSize.y, hallFloorSize.z), hallFloorMat);
-    hallFloor.position.set(0, -1.3, showcaseCenterZ);
-    hallFloor.name = 'ShowcaseFloor_col';
-    hallFloor.receiveShadow = true;
-    this.scene.add(hallFloor);
-    this.meshes.push(hallFloor);
-    this.colliders.push(this.colliderFactory.createFixedCuboid(hallFloor.position, hallFloorSize, 0.7));
+      const hallFloorSize = new THREE.Vector3(hallWidth, 0.6, hallLength);
+      const hallFloor = new THREE.Mesh(
+        new THREE.BoxGeometry(hallFloorSize.x, hallFloorSize.y, hallFloorSize.z),
+        hallFloorMat,
+      );
+      hallFloor.position.set(0, -1.3, showcaseCenterZ);
+      hallFloor.name = "ShowcaseFloor_col";
+      hallFloor.receiveShadow = true;
+      this.scene.add(hallFloor);
+      this.meshes.push(hallFloor);
+      this.colliders.push(this.colliderFactory.createFixedCuboid(hallFloor.position, hallFloorSize, 0.7));
 
-    const boundaryWallMat = new THREE.MeshStandardMaterial({
-      color: 0x7b8aa5,
-      roughness: 0.45,
-      metalness: 0.08,
-    });
-    const boundaryWallSize = new THREE.Vector3(0.5, 0.7, hallLength);
-    const boundaryEndWallSize = new THREE.Vector3(hallWidth - boundaryWallSize.x * 2, boundaryWallSize.y, boundaryWallSize.x);
-    const boundaryWallY = -1.0 + boundaryWallSize.y * 0.5;
-    const boundaryEndWallZ = hallLength * 0.5 - boundaryEndWallSize.z * 0.5;
-    this.createFixedStaticBox(
-      'ShowcaseBoundaryWall_L',
-      boundaryWallSize,
-      new THREE.Vector3(-hallWidth * 0.5 + boundaryWallSize.x * 0.5, boundaryWallY, showcaseCenterZ),
-      new THREE.Euler(),
-      boundaryWallMat,
-      'showcase-boundary',
-    );
-    this.createFixedStaticBox(
-      'ShowcaseBoundaryWall_R',
-      boundaryWallSize,
-      new THREE.Vector3(hallWidth * 0.5 - boundaryWallSize.x * 0.5, boundaryWallY, showcaseCenterZ),
-      new THREE.Euler(),
-      boundaryWallMat,
-      'showcase-boundary',
-    );
-    this.createFixedStaticBox(
-      'ShowcaseBoundaryWall_Entrance',
-      boundaryEndWallSize,
-      new THREE.Vector3(0, boundaryWallY, showcaseCenterZ + boundaryEndWallZ),
-      new THREE.Euler(),
-      boundaryWallMat,
-      'showcase-boundary',
-    );
-    this.createFixedStaticBox(
-      'ShowcaseBoundaryWall_End',
-      boundaryEndWallSize,
-      new THREE.Vector3(0, boundaryWallY, showcaseCenterZ - boundaryEndWallZ),
-      new THREE.Euler(),
-      boundaryWallMat,
-      'showcase-boundary',
-    );
+      const boundaryWallMat = new THREE.MeshStandardMaterial({
+        color: 0x7b8aa5,
+        roughness: 0.45,
+        metalness: 0.08,
+      });
+      const boundaryWallSize = new THREE.Vector3(0.5, 0.7, hallLength);
+      const boundaryEndWallSize = new THREE.Vector3(
+        hallWidth - boundaryWallSize.x * 2,
+        boundaryWallSize.y,
+        boundaryWallSize.x,
+      );
+      const boundaryWallY = -1.0 + boundaryWallSize.y * 0.5;
+      const boundaryEndWallZ = hallLength * 0.5 - boundaryEndWallSize.z * 0.5;
+      this.createFixedStaticBox(
+        "ShowcaseBoundaryWall_L",
+        boundaryWallSize,
+        new THREE.Vector3(-hallWidth * 0.5 + boundaryWallSize.x * 0.5, boundaryWallY, showcaseCenterZ),
+        new THREE.Euler(),
+        boundaryWallMat,
+        "showcase-boundary",
+      );
+      this.createFixedStaticBox(
+        "ShowcaseBoundaryWall_R",
+        boundaryWallSize,
+        new THREE.Vector3(hallWidth * 0.5 - boundaryWallSize.x * 0.5, boundaryWallY, showcaseCenterZ),
+        new THREE.Euler(),
+        boundaryWallMat,
+        "showcase-boundary",
+      );
+      this.createFixedStaticBox(
+        "ShowcaseBoundaryWall_Entrance",
+        boundaryEndWallSize,
+        new THREE.Vector3(0, boundaryWallY, showcaseCenterZ + boundaryEndWallZ),
+        new THREE.Euler(),
+        boundaryWallMat,
+        "showcase-boundary",
+      );
+      this.createFixedStaticBox(
+        "ShowcaseBoundaryWall_End",
+        boundaryEndWallSize,
+        new THREE.Vector3(0, boundaryWallY, showcaseCenterZ - boundaryEndWallZ),
+        new THREE.Euler(),
+        boundaryWallMat,
+        "showcase-boundary",
+      );
 
-    // ── Floating sparkle particles throughout the corridor ──
-    const sparkles = new SparkleParticles({
-      count: 400,
-      areaWidth: hallWidth - 4,
-      areaHeight: 14,
-      areaDepth: hallLength - 20,
-      position: new THREE.Vector3(0, 6, showcaseCenterZ),
-    });
-    this.scene.add(sparkles.points);
-    this.meshes.push(sparkles.points);
-    // Store sparkles for update in fixedUpdate
-    (this as unknown as { _sparkles?: SparkleParticles })._sparkles = sparkles;
+      // ── Floating sparkle particles throughout the corridor ──
+      const sparkles = new SparkleParticles({
+        count: 400,
+        areaWidth: hallWidth - 4,
+        areaHeight: 14,
+        areaDepth: hallLength - 20,
+        position: new THREE.Vector3(0, 6, showcaseCenterZ),
+      });
+      this.scene.add(sparkles.points);
+      this.meshes.push(sparkles.points);
+      // Store sparkles for update in fixedUpdate
+      (this as unknown as { _sparkles?: SparkleParticles })._sparkles = sparkles;
     } // end buildAll corridor structure
 
     await this.yieldProgress(0.2);
@@ -378,10 +419,7 @@ export class ProceduralBuilder {
         roughness: 0.0,
         metalness: 0.0,
       });
-      const accentRing = new THREE.Mesh(
-        new THREE.BoxGeometry(bayWidth + 0.2, 0.06, bayLength + 0.2),
-        accentMat,
-      );
+      const accentRing = new THREE.Mesh(new THREE.BoxGeometry(bayWidth + 0.2, 0.06, bayLength + 0.2), accentMat);
       accentRing.position.set(0, bayTopY + 0.03, z);
       accentRing.name = `ShowcaseBayAccent${i}`;
       this.scene.add(accentRing);
@@ -412,7 +450,9 @@ export class ProceduralBuilder {
         for (const xSide of [-1, 1]) {
           const bushes = scatterProps(
             () => createBush(0.7, 0x3daa5f),
-            3, 8, bayLength - 4,
+            3,
+            8,
+            bayLength - 4,
             new THREE.Vector3(xSide * (bayWidth / 2 - 6), bayTopY + 0.2, z),
             { minScale: 0.5, maxScale: 1.0 },
           );
@@ -437,7 +477,9 @@ export class ProceduralBuilder {
         // Flowers along the front edge strip only.
         const flowers = scatterProps(
           () => createFlower(0.4, [0xff69b4, 0xffcc00, 0xff6b6b, 0x69b4ff][Math.floor(Math.random() * 4)]),
-          8, bayWidth - 10, 2,
+          8,
+          bayWidth - 10,
+          2,
           new THREE.Vector3(0, bayTopY, z + bayLength / 2 - 1.5),
           { minScale: 0.5, maxScale: 0.9 },
         );
@@ -523,917 +565,876 @@ export class ProceduralBuilder {
     }
 
     // Station Z coordinates used below.
-    const zSteps = getShowcaseStationZ('steps');
-    const zSlopes = getShowcaseStationZ('slopes');
-    const zMovement = getShowcaseStationZ('movement');
-    const zDoubleJump = getShowcaseStationZ('doubleJump');
-    const zGrab = getShowcaseStationZ('grab');
-    const zThrow = getShowcaseStationZ('throw');
-    const zDoor = getShowcaseStationZ('door');
-    const zVehicles = getShowcaseStationZ('vehicles');
-    const zPlatformsMoving = getShowcaseStationZ('platformsMoving');
-    const zPlatformsPhysics = getShowcaseStationZ('platformsPhysics');
-    const zMaterials = getShowcaseStationZ('materials');
-    const zVfx = getShowcaseStationZ('vfx');
-    const zNavigation = getShowcaseStationZ('navigation');
-    const zFutureA = getShowcaseStationZ('futureA');
+    const zSteps = getShowcaseStationZ("steps");
+    const zSlopes = getShowcaseStationZ("slopes");
+    const zMovement = getShowcaseStationZ("movement");
+    const zDoubleJump = getShowcaseStationZ("doubleJump");
+    const zGrab = getShowcaseStationZ("grab");
+    const zThrow = getShowcaseStationZ("throw");
+    const zDoor = getShowcaseStationZ("door");
+    const zVehicles = getShowcaseStationZ("vehicles");
+    const zPlatformsMoving = getShowcaseStationZ("platformsMoving");
+    const zPlatformsPhysics = getShowcaseStationZ("platformsPhysics");
+    const zMaterials = getShowcaseStationZ("materials");
+    const zVfx = getShowcaseStationZ("vfx");
+    const zNavigation = getShowcaseStationZ("navigation");
+    const zFutureA = getShowcaseStationZ("futureA");
 
     await this.yieldProgress(0.45);
 
     // --- Per-station geometry (gated by isTarget) ---
 
-    if (isTarget('steps')) {
-    // Rough plane section (materials + footing). Kept inside the showcase corridor.
-    const roughPlane = new THREE.Mesh(new THREE.BoxGeometry(10, 0.6, 10), obstacleMat);
-    roughPlane.position.set(20, bayTopY + 0.3, zSteps + 2);
-    roughPlane.rotation.set(-0.08, 0.12, 0.06);
-    roughPlane.name = 'RoughPlane_col';
-    roughPlane.receiveShadow = true;
-    this.scene.add(roughPlane);
-    this.meshes.push(roughPlane);
-    roughPlane.updateWorldMatrix(true, false);
-    this.colliders.push(this.colliderFactory.createTrimesh(roughPlane));
+    if (isTarget("steps")) {
+      // Rough plane section (materials + footing). Kept inside the showcase corridor.
+      const roughPlane = new THREE.Mesh(new THREE.BoxGeometry(10, 0.6, 10), obstacleMat);
+      roughPlane.position.set(20, bayTopY + 0.3, zSteps + 2);
+      roughPlane.rotation.set(-0.08, 0.12, 0.06);
+      roughPlane.name = "RoughPlane_col";
+      roughPlane.receiveShadow = true;
+      this.scene.add(roughPlane);
+      this.meshes.push(roughPlane);
+      roughPlane.updateWorldMatrix(true, false);
+      this.colliders.push(this.colliderFactory.createTrimesh(roughPlane));
 
-    // Step series
-    const addStep = (name: string, size: THREE.Vector3, pos: THREE.Vector3) => {
-      const step = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), stepMat);
-      step.position.copy(pos);
-      step.name = name;
-      step.receiveShadow = true;
-      this.scene.add(step);
-      this.meshes.push(step);
-      step.updateWorldMatrix(true, false);
-      this.colliders.push(this.colliderFactory.createTrimesh(step));
-    };
-    addStep('Step0_col', new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(-8, bayTopY + 0.07, zSteps - 6));
-    addStep('Step1_col', new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(-8, bayTopY + 0.07, zSteps - 5));
-    addStep('Step2_col', new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(-8, bayTopY + 0.07, zSteps - 4));
-    addStep('Step3_col', new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(-8, bayTopY + 0.07, zSteps - 3));
-    addStep('Step4_col', new THREE.Vector3(4, 0.2, 4), new THREE.Vector3(-8, bayTopY + 0.1, zSteps));
-    this.createSectionLabel(
-      'Steps & Autostep\nAutomatic stair climbing',
-      new THREE.Vector3(0, 2.0, zSteps + 3),
-      8.4,
-      1.75,
-    );
-    this.createStaircase(new THREE.Vector3(8, bayTopY, zSteps - 6), 10, 0.14, 0.78, 4.8, stepMat);
-    this.createStepsPhysicsPlayground(zSteps, bayTopY);
+      // Step series
+      const addStep = (name: string, size: THREE.Vector3, pos: THREE.Vector3) => {
+        const step = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), stepMat);
+        step.position.copy(pos);
+        step.name = name;
+        step.receiveShadow = true;
+        this.scene.add(step);
+        this.meshes.push(step);
+        step.updateWorldMatrix(true, false);
+        this.colliders.push(this.colliderFactory.createTrimesh(step));
+      };
+      addStep("Step0_col", new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(-8, bayTopY + 0.07, zSteps - 6));
+      addStep("Step1_col", new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(-8, bayTopY + 0.07, zSteps - 5));
+      addStep("Step2_col", new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(-8, bayTopY + 0.07, zSteps - 4));
+      addStep("Step3_col", new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(-8, bayTopY + 0.07, zSteps - 3));
+      addStep("Step4_col", new THREE.Vector3(4, 0.2, 4), new THREE.Vector3(-8, bayTopY + 0.1, zSteps));
+      this.createSectionLabel(
+        "Steps & Autostep\nAutomatic stair climbing",
+        new THREE.Vector3(0, 2.0, zSteps + 3),
+        8.4,
+        1.75,
+      );
+      this.createStaircase(new THREE.Vector3(8, bayTopY, zSteps - 6), 10, 0.14, 0.78, 4.8, stepMat);
+      this.createStepsPhysicsPlayground(zSteps, bayTopY);
     } // end steps
 
-    if (isTarget('slopes')) {
-    // Slope lane: ~23.5, 43.1, 62.7 degrees (showcase station)
-    const slopeAngles = [23.5, 43.1, 62.7];
-    slopeAngles.forEach((deg, i) => {
-      // Keep a consistent rise so the steep ramp doesn't clip the walls/ceiling.
-      const angle = (deg * Math.PI) / 180;
-      const desiredRise = 3.2;
-      const thickness = 0.4;
-      const width = 6.0;
-      const length = THREE.MathUtils.clamp(desiredRise / Math.max(0.001, Math.sin(angle)), 3.6, 11.5);
+    if (isTarget("slopes")) {
+      // Slope lane: ~23.5, 43.1, 62.7 degrees (showcase station)
+      const slopeAngles = [23.5, 43.1, 62.7];
+      slopeAngles.forEach((deg, i) => {
+        // Keep a consistent rise so the steep ramp doesn't clip the walls/ceiling.
+        const angle = (deg * Math.PI) / 180;
+        const desiredRise = 3.2;
+        const thickness = 0.4;
+        const width = 6.0;
+        const length = THREE.MathUtils.clamp(desiredRise / Math.max(0.001, Math.sin(angle)), 3.6, 11.5);
 
-      const slope = new THREE.Mesh(new THREE.BoxGeometry(width, thickness, length), slopeMat);
-      slope.rotation.x = -angle;
+        const slope = new THREE.Mesh(new THREE.BoxGeometry(width, thickness, length), slopeMat);
+        slope.rotation.x = -angle;
 
-      // Place so the low end touches the bay surface and stays inside the pedestal footprint.
-      const cos = Math.cos(angle);
-      const sin = Math.sin(angle);
-      const centerY = bayTopY + (thickness * 0.5) * cos + (length * 0.5) * sin;
+        // Place so the low end touches the bay surface and stays inside the pedestal footprint.
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        const centerY = bayTopY + thickness * 0.5 * cos + length * 0.5 * sin;
 
-      const bayHalfZ = bayLength * 0.5;
-      const lowEndZ = zSlopes + (bayHalfZ - 1.2);
-      const lowEndLocalZ = (length * 0.5) * cos - (thickness * 0.5) * sin;
-      const centerZ = lowEndZ - lowEndLocalZ;
+        const bayHalfZ = bayLength * 0.5;
+        const lowEndZ = zSlopes + (bayHalfZ - 1.2);
+        const lowEndLocalZ = length * 0.5 * cos - thickness * 0.5 * sin;
+        const centerZ = lowEndZ - lowEndLocalZ;
 
-      const laneX = [-10, 0, 10][i] ?? 0;
-      slope.position.set(laneX, centerY, centerZ);
-      slope.name = `Slope${Math.round(deg)}_col`;
-      slope.receiveShadow = true;
-      this.scene.add(slope);
-      this.meshes.push(slope);
-      slope.updateWorldMatrix(true, false);
-      this.colliders.push(this.colliderFactory.createTrimesh(slope));
-    });
-    this.createSectionLabel(
-      'Slopes\n23.5\u00B0 \u2022 43.1\u00B0 \u2022 62.7\u00B0',
-      new THREE.Vector3(0, 3.6, zSlopes + 6),
-      7.2,
-      1.55,
-    );
+        const laneX = [-10, 0, 10][i] ?? 0;
+        slope.position.set(laneX, centerY, centerZ);
+        slope.name = `Slope${Math.round(deg)}_col`;
+        slope.receiveShadow = true;
+        this.scene.add(slope);
+        this.meshes.push(slope);
+        slope.updateWorldMatrix(true, false);
+        this.colliders.push(this.colliderFactory.createTrimesh(slope));
+      });
+      this.createSectionLabel(
+        "Slopes\n23.5\u00B0 \u2022 43.1\u00B0 \u2022 62.7\u00B0",
+        new THREE.Vector3(0, 3.6, zSlopes + 6),
+        7.2,
+        1.55,
+      );
     } // end slopes
 
     await this.yieldProgress(0.55);
 
-    if (isTarget('movement')) {
-    // Combined movement bay: ladder + crouch + rope in a single platform stage.
-    this.createLadder('MainLadder', new THREE.Vector3(14, bayTopY, zMovement), 4.2, obstacleMat);
-    this.createCrouchCourse(new THREE.Vector3(0, bayTopY, zMovement), obstacleMat);
-    this.createSectionLabel(
-      'Movement\nW/S climb \u2022 C crouch \u2022 Space jump off rope',
-      new THREE.Vector3(0, 3.0, zMovement + 6),
-      11.2,
-      2.25,
-    );
+    if (isTarget("movement")) {
+      // Combined movement bay: ladder + crouch + rope in a single platform stage.
+      this.createLadder("MainLadder", new THREE.Vector3(14, bayTopY, zMovement), 4.2, obstacleMat);
+      this.createCrouchCourse(new THREE.Vector3(0, bayTopY, zMovement), obstacleMat);
+      this.createSectionLabel(
+        "Movement\nW/S climb \u2022 C crouch \u2022 Space jump off rope",
+        new THREE.Vector3(0, 3.0, zMovement + 6),
+        11.2,
+        2.25,
+      );
     } // end movement
 
-    if (isTarget('doubleJump')) {
-    this.createDoubleJumpCourse(new THREE.Vector3(-6, bayTopY, zDoubleJump), stepMat);
-    this.createSectionLabel(
-      'Double Jump\nSpace \u2022 Multi-tier jump platforms',
-      new THREE.Vector3(-2, 4.9, zDoubleJump),
-      7.6,
-      1.65,
-    );
+    if (isTarget("doubleJump")) {
+      this.createDoubleJumpCourse(new THREE.Vector3(-6, bayTopY, zDoubleJump), stepMat);
+      this.createSectionLabel(
+        "Double Jump\nSpace \u2022 Multi-tier jump platforms",
+        new THREE.Vector3(-2, 4.9, zDoubleJump),
+        7.6,
+        1.65,
+      );
     } // end doubleJump
 
     await this.yieldProgress(0.6);
 
-    if (isTarget('grab')) {
-    this.createSectionLabel(
-      'Grab & Pull\nPress F to grab / release',
-      new THREE.Vector3(0, 2.55, zGrab),
-      10.2,
-      2.2,
-    );
-    const grabbableMat = new THREE.MeshPhysicalMaterial({ color: 0x4fa8d8, roughness: 0.3, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.05 });
-    this.createDynamicBox('PushCubeS', new THREE.Vector3(0, bayTopY + 0.5, zGrab + 2), new THREE.Vector3(1.0, 1.0, 1.0), grabbableMat, { grabbable: true, grabWeight: 0.85, mass: 18, linearDamping: 0.5, angularDamping: 1.1 });
-    this.createDynamicBox('PushCubeM', new THREE.Vector3(0, bayTopY + 0.65, zGrab), new THREE.Vector3(1.3, 1.3, 1.3), grabbableMat, { grabbable: true, grabWeight: 0.6, mass: 30, linearDamping: 0.56, angularDamping: 1.2 });
-    this.createDynamicBox('PushCubeL', new THREE.Vector3(0, bayTopY + 0.8, zGrab - 3), new THREE.Vector3(1.6, 1.6, 1.6), grabbableMat, { grabbable: true, grabWeight: 0.4, mass: 46, linearDamping: 0.62, angularDamping: 1.3 });
-    this.createDynamicBox('PushCubeTinyA', new THREE.Vector3(3.5, bayTopY + 0.25, zGrab), new THREE.Vector3(0.5, 0.5, 0.5), obstacleMat, { grabbable: false, mass: 7.5, linearDamping: 0.42, angularDamping: 0.9 });
-    this.createDynamicBox('PushCubeTinyB', new THREE.Vector3(-3.5, bayTopY + 0.25, zGrab), new THREE.Vector3(0.5, 0.5, 0.5), obstacleMat, { grabbable: false, mass: 7.5, linearDamping: 0.42, angularDamping: 0.9 });
-    this.createSpinningToy(new THREE.Vector3(14, 2.5, zGrab - 2), obstacleMat);
+    if (isTarget("grab")) {
+      this.createSectionLabel("Grab & Pull\nPress F to grab / release", new THREE.Vector3(0, 2.55, zGrab), 10.2, 2.2);
+      const grabbableMat = new THREE.MeshPhysicalMaterial({
+        color: 0x4fa8d8,
+        roughness: 0.3,
+        metalness: 0.0,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.05,
+      });
+      this.createDynamicBox(
+        "PushCubeS",
+        new THREE.Vector3(0, bayTopY + 0.5, zGrab + 2),
+        new THREE.Vector3(1.0, 1.0, 1.0),
+        grabbableMat,
+        { grabbable: true, grabWeight: 0.85, mass: 18, linearDamping: 0.5, angularDamping: 1.1 },
+      );
+      this.createDynamicBox(
+        "PushCubeM",
+        new THREE.Vector3(0, bayTopY + 0.65, zGrab),
+        new THREE.Vector3(1.3, 1.3, 1.3),
+        grabbableMat,
+        { grabbable: true, grabWeight: 0.6, mass: 30, linearDamping: 0.56, angularDamping: 1.2 },
+      );
+      this.createDynamicBox(
+        "PushCubeL",
+        new THREE.Vector3(0, bayTopY + 0.8, zGrab - 3),
+        new THREE.Vector3(1.6, 1.6, 1.6),
+        grabbableMat,
+        { grabbable: true, grabWeight: 0.4, mass: 46, linearDamping: 0.62, angularDamping: 1.3 },
+      );
+      this.createDynamicBox(
+        "PushCubeTinyA",
+        new THREE.Vector3(3.5, bayTopY + 0.25, zGrab),
+        new THREE.Vector3(0.5, 0.5, 0.5),
+        obstacleMat,
+        { grabbable: false, mass: 7.5, linearDamping: 0.42, angularDamping: 0.9 },
+      );
+      this.createDynamicBox(
+        "PushCubeTinyB",
+        new THREE.Vector3(-3.5, bayTopY + 0.25, zGrab),
+        new THREE.Vector3(0.5, 0.5, 0.5),
+        obstacleMat,
+        { grabbable: false, mass: 7.5, linearDamping: 0.42, angularDamping: 0.9 },
+      );
+      this.createSpinningToy(new THREE.Vector3(14, 2.5, zGrab - 2), obstacleMat);
     } // end grab
 
-    if (isTarget('throw')) {
-    this.createSectionLabel(
-      'Pick Up & Throw\nF to pick up \u2022 LMB to throw \u2022 C to drop',
-      new THREE.Vector3(0, 3.6, zThrow + 5),
-      11.0,
-      2.25,
-    );
-
-    // ── THROW STATION — CARNIVAL GALLERY ENVIRONMENT ──────────────────────
-    //
-    // Layout (viewed from above, player spawns at zThrow+4 facing -Z):
-    //
-    //   zThrow+4   PLAYER SPAWN (facing toward targets)
-    //   zThrow+2   ──── Throwing line (glowing floor strip) ────
-    //   zThrow+1   ┌──Shelf──┐  Pickup objects on display shelf
-    //   zThrow     │         │
-    //   zThrow-1   └─────────┘
-    //   zThrow-2   ┌─LANE─┬─LANE─┬─LANE─┐  Three target lanes
-    //              │Bottle│Brick │ Cans  │
-    //   zThrow-3   │      │ Wall │       │
-    //   zThrow-4   └──────┴──────┴───────┘
-    //   zThrow-5   ═══ BACKDROP WALL (catches debris) ═══
-    //
-    //   x:  -8 ──── -5 ──── 0 ──── +5 ──── +8
-
-    const targetZ = zThrow - 2.45;
-    const throwLineZ = zThrow + 1.7;
-    const throwMarkZ = zThrow + 2.45;
-    const pickupConsoleZ = zThrow + 2.55;
-    const backdropZ = zThrow - 4.35;
-    const laneStartZ = throwLineZ - 0.35;
-    const laneEndZ = targetZ + 0.9;
-    const laneLength = laneStartZ - laneEndZ;
-    const laneThemes = [
-      { x: -5, color: 0x4aa6ff, glow: 0x77d7ff, name: 'Bottle' },
-      { x: 0, color: 0xff7a38, glow: 0xffb066, name: 'Impact' },
-      { x: 5, color: 0x54df94, glow: 0x94ffc2, name: 'Can' },
-    ] as const;
-    const addStaticMesh = (
-      mesh: THREE.Mesh,
-      name: string,
-      withCollider = true,
-    ): THREE.Mesh => {
-      mesh.name = name;
-      this.scene.add(mesh);
-      this.meshes.push(mesh);
-      if (withCollider) {
-        mesh.updateWorldMatrix(true, false);
-        this.colliders.push(this.colliderFactory.createTrimesh(mesh));
-      }
-      return mesh;
-    };
-    const addFixedCuboidCollider = (
-      center: THREE.Vector3,
-      size: THREE.Vector3,
-      kind = 'throw-station',
-    ): void => {
-      const body = this.physicsWorld.world.createRigidBody(
-        RAPIER.RigidBodyDesc.fixed().setTranslation(center.x, center.y, center.z),
+    if (isTarget("throw")) {
+      this.createSectionLabel(
+        "Pick Up & Throw\nF to pick up \u2022 LMB to throw \u2022 C to drop",
+        new THREE.Vector3(0, 3.6, zThrow + 5),
+        11.0,
+        2.25,
       );
-      body.userData = { kind };
-      const collider = this.physicsWorld.world.createCollider(
-        RAPIER.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2)
-          .setFriction(0.7)
-          .setCollisionGroups(COLLISION_GROUP_WORLD),
-        body,
-      );
-      this.bodies.push(body);
-      this.colliders.push(collider);
-    };
 
-    const throwShellMat = new THREE.MeshPhysicalMaterial({
-      color: 0xff6a1a,
-      roughness: 0.28,
-      metalness: 0.0,
-      clearcoat: 1.0,
-      clearcoatRoughness: 0.08,
-      emissive: 0x9a3100,
-      emissiveIntensity: 0.12,
-    });
-    const throwPanelMat = new THREE.MeshStandardMaterial({
-      color: 0x1f2734,
-      roughness: 0.72,
-      metalness: 0.18,
-    });
-    const throwDeckMat = new THREE.MeshStandardMaterial({
-      color: 0x2b3240,
-      roughness: 0.82,
-      metalness: 0.08,
-    });
-    const throwTrimMat = new THREE.MeshStandardMaterial({
-      color: 0x0b141f,
-      roughness: 0.24,
-      metalness: 0.2,
-      emissive: 0x52d6ff,
-      emissiveIntensity: 1.65,
-    });
-    const throwGlowMat = new THREE.MeshStandardMaterial({
-      color: 0x090a0d,
-      roughness: 0.15,
-      metalness: 0.0,
-      emissive: 0xff934d,
-      emissiveIntensity: 2.2,
-    });
-    const throwMarkOuterMat = new THREE.MeshStandardMaterial({
-      color: 0xff7b2e,
-      roughness: 0.28,
-      metalness: 0.0,
-      emissive: 0xaa3200,
-      emissiveIntensity: 0.16,
-    });
-    throwMarkOuterMat.polygonOffset = true;
-    throwMarkOuterMat.polygonOffsetFactor = -2;
-    throwMarkOuterMat.polygonOffsetUnits = -4;
-    const throwMarkInnerMat = new THREE.MeshStandardMaterial({
-      color: 0x263140,
-      roughness: 0.72,
-      metalness: 0.16,
-    });
-    throwMarkInnerMat.polygonOffset = true;
-    throwMarkInnerMat.polygonOffsetFactor = -3;
-    throwMarkInnerMat.polygonOffsetUnits = -5;
-    const throwMarkTrimMat = new THREE.MeshStandardMaterial({
-      color: 0x151c24,
-      roughness: 0.18,
-      metalness: 0.0,
-      emissive: 0xff964f,
-      emissiveIntensity: 1.8,
-    });
-    throwMarkTrimMat.polygonOffset = true;
-    throwMarkTrimMat.polygonOffsetFactor = -4;
-    throwMarkTrimMat.polygonOffsetUnits = -6;
-    const throwSupportMat = new THREE.MeshStandardMaterial({
-      color: 0x637184,
-      roughness: 0.4,
-      metalness: 0.45,
-    });
+      // ── THROW STATION — CARNIVAL GALLERY ENVIRONMENT ──────────────────────
+      //
+      // Layout (viewed from above, player spawns at zThrow+4 facing -Z):
+      //
+      //   zThrow+4   PLAYER SPAWN (facing toward targets)
+      //   zThrow+2   ──── Throwing line (glowing floor strip) ────
+      //   zThrow+1   ┌──Shelf──┐  Pickup objects on display shelf
+      //   zThrow     │         │
+      //   zThrow-1   └─────────┘
+      //   zThrow-2   ┌─LANE─┬─LANE─┬─LANE─┐  Three target lanes
+      //              │Bottle│Brick │ Cans  │
+      //   zThrow-3   │      │ Wall │       │
+      //   zThrow-4   └──────┴──────┴───────┘
+      //   zThrow-5   ═══ BACKDROP WALL (catches debris) ═══
+      //
+      //   x:  -8 ──── -5 ──── 0 ──── +5 ──── +8
 
-    const arenaBase = new THREE.Mesh(
-      new RoundedBoxGeometry(19.2, 0.18, 10.4, 4, 0.08),
-      throwDeckMat,
-    );
-    arenaBase.position.set(0, bayTopY + 0.09, zThrow - 0.15);
-    arenaBase.receiveShadow = true;
-    addStaticMesh(arenaBase, 'ThrowArenaBase_col', false);
-    addFixedCuboidCollider(new THREE.Vector3(0, bayTopY + 0.09, zThrow - 0.15), new THREE.Vector3(19.2, 0.18, 10.4));
-
-    const centralRunway = new THREE.Mesh(
-      new RoundedBoxGeometry(12.2, 0.08, 3.0, 4, 0.05),
-      throwPanelMat,
-    );
-    centralRunway.position.set(0, bayTopY + 0.14, zThrow - 0.75);
-    centralRunway.receiveShadow = true;
-    addStaticMesh(centralRunway, 'ThrowRunway_col', false);
-    addFixedCuboidCollider(new THREE.Vector3(0, bayTopY + 0.14, zThrow - 0.75), new THREE.Vector3(12.2, 0.08, 3.0));
-
-    const throwDiscOuter = new THREE.Mesh(
-      new THREE.CircleGeometry(1.65, 40),
-      throwMarkOuterMat,
-    );
-    throwDiscOuter.rotation.x = -Math.PI / 2;
-    throwDiscOuter.position.set(0, bayTopY + 0.187, throwMarkZ);
-    addStaticMesh(throwDiscOuter, 'ThrowDiscOuter_col', false);
-
-    const throwDiscInner = new THREE.Mesh(
-      new THREE.CircleGeometry(1.12, 40),
-      throwMarkInnerMat,
-    );
-    throwDiscInner.rotation.x = -Math.PI / 2;
-    throwDiscInner.position.set(0, bayTopY + 0.189, throwMarkZ);
-    addStaticMesh(throwDiscInner, 'ThrowDiscInner_col', false);
-
-    const throwDiscRing = new THREE.Mesh(
-      new THREE.RingGeometry(1.19, 1.34, 48),
-      throwMarkTrimMat,
-    );
-    throwDiscRing.rotation.x = -Math.PI / 2;
-    throwDiscRing.position.set(0, bayTopY + 0.191, throwMarkZ);
-    addStaticMesh(throwDiscRing, 'ThrowDiscRing', false);
-
-    const throwLine = new THREE.Mesh(new THREE.PlaneGeometry(13.6, 0.18), throwMarkTrimMat);
-    throwLine.rotation.x = -Math.PI / 2;
-    throwLine.position.set(0, bayTopY + 0.192, throwLineZ);
-    addStaticMesh(throwLine, 'ThrowLine', false);
-
-    const overheadFrame = new THREE.Mesh(
-      new RoundedBoxGeometry(18.8, 4.2, 0.34, 4, 0.08),
-      throwShellMat,
-    );
-    overheadFrame.position.set(0, bayTopY + 2.25, backdropZ - 0.04);
-    addStaticMesh(overheadFrame, 'ThrowBackdropFrame_col', false);
-    addFixedCuboidCollider(new THREE.Vector3(0, bayTopY + 2.25, backdropZ - 0.04), new THREE.Vector3(18.8, 4.2, 0.34));
-
-    const backdropInset = new THREE.Mesh(
-      new THREE.BoxGeometry(16.9, 3.25, 0.16),
-      throwPanelMat,
-    );
-    backdropInset.position.set(0, bayTopY + 1.75, backdropZ + 0.08);
-    backdropInset.receiveShadow = true;
-    addStaticMesh(backdropInset, 'ThrowBackdrop_col', false);
-    addFixedCuboidCollider(new THREE.Vector3(0, bayTopY + 1.75, backdropZ + 0.08), new THREE.Vector3(16.9, 3.25, 0.16));
-
-    const backdropHeader = new THREE.Mesh(
-      new RoundedBoxGeometry(9.8, 0.48, 0.5, 4, 0.08),
-      throwGlowMat,
-    );
-    backdropHeader.position.set(0, bayTopY + 3.82, backdropZ + 0.12);
-    addStaticMesh(backdropHeader, 'ThrowBackdropHeader', false);
-    addFixedCuboidCollider(new THREE.Vector3(0, bayTopY + 3.82, backdropZ + 0.12), new THREE.Vector3(9.8, 0.48, 0.5));
-
-    for (const px of [-8.25, 8.25]) {
-      const tower = new THREE.Mesh(
-        new RoundedBoxGeometry(1.05, 3.2, 1.2, 4, 0.07),
-        throwSupportMat,
-      );
-      tower.position.set(px, bayTopY + 1.62, zThrow - 0.1);
-      tower.castShadow = true;
-      tower.receiveShadow = true;
-      addStaticMesh(tower, `ThrowSideTower_${px < 0 ? 'L' : 'R'}_col`, false);
-      addFixedCuboidCollider(new THREE.Vector3(px, bayTopY + 1.62, zThrow - 0.1), new THREE.Vector3(1.05, 3.2, 1.2));
-
-      const towerStrip = new THREE.Mesh(
-        new THREE.BoxGeometry(0.16, 2.5, 0.14),
-        throwTrimMat,
-      );
-      towerStrip.position.set(px + (px < 0 ? 0.34 : -0.34), bayTopY + 1.7, zThrow + 0.05);
-      addStaticMesh(towerStrip, `ThrowSideTowerGlow_${px < 0 ? 'L' : 'R'}`, false);
-    }
-
-    const consoleShellMat = new THREE.MeshPhysicalMaterial({
-      color: 0xf46b2c,
-      roughness: 0.34,
-      metalness: 0.0,
-      clearcoat: 1.0,
-      clearcoatRoughness: 0.08,
-      emissive: 0x6d2500,
-      emissiveIntensity: 0.08,
-    });
-    const consoleTopMat = new THREE.MeshStandardMaterial({
-      color: 0x253140,
-      roughness: 0.6,
-      metalness: 0.25,
-    });
-    for (const side of [-1, 1]) {
-      const consoleX = side * 5.8;
-      const console = new THREE.Mesh(
-        new RoundedBoxGeometry(4.2, 0.72, 1.85, 4, 0.07),
-        consoleShellMat,
-      );
-      console.position.set(consoleX, bayTopY + 0.36, pickupConsoleZ);
-      console.castShadow = true;
-      console.receiveShadow = true;
-      addStaticMesh(console, `ThrowPickupConsole_${side < 0 ? 'L' : 'R'}_col`, false);
-      addFixedCuboidCollider(new THREE.Vector3(consoleX, bayTopY + 0.36, pickupConsoleZ), new THREE.Vector3(4.2, 0.72, 1.85));
-
-      const consoleTop = new THREE.Mesh(
-        new THREE.BoxGeometry(3.5, 0.08, 1.18),
-        consoleTopMat,
-      );
-      consoleTop.position.set(consoleX, bayTopY + 0.73, pickupConsoleZ - 0.05);
-      addStaticMesh(consoleTop, `ThrowPickupConsoleTop_${side < 0 ? 'L' : 'R'}`, false);
-
-    }
-
-    const pickupPadXs = [-6.65, -5.4, -4.15, 4.15, 5.4, 6.65];
-    for (const padX of pickupPadXs) {
-      const padBase = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.48, 0.48, 0.05, 24),
-        throwPanelMat,
-      );
-      padBase.position.set(padX, bayTopY + 0.73, pickupConsoleZ - 0.44);
-      addStaticMesh(padBase, `ThrowPickupPadBase_${padX.toFixed(2)}`, false);
-
-      const pad = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.42, 0.42, 0.05, 24),
-        throwTrimMat,
-      );
-      pad.position.set(padX, bayTopY + 0.77, pickupConsoleZ - 0.44);
-      addStaticMesh(pad, `ThrowPickupPad_${padX.toFixed(2)}`, false);
-    }
-
-    const propCrateMat = new THREE.MeshStandardMaterial({
-      color: 0x4a5568,
-      roughness: 0.55,
-      metalness: 0.32,
-    });
-    const propAccentMat = new THREE.MeshStandardMaterial({
-      color: 0x131920,
-      roughness: 0.18,
-      metalness: 0.08,
-      emissive: 0xff8a4d,
-      emissiveIntensity: 1.2,
-    });
-    for (const side of [-1, 1]) {
-      const propX = side * 8.05;
-      const propZ = zThrow - 2.2;
-
-      const crateBase = new THREE.Mesh(
-        new RoundedBoxGeometry(1.25, 0.8, 1.05, 3, 0.05),
-        propCrateMat,
-      );
-      crateBase.position.set(propX, bayTopY + 0.4, propZ);
-      crateBase.castShadow = true;
-      crateBase.receiveShadow = true;
-      addStaticMesh(crateBase, `ThrowPropCrateBase_${side < 0 ? 'L' : 'R'}`, false);
-      addFixedCuboidCollider(new THREE.Vector3(propX, bayTopY + 0.4, propZ), new THREE.Vector3(1.25, 0.8, 1.05));
-
-      const crateTop = new THREE.Mesh(
-        new RoundedBoxGeometry(0.8, 0.52, 0.8, 3, 0.04),
-        propCrateMat,
-      );
-      crateTop.position.set(propX + side * 0.34, bayTopY + 1.06, propZ + 0.14);
-      crateTop.castShadow = true;
-      crateTop.receiveShadow = true;
-      addStaticMesh(crateTop, `ThrowPropCrateTop_${side < 0 ? 'L' : 'R'}`, false);
-      addFixedCuboidCollider(new THREE.Vector3(propX + side * 0.34, bayTopY + 1.06, propZ + 0.14), new THREE.Vector3(0.8, 0.52, 0.8));
-
-      for (let i = 0; i < 3; i++) {
-        const canister = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.14, 0.14, 0.58, 12),
-          propAccentMat,
+      const targetZ = zThrow - 2.45;
+      const throwLineZ = zThrow + 1.7;
+      const throwMarkZ = zThrow + 2.45;
+      const pickupConsoleZ = zThrow + 2.55;
+      const backdropZ = zThrow - 4.35;
+      const laneStartZ = throwLineZ - 0.35;
+      const laneEndZ = targetZ + 0.9;
+      const laneLength = laneStartZ - laneEndZ;
+      const laneThemes = [
+        { x: -5, color: 0x4aa6ff, glow: 0x77d7ff, name: "Bottle" },
+        { x: 0, color: 0xff7a38, glow: 0xffb066, name: "Impact" },
+        { x: 5, color: 0x54df94, glow: 0x94ffc2, name: "Can" },
+      ] as const;
+      const addStaticMesh = (mesh: THREE.Mesh, name: string, withCollider = true): THREE.Mesh => {
+        mesh.name = name;
+        this.scene.add(mesh);
+        this.meshes.push(mesh);
+        if (withCollider) {
+          mesh.updateWorldMatrix(true, false);
+          this.colliders.push(this.colliderFactory.createTrimesh(mesh));
+        }
+        return mesh;
+      };
+      const addFixedCuboidCollider = (center: THREE.Vector3, size: THREE.Vector3, kind = "throw-station"): void => {
+        const body = this.physicsWorld.world.createRigidBody(
+          RAPIER.RigidBodyDesc.fixed().setTranslation(center.x, center.y, center.z),
         );
-        canister.position.set(propX + side * (-0.35 + i * 0.24), bayTopY + 0.3, zThrow + 3.05);
-        addStaticMesh(canister, `ThrowPropCanister_${side < 0 ? 'L' : 'R'}_${i}`, false);
+        body.userData = { kind };
+        const collider = this.physicsWorld.world.createCollider(
+          RAPIER.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2)
+            .setFriction(0.7)
+            .setCollisionGroups(COLLISION_GROUP_WORLD),
+          body,
+        );
+        this.bodies.push(body);
+        this.colliders.push(collider);
+      };
+
+      const throwShellMat = new THREE.MeshPhysicalMaterial({
+        color: 0xff6a1a,
+        roughness: 0.28,
+        metalness: 0.0,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.08,
+        emissive: 0x9a3100,
+        emissiveIntensity: 0.12,
+      });
+      const throwPanelMat = new THREE.MeshStandardMaterial({
+        color: 0x1f2734,
+        roughness: 0.72,
+        metalness: 0.18,
+      });
+      const throwDeckMat = new THREE.MeshStandardMaterial({
+        color: 0x2b3240,
+        roughness: 0.82,
+        metalness: 0.08,
+      });
+      const throwTrimMat = new THREE.MeshStandardMaterial({
+        color: 0x0b141f,
+        roughness: 0.24,
+        metalness: 0.2,
+        emissive: 0x52d6ff,
+        emissiveIntensity: 1.65,
+      });
+      const throwGlowMat = new THREE.MeshStandardMaterial({
+        color: 0x090a0d,
+        roughness: 0.15,
+        metalness: 0.0,
+        emissive: 0xff934d,
+        emissiveIntensity: 2.2,
+      });
+      const throwMarkOuterMat = new THREE.MeshStandardMaterial({
+        color: 0xff7b2e,
+        roughness: 0.28,
+        metalness: 0.0,
+        emissive: 0xaa3200,
+        emissiveIntensity: 0.16,
+      });
+      throwMarkOuterMat.polygonOffset = true;
+      throwMarkOuterMat.polygonOffsetFactor = -2;
+      throwMarkOuterMat.polygonOffsetUnits = -4;
+      const throwMarkInnerMat = new THREE.MeshStandardMaterial({
+        color: 0x263140,
+        roughness: 0.72,
+        metalness: 0.16,
+      });
+      throwMarkInnerMat.polygonOffset = true;
+      throwMarkInnerMat.polygonOffsetFactor = -3;
+      throwMarkInnerMat.polygonOffsetUnits = -5;
+      const throwMarkTrimMat = new THREE.MeshStandardMaterial({
+        color: 0x151c24,
+        roughness: 0.18,
+        metalness: 0.0,
+        emissive: 0xff964f,
+        emissiveIntensity: 1.8,
+      });
+      throwMarkTrimMat.polygonOffset = true;
+      throwMarkTrimMat.polygonOffsetFactor = -4;
+      throwMarkTrimMat.polygonOffsetUnits = -6;
+      const throwSupportMat = new THREE.MeshStandardMaterial({
+        color: 0x637184,
+        roughness: 0.4,
+        metalness: 0.45,
+      });
+
+      const arenaBase = new THREE.Mesh(new RoundedBoxGeometry(19.2, 0.18, 10.4, 4, 0.08), throwDeckMat);
+      arenaBase.position.set(0, bayTopY + 0.09, zThrow - 0.15);
+      arenaBase.receiveShadow = true;
+      addStaticMesh(arenaBase, "ThrowArenaBase_col", false);
+      addFixedCuboidCollider(new THREE.Vector3(0, bayTopY + 0.09, zThrow - 0.15), new THREE.Vector3(19.2, 0.18, 10.4));
+
+      const centralRunway = new THREE.Mesh(new RoundedBoxGeometry(12.2, 0.08, 3.0, 4, 0.05), throwPanelMat);
+      centralRunway.position.set(0, bayTopY + 0.14, zThrow - 0.75);
+      centralRunway.receiveShadow = true;
+      addStaticMesh(centralRunway, "ThrowRunway_col", false);
+      addFixedCuboidCollider(new THREE.Vector3(0, bayTopY + 0.14, zThrow - 0.75), new THREE.Vector3(12.2, 0.08, 3.0));
+
+      const throwDiscOuter = new THREE.Mesh(new THREE.CircleGeometry(1.65, 40), throwMarkOuterMat);
+      throwDiscOuter.rotation.x = -Math.PI / 2;
+      throwDiscOuter.position.set(0, bayTopY + 0.187, throwMarkZ);
+      addStaticMesh(throwDiscOuter, "ThrowDiscOuter_col", false);
+
+      const throwDiscInner = new THREE.Mesh(new THREE.CircleGeometry(1.12, 40), throwMarkInnerMat);
+      throwDiscInner.rotation.x = -Math.PI / 2;
+      throwDiscInner.position.set(0, bayTopY + 0.189, throwMarkZ);
+      addStaticMesh(throwDiscInner, "ThrowDiscInner_col", false);
+
+      const throwDiscRing = new THREE.Mesh(new THREE.RingGeometry(1.19, 1.34, 48), throwMarkTrimMat);
+      throwDiscRing.rotation.x = -Math.PI / 2;
+      throwDiscRing.position.set(0, bayTopY + 0.191, throwMarkZ);
+      addStaticMesh(throwDiscRing, "ThrowDiscRing", false);
+
+      const throwLine = new THREE.Mesh(new THREE.PlaneGeometry(13.6, 0.18), throwMarkTrimMat);
+      throwLine.rotation.x = -Math.PI / 2;
+      throwLine.position.set(0, bayTopY + 0.192, throwLineZ);
+      addStaticMesh(throwLine, "ThrowLine", false);
+
+      const overheadFrame = new THREE.Mesh(new RoundedBoxGeometry(18.8, 4.2, 0.34, 4, 0.08), throwShellMat);
+      overheadFrame.position.set(0, bayTopY + 2.25, backdropZ - 0.04);
+      addStaticMesh(overheadFrame, "ThrowBackdropFrame_col", false);
+      addFixedCuboidCollider(
+        new THREE.Vector3(0, bayTopY + 2.25, backdropZ - 0.04),
+        new THREE.Vector3(18.8, 4.2, 0.34),
+      );
+
+      const backdropInset = new THREE.Mesh(new THREE.BoxGeometry(16.9, 3.25, 0.16), throwPanelMat);
+      backdropInset.position.set(0, bayTopY + 1.75, backdropZ + 0.08);
+      backdropInset.receiveShadow = true;
+      addStaticMesh(backdropInset, "ThrowBackdrop_col", false);
+      addFixedCuboidCollider(
+        new THREE.Vector3(0, bayTopY + 1.75, backdropZ + 0.08),
+        new THREE.Vector3(16.9, 3.25, 0.16),
+      );
+
+      const backdropHeader = new THREE.Mesh(new RoundedBoxGeometry(9.8, 0.48, 0.5, 4, 0.08), throwGlowMat);
+      backdropHeader.position.set(0, bayTopY + 3.82, backdropZ + 0.12);
+      addStaticMesh(backdropHeader, "ThrowBackdropHeader", false);
+      addFixedCuboidCollider(new THREE.Vector3(0, bayTopY + 3.82, backdropZ + 0.12), new THREE.Vector3(9.8, 0.48, 0.5));
+
+      for (const px of [-8.25, 8.25]) {
+        const tower = new THREE.Mesh(new RoundedBoxGeometry(1.05, 3.2, 1.2, 4, 0.07), throwSupportMat);
+        tower.position.set(px, bayTopY + 1.62, zThrow - 0.1);
+        tower.castShadow = true;
+        tower.receiveShadow = true;
+        addStaticMesh(tower, `ThrowSideTower_${px < 0 ? "L" : "R"}_col`, false);
+        addFixedCuboidCollider(new THREE.Vector3(px, bayTopY + 1.62, zThrow - 0.1), new THREE.Vector3(1.05, 3.2, 1.2));
+
+        const towerStrip = new THREE.Mesh(new THREE.BoxGeometry(0.16, 2.5, 0.14), throwTrimMat);
+        towerStrip.position.set(px + (px < 0 ? 0.34 : -0.34), bayTopY + 1.7, zThrow + 0.05);
+        addStaticMesh(towerStrip, `ThrowSideTowerGlow_${px < 0 ? "L" : "R"}`, false);
       }
 
-    }
+      const consoleShellMat = new THREE.MeshPhysicalMaterial({
+        color: 0xf46b2c,
+        roughness: 0.34,
+        metalness: 0.0,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.08,
+        emissive: 0x6d2500,
+        emissiveIntensity: 0.08,
+      });
+      const consoleTopMat = new THREE.MeshStandardMaterial({
+        color: 0x253140,
+        roughness: 0.6,
+        metalness: 0.25,
+      });
+      for (const side of [-1, 1]) {
+        const consoleX = side * 5.8;
+        const console = new THREE.Mesh(new RoundedBoxGeometry(4.2, 0.72, 1.85, 4, 0.07), consoleShellMat);
+        console.position.set(consoleX, bayTopY + 0.36, pickupConsoleZ);
+        console.castShadow = true;
+        console.receiveShadow = true;
+        addStaticMesh(console, `ThrowPickupConsole_${side < 0 ? "L" : "R"}_col`, false);
+        addFixedCuboidCollider(
+          new THREE.Vector3(consoleX, bayTopY + 0.36, pickupConsoleZ),
+          new THREE.Vector3(4.2, 0.72, 1.85),
+        );
 
-    for (const side of [-1, 1]) {
-      for (let i = 0; i < 3; i++) {
-        const decal = new THREE.Mesh(
-          new THREE.BoxGeometry(0.55, 0.015, 0.4),
+        const consoleTop = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.08, 1.18), consoleTopMat);
+        consoleTop.position.set(consoleX, bayTopY + 0.73, pickupConsoleZ - 0.05);
+        addStaticMesh(consoleTop, `ThrowPickupConsoleTop_${side < 0 ? "L" : "R"}`, false);
+      }
+
+      const pickupPadXs = [-6.65, -5.4, -4.15, 4.15, 5.4, 6.65];
+      for (const padX of pickupPadXs) {
+        const padBase = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.48, 0.05, 24), throwPanelMat);
+        padBase.position.set(padX, bayTopY + 0.73, pickupConsoleZ - 0.44);
+        addStaticMesh(padBase, `ThrowPickupPadBase_${padX.toFixed(2)}`, false);
+
+        const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.05, 24), throwTrimMat);
+        pad.position.set(padX, bayTopY + 0.77, pickupConsoleZ - 0.44);
+        addStaticMesh(pad, `ThrowPickupPad_${padX.toFixed(2)}`, false);
+      }
+
+      const propCrateMat = new THREE.MeshStandardMaterial({
+        color: 0x4a5568,
+        roughness: 0.55,
+        metalness: 0.32,
+      });
+      const propAccentMat = new THREE.MeshStandardMaterial({
+        color: 0x131920,
+        roughness: 0.18,
+        metalness: 0.08,
+        emissive: 0xff8a4d,
+        emissiveIntensity: 1.2,
+      });
+      for (const side of [-1, 1]) {
+        const propX = side * 8.05;
+        const propZ = zThrow - 2.2;
+
+        const crateBase = new THREE.Mesh(new RoundedBoxGeometry(1.25, 0.8, 1.05, 3, 0.05), propCrateMat);
+        crateBase.position.set(propX, bayTopY + 0.4, propZ);
+        crateBase.castShadow = true;
+        crateBase.receiveShadow = true;
+        addStaticMesh(crateBase, `ThrowPropCrateBase_${side < 0 ? "L" : "R"}`, false);
+        addFixedCuboidCollider(new THREE.Vector3(propX, bayTopY + 0.4, propZ), new THREE.Vector3(1.25, 0.8, 1.05));
+
+        const crateTop = new THREE.Mesh(new RoundedBoxGeometry(0.8, 0.52, 0.8, 3, 0.04), propCrateMat);
+        crateTop.position.set(propX + side * 0.34, bayTopY + 1.06, propZ + 0.14);
+        crateTop.castShadow = true;
+        crateTop.receiveShadow = true;
+        addStaticMesh(crateTop, `ThrowPropCrateTop_${side < 0 ? "L" : "R"}`, false);
+        addFixedCuboidCollider(
+          new THREE.Vector3(propX + side * 0.34, bayTopY + 1.06, propZ + 0.14),
+          new THREE.Vector3(0.8, 0.52, 0.8),
+        );
+
+        for (let i = 0; i < 3; i++) {
+          const canister = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.58, 12), propAccentMat);
+          canister.position.set(propX + side * (-0.35 + i * 0.24), bayTopY + 0.3, zThrow + 3.05);
+          addStaticMesh(canister, `ThrowPropCanister_${side < 0 ? "L" : "R"}_${i}`, false);
+        }
+      }
+
+      for (const side of [-1, 1]) {
+        for (let i = 0; i < 3; i++) {
+          const decal = new THREE.Mesh(
+            new THREE.BoxGeometry(0.55, 0.015, 0.4),
+            new THREE.MeshStandardMaterial({
+              color: 0x15181d,
+              roughness: 0.2,
+              metalness: 0.0,
+              emissive: i === 1 ? 0xff934d : 0x52d6ff,
+              emissiveIntensity: 1.3,
+            }),
+          );
+          decal.position.set(side * 7.4, bayTopY + 0.11, zThrow + 1.15 - i * 1.15);
+          decal.rotation.y = side * 0.42;
+          addStaticMesh(decal, `ThrowEdgeDecal_${side < 0 ? "L" : "R"}_${i}`, false);
+        }
+      }
+
+      for (const theme of laneThemes) {
+        const laneDeck = new THREE.Mesh(new RoundedBoxGeometry(3.4, 0.12, laneLength + 1.1, 4, 0.04), throwPanelMat);
+        laneDeck.position.set(theme.x, bayTopY + 0.13, (laneStartZ + laneEndZ) * 0.5);
+        laneDeck.receiveShadow = true;
+        addStaticMesh(laneDeck, `ThrowLaneDeck_${theme.name}`, false);
+
+        const laneBorder = new THREE.Mesh(
+          new THREE.BoxGeometry(3.05, 0.04, laneLength + 0.4),
           new THREE.MeshStandardMaterial({
-            color: 0x15181d,
-            roughness: 0.2,
+            color: 0x0b0d11,
+            roughness: 0.18,
             metalness: 0.0,
-            emissive: i === 1 ? 0xff934d : 0x52d6ff,
-            emissiveIntensity: 1.3,
+            emissive: theme.color,
+            emissiveIntensity: 1.4,
           }),
         );
-        decal.position.set(side * 7.4, bayTopY + 0.11, zThrow + 1.15 - i * 1.15);
-        decal.rotation.y = side * 0.42;
-        addStaticMesh(decal, `ThrowEdgeDecal_${side < 0 ? 'L' : 'R'}_${i}`, false);
+        laneBorder.position.set(theme.x, bayTopY + 0.2, (laneStartZ + laneEndZ) * 0.5);
+        addStaticMesh(laneBorder, `ThrowLaneBorder_${theme.name}`, false);
+
+        const laneGuide = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.04, laneLength + 0.7), throwTrimMat);
+        laneGuide.position.set(theme.x, bayTopY + 0.24, (laneStartZ + laneEndZ) * 0.5);
+        addStaticMesh(laneGuide, `ThrowLaneGuide_${theme.name}`, false);
+
+        const laneBackboard = new THREE.Mesh(
+          new RoundedBoxGeometry(3.1, 2.3, 0.18, 4, 0.06),
+          new THREE.MeshStandardMaterial({
+            color: 0x202631,
+            roughness: 0.7,
+            metalness: 0.18,
+            emissive: theme.color,
+            emissiveIntensity: 0.16,
+          }),
+        );
+        laneBackboard.position.set(theme.x, bayTopY + 1.52, targetZ - 0.95);
+        addStaticMesh(laneBackboard, `ThrowLaneBackboard_${theme.name}`, false);
+        addFixedCuboidCollider(
+          new THREE.Vector3(theme.x, bayTopY + 1.52, targetZ - 0.95),
+          new THREE.Vector3(3.1, 2.3, 0.18),
+        );
+
+        const laneHalo = new THREE.Mesh(
+          new RoundedBoxGeometry(2.5, 0.18, 0.16, 4, 0.04),
+          new THREE.MeshStandardMaterial({
+            color: 0x111317,
+            roughness: 0.2,
+            metalness: 0.0,
+            emissive: theme.glow,
+            emissiveIntensity: 2.0,
+          }),
+        );
+        laneHalo.position.set(theme.x, bayTopY + 2.42, targetZ - 0.77);
+        addStaticMesh(laneHalo, `ThrowLaneHalo_${theme.name}`, false);
+
+        const accentLight = new THREE.PointLight(theme.glow, theme.x === 0 ? 18 : 12, 9, 2);
+        accentLight.position.set(theme.x, bayTopY + 2.65, targetZ - 0.15);
+        accentLight.castShadow = false;
+        this.scene.add(accentLight);
+        this.meshes.push(accentLight);
       }
-    }
 
-    for (const theme of laneThemes) {
-      const laneDeck = new THREE.Mesh(
-        new RoundedBoxGeometry(3.4, 0.12, laneLength + 1.1, 4, 0.04),
-        throwPanelMat,
-      );
-      laneDeck.position.set(theme.x, bayTopY + 0.13, (laneStartZ + laneEndZ) * 0.5);
-      laneDeck.receiveShadow = true;
-      addStaticMesh(laneDeck, `ThrowLaneDeck_${theme.name}`, false);
-
-      const laneBorder = new THREE.Mesh(
-        new THREE.BoxGeometry(3.05, 0.04, laneLength + 0.4),
+      const bottlePedestal = new THREE.Mesh(
+        new RoundedBoxGeometry(3.2, 0.72, 2.3, 4, 0.06),
         new THREE.MeshStandardMaterial({
-          color: 0x0b0d11,
-          roughness: 0.18,
-          metalness: 0.0,
-          emissive: theme.color,
-          emissiveIntensity: 1.4,
+          color: 0x305f9a,
+          roughness: 0.45,
+          metalness: 0.22,
         }),
       );
-      laneBorder.position.set(theme.x, bayTopY + 0.2, (laneStartZ + laneEndZ) * 0.5);
-      addStaticMesh(laneBorder, `ThrowLaneBorder_${theme.name}`, false);
+      bottlePedestal.position.set(-5, bayTopY + 0.36, targetZ);
+      bottlePedestal.receiveShadow = true;
+      addStaticMesh(bottlePedestal, "BottlePedestal_col", false);
+      addFixedCuboidCollider(new THREE.Vector3(-5, bayTopY + 0.36, targetZ), new THREE.Vector3(3.2, 0.72, 2.3));
 
-      const laneGuide = new THREE.Mesh(
-        new THREE.BoxGeometry(0.14, 0.04, laneLength + 0.7),
-        throwTrimMat,
-      );
-      laneGuide.position.set(theme.x, bayTopY + 0.24, (laneStartZ + laneEndZ) * 0.5);
-      addStaticMesh(laneGuide, `ThrowLaneGuide_${theme.name}`, false);
+      const bottlePedestalTop = new THREE.Mesh(new THREE.BoxGeometry(2.55, 0.08, 1.6), throwPanelMat);
+      bottlePedestalTop.position.set(-5, bayTopY + 0.74, targetZ);
+      addStaticMesh(bottlePedestalTop, "BottlePedestalTop", false);
 
-      const laneBackboard = new THREE.Mesh(
-        new RoundedBoxGeometry(3.1, 2.3, 0.18, 4, 0.06),
-        new THREE.MeshStandardMaterial({
-          color: 0x202631,
-          roughness: 0.7,
-          metalness: 0.18,
-          emissive: theme.color,
-          emissiveIntensity: 0.16,
-        }),
-      );
-      laneBackboard.position.set(theme.x, bayTopY + 1.52, targetZ - 0.95);
-      addStaticMesh(laneBackboard, `ThrowLaneBackboard_${theme.name}`, false);
-      addFixedCuboidCollider(new THREE.Vector3(theme.x, bayTopY + 1.52, targetZ - 0.95), new THREE.Vector3(3.1, 2.3, 0.18));
-
-      const laneHalo = new THREE.Mesh(
-        new RoundedBoxGeometry(2.5, 0.18, 0.16, 4, 0.04),
-        new THREE.MeshStandardMaterial({
-          color: 0x111317,
-          roughness: 0.2,
-          metalness: 0.0,
-          emissive: theme.glow,
-          emissiveIntensity: 2.0,
-        }),
-      );
-      laneHalo.position.set(theme.x, bayTopY + 2.42, targetZ - 0.77);
-      addStaticMesh(laneHalo, `ThrowLaneHalo_${theme.name}`, false);
-
-      const accentLight = new THREE.PointLight(theme.glow, theme.x === 0 ? 18 : 12, 9, 2);
-      accentLight.position.set(theme.x, bayTopY + 2.65, targetZ - 0.15);
-      accentLight.castShadow = false;
-      this.scene.add(accentLight);
-      this.meshes.push(accentLight);
-    }
-
-    const bottlePedestal = new THREE.Mesh(
-      new RoundedBoxGeometry(3.2, 0.72, 2.3, 4, 0.06),
-      new THREE.MeshStandardMaterial({
-        color: 0x305f9a,
-        roughness: 0.45,
-        metalness: 0.22,
-      }),
-    );
-    bottlePedestal.position.set(-5, bayTopY + 0.36, targetZ);
-    bottlePedestal.receiveShadow = true;
-    addStaticMesh(bottlePedestal, 'BottlePedestal_col', false);
-    addFixedCuboidCollider(new THREE.Vector3(-5, bayTopY + 0.36, targetZ), new THREE.Vector3(3.2, 0.72, 2.3));
-
-    const bottlePedestalTop = new THREE.Mesh(
-      new THREE.BoxGeometry(2.55, 0.08, 1.6),
-      throwPanelMat,
-    );
-    bottlePedestalTop.position.set(-5, bayTopY + 0.74, targetZ);
-    addStaticMesh(bottlePedestalTop, 'BottlePedestalTop', false);
-
-    const bottleMat = new THREE.MeshStandardMaterial({
-      color: 0xf4e2c8,
-      roughness: 0.24,
-      metalness: 0.05,
-    });
-    const bottleR = 0.12;
-    const bottleH = 0.22;
-    const bottleBaseX = -5;
-    const bottleTop = bayTopY + 0.74;
-    const bottleSpacing = bottleR * 2.8;
-    [
-      [bottleBaseX - bottleSpacing, bottleBaseX, bottleBaseX + bottleSpacing],
-      [bottleBaseX - bottleSpacing * 0.5, bottleBaseX + bottleSpacing * 0.5],
-      [bottleBaseX],
-    ].forEach((row, rowIdx) => {
-      row.forEach((x) => {
-        const y = bottleTop + bottleH + rowIdx * bottleH * 2;
-        const mesh = new THREE.Mesh(
-          new THREE.CylinderGeometry(bottleR * 0.65, bottleR, bottleH * 2, 10),
-          bottleMat,
-        );
-        mesh.position.set(x, y, targetZ);
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        this.scene.add(mesh);
-        this.meshes.push(mesh);
-        const bd = RAPIER.RigidBodyDesc.dynamic().setTranslation(x, y, targetZ);
-        const body = this.physicsWorld.world.createRigidBody(bd);
-        body.setLinearDamping(0.18);
-        body.setAngularDamping(0.48);
-        this.physicsWorld.world.createCollider(
-          RAPIER.ColliderDesc.cylinder(bottleH, bottleR)
-            .setFriction(0.5)
-            .setRestitution(0.15)
-            .setMass(0.72)
-            .setCollisionGroups(COLLISION_GROUP_WORLD),
-          body,
-        );
-        body.userData = { kind: 'throwable' };
-        this.bodies.push(body);
-        this.dynamicBodiesArr.push({
-          mesh,
-          body,
-          prevPos: new THREE.Vector3(x, y, targetZ),
-          currPos: new THREE.Vector3(x, y, targetZ),
-          prevQuat: new THREE.Quaternion(),
-          currQuat: new THREE.Quaternion(),
-          hasPose: false,
+      const bottleMat = new THREE.MeshStandardMaterial({
+        color: 0xf4e2c8,
+        roughness: 0.24,
+        metalness: 0.05,
+      });
+      const bottleR = 0.12;
+      const bottleH = 0.22;
+      const bottleBaseX = -5;
+      const bottleTop = bayTopY + 0.74;
+      const bottleSpacing = bottleR * 2.8;
+      [
+        [bottleBaseX - bottleSpacing, bottleBaseX, bottleBaseX + bottleSpacing],
+        [bottleBaseX - bottleSpacing * 0.5, bottleBaseX + bottleSpacing * 0.5],
+        [bottleBaseX],
+      ].forEach((row, rowIdx) => {
+        row.forEach((x) => {
+          const y = bottleTop + bottleH + rowIdx * bottleH * 2;
+          const mesh = new THREE.Mesh(new THREE.CylinderGeometry(bottleR * 0.65, bottleR, bottleH * 2, 10), bottleMat);
+          mesh.position.set(x, y, targetZ);
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          this.scene.add(mesh);
+          this.meshes.push(mesh);
+          const bd = RAPIER.RigidBodyDesc.dynamic().setTranslation(x, y, targetZ);
+          const body = this.physicsWorld.world.createRigidBody(bd);
+          body.setLinearDamping(0.18);
+          body.setAngularDamping(0.48);
+          this.physicsWorld.world.createCollider(
+            RAPIER.ColliderDesc.cylinder(bottleH, bottleR)
+              .setFriction(0.5)
+              .setRestitution(0.15)
+              .setMass(0.72)
+              .setCollisionGroups(COLLISION_GROUP_WORLD),
+            body,
+          );
+          body.userData = { kind: "throwable" };
+          this.bodies.push(body);
+          this.dynamicBodiesArr.push({
+            mesh,
+            body,
+            prevPos: new THREE.Vector3(x, y, targetZ),
+            currPos: new THREE.Vector3(x, y, targetZ),
+            prevQuat: new THREE.Quaternion(),
+            currQuat: new THREE.Quaternion(),
+            hasPose: false,
+          });
         });
       });
-    });
 
-    const impactPedestal = new THREE.Mesh(
-      new RoundedBoxGeometry(3.55, 0.78, 2.45, 4, 0.06),
-      throwShellMat,
-    );
-    impactPedestal.position.set(0, bayTopY + 0.39, targetZ);
-    impactPedestal.receiveShadow = true;
-    addStaticMesh(impactPedestal, 'ImpactPedestal_col', false);
-    addFixedCuboidCollider(new THREE.Vector3(0, bayTopY + 0.39, targetZ), new THREE.Vector3(3.55, 0.78, 2.45));
+      const impactPedestal = new THREE.Mesh(new RoundedBoxGeometry(3.55, 0.78, 2.45, 4, 0.06), throwShellMat);
+      impactPedestal.position.set(0, bayTopY + 0.39, targetZ);
+      impactPedestal.receiveShadow = true;
+      addStaticMesh(impactPedestal, "ImpactPedestal_col", false);
+      addFixedCuboidCollider(new THREE.Vector3(0, bayTopY + 0.39, targetZ), new THREE.Vector3(3.55, 0.78, 2.45));
 
-    const impactFace = new THREE.Mesh(
-      new THREE.BoxGeometry(2.7, 1.7, 0.1),
-      new THREE.MeshStandardMaterial({
-        color: 0x31160d,
-        roughness: 0.65,
-        metalness: 0.1,
-        emissive: 0xff7a38,
-        emissiveIntensity: 0.18,
-      }),
-    );
-    impactFace.position.set(0, bayTopY + 1.18, targetZ - 0.78);
-    addStaticMesh(impactFace, 'ImpactLaneFace', false);
+      const impactFace = new THREE.Mesh(
+        new THREE.BoxGeometry(2.7, 1.7, 0.1),
+        new THREE.MeshStandardMaterial({
+          color: 0x31160d,
+          roughness: 0.65,
+          metalness: 0.1,
+          emissive: 0xff7a38,
+          emissiveIntensity: 0.18,
+        }),
+      );
+      impactFace.position.set(0, bayTopY + 1.18, targetZ - 0.78);
+      addStaticMesh(impactFace, "ImpactLaneFace", false);
 
-    const targetMat = new THREE.MeshStandardMaterial({
-      color: 0xb52e2e,
-      roughness: 0.62,
-      metalness: 0.04,
-      emissive: 0x240707,
-      emissiveIntensity: 0.08,
-    });
-    for (let row = 0; row < 5; row++) {
-      for (let col = 0; col < 6; col++) {
-        const brickW = 0.4;
-        const brickH = 0.25;
-        const brickD = 0.22;
-        const xOff = (row % 2 === 0) ? 0 : brickW * 0.5;
-        const x = (col - 2.5) * brickW + xOff;
-        const y = bayTopY + 0.79 + brickH * 0.5 + row * brickH;
-        this.createDynamicBox(
-          `Target_${row}_${col}`,
-          new THREE.Vector3(x, y, targetZ),
-          new THREE.Vector3(brickW, brickH, brickD),
-          targetMat,
-          { mass: 0.65, linearDamping: 0.35, angularDamping: 0.9 },
-        );
+      const targetMat = new THREE.MeshStandardMaterial({
+        color: 0xb52e2e,
+        roughness: 0.62,
+        metalness: 0.04,
+        emissive: 0x240707,
+        emissiveIntensity: 0.08,
+      });
+      for (let row = 0; row < 5; row++) {
+        for (let col = 0; col < 6; col++) {
+          const brickW = 0.4;
+          const brickH = 0.25;
+          const brickD = 0.22;
+          const xOff = row % 2 === 0 ? 0 : brickW * 0.5;
+          const x = (col - 2.5) * brickW + xOff;
+          const y = bayTopY + 0.79 + brickH * 0.5 + row * brickH;
+          this.createDynamicBox(
+            `Target_${row}_${col}`,
+            new THREE.Vector3(x, y, targetZ),
+            new THREE.Vector3(brickW, brickH, brickD),
+            targetMat,
+            { mass: 0.65, linearDamping: 0.35, angularDamping: 0.9 },
+          );
+        }
       }
-    }
 
-    const canPedestal = new THREE.Mesh(
-      new RoundedBoxGeometry(3.2, 0.72, 2.3, 4, 0.06),
-      new THREE.MeshStandardMaterial({
-        color: 0x287653,
-        roughness: 0.42,
-        metalness: 0.25,
-      }),
-    );
-    canPedestal.position.set(5, bayTopY + 0.36, targetZ);
-    canPedestal.receiveShadow = true;
-    addStaticMesh(canPedestal, 'CanPedestal_col', false);
-    addFixedCuboidCollider(new THREE.Vector3(5, bayTopY + 0.36, targetZ), new THREE.Vector3(3.2, 0.72, 2.3));
+      const canPedestal = new THREE.Mesh(
+        new RoundedBoxGeometry(3.2, 0.72, 2.3, 4, 0.06),
+        new THREE.MeshStandardMaterial({
+          color: 0x287653,
+          roughness: 0.42,
+          metalness: 0.25,
+        }),
+      );
+      canPedestal.position.set(5, bayTopY + 0.36, targetZ);
+      canPedestal.receiveShadow = true;
+      addStaticMesh(canPedestal, "CanPedestal_col", false);
+      addFixedCuboidCollider(new THREE.Vector3(5, bayTopY + 0.36, targetZ), new THREE.Vector3(3.2, 0.72, 2.3));
 
-    const canPedestalTop = new THREE.Mesh(
-      new THREE.BoxGeometry(2.55, 0.08, 1.6),
-      throwPanelMat,
-    );
-    canPedestalTop.position.set(5, bayTopY + 0.74, targetZ);
-    addStaticMesh(canPedestalTop, 'CanPedestalTop', false);
+      const canPedestalTop = new THREE.Mesh(new THREE.BoxGeometry(2.55, 0.08, 1.6), throwPanelMat);
+      canPedestalTop.position.set(5, bayTopY + 0.74, targetZ);
+      addStaticMesh(canPedestalTop, "CanPedestalTop", false);
 
-    const canMat = new THREE.MeshStandardMaterial({
-      color: 0xc8d0d5,
-      roughness: 0.22,
-      metalness: 0.84,
-    });
-    const canR = 0.1;
-    const canH = 0.14;
-    const canBaseX = 5;
-    const canTop = bayTopY + 0.74;
-    const canSpacing = canR * 2.7;
-    [
-      [-1.5, -0.5, 0.5, 1.5].map(i => canBaseX + i * canSpacing),
-      [-1, 0, 1].map(i => canBaseX + i * canSpacing),
-      [-0.5, 0.5].map(i => canBaseX + i * canSpacing),
-      [canBaseX],
-    ].forEach((row, rowIdx) => {
-      row.forEach((x) => {
-        const y = canTop + canH + rowIdx * canH * 2;
-        const mesh = new THREE.Mesh(
-          new THREE.CylinderGeometry(canR, canR, canH * 2, 8),
-          canMat,
-        );
-        mesh.position.set(x, y, targetZ);
-        mesh.castShadow = true;
-        this.scene.add(mesh);
-        this.meshes.push(mesh);
-        const bd = RAPIER.RigidBodyDesc.dynamic().setTranslation(x, y, targetZ);
-        const body = this.physicsWorld.world.createRigidBody(bd);
-        body.setLinearDamping(0.24);
-        body.setAngularDamping(0.64);
-        this.physicsWorld.world.createCollider(
-          RAPIER.ColliderDesc.cylinder(canH, canR)
-            .setFriction(0.3)
-            .setRestitution(0.35)
-            .setMass(0.16)
-            .setCollisionGroups(COLLISION_GROUP_WORLD),
-          body,
-        );
-        body.userData = { kind: 'throwable' };
-        this.bodies.push(body);
-        this.dynamicBodiesArr.push({
-          mesh,
-          body,
-          prevPos: new THREE.Vector3(x, y, targetZ),
-          currPos: new THREE.Vector3(x, y, targetZ),
-          prevQuat: new THREE.Quaternion(),
-          currQuat: new THREE.Quaternion(),
-          hasPose: false,
+      const canMat = new THREE.MeshStandardMaterial({
+        color: 0xc8d0d5,
+        roughness: 0.22,
+        metalness: 0.84,
+      });
+      const canR = 0.1;
+      const canH = 0.14;
+      const canBaseX = 5;
+      const canTop = bayTopY + 0.74;
+      const canSpacing = canR * 2.7;
+      [
+        [-1.5, -0.5, 0.5, 1.5].map((i) => canBaseX + i * canSpacing),
+        [-1, 0, 1].map((i) => canBaseX + i * canSpacing),
+        [-0.5, 0.5].map((i) => canBaseX + i * canSpacing),
+        [canBaseX],
+      ].forEach((row, rowIdx) => {
+        row.forEach((x) => {
+          const y = canTop + canH + rowIdx * canH * 2;
+          const mesh = new THREE.Mesh(new THREE.CylinderGeometry(canR, canR, canH * 2, 8), canMat);
+          mesh.position.set(x, y, targetZ);
+          mesh.castShadow = true;
+          this.scene.add(mesh);
+          this.meshes.push(mesh);
+          const bd = RAPIER.RigidBodyDesc.dynamic().setTranslation(x, y, targetZ);
+          const body = this.physicsWorld.world.createRigidBody(bd);
+          body.setLinearDamping(0.24);
+          body.setAngularDamping(0.64);
+          this.physicsWorld.world.createCollider(
+            RAPIER.ColliderDesc.cylinder(canH, canR)
+              .setFriction(0.3)
+              .setRestitution(0.35)
+              .setMass(0.16)
+              .setCollisionGroups(COLLISION_GROUP_WORLD),
+            body,
+          );
+          body.userData = { kind: "throwable" };
+          this.bodies.push(body);
+          this.dynamicBodiesArr.push({
+            mesh,
+            body,
+            prevPos: new THREE.Vector3(x, y, targetZ),
+            currPos: new THREE.Vector3(x, y, targetZ),
+            prevQuat: new THREE.Quaternion(),
+            currQuat: new THREE.Quaternion(),
+            hasPose: false,
+          });
         });
       });
-    });
     } // end throw
 
-    if (isTarget('door')) {
-    this.createSectionLabel(
-      'Door & Beacon\nPress F near objects',
-      new THREE.Vector3(0, 2.55, zDoor),
-      10.2,
-      2.15,
-    );
+    if (isTarget("door")) {
+      this.createSectionLabel("Door & Beacon\nPress F near objects", new THREE.Vector3(0, 2.55, zDoor), 10.2, 2.15);
     } // end door
 
-    if (isTarget('vehicles')) {
-    this.createSectionLabel(
-      'Vehicles\nF to enter / exit \u2022 E/Q altitude (drone)',
-      new THREE.Vector3(0, 2.55, zVehicles),
-      9.2,
-      2.05,
-    );
-    this.createVehicleCrashPlayground(zVehicles, bayTopY);
+    if (isTarget("vehicles")) {
+      this.createSectionLabel(
+        "Vehicles\nF to enter / exit \u2022 E/Q altitude (drone)",
+        new THREE.Vector3(0, 2.55, zVehicles),
+        9.2,
+        2.05,
+      );
+      this.createVehicleCrashPlayground(zVehicles, bayTopY);
     } // end vehicles
 
     await this.yieldProgress(0.7);
 
-    if (isTarget('platformsMoving')) {
-    // Platform stage A: kinematic moving platforms (single bay).
-    this.createKinematicPlatform(
-      'SideMovePlatform',
-      new THREE.Vector3(5, 0.2, 5),
-      new THREE.Vector3(-12, bayTopY + 0.1, zPlatformsMoving + 3),
-      'x',
-      0.5,
-      5,
-      kinematicPlatformMat,
-    );
-    this.createKinematicPlatform(
-      'ElevatePlatform',
-      new THREE.Vector3(5, 0.2, 5),
-      new THREE.Vector3(0, bayTopY + 2.2, zPlatformsMoving + 3),
-      'yRotate',
-      0.5,
-      2,
-      kinematicPlatformMat,
-    );
-    this.createKinematicPlatform(
-      'RotatePlatform',
-      new THREE.Vector3(5, 0.2, 5),
-      new THREE.Vector3(12, bayTopY + 0.1, zPlatformsMoving + 3),
-      'rotateY',
-      0.5,
-      0,
-      kinematicPlatformMat,
-    );
-    this.createSectionLabel(
-      'Moving Platforms\nSide \u2022 Elevating \u2022 Rotating',
-      new THREE.Vector3(0, 3.6, zPlatformsMoving + 6.5),
-      9.2,
-      1.9,
-    );
+    if (isTarget("platformsMoving")) {
+      // Platform stage A: kinematic moving platforms (single bay).
+      this.createKinematicPlatform(
+        "SideMovePlatform",
+        new THREE.Vector3(5, 0.2, 5),
+        new THREE.Vector3(-12, bayTopY + 0.1, zPlatformsMoving + 3),
+        "x",
+        0.5,
+        5,
+        kinematicPlatformMat,
+      );
+      this.createKinematicPlatform(
+        "ElevatePlatform",
+        new THREE.Vector3(5, 0.2, 5),
+        new THREE.Vector3(0, bayTopY + 2.2, zPlatformsMoving + 3),
+        "yRotate",
+        0.5,
+        2,
+        kinematicPlatformMat,
+      );
+      this.createKinematicPlatform(
+        "RotatePlatform",
+        new THREE.Vector3(5, 0.2, 5),
+        new THREE.Vector3(12, bayTopY + 0.1, zPlatformsMoving + 3),
+        "rotateY",
+        0.5,
+        0,
+        kinematicPlatformMat,
+      );
+      this.createSectionLabel(
+        "Moving Platforms\nSide \u2022 Elevating \u2022 Rotating",
+        new THREE.Vector3(0, 3.6, zPlatformsMoving + 6.5),
+        9.2,
+        1.9,
+      );
     } // end platformsMoving
 
     await this.yieldProgress(0.75);
 
-    if (isTarget('platformsPhysics')) {
-    // Platform stage B: readable physics interactions.
-    const boostPadJumpMultiplier = 6.0;
-    const boostPlatformMat = new THREE.MeshPhysicalMaterial({
-      color: 0x6cf7c9,
-      roughness: 0.22,
-      metalness: 0.0,
-      clearcoat: 1.0,
-      clearcoatRoughness: 0.08,
-      emissive: 0x21d19d,
-      emissiveIntensity: 0.18,
-    });
-    const drumPlatformMat = new THREE.MeshPhysicalMaterial({
-      color: 0xffd36b,
-      roughness: 0.22,
-      metalness: 0.0,
-      clearcoat: 1.0,
-      clearcoatRoughness: 0.08,
-      emissive: 0xffaa1f,
-      emissiveIntensity: 0.16,
-    });
-    this.createFixedStaticBox(
-      'BoostPlatformStatic',
-      new THREE.Vector3(5.2, 0.28, 5.2),
-      new THREE.Vector3(-12, bayTopY + 0.14, zPlatformsPhysics + 2.25),
-      new THREE.Euler(),
-      boostPlatformMat,
-      'boost-platform',
-      { jumpBoostMultiplier: boostPadJumpMultiplier, autoBounce: true },
-    );
-    this.createKinematicDrum(
-      'RollingDrum',
-      new THREE.Vector3(0, bayTopY + 0.82, zPlatformsPhysics + 2.1),
-      1.55,
-      9.5,
-      'rotateX',
-      0.85,
-      drumPlatformMat,
-    );
-    this.createFloatingPlatform(
-      'BoostMovingPlatform',
-      new THREE.Vector3(4.2, 0.22, 4.2),
-      new THREE.Vector3(12, bayTopY + 1.15, zPlatformsPhysics - 2.75),
-      floatingPlatformMat,
-      { lockX: false, lockY: false, lockZ: true, rotX: true, rotY: false, rotZ: true },
-      { minX: 8, maxX: 16, speedX: 2.35 },
-      { kind: 'boost-platform', jumpBoostMultiplier: boostPadJumpMultiplier, autoBounce: true },
-    );
-    this.createSectionLabel(
-      'Physics Platforms\nBoost Pad \u2022 Rolling Drum \u2022 Moving Boost Pad',
-      new THREE.Vector3(0, 3.6, zPlatformsPhysics + 6.5),
-      12.4,
-      2.05,
-    );
+    if (isTarget("platformsPhysics")) {
+      // Platform stage B: readable physics interactions.
+      const boostPadJumpMultiplier = 6.0;
+      const boostPlatformMat = new THREE.MeshPhysicalMaterial({
+        color: 0x6cf7c9,
+        roughness: 0.22,
+        metalness: 0.0,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.08,
+        emissive: 0x21d19d,
+        emissiveIntensity: 0.18,
+      });
+      const drumPlatformMat = new THREE.MeshPhysicalMaterial({
+        color: 0xffd36b,
+        roughness: 0.22,
+        metalness: 0.0,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.08,
+        emissive: 0xffaa1f,
+        emissiveIntensity: 0.16,
+      });
+      this.createFixedStaticBox(
+        "BoostPlatformStatic",
+        new THREE.Vector3(5.2, 0.28, 5.2),
+        new THREE.Vector3(-12, bayTopY + 0.14, zPlatformsPhysics + 2.25),
+        new THREE.Euler(),
+        boostPlatformMat,
+        "boost-platform",
+        { jumpBoostMultiplier: boostPadJumpMultiplier, autoBounce: true },
+      );
+      this.createKinematicDrum(
+        "RollingDrum",
+        new THREE.Vector3(0, bayTopY + 0.82, zPlatformsPhysics + 2.1),
+        1.55,
+        9.5,
+        "rotateX",
+        0.85,
+        drumPlatformMat,
+      );
+      this.createFloatingPlatform(
+        "BoostMovingPlatform",
+        new THREE.Vector3(4.2, 0.22, 4.2),
+        new THREE.Vector3(12, bayTopY + 1.15, zPlatformsPhysics - 2.75),
+        floatingPlatformMat,
+        { lockX: false, lockY: false, lockZ: true, rotX: true, rotY: false, rotZ: true },
+        { minX: 8, maxX: 16, speedX: 2.35 },
+        { kind: "boost-platform", jumpBoostMultiplier: boostPadJumpMultiplier, autoBounce: true },
+      );
+      this.createSectionLabel(
+        "Physics Platforms\nBoost Pad \u2022 Rolling Drum \u2022 Moving Boost Pad",
+        new THREE.Vector3(0, 3.6, zPlatformsPhysics + 6.5),
+        12.4,
+        2.05,
+      );
     } // end platformsPhysics
 
-    if (isTarget('materials')) {
-    // Materials bay.
-    this.createSectionLabel(
-      'Materials\nGlass \u2022 Mirror \u2022 Copper \u2022 Ceramic \u2022 Emissive\nRough \u2022 Metal \u2022 Brushed \u2022 Iridescent \u2022 Lava',
-      new THREE.Vector3(0, 3.2, zMaterials + 6),
-      11.4,
-      2.45,
-    );
-    this.createMaterialsBay(new THREE.Vector3(0, bayTopY, zMaterials), bayWidth, obstacleMat);
-    this.createMaterialsPhysicsProps(new THREE.Vector3(0, bayTopY, zMaterials), bayWidth);
+    if (isTarget("materials")) {
+      // Materials bay.
+      this.createSectionLabel(
+        "Materials\nGlass \u2022 Mirror \u2022 Copper \u2022 Ceramic \u2022 Emissive\nRough \u2022 Metal \u2022 Brushed \u2022 Iridescent \u2022 Lava",
+        new THREE.Vector3(0, 3.2, zMaterials + 6),
+        11.4,
+        2.45,
+      );
+      this.createMaterialsBay(new THREE.Vector3(0, bayTopY, zMaterials), bayWidth, obstacleMat);
+      this.createMaterialsPhysicsProps(new THREE.Vector3(0, bayTopY, zMaterials), bayWidth);
     } // end materials
 
     await this.yieldProgress(0.85);
 
-    if (isTarget('vfx')) {
-    // VFX bay.
-    this.createSectionLabel(
-      'Visual Effects\nDissolve \u2022 Fire & Smoke \u2022 Lightning & Rain \u2022 Glowing Ring',
-      new THREE.Vector3(0, 3.2, zVfx + 6),
-      11.4,
-      2.15,
-    );
-    await this.createVfxBayV2(new THREE.Vector3(0, bayTopY, zVfx), bayWidth);
+    if (isTarget("vfx")) {
+      // VFX bay.
+      this.createSectionLabel(
+        "Visual Effects\nDissolve \u2022 Fire & Smoke \u2022 Lightning & Rain \u2022 Glowing Ring",
+        new THREE.Vector3(0, 3.2, zVfx + 6),
+        11.4,
+        2.15,
+      );
+      await this.createVfxBayV2(new THREE.Vector3(0, bayTopY, zVfx), bayWidth);
     } // end vfx
 
-    if (isTarget('navigation')) {
-    // Navigation bay: navmesh + patrol agents.
-    this.createSectionLabel(
-      'Navigation\nNavMesh \u2022 Crowd Patrol \u2022 N=debug \u2022 T=target',
-      new THREE.Vector3(0, 3.2, zNavigation + 6),
-      11.4,
-      2.25,
-    );
-    await this.createNavcatBay(zNavigation, bayTopY);
+    if (isTarget("navigation")) {
+      // Navigation bay: navmesh + patrol agents.
+      this.createSectionLabel(
+        "Navigation\nNavMesh \u2022 Crowd Patrol \u2022 N=debug \u2022 T=target",
+        new THREE.Vector3(0, 3.2, zNavigation + 6),
+        11.4,
+        2.25,
+      );
+      await this.createNavcatBay(zNavigation, bayTopY);
     } // end navigation
 
-    if (isTarget('futureA')) {
-    // Reserved bay with "under construction" visual treatment.
-    this.createSectionLabel('Reserved\nFuture demos', new THREE.Vector3(0, 2.5, zFutureA), 8.8, 2.0);
+    if (isTarget("futureA")) {
+      // Reserved bay with "under construction" visual treatment.
+      this.createSectionLabel("Reserved\nFuture demos", new THREE.Vector3(0, 2.5, zFutureA), 8.8, 2.0);
 
-    const yellowMat = new THREE.MeshStandardMaterial({ color: 0xffcc00, roughness: 0.9 });
-    const darkMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.9 });
-    const barrierGeo = new THREE.BoxGeometry(1.2, 1.0, 0.4);
-    const barrierPositions = [0, -4, 4];
-    barrierPositions.forEach((xOff, i) => {
-      const mat = i % 2 === 0 ? yellowMat : darkMat;
-      const barrier = new THREE.Mesh(barrierGeo, mat);
-      barrier.position.set(xOff, bayTopY + 0.5, zFutureA);
-      barrier.castShadow = true;
-      barrier.receiveShadow = true;
-      barrier.name = `FutureA_barrier_${i}`;
-      this.scene.add(barrier);
-      this.meshes.push(barrier);
-    });
+      const yellowMat = new THREE.MeshStandardMaterial({ color: 0xffcc00, roughness: 0.9 });
+      const darkMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.9 });
+      const barrierGeo = new THREE.BoxGeometry(1.2, 1.0, 0.4);
+      const barrierPositions = [0, -4, 4];
+      barrierPositions.forEach((xOff, i) => {
+        const mat = i % 2 === 0 ? yellowMat : darkMat;
+        const barrier = new THREE.Mesh(barrierGeo, mat);
+        barrier.position.set(xOff, bayTopY + 0.5, zFutureA);
+        barrier.castShadow = true;
+        barrier.receiveShadow = true;
+        barrier.name = `FutureA_barrier_${i}`;
+        this.scene.add(barrier);
+        this.meshes.push(barrier);
+      });
     } // end futureA
 
     await this.yieldProgress(0.92);
@@ -1441,9 +1442,9 @@ export class ProceduralBuilder {
     // --- Visual polish (skip in single-station mode) ---
     // Open-air design: only floor-level decorations, no wall/ceiling references.
     if (buildAll) {
-    this.addFloorCenterline(hallLength, showcaseCenterZ);
-    this.addDustMotes(hallWidth, hallLength, showcaseCenterZ);
-    this.addHeroSpotlights(bayZ, bayPedestalY);
+      this.addFloorCenterline(hallLength, showcaseCenterZ);
+      this.addDustMotes(hallWidth, hallLength, showcaseCenterZ);
+      this.addHeroSpotlights(bayZ, bayPedestalY);
     } // end buildAll visual polish
 
     // spawnPoint is set to the showcase corridor near the top of this method.
@@ -1458,24 +1459,24 @@ export class ProceduralBuilder {
       return clone;
     }
 
-    const canvas = document.createElement('canvas');
+    const canvas = document.createElement("canvas");
     canvas.width = 2048;
     canvas.height = 2048;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     if (!ctx) {
       return new THREE.CanvasTexture(canvas);
     }
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     // Bright white-blue tile floor — Astro Bot toybox aesthetic.
-    ctx.fillStyle = '#e4eaf0';
+    ctx.fillStyle = "#e4eaf0";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     // Subtle light-blue/white checkerboard for playful tile rhythm.
     const tileSize = 256;
     for (let ty = 0; ty < canvas.height; ty += tileSize) {
       for (let tx = 0; tx < canvas.width; tx += tileSize) {
-        const checker = ((tx / tileSize) + (ty / tileSize)) % 2 === 0;
-        ctx.fillStyle = checker ? 'rgba(220, 235, 250, 0.5)' : 'rgba(200, 215, 235, 0.35)';
+        const checker = (tx / tileSize + ty / tileSize) % 2 === 0;
+        ctx.fillStyle = checker ? "rgba(220, 235, 250, 0.5)" : "rgba(200, 215, 235, 0.35)";
         ctx.fillRect(tx + 2, ty + 2, tileSize - 4, tileSize - 4);
       }
     }
@@ -1490,7 +1491,7 @@ export class ProceduralBuilder {
     ctx.save();
     ctx.translate(0.5, 0.5);
 
-    ctx.strokeStyle = 'rgba(180, 195, 210, 0.25)';
+    ctx.strokeStyle = "rgba(180, 195, 210, 0.25)";
     ctx.lineWidth = 1;
     for (let x = 0; x < canvas.width; x += minorStep) {
       ctx.beginPath();
@@ -1505,7 +1506,7 @@ export class ProceduralBuilder {
       ctx.stroke();
     }
 
-    ctx.strokeStyle = 'rgba(160, 180, 200, 0.35)';
+    ctx.strokeStyle = "rgba(160, 180, 200, 0.35)";
     ctx.lineWidth = 2;
     for (let x = 0; x < canvas.width; x += majorStep) {
       ctx.beginPath();
@@ -1576,10 +1577,10 @@ export class ProceduralBuilder {
     }
 
     const size = 512;
-    const canvas = document.createElement('canvas');
+    const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
-    const ctx = canvas.getContext('2d')!;
+    const ctx = canvas.getContext("2d")!;
     const img = ctx.createImageData(size, size);
     const d = img.data;
     // Low-frequency isotropic noise for subtle roughness variation.
@@ -1617,12 +1618,12 @@ export class ProceduralBuilder {
   }
 
   private createShowcasePropMaterial(
-    preset: 'frosted-sphere' | 'reactor-sphere' | 'matte-panel' | 'gloss-panel',
+    preset: "frosted-sphere" | "reactor-sphere" | "matte-panel" | "gloss-panel",
     color: number,
     emissive: number,
   ): THREE.MeshPhysicalMaterial {
     switch (preset) {
-      case 'frosted-sphere':
+      case "frosted-sphere":
         return new THREE.MeshPhysicalMaterial({
           color,
           roughness: 0.22,
@@ -1635,7 +1636,7 @@ export class ProceduralBuilder {
           emissive,
           emissiveIntensity: 0.12,
         });
-      case 'reactor-sphere':
+      case "reactor-sphere":
         return new THREE.MeshPhysicalMaterial({
           color,
           roughness: 0.14,
@@ -1647,7 +1648,7 @@ export class ProceduralBuilder {
           emissive,
           emissiveIntensity: 0.22,
         });
-      case 'matte-panel':
+      case "matte-panel":
         return new THREE.MeshPhysicalMaterial({
           color,
           roughness: 0.72,
@@ -1657,7 +1658,7 @@ export class ProceduralBuilder {
           emissive,
           emissiveIntensity: 0.12,
         });
-      case 'gloss-panel':
+      case "gloss-panel":
       default:
         return new THREE.MeshPhysicalMaterial({
           color,
@@ -1715,7 +1716,7 @@ export class ProceduralBuilder {
       bodyDesc.setRotation({ x: quat.x, y: quat.y, z: quat.z, w: quat.w });
     }
     const body = this.physicsWorld.world.createRigidBody(bodyDesc);
-    body.userData = { kind: 'showcase-prop', name };
+    body.userData = { kind: "showcase-prop", name };
     body.enableCcd(true);
     const colliderDesc = RAPIER.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2)
       .setFriction(options?.friction ?? 0.7)
@@ -1766,7 +1767,7 @@ export class ProceduralBuilder {
       .setAngularDamping(options?.angularDamping ?? 0.3)
       .setTranslation(position.x, position.y, position.z);
     const body = this.physicsWorld.world.createRigidBody(bodyDesc);
-    body.userData = { kind: 'showcase-prop', name };
+    body.userData = { kind: "showcase-prop", name };
     body.enableCcd(true);
     const colliderDesc = RAPIER.ColliderDesc.ball(radius)
       .setFriction(options?.friction ?? 0.64)
@@ -1791,37 +1792,37 @@ export class ProceduralBuilder {
   }
 
   private createStepsPhysicsPlayground(zSteps: number, bayTopY: number): void {
-    const rollerBeachMat = this.createShowcasePropMaterial('frosted-sphere', 0x8adfff, 0x5fd3ff);
-    const rollerPinballMat = this.createShowcasePropMaterial('reactor-sphere', 0x6f81ff, 0xff72ba);
-    const cubeMat = this.createShowcasePropMaterial('gloss-panel', 0x2e475e, 0x78d8ff);
-    const slabMat = this.createShowcasePropMaterial('matte-panel', 0x35363c, 0xffab59);
+    const rollerBeachMat = this.createShowcasePropMaterial("frosted-sphere", 0x8adfff, 0x5fd3ff);
+    const rollerPinballMat = this.createShowcasePropMaterial("reactor-sphere", 0x6f81ff, 0xff72ba);
+    const cubeMat = this.createShowcasePropMaterial("gloss-panel", 0x2e475e, 0x78d8ff);
+    const slabMat = this.createShowcasePropMaterial("matte-panel", 0x35363c, 0xffab59);
     this.registerAnimatedMaterial(rollerPinballMat, 0.22, 2.2);
     this.registerAnimatedMaterial(cubeMat, 0.16, 1.7);
     this.registerAnimatedMaterial(slabMat, 0.14, 1.9);
 
     this.createDynamicSphere(
-      'StepsRollerA',
+      "StepsRollerA",
       new THREE.Vector3(15.6, bayTopY + 1.3, zSteps + 1.4),
       0.72,
       rollerBeachMat,
       { mass: 9, linearDamping: 0.1, angularDamping: 0.12, restitution: 0.16 },
     );
     this.createDynamicSphere(
-      'StepsRollerB',
+      "StepsRollerB",
       new THREE.Vector3(18.5, bayTopY + 1.35, zSteps + 2.5),
       0.62,
       rollerPinballMat,
       { mass: 7.5, linearDamping: 0.1, angularDamping: 0.12, restitution: 0.14 },
     );
     this.createDynamicBox(
-      'StepsPanelCube',
+      "StepsPanelCube",
       new THREE.Vector3(16.9, bayTopY + 1.05, zSteps + 2.05),
       new THREE.Vector3(1.15, 1.15, 1.15),
       cubeMat,
       { mass: 14, linearDamping: 0.28, angularDamping: 0.82, rounded: true, roundness: 0.16 },
     );
     this.createDynamicBox(
-      'StepsSignalSlab',
+      "StepsSignalSlab",
       new THREE.Vector3(19.2, bayTopY + 1.22, zSteps + 0.7),
       new THREE.Vector3(0.4, 2.05, 1.55),
       slabMat,
@@ -1838,52 +1839,76 @@ export class ProceduralBuilder {
   }
 
   private createVehicleCrashPlayground(zVehicles: number, bayTopY: number): void {
-    const cubeMat = this.createShowcasePropMaterial('gloss-panel', 0x35516e, 0x86deff);
-    const targetSphereMat = this.createShowcasePropMaterial('frosted-sphere', 0x8dd9ff, 0xffbf6e);
-    const reactorSphereMat = this.createShowcasePropMaterial('reactor-sphere', 0x6b75ff, 0x8effdf);
-    const wallMat = this.createShowcasePropMaterial('matte-panel', 0x39332d, 0xff9d52);
+    const cubeMat = this.createShowcasePropMaterial("gloss-panel", 0x35516e, 0x86deff);
+    const targetSphereMat = this.createShowcasePropMaterial("frosted-sphere", 0x8dd9ff, 0xffbf6e);
+    const reactorSphereMat = this.createShowcasePropMaterial("reactor-sphere", 0x6b75ff, 0x8effdf);
+    const wallMat = this.createShowcasePropMaterial("matte-panel", 0x39332d, 0xff9d52);
     this.registerAnimatedMaterial(cubeMat, 0.18, 1.8);
     this.registerAnimatedMaterial(targetSphereMat, 0.14, 2.1);
     this.registerAnimatedMaterial(reactorSphereMat, 0.24, 1.9);
     this.registerAnimatedMaterial(wallMat, 0.12, 1.6);
 
     this.createDynamicBox(
-      'CrashCubeA',
+      "CrashCubeA",
       new THREE.Vector3(-2.5, bayTopY + 0.72, zVehicles - 3.4),
       new THREE.Vector3(1.25, 1.25, 1.25),
       cubeMat,
-      { mass: 7.5, linearDamping: 0.12, angularDamping: 0.32, friction: 0.32, restitution: 0.16, rounded: true, roundness: 0.18 },
+      {
+        mass: 7.5,
+        linearDamping: 0.12,
+        angularDamping: 0.32,
+        friction: 0.32,
+        restitution: 0.16,
+        rounded: true,
+        roundness: 0.18,
+      },
     );
     this.createDynamicBox(
-      'CrashCubeB',
+      "CrashCubeB",
       new THREE.Vector3(0.2, bayTopY + 0.62, zVehicles - 6.0),
       new THREE.Vector3(1.05, 1.05, 1.05),
       cubeMat,
-      { mass: 5.8, linearDamping: 0.1, angularDamping: 0.28, friction: 0.28, restitution: 0.18, rounded: true, roundness: 0.14 },
+      {
+        mass: 5.8,
+        linearDamping: 0.1,
+        angularDamping: 0.28,
+        friction: 0.28,
+        restitution: 0.18,
+        rounded: true,
+        roundness: 0.14,
+      },
     );
     this.createDynamicBox(
-      'CrashCubeC',
+      "CrashCubeC",
       new THREE.Vector3(2.9, bayTopY + 0.82, zVehicles - 4.6),
       new THREE.Vector3(1.45, 1.45, 1.45),
       cubeMat,
-      { mass: 9.6, linearDamping: 0.14, angularDamping: 0.36, friction: 0.34, restitution: 0.14, rounded: true, roundness: 0.2 },
+      {
+        mass: 9.6,
+        linearDamping: 0.14,
+        angularDamping: 0.36,
+        friction: 0.34,
+        restitution: 0.14,
+        rounded: true,
+        roundness: 0.2,
+      },
     );
     this.createDynamicSphere(
-      'CrashSphereA',
+      "CrashSphereA",
       new THREE.Vector3(-5.2, bayTopY + 0.74, zVehicles - 7.2),
       0.74,
       targetSphereMat,
       { mass: 3.6, linearDamping: 0.04, angularDamping: 0.06, restitution: 0.42, friction: 0.22 },
     );
     this.createDynamicSphere(
-      'CrashSphereB',
+      "CrashSphereB",
       new THREE.Vector3(5.1, bayTopY + 0.88, zVehicles - 8.1),
       0.88,
       reactorSphereMat,
       { mass: 4.8, linearDamping: 0.05, angularDamping: 0.08, restitution: 0.36, friction: 0.24 },
     );
     this.createDynamicBox(
-      'CrashWallA',
+      "CrashWallA",
       new THREE.Vector3(-0.9, bayTopY + 1.16, zVehicles - 9.1),
       new THREE.Vector3(0.42, 2.15, 1.95),
       wallMat,
@@ -1899,7 +1924,7 @@ export class ProceduralBuilder {
       },
     );
     this.createDynamicBox(
-      'CrashWallB',
+      "CrashWallB",
       new THREE.Vector3(2.8, bayTopY + 1.04, zVehicles - 11.0),
       new THREE.Vector3(0.36, 1.95, 1.5),
       wallMat,
@@ -1918,29 +1943,29 @@ export class ProceduralBuilder {
 
   private createMaterialsPhysicsProps(base: THREE.Vector3, bayWidth: number): void {
     const edgeX = Math.max(18, bayWidth * 0.36);
-    const glassMat = this.createShowcasePropMaterial('frosted-sphere', 0xbfe9ff, 0x72e7ef);
-    const panelMat = this.createShowcasePropMaterial('gloss-panel', 0x5b6070, 0xc698ff);
-    const wallMat = this.createShowcasePropMaterial('matte-panel', 0x293445, 0x9de88c);
+    const glassMat = this.createShowcasePropMaterial("frosted-sphere", 0xbfe9ff, 0x72e7ef);
+    const panelMat = this.createShowcasePropMaterial("gloss-panel", 0x5b6070, 0xc698ff);
+    const wallMat = this.createShowcasePropMaterial("matte-panel", 0x293445, 0x9de88c);
     this.registerAnimatedMaterial(glassMat, 0.12, 1.4);
     this.registerAnimatedMaterial(panelMat, 0.16, 1.8);
     this.registerAnimatedMaterial(wallMat, 0.12, 1.7);
 
     this.createDynamicSphere(
-      'MaterialsGlassOrb',
+      "MaterialsGlassOrb",
       new THREE.Vector3(-edgeX, base.y + 0.78, base.z + 4.35),
       0.78,
       glassMat,
       { mass: 10.5, linearDamping: 0.1, angularDamping: 0.14, restitution: 0.18, friction: 0.3 },
     );
     this.createDynamicBox(
-      'MaterialsIridescentCube',
+      "MaterialsIridescentCube",
       new THREE.Vector3(edgeX, base.y + 0.82, base.z - 4.25),
       new THREE.Vector3(1.2, 1.2, 1.2),
       panelMat,
       { mass: 18, linearDamping: 0.26, angularDamping: 0.78, rounded: true, roundness: 0.14 },
     );
     this.createDynamicBox(
-      'MaterialsSignalWall',
+      "MaterialsSignalWall",
       new THREE.Vector3(edgeX - 1.4, base.y + 1.08, base.z + 4.9),
       new THREE.Vector3(0.38, 2.05, 1.2),
       wallMat,
@@ -1987,38 +2012,44 @@ export class ProceduralBuilder {
     // Replace simple boxes with an arched/angular sci-fi tunnel structure
     // For colliders we still use boxes as they are simple
     this.createStaticColliderBox(
-      'CrouchRoof_col',
+      "CrouchRoof_col",
       new THREE.Vector3(2.8, 0.14, 9.6),
       new THREE.Vector3(base.x, roofY, base.z),
       material,
     );
     this.createStaticColliderBox(
-      'CrouchWallL_col',
+      "CrouchWallL_col",
       new THREE.Vector3(0.18, 1.32, 9.6),
       new THREE.Vector3(base.x - 1.4, wallY, base.z),
       material,
     );
     this.createStaticColliderBox(
-      'CrouchWallR_col',
+      "CrouchWallR_col",
       new THREE.Vector3(0.18, 1.32, 9.6),
       new THREE.Vector3(base.x + 1.4, wallY, base.z),
       material,
     );
     this.createStaticColliderBox(
-      'CrouchCeilingGate_col',
+      "CrouchCeilingGate_col",
       new THREE.Vector3(2.8, 0.24, 0.36),
       new THREE.Vector3(base.x, gateY, base.z - 5.04),
       material,
     );
     this.createStaticColliderBox(
-      'CrouchCeilingGateOut_col',
+      "CrouchCeilingGateOut_col",
       new THREE.Vector3(2.8, 0.24, 0.36),
       new THREE.Vector3(base.x, gateY, base.z + 5.04),
       material,
     );
 
     // Visual embellishments (sci-fi arches)
-    const archMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.15, roughness: 0.6, emissive: 0x0088ff, emissiveIntensity: 1.5 });
+    const archMat = new THREE.MeshStandardMaterial({
+      color: 0x222222,
+      metalness: 0.15,
+      roughness: 0.6,
+      emissive: 0x0088ff,
+      emissiveIntensity: 1.5,
+    });
     for (let zOffset = -4; zOffset <= 4; zOffset += 2) {
       const arch = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.1, 0.2), archMat);
       arch.position.set(base.x, base.y + 1.4, base.z + zOffset);
@@ -2037,25 +2068,25 @@ export class ProceduralBuilder {
 
   private createDoubleJumpCourse(base: THREE.Vector3, material: THREE.Material): void {
     this.createStaticColliderBox(
-      'DoubleJumpStep0_col',
+      "DoubleJumpStep0_col",
       new THREE.Vector3(3.2, 0.5, 3.2),
       new THREE.Vector3(base.x, base.y + 0.25, base.z),
       material,
     );
     this.createStaticColliderBox(
-      'DoubleJumpStep1_col',
+      "DoubleJumpStep1_col",
       new THREE.Vector3(2.8, 0.45, 2.8),
       new THREE.Vector3(base.x + 3.2, base.y + 1.3, base.z),
       material,
     );
     this.createStaticColliderBox(
-      'DoubleJumpStep2_col',
+      "DoubleJumpStep2_col",
       new THREE.Vector3(2.6, 0.45, 2.6),
       new THREE.Vector3(base.x + 6.3, base.y + 2.9, base.z),
       material,
     );
     this.createStaticColliderBox(
-      'DoubleJumpStep3_col',
+      "DoubleJumpStep3_col",
       new THREE.Vector3(3.8, 0.5, 3.8),
       new THREE.Vector3(base.x + 10.2, base.y + 4.1, base.z),
       material,
@@ -2079,12 +2110,7 @@ export class ProceduralBuilder {
     this.colliders.push(this.colliderFactory.createTrimesh(mesh));
   }
 
-  private createLadder(
-    name: string,
-    base: THREE.Vector3,
-    height: number,
-    material: THREE.Material,
-  ): void {
+  private createLadder(name: string, base: THREE.Vector3, height: number, material: THREE.Material): void {
     const railGeom = new THREE.BoxGeometry(0.12, height, 0.12);
     const rungGeom = new THREE.BoxGeometry(1.2, 0.08, 0.1);
     const leftRail = new THREE.Mesh(railGeom, material);
@@ -2102,7 +2128,7 @@ export class ProceduralBuilder {
     const rungCount = Math.max(4, Math.floor(height / 0.45));
     for (let i = 0; i < rungCount; i++) {
       const rung = new THREE.Mesh(rungGeom, material);
-      rung.position.set(base.x, base.y + 0.4 + i * (height - 0.7) / (rungCount - 1), base.z);
+      rung.position.set(base.x, base.y + 0.4 + (i * (height - 0.7)) / (rungCount - 1), base.z);
       rung.castShadow = true;
       rung.receiveShadow = true;
       rung.name = `${name}_rung_${i}`;
@@ -2135,12 +2161,11 @@ export class ProceduralBuilder {
     mesh.position.copy(position);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
-    mesh.name = 'SpinningToy_dyn';
+    mesh.name = "SpinningToy_dyn";
     this.scene.add(mesh);
     this.meshes.push(mesh);
 
-    const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
-      .setTranslation(position.x, position.y, position.z);
+    const bodyDesc = RAPIER.RigidBodyDesc.dynamic().setTranslation(position.x, position.y, position.z);
     const body = this.physicsWorld.world.createRigidBody(bodyDesc);
     body.enableCcd(true);
 
@@ -2149,9 +2174,7 @@ export class ProceduralBuilder {
       .setTranslation(0, 0.25, 0)
       .setDensity(0)
       .setCollisionGroups(COLLISION_GROUP_WORLD);
-    const ballDesc = RAPIER.ColliderDesc.ball(0.25)
-      .setDensity(0)
-      .setCollisionGroups(COLLISION_GROUP_WORLD);
+    const ballDesc = RAPIER.ColliderDesc.ball(0.25).setDensity(0).setCollisionGroups(COLLISION_GROUP_WORLD);
     const stemCollider = this.physicsWorld.world.createCollider(stemDesc, body);
     const ballCollider = this.physicsWorld.world.createCollider(ballDesc, body);
     body.setAdditionalMass(1.24, true);
@@ -2174,7 +2197,7 @@ export class ProceduralBuilder {
     name: string,
     size: THREE.Vector3,
     base: THREE.Vector3,
-    mode: 'x' | 'y' | 'rotateY' | 'rotateX' | 'xy' | 'yRotate',
+    mode: "x" | "y" | "rotateY" | "rotateX" | "xy" | "yRotate",
     speed: number,
     amplitude: number,
     material: THREE.Material,
@@ -2188,11 +2211,10 @@ export class ProceduralBuilder {
     this.scene.add(mesh);
     this.meshes.push(mesh);
 
-    const bodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased()
-      .setTranslation(base.x, base.y, base.z);
+    const bodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(base.x, base.y, base.z);
     const body = this.physicsWorld.world.createRigidBody(bodyDesc);
     body.userData = {
-      kind: 'moving-platform',
+      kind: "moving-platform",
       platformLinearVelocity: { x: 0, y: 0, z: 0 },
       platformAngularVelocity: { x: 0, y: 0, z: 0 },
       ...extraUserData,
@@ -2220,12 +2242,7 @@ export class ProceduralBuilder {
     });
   }
 
-  private createBayAccessRamps(
-    zCenter: number,
-    bayWidth: number,
-    bayTopY: number,
-    stationColor: number,
-  ): void {
+  private createBayAccessRamps(zCenter: number, bayWidth: number, bayTopY: number, stationColor: number): void {
     const hallFloorTopY = -1.0;
     const rise = bayTopY - hallFloorTopY;
     const rampRun = 3.1;
@@ -2270,7 +2287,7 @@ export class ProceduralBuilder {
     rotation: THREE.Euler,
     material: THREE.Material,
   ): void {
-    this.createFixedStaticBox(name, size, position, rotation, material, 'showcase-ramp');
+    this.createFixedStaticBox(name, size, position, rotation, material, "showcase-ramp");
   }
 
   private createFixedStaticBox(
@@ -2279,7 +2296,7 @@ export class ProceduralBuilder {
     position: THREE.Vector3,
     rotation: THREE.Euler,
     material: THREE.Material,
-    kind = 'showcase-static',
+    kind = "showcase-static",
     extraUserData?: Record<string, unknown>,
   ): void {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), material);
@@ -2329,7 +2346,7 @@ export class ProceduralBuilder {
       .setCanSleep(false);
     const body = this.physicsWorld.world.createRigidBody(bodyDesc);
     body.userData = {
-      kind: 'floating-platform',
+      kind: "floating-platform",
       moving: movingConfig != null,
       ...extraUserData,
     };
@@ -2380,18 +2397,18 @@ export class ProceduralBuilder {
     base: THREE.Vector3,
     radius: number,
     length: number,
-    mode: 'rotateX' | 'rotateY',
+    mode: "rotateX" | "rotateY",
     speed: number,
     material: THREE.Material,
   ): void {
-    const stripeCanvas = document.createElement('canvas');
+    const stripeCanvas = document.createElement("canvas");
     stripeCanvas.width = 256;
     stripeCanvas.height = 256;
-    const sctx = stripeCanvas.getContext('2d')!;
+    const sctx = stripeCanvas.getContext("2d")!;
     const stripeCount = 8;
     const stripeH = stripeCanvas.height / stripeCount;
     for (let i = 0; i < stripeCount; i++) {
-      sctx.fillStyle = i % 2 === 0 ? '#ff4444' : '#ffffff';
+      sctx.fillStyle = i % 2 === 0 ? "#ff4444" : "#ffffff";
       sctx.fillRect(0, i * stripeH, stripeCanvas.width, stripeH);
     }
     const stripeTex = new THREE.CanvasTexture(stripeCanvas);
@@ -2425,7 +2442,7 @@ export class ProceduralBuilder {
       .setRotation({ x: startQuat.x, y: startQuat.y, z: startQuat.z, w: startQuat.w });
     const body = this.physicsWorld.world.createRigidBody(bodyDesc);
     body.userData = {
-      kind: 'moving-platform',
+      kind: "moving-platform",
       platformLinearVelocity: { x: 0, y: 0, z: 0 },
       platformAngularVelocity: { x: 0, y: 0, z: 0 },
     };
@@ -2477,7 +2494,7 @@ export class ProceduralBuilder {
     );
     navPlatform.position.set(0, platformY, zStation);
     navPlatform.receiveShadow = true;
-    navPlatform.name = 'NavPlatform';
+    navPlatform.name = "NavPlatform";
     this.scene.add(navPlatform);
     this.meshes.push(navPlatform);
 
@@ -2508,36 +2525,36 @@ export class ProceduralBuilder {
     // L-wall: horizontal arm + vertical arm
     const lWallH = new THREE.Mesh(new THREE.BoxGeometry(4, obstacleH, 0.4), obstacleMat);
     lWallH.position.set(-3, surfaceY + obstacleH / 2, zStation - 1);
-    lWallH.name = 'NavObstacle_LWallH';
+    lWallH.name = "NavObstacle_LWallH";
     addObstacle(lWallH);
 
     const lWallV = new THREE.Mesh(new THREE.BoxGeometry(0.4, obstacleH, 3), obstacleMat);
     lWallV.position.set(-5, surfaceY + obstacleH / 2, zStation + 0.5);
-    lWallV.name = 'NavObstacle_LWallV';
+    lWallV.name = "NavObstacle_LWallV";
     addObstacle(lWallV);
 
     // Horizontal wall (back area)
     const hWall = new THREE.Mesh(new THREE.BoxGeometry(5, obstacleH, 0.4), obstacleAccent);
     hWall.position.set(5, surfaceY + obstacleH / 2, zStation - 4);
-    hWall.name = 'NavObstacle_HWall';
+    hWall.name = "NavObstacle_HWall";
     addObstacle(hWall);
 
     // Vertical wall (front area)
     const vWall = new THREE.Mesh(new THREE.BoxGeometry(0.4, obstacleH, 4), obstacleAccent);
     vWall.position.set(-7, surfaceY + obstacleH / 2, zStation + 3);
-    vWall.name = 'NavObstacle_VWall';
+    vWall.name = "NavObstacle_VWall";
     addObstacle(vWall);
 
     // Column A (back-left)
     const colA = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1.5, 12), obstacleMat);
     colA.position.set(-4, surfaceY + 1.5 / 2, zStation - 5);
-    colA.name = 'NavObstacle_ColA';
+    colA.name = "NavObstacle_ColA";
     addObstacle(colA);
 
     // Column B (front-right)
     const colB = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1.5, 12), obstacleMat);
     colB.position.set(6, surfaceY + 1.5 / 2, zStation + 2);
-    colB.name = 'NavObstacle_ColB';
+    colB.name = "NavObstacle_ColB";
     addObstacle(colB);
 
     // Ensure world matrices are up to date for geometry extraction
@@ -2572,7 +2589,7 @@ export class ProceduralBuilder {
 
     const navMesh = this.navMeshManagerRef.getNavMesh();
     if (!navMesh) {
-      console.warn('[LevelManager] Failed to generate navmesh for navigation bay');
+      console.warn("[LevelManager] Failed to generate navmesh for navigation bay");
       return;
     }
 
@@ -2595,7 +2612,7 @@ export class ProceduralBuilder {
     });
     const strip = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.03, hallLength), mat);
     strip.position.set(0, -0.97, centerZ);
-    strip.name = 'FloorCenterline';
+    strip.name = "FloorCenterline";
     strip.receiveShadow = false;
     strip.castShadow = false;
     this.scene.add(strip);
@@ -2662,12 +2679,7 @@ export class ProceduralBuilder {
     });
   }
 
-  private createSectionLabel(
-    text: string,
-    position: THREE.Vector3,
-    scaleX = 9.6,
-    scaleY = 2.7,
-  ): void {
+  private createSectionLabel(text: string, position: THREE.Vector3, scaleX = 9.6, scaleY = 2.7): void {
     const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
     const textureCacheKey = `${dpr}:${text}`;
     const cachedTexture = ProceduralBuilder.sectionLabelTextureTemplates.get(textureCacheKey);
@@ -2697,10 +2709,10 @@ export class ProceduralBuilder {
     const logicalWidth = 1440;
     const logicalHeight = 420;
     const panelPad = 56;
-    const canvas = document.createElement('canvas');
+    const canvas = document.createElement("canvas");
     canvas.width = Math.floor(logicalWidth * dpr);
     canvas.height = Math.floor(logicalHeight * dpr);
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
@@ -2725,17 +2737,17 @@ export class ProceduralBuilder {
 
     ctx.save();
     roundedRect(panelX, panelY, panelW, panelH, panelRadius);
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.42)';
+    ctx.shadowColor = "rgba(0, 0, 0, 0.42)";
     ctx.shadowBlur = 40;
     ctx.shadowOffsetY = 16;
-    ctx.fillStyle = 'rgba(4, 7, 13, 0.4)';
+    ctx.fillStyle = "rgba(4, 7, 13, 0.4)";
     ctx.fill();
     ctx.restore();
 
     const panelGradient = ctx.createLinearGradient(panelX, panelY, panelX + panelW, panelY + panelH);
-    panelGradient.addColorStop(0, 'rgba(20, 29, 44, 0.72)');
-    panelGradient.addColorStop(0.42, 'rgba(11, 17, 28, 0.68)');
-    panelGradient.addColorStop(1, 'rgba(7, 10, 18, 0.7)');
+    panelGradient.addColorStop(0, "rgba(20, 29, 44, 0.72)");
+    panelGradient.addColorStop(0.42, "rgba(11, 17, 28, 0.68)");
+    panelGradient.addColorStop(1, "rgba(7, 10, 18, 0.7)");
 
     roundedRect(panelX, panelY, panelW, panelH, panelRadius);
     ctx.fillStyle = panelGradient;
@@ -2746,10 +2758,10 @@ export class ProceduralBuilder {
     ctx.clip();
 
     const sheen = ctx.createLinearGradient(panelX, panelY, panelX + panelW, panelY + panelH);
-    sheen.addColorStop(0, 'rgba(255,255,255,0.1)');
-    sheen.addColorStop(0.16, 'rgba(255,255,255,0.035)');
-    sheen.addColorStop(0.7, 'rgba(98,230,255,0.02)');
-    sheen.addColorStop(1, 'rgba(255,121,186,0.02)');
+    sheen.addColorStop(0, "rgba(255,255,255,0.1)");
+    sheen.addColorStop(0.16, "rgba(255,255,255,0.035)");
+    sheen.addColorStop(0.7, "rgba(98,230,255,0.02)");
+    sheen.addColorStop(1, "rgba(255,121,186,0.02)");
     ctx.fillStyle = sheen;
     ctx.fillRect(panelX, panelY, panelW, panelH);
 
@@ -2761,9 +2773,9 @@ export class ProceduralBuilder {
       panelY + panelH * 0.18,
       panelW * 0.38,
     );
-    highlight.addColorStop(0, 'rgba(255,255,255,0.12)');
-    highlight.addColorStop(0.32, 'rgba(255,255,255,0.05)');
-    highlight.addColorStop(1, 'rgba(255,255,255,0)');
+    highlight.addColorStop(0, "rgba(255,255,255,0.12)");
+    highlight.addColorStop(0.32, "rgba(255,255,255,0.05)");
+    highlight.addColorStop(1, "rgba(255,255,255,0)");
     ctx.fillStyle = highlight;
     ctx.fillRect(panelX, panelY, panelW, panelH);
 
@@ -2775,32 +2787,35 @@ export class ProceduralBuilder {
       panelY + panelH * 0.35,
       panelW * 0.28,
     );
-    haze.addColorStop(0, 'rgba(98,230,255,0.06)');
-    haze.addColorStop(0.35, 'rgba(98,230,255,0.024)');
-    haze.addColorStop(1, 'rgba(98,230,255,0)');
+    haze.addColorStop(0, "rgba(98,230,255,0.06)");
+    haze.addColorStop(0.35, "rgba(98,230,255,0.024)");
+    haze.addColorStop(1, "rgba(98,230,255,0)");
     ctx.fillStyle = haze;
     ctx.fillRect(panelX, panelY, panelW, panelH);
 
     const edgeFade = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelH);
-    edgeFade.addColorStop(0, 'rgba(255,255,255,0.08)');
-    edgeFade.addColorStop(0.12, 'rgba(255,255,255,0.02)');
-    edgeFade.addColorStop(0.88, 'rgba(255,255,255,0.015)');
-    edgeFade.addColorStop(1, 'rgba(255,255,255,0.06)');
+    edgeFade.addColorStop(0, "rgba(255,255,255,0.08)");
+    edgeFade.addColorStop(0.12, "rgba(255,255,255,0.02)");
+    edgeFade.addColorStop(0.88, "rgba(255,255,255,0.015)");
+    edgeFade.addColorStop(1, "rgba(255,255,255,0.06)");
     ctx.fillStyle = edgeFade;
     ctx.fillRect(panelX, panelY, panelW, panelH);
 
     const plateGrain = ctx.createLinearGradient(panelX, panelY, panelX + panelW, panelY);
-    plateGrain.addColorStop(0, 'rgba(255,255,255,0.014)');
-    plateGrain.addColorStop(0.5, 'rgba(255,255,255,0.004)');
-    plateGrain.addColorStop(1, 'rgba(255,255,255,0.014)');
+    plateGrain.addColorStop(0, "rgba(255,255,255,0.014)");
+    plateGrain.addColorStop(0.5, "rgba(255,255,255,0.004)");
+    plateGrain.addColorStop(1, "rgba(255,255,255,0.014)");
     ctx.fillStyle = plateGrain;
     for (let y = panelY + 14; y < panelY + panelH - 14; y += 10) {
       ctx.fillRect(panelX + 18, y, panelW - 36, 1);
     }
     ctx.restore();
 
-    const lines = text.split('\n').map((s) => s.trim()).filter(Boolean);
-    const header = lines[0] ?? '';
+    const lines = text
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const header = lines[0] ?? "";
     const headerMatch = header.match(/^(\S+)\s+(.*)$/);
     const headerCode = headerMatch?.[1] ?? null;
     const headerTitle = headerMatch?.[2] ?? header;
@@ -2812,8 +2827,8 @@ export class ProceduralBuilder {
     const bodyLineHeight = bodyFontPx * 1.05;
 
     // Measure widths to compute a single horizontal scale factor.
-    ctx.textBaseline = 'middle';
-    ctx.textAlign = 'left';
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "left";
     const contentX = panelX + 72;
     const availableTextWidth = panelX + panelW - contentX - 72;
     ctx.font = `800 ${headerFontPx}px Segoe UI, Arial, sans-serif`;
@@ -2832,7 +2847,7 @@ export class ProceduralBuilder {
     ctx.save();
     ctx.translate(contentX, 0);
     ctx.scale(scaleFactor, 1);
-    ctx.shadowColor = 'rgba(0,0,0,0.45)';
+    ctx.shadowColor = "rgba(0,0,0,0.45)";
     ctx.shadowBlur = 10;
 
     // Header: draw "code" in accent + title in white.
@@ -2840,19 +2855,19 @@ export class ProceduralBuilder {
     if (headerCode) {
       const code = `${headerCode}`;
       const codeWidth = ctx.measureText(`${code}  `).width;
-      ctx.fillStyle = '#9ae8f4';
+      ctx.fillStyle = "#9ae8f4";
       ctx.fillText(code, 0, startY);
-      ctx.fillStyle = '#f7fbff';
+      ctx.fillStyle = "#f7fbff";
       ctx.fillText(`  ${headerTitle}`, codeWidth, startY);
     } else {
-      ctx.fillStyle = '#f7fbff';
+      ctx.fillStyle = "#f7fbff";
       ctx.fillText(headerTitle, 0, startY);
     }
 
     // Body: smaller, slightly muted.
     ctx.shadowBlur = 6;
     ctx.font = `600 ${bodyFontPx}px Segoe UI, Arial, sans-serif`;
-    ctx.fillStyle = 'rgba(224, 238, 255, 0.9)';
+    ctx.fillStyle = "rgba(224, 238, 255, 0.9)";
     const bodyStartY = startY + headerLineHeight / 2 + bodyLineHeight / 2;
     for (let i = 0; i < bodyLines.length; i += 1) {
       ctx.fillText(bodyLines[i], 0, bodyStartY + i * bodyLineHeight);
@@ -2899,17 +2914,28 @@ export class ProceduralBuilder {
 
     // --- Materials ---
     const glass = new THREE.MeshPhysicalMaterial({
-      color: 0xbfe9ff, roughness: 0.05, metalness: 0,
-      transmission: 1, thickness: 0.35, ior: 1.45,
+      color: 0xbfe9ff,
+      roughness: 0.05,
+      metalness: 0,
+      transmission: 1,
+      thickness: 0.35,
+      ior: 1.45,
     });
     const mirror = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.02, metalness: 1 });
     const copper = new THREE.MeshStandardMaterial({ color: 0xb87333, roughness: 0.35, metalness: 1 });
     const ceramic = new THREE.MeshPhysicalMaterial({
-      color: 0xf5f0e8, roughness: 0.25, metalness: 0, clearcoat: 1.0, clearcoatRoughness: 0.08,
+      color: 0xf5f0e8,
+      roughness: 0.25,
+      metalness: 0,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.08,
     });
     const emissiveGreen = new THREE.MeshStandardMaterial({
-      color: 0x222222, roughness: 0.55, metalness: 0.05,
-      emissive: 0x44ff99, emissiveIntensity: 1.8,
+      color: 0x222222,
+      roughness: 0.55,
+      metalness: 0.05,
+      emissive: 0x44ff99,
+      emissiveIntensity: 1.8,
     });
     this.animatedMaterialsArr.push({ mat: emissiveGreen, baseIntensity: 1.8, speed: 2.2 });
 
@@ -2917,39 +2943,44 @@ export class ProceduralBuilder {
     const metallic = new THREE.MeshStandardMaterial({ color: 0x9aa7b0, roughness: 0.18, metalness: 1 });
     const brushed = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.72, metalness: 0.9 });
     const iridescent = new THREE.MeshPhysicalMaterial({
-      color: 0xccccdd, roughness: 0.15, metalness: 0.1,
-      iridescence: 1.0, iridescenceIOR: 1.3,
+      color: 0xccccdd,
+      roughness: 0.15,
+      metalness: 0.1,
+      iridescence: 1.0,
+      iridescenceIOR: 1.3,
     });
     const lava = new THREE.MeshStandardMaterial({
-      color: 0x331100, roughness: 0.6, metalness: 0.1,
-      emissive: 0xff4400, emissiveIntensity: 2.5,
+      color: 0x331100,
+      roughness: 0.6,
+      metalness: 0.1,
+      emissive: 0xff4400,
+      emissiveIntensity: 2.5,
     });
     this.animatedMaterialsArr.push({ mat: lava, baseIntensity: 2.5, speed: 1.6 });
 
     // Front row (z = frontZ): Glass, Mirror, Copper, Ceramic, Emissive
-    const frontRow: Array<{ name: string; mat: THREE.Material; shape: 'sphere' | 'box' }> = [
-      { name: 'Glass', mat: glass, shape: 'box' },
-      { name: 'Mirror', mat: mirror, shape: 'box' },
-      { name: 'Copper', mat: copper, shape: 'sphere' },
-      { name: 'Ceramic', mat: ceramic, shape: 'sphere' },
-      { name: 'Emissive', mat: emissiveGreen, shape: 'sphere' },
+    const frontRow: Array<{ name: string; mat: THREE.Material; shape: "sphere" | "box" }> = [
+      { name: "Glass", mat: glass, shape: "box" },
+      { name: "Mirror", mat: mirror, shape: "box" },
+      { name: "Copper", mat: copper, shape: "sphere" },
+      { name: "Ceramic", mat: ceramic, shape: "sphere" },
+      { name: "Emissive", mat: emissiveGreen, shape: "sphere" },
     ];
     // Back row (z = backZ): Rough, Metal, Brushed, Iridescent, Lava
-    const backRow: Array<{ name: string; mat: THREE.Material; shape: 'sphere' | 'box' }> = [
-      { name: 'Rough', mat: rough, shape: 'sphere' },
-      { name: 'Metal', mat: metallic, shape: 'sphere' },
-      { name: 'Brushed', mat: brushed, shape: 'box' },
-      { name: 'Iridescent', mat: iridescent, shape: 'sphere' },
-      { name: 'Lava', mat: lava, shape: 'sphere' },
+    const backRow: Array<{ name: string; mat: THREE.Material; shape: "sphere" | "box" }> = [
+      { name: "Rough", mat: rough, shape: "sphere" },
+      { name: "Metal", mat: metallic, shape: "sphere" },
+      { name: "Brushed", mat: brushed, shape: "box" },
+      { name: "Iridescent", mat: iridescent, shape: "sphere" },
+      { name: "Lava", mat: lava, shape: "sphere" },
     ];
 
     const placeRow = (samples: typeof frontRow, rowZ: number) => {
       samples.forEach((s, i) => {
         const x = startX + i * spacing;
         const y = base.y + 1.05;
-        const geom = s.shape === 'sphere'
-          ? new THREE.SphereGeometry(0.8, 22, 18)
-          : new THREE.BoxGeometry(1.6, 1.6, 1.6);
+        const geom =
+          s.shape === "sphere" ? new THREE.SphereGeometry(0.8, 22, 18) : new THREE.BoxGeometry(1.6, 1.6, 1.6);
         const mesh = new THREE.Mesh(geom, s.mat);
         mesh.position.set(x, y, rowZ);
         mesh.castShadow = true;
@@ -2969,7 +3000,7 @@ export class ProceduralBuilder {
     const greenLight = new THREE.PointLight(0x44ff99, 8, 10, 2);
     greenLight.position.set(emissiveX, base.y + 2.0, frontZ);
     greenLight.castShadow = false;
-    greenLight.name = 'MatLight_Green';
+    greenLight.name = "MatLight_Green";
     this.scene.add(greenLight);
     this.meshes.push(greenLight);
 
@@ -2978,7 +3009,7 @@ export class ProceduralBuilder {
     const lavaLight = new THREE.PointLight(0xff6622, 10, 10, 2);
     lavaLight.position.set(lavaX, base.y + 2.0, backZ);
     lavaLight.castShadow = false;
-    lavaLight.name = 'MatLight_Lava';
+    lavaLight.name = "MatLight_Lava";
     this.scene.add(lavaLight);
     this.meshes.push(lavaLight);
 
@@ -2995,10 +3026,10 @@ export class ProceduralBuilder {
     }
 
     const size = 256;
-    const canvas = document.createElement('canvas');
+    const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
-    const ctx = canvas.getContext('2d')!;
+    const ctx = canvas.getContext("2d")!;
     const img = ctx.createImageData(size, size);
 
     // Integer hash for fast deterministic pseudo-random
@@ -3010,9 +3041,12 @@ export class ProceduralBuilder {
 
     // Smoothed value noise
     const noise2d = (px: number, py: number, seed: number): number => {
-      const ix = Math.floor(px), iy = Math.floor(py);
-      const fx = px - ix, fy = py - iy;
-      const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+      const ix = Math.floor(px),
+        iy = Math.floor(py);
+      const fx = px - ix,
+        fy = py - iy;
+      const sx = fx * fx * (3 - 2 * fx),
+        sy = fy * fy * (3 - 2 * fy);
       const n00 = hash(ix + iy * 57 + seed);
       const n10 = hash(ix + 1 + iy * 57 + seed);
       const n01 = hash(ix + (iy + 1) * 57 + seed);
@@ -3022,15 +3056,17 @@ export class ProceduralBuilder {
 
     // Fractal noise (3 octaves)
     const fbm = (x: number, y: number, seed: number): number => {
-      return noise2d(x, y, seed) * 0.5 + noise2d(x * 2, y * 2, seed + 100) * 0.3 + noise2d(x * 4, y * 4, seed + 200) * 0.2;
+      return (
+        noise2d(x, y, seed) * 0.5 + noise2d(x * 2, y * 2, seed + 100) * 0.3 + noise2d(x * 4, y * 4, seed + 200) * 0.2
+      );
     };
 
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const i = (y * size + x) * 4;
-        img.data[i]     = (fbm(x / 32, y / 32, 0) * 255) | 0;     // R channel
-        img.data[i + 1] = (fbm(x / 32, y / 32, 500) * 255) | 0;   // G channel
-        img.data[i + 2] = (fbm(x / 32, y / 32, 1000) * 255) | 0;  // B channel
+        img.data[i] = (fbm(x / 32, y / 32, 0) * 255) | 0; // R channel
+        img.data[i + 1] = (fbm(x / 32, y / 32, 500) * 255) | 0; // G channel
+        img.data[i + 2] = (fbm(x / 32, y / 32, 1000) * 255) | 0; // B channel
         img.data[i + 3] = 255;
       }
     }
@@ -3050,7 +3086,7 @@ export class ProceduralBuilder {
   private async createVfxBayV2(base: THREE.Vector3, bayWidth: number): Promise<void> {
     const gen = this.loadGenerationRef.value;
     try {
-      const { createVfxShowcase } = await import('@level/VfxShowcase');
+      const { createVfxShowcase } = await import("@level/VfxShowcase");
       if (this.loadGenerationRef.value !== gen) return;
       const result = await createVfxShowcase(this.scene, base, bayWidth);
       if (this.loadGenerationRef.value !== gen) {
@@ -3061,7 +3097,7 @@ export class ProceduralBuilder {
       this.vfxDisposeCallbacks.push(result.dispose);
       this.vfxUpdateCallbacks.push(result.update);
     } catch (err) {
-      console.warn('[ProceduralBuilder] VFX showcase V2 failed, falling back to legacy:', err);
+      console.warn("[ProceduralBuilder] VFX showcase V2 failed, falling back to legacy:", err);
       // Fall back to old VFX bay
       await this.createVfxBay(base, bayWidth);
     }
@@ -3072,16 +3108,34 @@ export class ProceduralBuilder {
     const gen = this.loadGenerationRef.value;
     // Try TSL GPU-driven path; fall back to legacy sprites if unavailable.
     try {
-      const { MeshBasicNodeMaterial } = await import('three/webgpu');
+      const { MeshBasicNodeMaterial } = await import("three/webgpu");
       const {
-        Fn, time, uv, positionLocal, vec3, vec4, vec2, float, sin, cos, mul, add, mix, min, atan,
-        texture, color, PI, TWO_PI, luminance,
-      } = await import('three/tsl');
-      const { mx_fractal_noise_float } = await import('three/tsl');
+        Fn,
+        time,
+        uv,
+        positionLocal,
+        vec3,
+        vec4,
+        vec2,
+        float,
+        sin,
+        cos,
+        mul,
+        add,
+        mix,
+        min,
+        atan,
+        texture,
+        color,
+        PI,
+        TWO_PI,
+        luminance,
+      } = await import("three/tsl");
+      const { mx_fractal_noise_float } = await import("three/tsl");
 
       // Guard: if a new load/unload happened while awaiting imports, bail out
       if (this.loadGenerationRef.value !== gen) {
-        console.log('[LevelManager] VFX bay creation aborted — level changed during import');
+        console.log("[LevelManager] VFX bay creation aborted — level changed during import");
         return;
       }
 
@@ -3106,14 +3160,26 @@ export class ProceduralBuilder {
       const fireTime = mul(time, float(0.4));
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const twistedCylinder = Fn(([pos_immutable, parabolStr, parabolOff, parabolAmp, t]: [any, any, any, any, any]) => {
-        const pos = vec3(pos_immutable).toVar();
-        const angle = atan(pos.z, pos.x).toVar();
-        const elevation = pos.y;
-        const radius = parabolStr.mul(elevation.sub(parabolOff).pow(float(2))).add(parabolAmp).toVar();
-        radius.addAssign(sin(elevation.sub(t).mul(float(20)).add(angle.mul(float(2)))).mul(float(0.05)));
-        return vec3(cos(angle).mul(radius), elevation, sin(angle).mul(radius));
-      });
+      const twistedCylinder = Fn(
+        ([pos_immutable, parabolStr, parabolOff, parabolAmp, t]: [any, any, any, any, any]) => {
+          const pos = vec3(pos_immutable).toVar();
+          const angle = atan(pos.z, pos.x).toVar();
+          const elevation = pos.y;
+          const radius = parabolStr
+            .mul(elevation.sub(parabolOff).pow(float(2)))
+            .add(parabolAmp)
+            .toVar();
+          radius.addAssign(
+            sin(
+              elevation
+                .sub(t)
+                .mul(float(20))
+                .add(angle.mul(float(2))),
+            ).mul(float(0.05)),
+          );
+          return vec3(cos(angle).mul(radius), elevation, sin(angle).mul(radius));
+        },
+      );
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const toSkewedUv = Fn(([uvIn, skew]: [any, any]) => {
@@ -3141,19 +3207,16 @@ export class ProceduralBuilder {
       tornadoEmissiveMat.depthWrite = false;
       tornadoEmissiveMat.forceSinglePass = true;
 
-      tornadoEmissiveMat.positionNode = twistedCylinder(
-        positionLocal, float(1), float(0.3), float(0.2), tornadoTime,
-      );
+      tornadoEmissiveMat.positionNode = twistedCylinder(positionLocal, float(1), float(0.3), float(0.2), tornadoTime);
 
-      const emissiveColor = color('#ff8b4d');
+      const emissiveColor = color("#ff8b4d");
 
       tornadoEmissiveMat.outputNode = Fn(() => {
         const uvVar = uv().toVar();
         // Layer 1: large-scale diagonal flow
-        const n1Uv = toSkewedUv(
-          uvVar.add(vec2(float(0), tornadoTime.negate())),
-          vec2(float(-3), float(0)),
-        ).mul(vec2(float(2), float(0.25)));
+        const n1Uv = toSkewedUv(uvVar.add(vec2(float(0), tornadoTime.negate())), vec2(float(-3), float(0))).mul(
+          vec2(float(2), float(0.25)),
+        );
         const n1 = texture(noiseTex, n1Uv).r.remap(float(0.45), float(0.7));
         // Layer 2: fine detail
         const n2Uv = toSkewedUv(
@@ -3175,7 +3238,7 @@ export class ProceduralBuilder {
       const tornadoInner = new THREE.Mesh(tornadoCylGeo, tornadoEmissiveMat);
       tornadoInner.scale.set(2.5, 6, 2.5);
       tornadoInner.position.set(tornadoX, base.y + 0.1, backRowZ);
-      tornadoInner.name = 'VFX_TornadoInner';
+      tornadoInner.name = "VFX_TornadoInner";
       tornadoInner.castShadow = false;
       tornadoInner.receiveShadow = false;
       tornadoInner.frustumCulled = false;
@@ -3189,9 +3252,7 @@ export class ProceduralBuilder {
       tornadoDarkMat.blending = THREE.NormalBlending;
       tornadoDarkMat.depthWrite = false;
 
-      tornadoDarkMat.positionNode = twistedCylinder(
-        positionLocal, float(1), float(0.3), float(0.25), tornadoTime,
-      );
+      tornadoDarkMat.positionNode = twistedCylinder(positionLocal, float(1), float(0.3), float(0.25), tornadoTime);
 
       tornadoDarkMat.outputNode = Fn(() => {
         const uvVar = uv().toVar();
@@ -3214,7 +3275,7 @@ export class ProceduralBuilder {
       const tornadoOuter = new THREE.Mesh(tornadoCylGeo, tornadoDarkMat);
       tornadoOuter.scale.set(3.0, 6.5, 3.0);
       tornadoOuter.position.set(tornadoX, base.y + 0.1, backRowZ);
-      tornadoOuter.name = 'VFX_TornadoOuter';
+      tornadoOuter.name = "VFX_TornadoOuter";
       tornadoOuter.castShadow = false;
       tornadoOuter.receiveShadow = false;
       tornadoOuter.frustumCulled = false;
@@ -3233,7 +3294,9 @@ export class ProceduralBuilder {
         const n = texture(noiseTex, radUv).r;
         const effect = n.step(float(0.2)).mul(float(3));
         const dist = uvVar.sub(vec2(0.5, 0.5)).length();
-        const fade = float(1).sub(dist.mul(float(2))).clamp();
+        const fade = float(1)
+          .sub(dist.mul(float(2)))
+          .clamp();
         const col = emissiveColor.mul(float(1.2)).div(luminance(emissiveColor));
         return vec4(col, effect.mul(fade).mul(float(0.6)));
       })();
@@ -3241,7 +3304,7 @@ export class ProceduralBuilder {
       const tornadoFloor = new THREE.Mesh(new THREE.PlaneGeometry(6, 6), tornadoFloorMat);
       tornadoFloor.rotation.x = -Math.PI / 2;
       tornadoFloor.position.set(tornadoX, base.y + 0.02, backRowZ);
-      tornadoFloor.name = 'VFX_TornadoFloor';
+      tornadoFloor.name = "VFX_TornadoFloor";
       tornadoFloor.castShadow = false;
       tornadoFloor.receiveShadow = false;
       this.scene.add(tornadoFloor);
@@ -3251,7 +3314,7 @@ export class ProceduralBuilder {
       const tornadoLight = new THREE.PointLight(0xff6b2d, 12, 16, 2);
       tornadoLight.position.set(tornadoX, base.y + 3.0, backRowZ);
       tornadoLight.castShadow = false;
-      tornadoLight.name = 'VFX_TornadoLight';
+      tornadoLight.name = "VFX_TornadoLight";
       this.scene.add(tornadoLight);
       this.meshes.push(tornadoLight);
 
@@ -3272,10 +3335,9 @@ export class ProceduralBuilder {
       fireInnerMat.outputNode = Fn(() => {
         const uvVar = uv().toVar();
         // Noise layer 1: upward scroll + diagonal skew
-        const n1Uv = toSkewedUv(
-          uvVar.add(vec2(fireTime, fireTime.negate())),
-          vec2(float(-1), float(0)),
-        ).mul(vec2(float(2), float(0.5)));
+        const n1Uv = toSkewedUv(uvVar.add(vec2(fireTime, fireTime.negate())), vec2(float(-1), float(0))).mul(
+          vec2(float(2), float(0.5)),
+        );
         const n1 = texture(noiseTex, n1Uv).r;
 
         // Noise layer 2: slower scroll, different scale
@@ -3303,7 +3365,7 @@ export class ProceduralBuilder {
       const fireInner = new THREE.Mesh(fireCylGeo, fireInnerMat);
       fireInner.scale.set(2.0, 5, 2.0);
       fireInner.position.set(fireX, base.y + 0.1, frontRowZ);
-      fireInner.name = 'VFX_FireInner';
+      fireInner.name = "VFX_FireInner";
       fireInner.castShadow = false;
       fireInner.receiveShadow = false;
       fireInner.frustumCulled = false;
@@ -3317,7 +3379,13 @@ export class ProceduralBuilder {
       fireOuterMat.blending = THREE.NormalBlending;
       fireOuterMat.depthWrite = false;
 
-      fireOuterMat.positionNode = twistedCylinder(positionLocal, float(0.6), float(0.0), float(0.7), mul(time, float(0.35)));
+      fireOuterMat.positionNode = twistedCylinder(
+        positionLocal,
+        float(0.6),
+        float(0.0),
+        float(0.7),
+        mul(time, float(0.35)),
+      );
 
       fireOuterMat.outputNode = Fn(() => {
         const uvVar = uv().toVar();
@@ -3338,7 +3406,7 @@ export class ProceduralBuilder {
       const fireOuter = new THREE.Mesh(fireCylGeo, fireOuterMat);
       fireOuter.scale.set(2.5, 5.5, 2.5);
       fireOuter.position.set(fireX, base.y + 0.1, frontRowZ);
-      fireOuter.name = 'VFX_FireOuter';
+      fireOuter.name = "VFX_FireOuter";
       fireOuter.castShadow = false;
       fireOuter.receiveShadow = false;
       fireOuter.frustumCulled = false;
@@ -3355,16 +3423,21 @@ export class ProceduralBuilder {
         const uvVar = uv().toVar();
         const centered = uvVar.sub(vec2(float(0.5), float(0.5)));
         const dist = centered.length();
-        const radial = float(1).sub(dist.mul(float(2))).clamp();
+        const radial = float(1)
+          .sub(dist.mul(float(2)))
+          .clamp();
         const n = texture(noiseTex, uvVar.add(vec2(mul(time, float(0.08)), mul(time, float(0.05))))).r;
-        const alpha = radial.mul(radial).mul(float(0.5).add(n.mul(float(0.5)))).mul(float(0.8));
+        const alpha = radial
+          .mul(radial)
+          .mul(float(0.5).add(n.mul(float(0.5))))
+          .mul(float(0.8));
         return vec4(vec3(1.0, 0.3, 0.02).mul(float(2.5)), alpha);
       })();
 
       const glowPlane = new THREE.Mesh(new THREE.PlaneGeometry(5, 4), glowMat);
       glowPlane.rotation.x = -Math.PI / 2;
       glowPlane.position.set(fireX, base.y + 0.02, frontRowZ);
-      glowPlane.name = 'VFX_FireGlow';
+      glowPlane.name = "VFX_FireGlow";
       glowPlane.castShadow = false;
       glowPlane.receiveShadow = false;
       this.scene.add(glowPlane);
@@ -3374,7 +3447,7 @@ export class ProceduralBuilder {
       const fireLight = new THREE.PointLight(0xff6622, 15, 14, 2);
       fireLight.position.set(fireX, base.y + 2.0, frontRowZ);
       fireLight.castShadow = false;
-      fireLight.name = 'VFX_FireLight';
+      fireLight.name = "VFX_FireLight";
       this.scene.add(fireLight);
       this.meshes.push(fireLight);
 
@@ -3387,7 +3460,13 @@ export class ProceduralBuilder {
 
       laserCoreMat.outputNode = Fn(() => {
         const pulse = mul(add(sin(mul(time, float(6.2))), float(1)), float(0.5));
-        const shimmer = mx_fractal_noise_float(mul(uv().y, float(12)).add(mul(time, float(3))), float(1), float(2), float(0.5), float(2));
+        const shimmer = mx_fractal_noise_float(
+          mul(uv().y, float(12)).add(mul(time, float(3))),
+          float(1),
+          float(2),
+          float(0.5),
+          float(2),
+        );
         const intensity = mul(add(float(0.7), mul(pulse, float(0.3))), add(float(0.8), mul(shimmer, float(0.2))));
         return vec4(mul(vec3(1.0, 0.15, 0.1), mul(intensity, float(5))), intensity);
       })();
@@ -3412,7 +3491,7 @@ export class ProceduralBuilder {
       laserCoreA.rotation.set(0, 0, Math.PI * 0.35);
       laserCoreA.castShadow = false;
       laserCoreA.receiveShadow = false;
-      laserCoreA.name = 'VFX_LaserA';
+      laserCoreA.name = "VFX_LaserA";
       this.scene.add(laserCoreA);
       this.meshes.push(laserCoreA);
 
@@ -3430,7 +3509,7 @@ export class ProceduralBuilder {
       laserCoreB.rotation.set(0, 0, -Math.PI * 0.35);
       laserCoreB.castShadow = false;
       laserCoreB.receiveShadow = false;
-      laserCoreB.name = 'VFX_LaserB';
+      laserCoreB.name = "VFX_LaserB";
       this.scene.add(laserCoreB);
       this.meshes.push(laserCoreB);
 
@@ -3445,7 +3524,7 @@ export class ProceduralBuilder {
       const laserLight = new THREE.PointLight(0xff3a3a, 12, 14, 2);
       laserLight.position.set(laserX, base.y + 2.0, backRowZ);
       laserLight.castShadow = false;
-      laserLight.name = 'VFX_LaserLight';
+      laserLight.name = "VFX_LaserLight";
       this.scene.add(laserLight);
       this.meshes.push(laserLight);
 
@@ -3465,7 +3544,10 @@ export class ProceduralBuilder {
           const envelope = sin(a.mul(float(Math.PI)));
           const noiseVal = mx_fractal_noise_float(
             pos.x.mul(float(noiseScale)).add(mul(time, float(noiseSpeed))),
-            float(3), float(2), float(0.5), float(1),
+            float(3),
+            float(2),
+            float(0.5),
+            float(1),
           );
           pos.y.addAssign(noiseVal.mul(envelope).mul(float(amplitude)));
           return pos;
@@ -3488,7 +3570,7 @@ export class ProceduralBuilder {
       const lightningMainMat = createLightningMat(12, 1.5, 8, 1.6);
       const lightningRibbon = new THREE.Mesh(new THREE.PlaneGeometry(8, 0.4, 32, 1), lightningMainMat);
       lightningRibbon.position.set(lightningX, base.y + 2.4, backRowZ);
-      lightningRibbon.name = 'VFX_Lightning';
+      lightningRibbon.name = "VFX_Lightning";
       lightningRibbon.castShadow = false;
       lightningRibbon.receiveShadow = false;
       lightningRibbon.frustumCulled = false;
@@ -3499,7 +3581,7 @@ export class ProceduralBuilder {
       const lightningSecMat = createLightningMat(15, 2.0, 6, 1.2);
       const lightningRibbon2 = new THREE.Mesh(new THREE.PlaneGeometry(6, 0.25, 24, 1), lightningSecMat);
       lightningRibbon2.position.set(lightningX, base.y + 1.8, backRowZ + 0.3);
-      lightningRibbon2.name = 'VFX_Lightning2';
+      lightningRibbon2.name = "VFX_Lightning2";
       lightningRibbon2.castShadow = false;
       lightningRibbon2.receiveShadow = false;
       lightningRibbon2.frustumCulled = false;
@@ -3510,7 +3592,7 @@ export class ProceduralBuilder {
       const lightningLight = new THREE.PointLight(0x88ccff, 10, 14, 2);
       lightningLight.position.set(lightningX, base.y + 2.5, backRowZ);
       lightningLight.castShadow = false;
-      lightningLight.name = 'VFX_LightningLight';
+      lightningLight.name = "VFX_LightningLight";
       this.scene.add(lightningLight);
       this.meshes.push(lightningLight);
       this.vfxLightningLightRef = lightningLight;
@@ -3539,16 +3621,20 @@ export class ProceduralBuilder {
         const uvVar = uv().toVar();
         const osc = sin(mul(time, float(1.5)));
         const t = osc.add(float(1)).mul(float(0.5));
-        const scanLines = sin(uvVar.x.mul(float(120)).add(mul(time, float(5)))).mul(float(0.5)).add(float(0.5));
+        const scanLines = sin(uvVar.x.mul(float(120)).add(mul(time, float(5))))
+          .mul(float(0.5))
+          .add(float(0.5));
         const fadeEnvelope = sin(t.mul(float(Math.PI)));
-        const alpha = float(0.3).add(fadeEnvelope.mul(float(0.7))).mul(float(0.6).add(scanLines.mul(float(0.4))));
+        const alpha = float(0.3)
+          .add(fadeEnvelope.mul(float(0.7)))
+          .mul(float(0.6).add(scanLines.mul(float(0.4))));
         return vec4(vec3(0.0, 1.0, 1.0).mul(float(2.5)), alpha);
       })();
 
       const scanRingOuter = new THREE.Mesh(new THREE.RingGeometry(1.6, 1.85, 48), scanOuterMat);
       scanRingOuter.rotation.x = -Math.PI / 2;
       scanRingOuter.position.set(scannerX, base.y + 0.5, frontRowZ);
-      scanRingOuter.name = 'VFX_ScannerOuter';
+      scanRingOuter.name = "VFX_ScannerOuter";
       scanRingOuter.castShadow = false;
       scanRingOuter.receiveShadow = false;
       this.scene.add(scanRingOuter);
@@ -3580,7 +3666,7 @@ export class ProceduralBuilder {
       const scanRingInner = new THREE.Mesh(new THREE.RingGeometry(0.8, 1.0, 36), scanInnerMat);
       scanRingInner.rotation.x = -Math.PI / 2;
       scanRingInner.position.set(scannerX, base.y + 0.5, frontRowZ);
-      scanRingInner.name = 'VFX_ScannerInner';
+      scanRingInner.name = "VFX_ScannerInner";
       scanRingInner.castShadow = false;
       scanRingInner.receiveShadow = false;
       this.scene.add(scanRingInner);
@@ -3594,7 +3680,9 @@ export class ProceduralBuilder {
 
       scanBeamMat.outputNode = Fn(() => {
         const uvVar = uv().toVar();
-        const shimmer = sin(uvVar.y.mul(float(40)).add(mul(time, float(4)))).mul(float(0.3)).add(float(0.7));
+        const shimmer = sin(uvVar.y.mul(float(40)).add(mul(time, float(4))))
+          .mul(float(0.3))
+          .add(float(0.7));
         const edgeFade = float(1).sub(uvVar.x.sub(float(0.5)).abs().mul(float(2)));
         const alpha = edgeFade.smoothstep(float(0), float(0.4)).mul(shimmer).mul(float(0.4));
         return vec4(vec3(0.0, 0.9, 1.0).mul(float(2.0)), alpha);
@@ -3602,16 +3690,15 @@ export class ProceduralBuilder {
 
       const scanBeam = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 5), scanBeamMat);
       scanBeam.position.set(scannerX, base.y + 2.5, frontRowZ);
-      scanBeam.name = 'VFX_ScanBeam';
+      scanBeam.name = "VFX_ScanBeam";
       scanBeam.castShadow = false;
       scanBeam.receiveShadow = false;
       this.scene.add(scanBeam);
       this.meshes.push(scanBeam);
 
       // Backdrop removed — open-air design.
-
     } catch (err) {
-      console.warn('[LevelManager] TSL VFX unavailable, using fallback sprites:', err);
+      console.warn("[LevelManager] TSL VFX unavailable, using fallback sprites:", err);
       this.createVfxBayFallback(base, bayWidth);
     }
   }
@@ -3628,12 +3715,17 @@ export class ProceduralBuilder {
 
     // Ground glow plane under fire.
     const glowMat = new THREE.MeshStandardMaterial({
-      color: 0x110000, emissive: 0xff4400, emissiveIntensity: 1.2, roughness: 0.9, transparent: true, opacity: 0.6,
+      color: 0x110000,
+      emissive: 0xff4400,
+      emissiveIntensity: 1.2,
+      roughness: 0.9,
+      transparent: true,
+      opacity: 0.6,
     });
     const glowPlane = new THREE.Mesh(new THREE.PlaneGeometry(5, 4), glowMat);
     glowPlane.rotation.x = -Math.PI / 2;
     glowPlane.position.set(fireX, base.y + 0.02, frontRowZ);
-    glowPlane.name = 'VFX_FireGlow';
+    glowPlane.name = "VFX_FireGlow";
     glowPlane.receiveShadow = false;
     glowPlane.castShadow = false;
     this.scene.add(glowPlane);
@@ -3643,27 +3735,31 @@ export class ProceduralBuilder {
     const fireLight = new THREE.PointLight(0xff6622, 15, 14, 2);
     fireLight.position.set(fireX, base.y + 2.0, frontRowZ);
     fireLight.castShadow = false;
-    fireLight.name = 'VFX_FireLight';
+    fireLight.name = "VFX_FireLight";
     this.scene.add(fireLight);
     this.meshes.push(fireLight);
 
     // Laser bar (emissive).
     const laserMat = new THREE.MeshStandardMaterial({
-      color: 0x220000, roughness: 0.2, metalness: 0.2, emissive: 0xff2a2a, emissiveIntensity: 2.6,
+      color: 0x220000,
+      roughness: 0.2,
+      metalness: 0.2,
+      emissive: 0xff2a2a,
+      emissiveIntensity: 2.6,
     });
     const laser = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 10, 10), laserMat);
     laser.position.set(laserX, base.y + 1.8, backRowZ);
     laser.rotation.z = Math.PI * 0.35;
     laser.castShadow = false;
     laser.receiveShadow = false;
-    laser.name = 'VFX_Laser';
+    laser.name = "VFX_Laser";
     this.scene.add(laser);
     this.meshes.push(laser);
 
     const laserLight = new THREE.PointLight(0xff3a3a, 12, 14, 2);
     laserLight.position.set(laserX, base.y + 2.0, backRowZ);
     laserLight.castShadow = false;
-    laserLight.name = 'VFX_LaserLight';
+    laserLight.name = "VFX_LaserLight";
     this.scene.add(laserLight);
     this.meshes.push(laserLight);
 
@@ -3671,20 +3767,26 @@ export class ProceduralBuilder {
     const lightningLight = new THREE.PointLight(0x88ccff, 10, 14, 2);
     lightningLight.position.set(lightningX, base.y + 2.5, backRowZ);
     lightningLight.castShadow = false;
-    lightningLight.name = 'VFX_LightningLight';
+    lightningLight.name = "VFX_LightningLight";
     this.scene.add(lightningLight);
     this.meshes.push(lightningLight);
 
     // Scanner ring (static fallback).
     const scanMat = new THREE.MeshStandardMaterial({
-      color: 0x00ffff, emissive: 0x00ffff, emissiveIntensity: 1.5, transparent: true, opacity: 0.8,
-      side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false,
+      color: 0x00ffff,
+      emissive: 0x00ffff,
+      emissiveIntensity: 1.5,
+      transparent: true,
+      opacity: 0.8,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
       forceSinglePass: true,
     });
     const scanRing = new THREE.Mesh(new THREE.RingGeometry(1.6, 1.85, 48), scanMat);
     scanRing.rotation.x = -Math.PI / 2;
     scanRing.position.set(scannerX, base.y + 0.5, frontRowZ);
-    scanRing.name = 'VFX_Scanner';
+    scanRing.name = "VFX_Scanner";
     this.scene.add(scanRing);
     this.meshes.push(scanRing);
 
@@ -3692,14 +3794,14 @@ export class ProceduralBuilder {
   }
 
   private createCircleTexture(): THREE.CanvasTexture {
-    const canvas = document.createElement('canvas');
+    const canvas = document.createElement("canvas");
     canvas.width = 64;
     canvas.height = 64;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     if (ctx) {
       ctx.beginPath();
       ctx.arc(32, 32, 28, 0, Math.PI * 2);
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = "#ffffff";
       ctx.fill();
     }
     const tex = new THREE.CanvasTexture(canvas);
@@ -3708,7 +3810,6 @@ export class ProceduralBuilder {
     tex.magFilter = THREE.LinearFilter;
     return tex;
   }
-
 
   /** Collect all created resources into a result object for LevelManager. */
   getResult(): ProceduralBuildResult {

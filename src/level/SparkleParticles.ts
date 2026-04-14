@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from "three";
 
 /**
  * Floating sparkle particles that drift gently through the corridor.
@@ -66,8 +66,8 @@ export class SparkleParticles {
       positions[i3 + 2] = (Math.random() - 0.5) * areaDepth;
 
       // Slow upward drift with slight horizontal variance
-      this.velocities[i3] = (Math.random() - 0.5) * 0.05;     // x drift
-      this.velocities[i3 + 1] = 0.2 + Math.random() * 0.2;    // y drift ~0.2-0.4
+      this.velocities[i3] = (Math.random() - 0.5) * 0.05; // x drift
+      this.velocities[i3 + 1] = 0.2 + Math.random() * 0.2; // y drift ~0.2-0.4
       this.velocities[i3 + 2] = (Math.random() - 0.5) * 0.05; // z drift
 
       // Phase offset for twinkle and wobble
@@ -89,9 +89,9 @@ export class SparkleParticles {
     }
 
     this.geometry = new THREE.BufferGeometry();
-    this.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    this.geometry.setAttribute('color', new THREE.BufferAttribute(colorsArr, 3));
-    this.geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+    this.geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    this.geometry.setAttribute("color", new THREE.BufferAttribute(colorsArr, 3));
+    this.geometry.setAttribute("size", new THREE.BufferAttribute(sizes, 1));
 
     // Sparkles need HDR-range color to trigger bloom on bright backgrounds.
     // Use standard blending with high opacity to remain visible against light floors.
@@ -116,8 +116,8 @@ export class SparkleParticles {
   update(dt: number): void {
     this.elapsed += dt;
 
-    const posAttr = this.geometry.getAttribute('position') as THREE.BufferAttribute;
-    const sizeAttr = this.geometry.getAttribute('size') as THREE.BufferAttribute;
+    const posAttr = this.geometry.getAttribute("position") as THREE.BufferAttribute;
+    const sizeAttr = this.geometry.getAttribute("size") as THREE.BufferAttribute;
     const positions = posAttr.array as Float32Array;
     const sizes = sizeAttr.array as Float32Array;
     const count = posAttr.count;

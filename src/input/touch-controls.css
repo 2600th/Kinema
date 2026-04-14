@@ -1,4 +1,3 @@
-/* ── Touch Controls Container ── */
 .touch-controls-container {
   position: fixed;
   inset: 0;
@@ -6,16 +5,21 @@
   z-index: 1000;
   user-select: none;
   -webkit-user-select: none;
+  --touch-joystick-zone-width: clamp(180px, 34vw, 320px);
+  --touch-joystick-zone-height: clamp(180px, 34vh, 320px);
 }
 
-/* ── Joystick Canvas ── */
 .touch-joystick {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   touch-action: none;
+  pointer-events: none;
   user-select: none;
   -webkit-user-select: none;
 }
 
-/* ── Touch Zones ── */
 .touch-zone {
   position: absolute;
   pointer-events: auto;
@@ -23,12 +27,16 @@
 }
 
 .touch-zone--left {
+  width: var(--touch-joystick-zone-width);
+  height: var(--touch-joystick-zone-height);
   bottom: 15vh;
   left: 20vw;
   transform: translate(-50%, 50%);
 }
 
 .touch-zone--right {
+  width: var(--touch-joystick-zone-width);
+  height: var(--touch-joystick-zone-height);
   bottom: 15vh;
   right: 20vw;
   transform: translate(50%, 50%);
@@ -50,7 +58,6 @@
   bottom: 32vh;
 }
 
-/* ── Touch Button Base ── */
 .touch-btn {
   display: flex;
   align-items: center;
@@ -60,18 +67,20 @@
   background: rgba(26, 16, 64, 0.5);
   color: #ffffff;
   font-size: 20px;
-  font-family: 'Outfit', sans-serif;
+  font-family: "Outfit", sans-serif;
   cursor: pointer;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
-  transition: transform 0.1s ease, opacity 0.1s ease, background 0.1s ease;
+  transition:
+    transform 0.1s ease,
+    opacity 0.1s ease,
+    background 0.1s ease;
   outline: none;
   -webkit-tap-highlight-color: transparent;
   padding: 0;
 }
 
-/* ── Button Variants ── */
 .touch-btn--jump {
   background: rgba(123, 47, 255, 0.35);
   border-color: rgba(255, 107, 157, 0.5);
@@ -94,7 +103,6 @@
   box-shadow: 0 0 8px rgba(255, 107, 157, 0.1);
 }
 
-/* ── Active State ── */
 .touch-btn--active {
   transform: scale(0.92);
   opacity: 0.85;
@@ -103,8 +111,12 @@
   background: rgba(123, 47, 255, 0.4);
 }
 
-/* ── Responsive: Landscape adjustments ── */
 @media (orientation: landscape) and (max-height: 500px) {
+  .touch-controls-container {
+    --touch-joystick-zone-width: clamp(170px, 28vw, 260px);
+    --touch-joystick-zone-height: clamp(170px, 40vh, 260px);
+  }
+
   .touch-zone--left {
     bottom: 10vh;
     left: 12vw;
@@ -127,8 +139,12 @@
   }
 }
 
-/* ── Portrait adjustments ── */
 @media (orientation: portrait) {
+  .touch-controls-container {
+    --touch-joystick-zone-width: clamp(180px, 42vw, 320px);
+    --touch-joystick-zone-height: clamp(180px, 30vh, 280px);
+  }
+
   .touch-zone--left {
     bottom: 12vh;
     left: 15vw;
@@ -147,12 +163,5 @@
   .touch-zone--sprint {
     left: 3vw;
     bottom: 26vh;
-  }
-}
-
-/* ── Hide on desktop (pointer: fine) ── */
-@media (pointer: fine) {
-  .touch-controls-container {
-    display: none !important;
   }
 }

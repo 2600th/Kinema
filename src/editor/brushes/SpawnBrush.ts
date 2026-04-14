@@ -1,15 +1,15 @@
-import * as THREE from 'three';
-import { type BrushDefinition, type BrushParams } from './Brush';
+import * as THREE from "three";
+import type { BrushDefinition, BrushParams } from "./Brush";
 
 const CONE_RADIUS = 0.3;
 const CONE_HEIGHT = 0.8;
 
 export const SpawnBrush: BrushDefinition = {
-  id: 'spawn',
-  label: 'Spawn',
-  shortcut: '7',
+  id: "spawn",
+  label: "Spawn",
+  shortcut: "7",
   // Arrow pointing up — spawn marker icon
-  icon: 'M12 2l6 10h-4v8h-4v-8H6z',
+  icon: "M12 2l6 10h-4v8h-4v-8H6z",
 
   buildPreviewGeometry(_params: BrushParams): THREE.BufferGeometry {
     // Fixed-size cone pointing up — visual gizmo only

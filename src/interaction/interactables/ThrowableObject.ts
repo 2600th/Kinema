@@ -1,13 +1,13 @@
-import * as THREE from 'three';
-import type RAPIER from '@dimforge/rapier3d-compat';
-import type { EventBus } from '@core/EventBus';
-import type { PlayerController } from '@character/PlayerController';
-import type { IInteractable, InteractionAccess } from '../Interactable';
-import { setMeshHighlight } from '../highlightMesh';
+import type { PlayerController } from "@character/PlayerController";
+import type { EventBus } from "@core/EventBus";
+import type RAPIER from "@dimforge/rapier3d-compat";
+import * as THREE from "three";
+import { setMeshHighlight } from "../highlightMesh";
+import type { IInteractable, InteractionAccess } from "../Interactable";
 
 export class ThrowableObject implements IInteractable {
   readonly id: string;
-  readonly label = 'Pick Up';
+  readonly label = "Pick Up";
   readonly position = new THREE.Vector3();
   private hasPose = false;
   private prevPos = new THREE.Vector3();
@@ -64,11 +64,11 @@ export class ThrowableObject implements IInteractable {
   }
 
   canInteract(player: PlayerController): InteractionAccess {
-    return player.isGrounded ? { allowed: true } : { allowed: false, reason: 'Must be grounded' };
+    return player.isGrounded ? { allowed: true } : { allowed: false, reason: "Must be grounded" };
   }
 
   interact(_player: PlayerController): void {
-    this.eventBus.emit('interaction:pickUp', { object: this });
+    this.eventBus.emit("interaction:pickUp", { object: this });
   }
 
   dispose(): void {

@@ -1,7 +1,7 @@
 import type { PlayerController } from "@character/PlayerController";
 import type { EventBus } from "@core/EventBus";
 import type { RuntimeSystem } from "@core/RuntimeSystem";
-import { getProceduralCoinPlacements, type CoinPlacement } from "@level/CoinLayout";
+import { type CoinPlacement, getProceduralCoinPlacements } from "@level/CoinLayout";
 import type { ShowcaseStationKey } from "@level/ShowcaseLayout";
 import type { VehicleManager } from "@vehicle/VehicleManager";
 import * as THREE from "three";

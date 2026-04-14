@@ -1,8 +1,8 @@
 import type { PlayerController } from "@character/PlayerController";
 import type { RuntimeSystem } from "@core/RuntimeSystem";
-import { getProceduralSpikePlacements, type SpikePlacement } from "@level/SpikeLayout";
 import type { ShowcaseStationKey } from "@level/ShowcaseLayout";
-import { PlayerHealthSystem } from "@systems/PlayerHealthSystem";
+import { getProceduralSpikePlacements, type SpikePlacement } from "@level/SpikeLayout";
+import type { PlayerHealthSystem } from "@systems/PlayerHealthSystem";
 import type { VehicleManager } from "@vehicle/VehicleManager";
 import * as THREE from "three";
 
@@ -212,7 +212,9 @@ export class SpikeHazardSystem implements RuntimeSystem {
         const mesh = child as THREE.Mesh;
         if (!mesh.material) return;
         if (Array.isArray(mesh.material)) {
-          mesh.material.forEach((material) => material.dispose());
+          mesh.material.forEach((material) => {
+            material.dispose();
+          });
         } else if (mesh.material !== this.baseMaterial) {
           mesh.material.dispose();
         }

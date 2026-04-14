@@ -43,9 +43,9 @@ export class ScreenShake {
   private maxRotX = 0.012;
   private maxRotY = 0.018;
   private maxRotZ = 0.01;
-  private decayRate = 3.2;    // trauma decay per second (faster = snappier)
-  private frequency = 18;     // noise frequency (shake speed)
-  private time = 0;           // accumulated time for noise sampling
+  private decayRate = 3.2; // trauma decay per second (faster = snappier)
+  private frequency = 18; // noise frequency (shake speed)
+  private time = 0; // accumulated time for noise sampling
 
   /** Add trauma (clamped to 0-1). */
   addTrauma(amount: number): void {

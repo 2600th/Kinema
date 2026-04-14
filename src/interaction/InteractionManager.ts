@@ -1,17 +1,14 @@
-import type { EventBus } from '@core/EventBus';
-import type { FixedUpdatable, Disposable } from '@core/types';
-import type RAPIER from '@dimforge/rapier3d-compat';
-import {
-  INTERACTION_SENSOR_RADIUS,
-  INTERACTION_SENSOR_HALF_HEIGHT,
-} from '@core/constants';
-import type { PhysicsWorld } from '@physics/PhysicsWorld';
-import type { PlayerController } from '@character/PlayerController';
-import { ColliderFactory } from '@physics/ColliderFactory';
-import type { IInteractable } from './Interactable';
+import type { PlayerController } from "@character/PlayerController";
+import { INTERACTION_SENSOR_HALF_HEIGHT, INTERACTION_SENSOR_RADIUS } from "@core/constants";
+import type { EventBus } from "@core/EventBus";
+import type { Disposable, FixedUpdatable } from "@core/types";
+import type RAPIER from "@dimforge/rapier3d-compat";
+import { ColliderFactory } from "@physics/ColliderFactory";
+import type { PhysicsWorld } from "@physics/PhysicsWorld";
+import type { IInteractable } from "./Interactable";
 
 /** Key displayed in interaction prompts. Change here to rebind the interact key label. */
-const INTERACT_KEY_LABEL = 'F';
+const INTERACT_KEY_LABEL = "F";
 
 const _losOrigin = { x: 0, y: 0, z: 0 } as RAPIER.Vector3;
 const _losDir = { x: 0, y: 0, z: 0 } as RAPIER.Vector3;
@@ -64,7 +61,7 @@ export class InteractionManager implements FixedUpdatable, Disposable {
         interactable.onBlur();
         this.focusedId = null;
         this.focusedLabel = null;
-        this.eventBus.emit('interaction:focusChanged', { id: null, label: null });
+        this.eventBus.emit("interaction:focusChanged", { id: null, label: null });
       }
     }
   }
@@ -118,10 +115,7 @@ export class InteractionManager implements FixedUpdatable, Disposable {
     return null;
   }
 
-  private isLineOfSightClear(
-    position: { x: number; y: number; z: number },
-    interactable: IInteractable,
-  ): boolean {
+  private isLineOfSightClear(position: { x: number; y: number; z: number }, interactable: IInteractable): boolean {
     const ignoredHandles = interactable.getIgnoredColliderHandles?.() ?? [];
     const isIgnoredHandle = (handle: number): boolean =>
       handle === interactable.collider.handle || ignoredHandles.includes(handle);
@@ -135,8 +129,12 @@ export class InteractionManager implements FixedUpdatable, Disposable {
     }
 
     const invLength = 1 / maxDistance;
-    _losOrigin.x = position.x; _losOrigin.y = originY; _losOrigin.z = position.z;
-    _losDir.x = dx * invLength; _losDir.y = dy * invLength; _losDir.z = dz * invLength;
+    _losOrigin.x = position.x;
+    _losOrigin.y = originY;
+    _losOrigin.z = position.z;
+    _losDir.x = dx * invLength;
+    _losDir.y = dy * invLength;
+    _losDir.z = dz * invLength;
     const rayHit = this.physicsWorld.castRay(
       _losOrigin,
       _losDir,
@@ -153,7 +151,7 @@ export class InteractionManager implements FixedUpdatable, Disposable {
       const nextLabel = this.buildPromptLabel(closestId);
       if (nextLabel !== this.focusedLabel) {
         this.focusedLabel = nextLabel;
-        this.eventBus.emit('interaction:focusChanged', { id: closestId, label: nextLabel });
+        this.eventBus.emit("interaction:focusChanged", { id: closestId, label: nextLabel });
       }
       return;
     }
@@ -170,7 +168,7 @@ export class InteractionManager implements FixedUpdatable, Disposable {
     if (!closestId) {
       this.clearHoldInteraction();
     }
-    this.eventBus.emit('interaction:focusChanged', { id: closestId, label });
+    this.eventBus.emit("interaction:focusChanged", { id: closestId, label });
   }
 
   /** Trigger interaction on the focused interactable. */
@@ -183,15 +181,15 @@ export class InteractionManager implements FixedUpdatable, Disposable {
 
     const access = target.canInteract?.(this.player);
     if (access && !access.allowed) {
-      this.eventBus.emit('interaction:blocked', {
+      this.eventBus.emit("interaction:blocked", {
         id: target.id,
-        reason: access.reason ?? 'Cannot interact right now',
+        reason: access.reason ?? "Cannot interact right now",
       });
       return;
     }
 
     const spec = target.getInteractionSpec?.();
-    if (spec?.mode === 'hold') {
+    if (spec?.mode === "hold") {
       const duration = Math.max(spec.holdDuration ?? 0.75, 0.05);
       this.holdInteraction = {
         id: target.id,
@@ -199,7 +197,7 @@ export class InteractionManager implements FixedUpdatable, Disposable {
         duration,
       };
       target.setHoldProgress?.(0);
-      this.eventBus.emit('interaction:holdProgress', {
+      this.eventBus.emit("interaction:holdProgress", {
         id: target.id,
         progress: 0,
         position: target.position.clone(),
@@ -212,7 +210,7 @@ export class InteractionManager implements FixedUpdatable, Disposable {
 
   private executeInteraction(target: IInteractable): void {
     target.interact(this.player);
-    this.eventBus.emit('interaction:triggered', { id: target.id });
+    this.eventBus.emit("interaction:triggered", { id: target.id });
   }
 
   private updateHoldInteraction(dt: number): void {
@@ -237,7 +235,7 @@ export class InteractionManager implements FixedUpdatable, Disposable {
     this.holdInteraction.elapsed += dt;
     const progress = Math.max(0, Math.min(1, this.holdInteraction.elapsed / this.holdInteraction.duration));
     target.setHoldProgress?.(progress);
-    this.eventBus.emit('interaction:holdProgress', {
+    this.eventBus.emit("interaction:holdProgress", {
       id: this.holdInteraction.id,
       progress,
       position: target.position.clone(),
@@ -253,7 +251,7 @@ export class InteractionManager implements FixedUpdatable, Disposable {
       this.interactables.get(this.holdInteraction.id)?.setHoldProgress?.(null);
       this.holdInteraction = null;
     }
-    this.eventBus.emit('interaction:holdProgress', null);
+    this.eventBus.emit("interaction:holdProgress", null);
   }
 
   private buildPromptLabel(id: string | null): string | null {
@@ -262,17 +260,17 @@ export class InteractionManager implements FixedUpdatable, Disposable {
     if (!target) return null;
     const access = target.canInteract?.(this.player);
     if (access && !access.allowed) {
-      return access.reason ?? 'Locked';
+      return access.reason ?? "Locked";
     }
     const spec = target.getInteractionSpec?.();
-    const verb = spec?.mode === 'hold' ? `Hold ${INTERACT_KEY_LABEL} to` : `Press ${INTERACT_KEY_LABEL} to`;
+    const verb = spec?.mode === "hold" ? `Hold ${INTERACT_KEY_LABEL} to` : `Press ${INTERACT_KEY_LABEL} to`;
     return `${verb} ${target.label}`;
   }
 
   dispose(): void {
     if (this.focusedId) {
       this.interactables.get(this.focusedId)?.onBlur();
-      this.eventBus.emit('interaction:focusChanged', { id: null, label: null });
+      this.eventBus.emit("interaction:focusChanged", { id: null, label: null });
       this.focusedId = null;
       this.focusedLabel = null;
     }

@@ -1,11 +1,11 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const hudDispose = vi.fn();
 const fadeDispose = vi.fn();
 const debugDispose = vi.fn();
 const hudInstances: any[] = [];
 
-vi.mock('./components/HUD', () => ({
+vi.mock("./components/HUD", () => ({
   HUD: class {
     showPrompt = vi.fn();
     hidePrompt = vi.fn();
@@ -26,14 +26,14 @@ vi.mock('./components/HUD', () => ({
   },
 }));
 
-vi.mock('./components/FadeScreen', () => ({
+vi.mock("./components/FadeScreen", () => ({
   FadeScreen: class {
     dispose = fadeDispose;
     constructor(_parent: HTMLElement) {}
   },
 }));
 
-vi.mock('./components/DebugPanel', () => ({
+vi.mock("./components/DebugPanel", () => ({
   DebugPanel: class {
     toggle = vi.fn();
     dispose = debugDispose;
@@ -41,7 +41,7 @@ vi.mock('./components/DebugPanel', () => ({
   },
 }));
 
-vi.mock('./components/LoadingScreen', () => ({
+vi.mock("./components/LoadingScreen", () => ({
   LoadingScreen: class {
     setProgress = vi.fn();
     show = vi.fn();
@@ -50,7 +50,7 @@ vi.mock('./components/LoadingScreen', () => ({
   },
 }));
 
-vi.mock('./components/DeathEffect', () => ({
+vi.mock("./components/DeathEffect", () => ({
   DeathEffect: class {
     play = vi.fn();
     dispose = vi.fn();
@@ -58,11 +58,11 @@ vi.mock('./components/DeathEffect', () => ({
   },
 }));
 
-import { UIManager } from './UIManager';
+import { UIManager } from "./UIManager";
 
-describe('UIManager', () => {
+describe("UIManager", () => {
   const appendBodyChild = vi.fn();
-  const createElement = vi.fn(() => ({ id: '', style: {} as Record<string, string>, remove: vi.fn() }));
+  const createElement = vi.fn(() => ({ id: "", style: {} as Record<string, string>, remove: vi.fn() }));
   const getElementById = vi.fn(() => null);
   let warnSpy: ReturnType<typeof vi.spyOn>;
 
@@ -76,7 +76,7 @@ describe('UIManager', () => {
       createElement,
       body: { appendChild: appendBodyChild },
     };
-    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -84,22 +84,20 @@ describe('UIManager', () => {
     vi.clearAllMocks();
   });
 
-  it('creates fallback overlay when #ui-overlay is missing', () => {
+  it("creates fallback overlay when #ui-overlay is missing", () => {
     const on = vi.fn(() => () => {});
     const eventBus = { on };
 
     const ui = new UIManager(eventBus as any);
 
-    expect(getElementById).toHaveBeenCalledWith('ui-overlay');
-    expect(createElement).toHaveBeenCalledWith('div');
+    expect(getElementById).toHaveBeenCalledWith("ui-overlay");
+    expect(createElement).toHaveBeenCalledWith("div");
     expect(appendBodyChild).toHaveBeenCalledTimes(1);
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[UIManager] #ui-overlay missing. Created fallback overlay element.',
-    );
+    expect(warnSpy).toHaveBeenCalledWith("[UIManager] #ui-overlay missing. Created fallback overlay element.");
     ui.dispose();
   });
 
-  it('routes objective updates to the pinned objective card and completion to status toasts', () => {
+  it("routes objective updates to the pinned objective card and completion to status toasts", () => {
     const listeners = new Map<string, (payload: any) => void>();
     const on = vi.fn((event: string, handler: (payload: any) => void) => {
       listeners.set(event, handler);
@@ -110,16 +108,16 @@ describe('UIManager', () => {
     const ui = new UIManager(eventBus as any);
     const hud = hudInstances[0];
 
-    listeners.get('objective:set')?.({ text: 'Reach the beacon' });
-    listeners.get('objective:completed')?.({ text: 'Reach the beacon' });
+    listeners.get("objective:set")?.({ text: "Reach the beacon" });
+    listeners.get("objective:completed")?.({ text: "Reach the beacon" });
 
-    expect(hud.setObjective).toHaveBeenCalledWith('Reach the beacon');
-    expect(hud.flashObjectiveComplete).toHaveBeenCalledWith('Reach the beacon');
-    expect(hud.showStatus).toHaveBeenCalledWith('Objective complete: Reach the beacon');
+    expect(hud.setObjective).toHaveBeenCalledWith("Reach the beacon");
+    expect(hud.flashObjectiveComplete).toHaveBeenCalledWith("Reach the beacon");
+    expect(hud.showStatus).toHaveBeenCalledWith("Objective complete: Reach the beacon");
     ui.dispose();
   });
 
-  it('routes collectible count updates to the HUD collectible chip', () => {
+  it("routes collectible count updates to the HUD collectible chip", () => {
     const listeners = new Map<string, (payload: any) => void>();
     const on = vi.fn((event: string, handler: (payload: any) => void) => {
       listeners.set(event, handler);
@@ -130,13 +128,13 @@ describe('UIManager', () => {
     const ui = new UIManager(eventBus as any);
     const hud = hudInstances[0];
 
-    listeners.get('collectible:changed')?.({ count: 5 });
+    listeners.get("collectible:changed")?.({ count: 5 });
 
     expect(hud.updateCollectibles).toHaveBeenCalledWith(5);
     ui.dispose();
   });
 
-  it('routes collectible pickup celebrations and damage flashes to the HUD', () => {
+  it("routes collectible pickup celebrations and damage flashes to the HUD", () => {
     const listeners = new Map<string, (payload: any) => void>();
     const on = vi.fn((event: string, handler: (payload: any) => void) => {
       listeners.set(event, handler);
@@ -147,15 +145,15 @@ describe('UIManager', () => {
     const ui = new UIManager(eventBus as any);
     const hud = hudInstances[0];
 
-    listeners.get('collectible:collected')?.({ value: 1 });
-    listeners.get('player:damaged')?.({ reason: 'spike' });
+    listeners.get("collectible:collected")?.({ value: 1 });
+    listeners.get("player:damaged")?.({ reason: "spike" });
 
     expect(hud.celebrateCollectible).toHaveBeenCalledWith(1);
-    expect(hud.flashDamage).toHaveBeenCalledWith('spike');
+    expect(hud.flashDamage).toHaveBeenCalledWith("spike");
     ui.dispose();
   });
 
-  it('routes health updates to the HUD heart chip', () => {
+  it("routes health updates to the HUD heart chip", () => {
     const listeners = new Map<string, (payload: any) => void>();
     const on = vi.fn((event: string, handler: (payload: any) => void) => {
       listeners.set(event, handler);
@@ -166,7 +164,7 @@ describe('UIManager', () => {
     const ui = new UIManager(eventBus as any);
     const hud = hudInstances[0];
 
-    listeners.get('health:changed')?.({ current: 2, max: 3 });
+    listeners.get("health:changed")?.({ current: 2, max: 3 });
 
     expect(hud.updateHealth).toHaveBeenCalledWith(2, 3);
     ui.dispose();

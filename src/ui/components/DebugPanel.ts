@@ -1,10 +1,10 @@
-import type { EventBus } from '@core/EventBus';
-import type { Disposable } from '@core/types';
-import { LUT_NAMES, ENV_NAMES } from '@renderer/RendererManager';
+import type { EventBus } from "@core/EventBus";
+import type { Disposable } from "@core/types";
+import { ENV_NAMES, LUT_NAMES } from "@renderer/RendererManager";
 
-type AntiAliasingMode = 'smaa' | 'fxaa' | 'none';
-type GraphicsProfile = 'performance' | 'balanced' | 'cinematic';
-type ShadowQualityTier = 'auto' | GraphicsProfile;
+type AntiAliasingMode = "smaa" | "fxaa" | "none";
+type GraphicsProfile = "performance" | "balanced" | "cinematic";
+type ShadowQualityTier = "auto" | GraphicsProfile;
 
 interface RenderSettingsSnapshot {
   activeBackend: string;
@@ -38,14 +38,14 @@ interface RenderSettingsSnapshot {
 
 type VisibilityState = Pick<
   RenderSettingsSnapshot,
-  | 'postProcessingEnabled'
-  | 'graphicsProfile'
-  | 'aaMode'
-  | 'ssrEnabled'
-  | 'bloomEnabled'
-  | 'casEnabled'
-  | 'vignetteEnabled'
-  | 'lutEnabled'
+  | "postProcessingEnabled"
+  | "graphicsProfile"
+  | "aaMode"
+  | "ssrEnabled"
+  | "bloomEnabled"
+  | "casEnabled"
+  | "vignetteEnabled"
+  | "lutEnabled"
 >;
 
 /**
@@ -77,32 +77,35 @@ export class DebugPanel implements Disposable {
   private graphsEnabled = true;
   private visible = false;
 
-  constructor(parent: HTMLElement, private eventBus: EventBus) {
-    this.panel = document.createElement('div');
+  constructor(
+    parent: HTMLElement,
+    private eventBus: EventBus,
+  ) {
+    this.panel = document.createElement("div");
     this.panel.style.cssText = [
-      'position:absolute',
-      'right:12px',
-      'top:12px',
-      'display:none',
-      'width:min(350px, calc(100vw - 24px))',
-      'padding:12px 12px 10px',
-      'background:rgba(16, 18, 22, 0.76)',
-      'backdrop-filter:blur(8px)',
-      'border:1px solid rgba(130,148,170,0.32)',
-      'border-radius:10px',
-      'box-shadow:0 10px 30px rgba(0,0,0,0.35)',
-      'color:#d8e6f6',
-      'font:12px/1.4 Inter, Segoe UI, Arial, sans-serif',
-      'user-select:none',
-      'pointer-events:auto',
-      'z-index:1100',
-      'max-height:100vh',
-      'overflow-y:auto',
-      'overflow-x:hidden',
-      'overscroll-behavior:contain',
-    ].join(';');
-    this.panel.className = 'kinema-debug';
-    const style = document.createElement('style');
+      "position:absolute",
+      "right:12px",
+      "top:12px",
+      "display:none",
+      "width:min(350px, calc(100vw - 24px))",
+      "padding:12px 12px 10px",
+      "background:rgba(16, 18, 22, 0.76)",
+      "backdrop-filter:blur(8px)",
+      "border:1px solid rgba(130,148,170,0.32)",
+      "border-radius:10px",
+      "box-shadow:0 10px 30px rgba(0,0,0,0.35)",
+      "color:#d8e6f6",
+      "font:12px/1.4 Inter, Segoe UI, Arial, sans-serif",
+      "user-select:none",
+      "pointer-events:auto",
+      "z-index:1100",
+      "max-height:100vh",
+      "overflow-y:auto",
+      "overflow-x:hidden",
+      "overscroll-behavior:contain",
+    ].join(";");
+    this.panel.className = "kinema-debug";
+    const style = document.createElement("style");
     style.textContent = `
       .kinema-debug input[type="range"] {
         -webkit-appearance: none; appearance: none;
@@ -148,371 +151,418 @@ export class DebugPanel implements Disposable {
     this.panel.appendChild(style);
     parent.appendChild(this.panel);
 
-    const title = document.createElement('div');
-    title.textContent = 'Renderer & Debug';
-    title.style.cssText = 'font-size:13px;font-weight:600;letter-spacing:0.02em;margin-bottom:10px;color:#eef7ff;';
+    const title = document.createElement("div");
+    title.textContent = "Renderer & Debug";
+    title.style.cssText = "font-size:13px;font-weight:600;letter-spacing:0.02em;margin-bottom:10px;color:#eef7ff;";
     this.panel.appendChild(title);
 
-    this.graphWrap = document.createElement('div');
-    this.graphWrap.style.cssText = 'display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;margin-bottom:8px;';
-    this.graphWrap.textContent = 'Graphs will load on first open.';
+    this.graphWrap = document.createElement("div");
+    this.graphWrap.style.cssText =
+      "display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;margin-bottom:8px;";
+    this.graphWrap.textContent = "Graphs will load on first open.";
     this.panel.appendChild(this.graphWrap);
 
-    this.metrics = document.createElement('div');
+    this.metrics = document.createElement("div");
     this.metrics.style.cssText = [
-      'display:grid',
-      'grid-template-columns:minmax(0,1fr) 12ch',
-      'align-items:center',
-      'row-gap:3px',
-      'column-gap:10px',
-      'padding:8px 10px',
-      'border-radius:8px',
-      'background:rgba(8,10,13,0.55)',
-      'margin-bottom:10px',
-    ].join(';');
+      "display:grid",
+      "grid-template-columns:minmax(0,1fr) 12ch",
+      "align-items:center",
+      "row-gap:3px",
+      "column-gap:10px",
+      "padding:8px 10px",
+      "border-radius:8px",
+      "background:rgba(8,10,13,0.55)",
+      "margin-bottom:10px",
+    ].join(";");
     this.panel.appendChild(this.metrics);
 
-    this.metricBackend = this.addMetricRow('Backend');
-    this.metricBackend.textContent = '—';
-    this.metricState = this.addMetricRow('State');
-    this.metricGrounded = this.addMetricRow('Grounded');
-    this.metricSpeed = this.addMetricRow('Speed');
-    this.metricFps = this.addMetricRow('FPS');
-    this.metricFrame = this.addMetricRow('Frame');
-    this.metricPhysics = this.addMetricRow('Physics');
-    this.metricDraw = this.addMetricRow('Draw Calls');
-    this.metricTris = this.addMetricRow('Triangles');
+    this.metricBackend = this.addMetricRow("Backend");
+    this.metricBackend.textContent = "—";
+    this.metricState = this.addMetricRow("State");
+    this.metricGrounded = this.addMetricRow("Grounded");
+    this.metricSpeed = this.addMetricRow("Speed");
+    this.metricFps = this.addMetricRow("FPS");
+    this.metricFrame = this.addMetricRow("Frame");
+    this.metricPhysics = this.addMetricRow("Physics");
+    this.metricDraw = this.addMetricRow("Draw Calls");
+    this.metricTris = this.addMetricRow("Triangles");
 
-    const controls = document.createElement('div');
-    controls.style.cssText = 'display:grid;grid-template-columns:1fr;row-gap:10px;';
+    const controls = document.createElement("div");
+    controls.style.cssText = "display:grid;grid-template-columns:1fr;row-gap:10px;";
     this.panel.appendChild(controls);
 
-    const runtimeSection = this.createSection('Runtime Views');
-    runtimeSection.appendChild(this.createCheckbox(
-      'fpsGraph',
-      'Performance graphs',
-      true,
-      'Shows FPS, frame-time, and memory graphs side by side.',
-      (value) => {
-        this.graphsEnabled = value;
-        this.syncVisibility();
-      },
-    ));
-    runtimeSection.appendChild(this.createCheckbox(
-      'showColliders',
-      'Show colliders',
-      false,
-      'Renders Rapier collider wireframes for collision debugging.',
-      (value) => {
-        this.eventBus.emit('debug:showColliders', value);
-      },
-    ));
-    runtimeSection.appendChild(this.createCheckbox(
-      'lightHelpers',
-      'Light helpers',
-      false,
-      'Shows helpers for all lights (direction, cones, radius) in the scene.',
-      (value) => {
-        this.eventBus.emit('debug:showLightHelpers', value);
-      },
-    ));
-    runtimeSection.appendChild(this.createCheckbox(
-      'shadowFrustums',
-      'Shadow frustums',
-      false,
-      'Shows shadow camera frustums for shadow-casting lights.',
-      (value) => {
-        this.eventBus.emit('debug:showShadowFrustums', value);
-      },
-    ));
-    runtimeSection.appendChild(this.createCheckbox(
-      'cameraCollision',
-      'Camera collision',
-      true,
-      'Prevents camera clipping by enabling wall collision sweeps.',
-      (value) => {
-        this.eventBus.emit('debug:cameraCollision', value);
-      },
-    ));
+    const runtimeSection = this.createSection("Runtime Views");
+    runtimeSection.appendChild(
+      this.createCheckbox(
+        "fpsGraph",
+        "Performance graphs",
+        true,
+        "Shows FPS, frame-time, and memory graphs side by side.",
+        (value) => {
+          this.graphsEnabled = value;
+          this.syncVisibility();
+        },
+      ),
+    );
+    runtimeSection.appendChild(
+      this.createCheckbox(
+        "showColliders",
+        "Show colliders",
+        false,
+        "Renders Rapier collider wireframes for collision debugging.",
+        (value) => {
+          this.eventBus.emit("debug:showColliders", value);
+        },
+      ),
+    );
+    runtimeSection.appendChild(
+      this.createCheckbox(
+        "lightHelpers",
+        "Light helpers",
+        false,
+        "Shows helpers for all lights (direction, cones, radius) in the scene.",
+        (value) => {
+          this.eventBus.emit("debug:showLightHelpers", value);
+        },
+      ),
+    );
+    runtimeSection.appendChild(
+      this.createCheckbox(
+        "shadowFrustums",
+        "Shadow frustums",
+        false,
+        "Shows shadow camera frustums for shadow-casting lights.",
+        (value) => {
+          this.eventBus.emit("debug:showShadowFrustums", value);
+        },
+      ),
+    );
+    runtimeSection.appendChild(
+      this.createCheckbox(
+        "cameraCollision",
+        "Camera collision",
+        true,
+        "Prevents camera clipping by enabling wall collision sweeps.",
+        (value) => {
+          this.eventBus.emit("debug:cameraCollision", value);
+        },
+      ),
+    );
 
     controls.appendChild(runtimeSection);
 
-    const envSection = this.createSection('Environment');
-    envSection.appendChild(this.createRange(
-      'envBackgroundIntensity',
-      'Background Intensity',
-      0,
-      2,
-      0.05,
-      1.0,
-      'Indirect light contribution from the environment map.',
-      (value: number) => {
-        this.eventBus.emit('debug:envBackgroundIntensity', value);
-      },
-      (value: number) => value.toFixed(2),
-    ));
-    envSection.appendChild(this.createRange(
-      'envBackgroundBlurriness',
-      'Background Blur',
-      0,
-      1,
-      0.05,
-      0.5,
-      'Blur amount for the environment background.',
-      (value: number) => {
-        this.eventBus.emit('debug:envBackgroundBlurriness', value);
-      },
-      (value: number) => value.toFixed(2),
-    ));
-    envSection.appendChild(this.createRange(
-      'envRotationDegrees',
-      'Environment Rotation',
-      -180,
-      180,
-      1,
-      0,
-      'Rotates environment lighting/background around Y axis (degrees).',
-      (value: number) => {
-        this.eventBus.emit('debug:environmentRotation', value);
-      },
-      (value: number) => `${Math.round(value)} deg`,
-    ));
-    envSection.appendChild(this.createSelect(
-      'envName',
-      'Environment',
-      [...ENV_NAMES],
-      'Royal Esplanade',
-      'Select an HDR environment map for lighting and background.',
-      (value) => {
-        this.eventBus.emit('debug:environment', value);
-      },
-    ));
+    const envSection = this.createSection("Environment");
+    envSection.appendChild(
+      this.createRange(
+        "envBackgroundIntensity",
+        "Background Intensity",
+        0,
+        2,
+        0.05,
+        1.0,
+        "Indirect light contribution from the environment map.",
+        (value: number) => {
+          this.eventBus.emit("debug:envBackgroundIntensity", value);
+        },
+        (value: number) => value.toFixed(2),
+      ),
+    );
+    envSection.appendChild(
+      this.createRange(
+        "envBackgroundBlurriness",
+        "Background Blur",
+        0,
+        1,
+        0.05,
+        0.5,
+        "Blur amount for the environment background.",
+        (value: number) => {
+          this.eventBus.emit("debug:envBackgroundBlurriness", value);
+        },
+        (value: number) => value.toFixed(2),
+      ),
+    );
+    envSection.appendChild(
+      this.createRange(
+        "envRotationDegrees",
+        "Environment Rotation",
+        -180,
+        180,
+        1,
+        0,
+        "Rotates environment lighting/background around Y axis (degrees).",
+        (value: number) => {
+          this.eventBus.emit("debug:environmentRotation", value);
+        },
+        (value: number) => `${Math.round(value)} deg`,
+      ),
+    );
+    envSection.appendChild(
+      this.createSelect(
+        "envName",
+        "Environment",
+        [...ENV_NAMES],
+        "Royal Esplanade",
+        "Select an HDR environment map for lighting and background.",
+        (value) => {
+          this.eventBus.emit("debug:environment", value);
+        },
+      ),
+    );
     controls.appendChild(envSection);
 
-    const qualitySection = this.createSection('Quality');
-    qualitySection.appendChild(this.createSelect(
-      'graphics',
-      'Graphics',
-      ['performance', 'balanced', 'cinematic'],
-      'cinematic',
-      'Applies renderer quality presets.',
-      (value) => {
-        this.eventBus.emit('debug:graphicsProfile', { profile: value as GraphicsProfile });
-        this.updateVisibilityFromControls();
-      },
-    ));
-    qualitySection.appendChild(this.createSelect(
-      'aaMode',
-      'Anti-aliasing',
-      ['smaa', 'fxaa', 'none'],
-      'smaa',
-      'Chooses edge smoothing mode for post-processing.',
-      (value) => {
-        this.eventBus.emit('debug:aaMode', { mode: value as AntiAliasingMode });
-        this.updateVisibilityFromControls();
-      },
-    ));
-    qualitySection.appendChild(this.createCheckbox(
-      'postProcessing',
-      'Post processing',
-      true,
-      'Toggles the complete post-processing pipeline.',
-      (value) => {
-        this.eventBus.emit('debug:postProcessing', value);
-        this.updateVisibilityFromControls();
-      },
-    ));
-    qualitySection.appendChild(this.createCheckbox(
-      'shadows',
-      'Shadows',
-      true,
-      'Enables or disables real-time shadow rendering.',
-      (value) => {
-        this.eventBus.emit('debug:shadows', value);
-      },
-    ));
-    qualitySection.appendChild(this.createSelect(
-      'shadowQuality',
-      'Shadow quality',
-      ['auto', 'performance', 'balanced', 'cinematic'],
-      'auto',
-      'Auto follows graphics profile; manual values override per-profile shadow map size.',
-      (value) => {
-        this.eventBus.emit('debug:shadowQuality', { tier: value as ShadowQualityTier });
-      },
-    ));
-    qualitySection.appendChild(this.createRange(
-      'exposure',
-      'Exposure',
-      0.4,
-      1.8,
-      0.01,
-      0.75,
-      'Adjusts tonemapping exposure/brightness.',
-      (value) => {
-        this.eventBus.emit('debug:exposure', value);
-      },
-      (value) => value.toFixed(2),
-    ));
+    const qualitySection = this.createSection("Quality");
+    qualitySection.appendChild(
+      this.createSelect(
+        "graphics",
+        "Graphics",
+        ["performance", "balanced", "cinematic"],
+        "cinematic",
+        "Applies renderer quality presets.",
+        (value) => {
+          this.eventBus.emit("debug:graphicsProfile", { profile: value as GraphicsProfile });
+          this.updateVisibilityFromControls();
+        },
+      ),
+    );
+    qualitySection.appendChild(
+      this.createSelect(
+        "aaMode",
+        "Anti-aliasing",
+        ["smaa", "fxaa", "none"],
+        "smaa",
+        "Chooses edge smoothing mode for post-processing.",
+        (value) => {
+          this.eventBus.emit("debug:aaMode", { mode: value as AntiAliasingMode });
+          this.updateVisibilityFromControls();
+        },
+      ),
+    );
+    qualitySection.appendChild(
+      this.createCheckbox(
+        "postProcessing",
+        "Post processing",
+        true,
+        "Toggles the complete post-processing pipeline.",
+        (value) => {
+          this.eventBus.emit("debug:postProcessing", value);
+          this.updateVisibilityFromControls();
+        },
+      ),
+    );
+    qualitySection.appendChild(
+      this.createCheckbox("shadows", "Shadows", true, "Enables or disables real-time shadow rendering.", (value) => {
+        this.eventBus.emit("debug:shadows", value);
+      }),
+    );
+    qualitySection.appendChild(
+      this.createSelect(
+        "shadowQuality",
+        "Shadow quality",
+        ["auto", "performance", "balanced", "cinematic"],
+        "auto",
+        "Auto follows graphics profile; manual values override per-profile shadow map size.",
+        (value) => {
+          this.eventBus.emit("debug:shadowQuality", { tier: value as ShadowQualityTier });
+        },
+      ),
+    );
+    qualitySection.appendChild(
+      this.createRange(
+        "exposure",
+        "Exposure",
+        0.4,
+        1.8,
+        0.01,
+        0.75,
+        "Adjusts tonemapping exposure/brightness.",
+        (value) => {
+          this.eventBus.emit("debug:exposure", value);
+        },
+        (value) => value.toFixed(2),
+      ),
+    );
     controls.appendChild(qualitySection);
 
-    const postFxSection = this.createSection('Post FX');
-    postFxSection.appendChild(this.createCheckbox(
-      'gtaoEnabled',
-      'Ambient Occlusion',
-      true,
-      'GTAO ambient occlusion (screen-space).',
-      (value) => {
-        this.eventBus.emit('debug:ssaoEnabled', value);
-      },
-    ));
-    postFxSection.appendChild(this.createCheckbox(
-      'aoOnly',
-      'AO only (debug view)',
-      false,
-      'Renders the AO buffer only (grayscale). Useful for debugging AO/shading.',
-      (value) => {
-        this.eventBus.emit('debug:aoOnly', value);
-      },
-    ));
-    postFxSection.appendChild(this.createCheckbox(
-      'ssrEnabled',
-      'SSR reflections',
-      false,
-      'Toggles screen-space reflections in the TSL pipeline.',
-      (value) => {
-        this.eventBus.emit('debug:ssrEnabled', value);
+    const postFxSection = this.createSection("Post FX");
+    postFxSection.appendChild(
+      this.createCheckbox(
+        "gtaoEnabled",
+        "Ambient Occlusion",
+        true,
+        "GTAO ambient occlusion (screen-space).",
+        (value) => {
+          this.eventBus.emit("debug:ssaoEnabled", value);
+        },
+      ),
+    );
+    postFxSection.appendChild(
+      this.createCheckbox(
+        "aoOnly",
+        "AO only (debug view)",
+        false,
+        "Renders the AO buffer only (grayscale). Useful for debugging AO/shading.",
+        (value) => {
+          this.eventBus.emit("debug:aoOnly", value);
+        },
+      ),
+    );
+    postFxSection.appendChild(
+      this.createCheckbox(
+        "ssrEnabled",
+        "SSR reflections",
+        false,
+        "Toggles screen-space reflections in the TSL pipeline.",
+        (value) => {
+          this.eventBus.emit("debug:ssrEnabled", value);
+          this.updateVisibilityFromControls();
+        },
+      ),
+    );
+    postFxSection.appendChild(
+      this.createRange(
+        "ssrOpacity",
+        "SSR opacity",
+        0,
+        1,
+        0.01,
+        0.5,
+        "Blend strength of SSR reflections.",
+        (value) => {
+          this.eventBus.emit("debug:ssrOpacity", value);
+        },
+        (value) => value.toFixed(2),
+      ),
+    );
+    postFxSection.appendChild(
+      this.createRange(
+        "ssrResolutionScale",
+        "SSR quality",
+        0.25,
+        1,
+        0.01,
+        0.5,
+        "Controls SSR resolution scale: higher is cleaner but more expensive.",
+        (value) => {
+          this.eventBus.emit("debug:ssrResolutionScale", value);
+        },
+        (value) => value.toFixed(2),
+      ),
+    );
+    postFxSection.appendChild(
+      this.createCheckbox("bloomEnabled", "Bloom", true, "Toggles bright highlight bloom.", (value) => {
+        this.eventBus.emit("debug:bloomEnabled", value);
         this.updateVisibilityFromControls();
-      },
-    ));
-    postFxSection.appendChild(this.createRange(
-      'ssrOpacity',
-      'SSR opacity',
-      0,
-      1,
-      0.01,
-      0.5,
-      'Blend strength of SSR reflections.',
-      (value) => {
-        this.eventBus.emit('debug:ssrOpacity', value);
-      },
-      (value) => value.toFixed(2),
-    ));
-    postFxSection.appendChild(this.createRange(
-      'ssrResolutionScale',
-      'SSR quality',
-      0.25,
-      1,
-      0.01,
-      0.5,
-      'Controls SSR resolution scale: higher is cleaner but more expensive.',
-      (value) => {
-        this.eventBus.emit('debug:ssrResolutionScale', value);
-      },
-      (value) => value.toFixed(2),
-    ));
-    postFxSection.appendChild(this.createCheckbox(
-      'bloomEnabled',
-      'Bloom',
-      true,
-      'Toggles bright highlight bloom.',
-      (value) => {
-        this.eventBus.emit('debug:bloomEnabled', value);
-        this.updateVisibilityFromControls();
-      },
-    ));
-    postFxSection.appendChild(this.createRange(
-      'bloomStrength',
-      'Bloom strength',
-      0,
-      1.0,
-      0.01,
-      0.1,
-      'Controls bloom intensity.',
-      (value) => {
-        this.eventBus.emit('debug:bloomStrength', value);
-      },
-      (value) => value.toFixed(2),
-    ));
-    postFxSection.appendChild(this.createCheckbox(
-      'casEnabled',
-      'CAS sharpening',
-      true,
-      'Contrast-adaptive sharpening applied after anti-aliasing.',
-      (value) => {
-        this.eventBus.emit('debug:casEnabled', value);
-        this.updateVisibilityFromControls();
-      },
-    ));
-    postFxSection.appendChild(this.createRange(
-      'casStrength',
-      'CAS strength',
-      0,
-      1,
-      0.01,
-      0.3,
-      'Controls CAS sharpening intensity.',
-      (value) => {
-        this.eventBus.emit('debug:casStrength', value);
-      },
-      (value) => value.toFixed(2),
-    ));
-    postFxSection.appendChild(this.createCheckbox(
-      'vignetteEnabled',
-      'Vignette',
-      true,
-      'Adds subtle edge darkening for depth focus.',
-      (value) => {
-        this.eventBus.emit('debug:vignetteEnabled', value);
-        this.updateVisibilityFromControls();
-      },
-    ));
-    postFxSection.appendChild(this.createRange(
-      'vignetteDarkness',
-      'Vignette darkness',
-      0,
-      0.8,
-      0.01,
-      0.35,
-      'Controls vignette darkness amount (0 = none, ~0.35 = subtle).',
-      (value) => {
-        this.eventBus.emit('debug:vignetteDarkness', value);
-      },
-      (value) => value.toFixed(2),
-    ));
-    postFxSection.appendChild(this.createCheckbox(
-      'lutEnabled',
-      'Color grading LUT',
-      true,
-      'Blends in 3D LUT color grading via native TSL Lut3DNode.',
-      (value) => {
-        this.eventBus.emit('debug:lutEnabled', value);
-        this.updateVisibilityFromControls();
-      },
-    ));
-    postFxSection.appendChild(this.createSelect(
-      'lutName',
-      'LUT Select',
-      [...LUT_NAMES],
-      'Cubicle 99',
-      'Select a 3D lookup table for color grading.',
-      (value) => {
-        this.eventBus.emit('debug:lutName', value);
-      },
-    ));
-    postFxSection.appendChild(this.createRange(
-      'lutStrength',
-      'LUT strength',
-      0,
-      1,
-      0.01,
-      0.42,
-      'Blends LUT color grading intensity.',
-      (value) => {
-        this.eventBus.emit('debug:lutStrength', value);
-      },
-      (value) => value.toFixed(2),
-    ));
+      }),
+    );
+    postFxSection.appendChild(
+      this.createRange(
+        "bloomStrength",
+        "Bloom strength",
+        0,
+        1.0,
+        0.01,
+        0.1,
+        "Controls bloom intensity.",
+        (value) => {
+          this.eventBus.emit("debug:bloomStrength", value);
+        },
+        (value) => value.toFixed(2),
+      ),
+    );
+    postFxSection.appendChild(
+      this.createCheckbox(
+        "casEnabled",
+        "CAS sharpening",
+        true,
+        "Contrast-adaptive sharpening applied after anti-aliasing.",
+        (value) => {
+          this.eventBus.emit("debug:casEnabled", value);
+          this.updateVisibilityFromControls();
+        },
+      ),
+    );
+    postFxSection.appendChild(
+      this.createRange(
+        "casStrength",
+        "CAS strength",
+        0,
+        1,
+        0.01,
+        0.3,
+        "Controls CAS sharpening intensity.",
+        (value) => {
+          this.eventBus.emit("debug:casStrength", value);
+        },
+        (value) => value.toFixed(2),
+      ),
+    );
+    postFxSection.appendChild(
+      this.createCheckbox(
+        "vignetteEnabled",
+        "Vignette",
+        true,
+        "Adds subtle edge darkening for depth focus.",
+        (value) => {
+          this.eventBus.emit("debug:vignetteEnabled", value);
+          this.updateVisibilityFromControls();
+        },
+      ),
+    );
+    postFxSection.appendChild(
+      this.createRange(
+        "vignetteDarkness",
+        "Vignette darkness",
+        0,
+        0.8,
+        0.01,
+        0.35,
+        "Controls vignette darkness amount (0 = none, ~0.35 = subtle).",
+        (value) => {
+          this.eventBus.emit("debug:vignetteDarkness", value);
+        },
+        (value) => value.toFixed(2),
+      ),
+    );
+    postFxSection.appendChild(
+      this.createCheckbox(
+        "lutEnabled",
+        "Color grading LUT",
+        true,
+        "Blends in 3D LUT color grading via native TSL Lut3DNode.",
+        (value) => {
+          this.eventBus.emit("debug:lutEnabled", value);
+          this.updateVisibilityFromControls();
+        },
+      ),
+    );
+    postFxSection.appendChild(
+      this.createSelect(
+        "lutName",
+        "LUT Select",
+        [...LUT_NAMES],
+        "Cubicle 99",
+        "Select a 3D lookup table for color grading.",
+        (value) => {
+          this.eventBus.emit("debug:lutName", value);
+        },
+      ),
+    );
+    postFxSection.appendChild(
+      this.createRange(
+        "lutStrength",
+        "LUT strength",
+        0,
+        1,
+        0.01,
+        0.42,
+        "Blends LUT color grading intensity.",
+        (value) => {
+          this.eventBus.emit("debug:lutStrength", value);
+        },
+        (value) => value.toFixed(2),
+      ),
+    );
     controls.appendChild(postFxSection);
     // Ensure initial control visibility matches default selections.
     this.updateVisibilityFromControls();
@@ -525,80 +575,80 @@ export class DebugPanel implements Disposable {
 
   syncRenderSettings(settings: RenderSettingsSnapshot): void {
     this.metricBackend.textContent = settings.activeBackend;
-    this.setCheckbox('showColliders', settings.showColliders);
-    this.setCheckbox('lightHelpers', settings.showLightHelpers);
-    this.setCheckbox('cameraCollision', settings.cameraCollision);
-    this.setCheckbox('postProcessing', settings.postProcessingEnabled);
-    this.setCheckbox('shadows', settings.shadowsEnabled);
-    this.setSelect('shadowQuality', settings.shadowQuality);
-    this.setSelect('graphics', settings.graphicsProfile);
-    this.setRange('envRotationDegrees', settings.envRotationDegrees);
-    this.setSelect('aaMode', settings.aaMode);
-    this.setCheckbox('aoOnly', settings.aoOnly);
-    this.setRange('exposure', settings.exposure);
-    this.setCheckbox('gtaoEnabled', settings.ssaoEnabled);
-    this.setCheckbox('ssrEnabled', settings.ssrEnabled);
-    this.setRange('ssrOpacity', settings.ssrOpacity);
-    this.setRange('ssrResolutionScale', settings.ssrResolutionScale);
-    this.setCheckbox('bloomEnabled', settings.bloomEnabled);
-    this.setRange('bloomStrength', settings.bloomStrength);
-    this.setCheckbox('casEnabled', settings.casEnabled);
-    this.setRange('casStrength', settings.casStrength);
-    this.setCheckbox('vignetteEnabled', settings.vignetteEnabled);
-    this.setRange('vignetteDarkness', settings.vignetteDarkness);
-    this.setCheckbox('lutEnabled', settings.lutEnabled);
-    this.setRange('lutStrength', settings.lutStrength);
-    this.setSelect('lutName', settings.lutName);
-    this.setSelect('envName', settings.envName);
-    this.setCheckbox('shadowFrustums', settings.shadowFrustums);
+    this.setCheckbox("showColliders", settings.showColliders);
+    this.setCheckbox("lightHelpers", settings.showLightHelpers);
+    this.setCheckbox("cameraCollision", settings.cameraCollision);
+    this.setCheckbox("postProcessing", settings.postProcessingEnabled);
+    this.setCheckbox("shadows", settings.shadowsEnabled);
+    this.setSelect("shadowQuality", settings.shadowQuality);
+    this.setSelect("graphics", settings.graphicsProfile);
+    this.setRange("envRotationDegrees", settings.envRotationDegrees);
+    this.setSelect("aaMode", settings.aaMode);
+    this.setCheckbox("aoOnly", settings.aoOnly);
+    this.setRange("exposure", settings.exposure);
+    this.setCheckbox("gtaoEnabled", settings.ssaoEnabled);
+    this.setCheckbox("ssrEnabled", settings.ssrEnabled);
+    this.setRange("ssrOpacity", settings.ssrOpacity);
+    this.setRange("ssrResolutionScale", settings.ssrResolutionScale);
+    this.setCheckbox("bloomEnabled", settings.bloomEnabled);
+    this.setRange("bloomStrength", settings.bloomStrength);
+    this.setCheckbox("casEnabled", settings.casEnabled);
+    this.setRange("casStrength", settings.casStrength);
+    this.setCheckbox("vignetteEnabled", settings.vignetteEnabled);
+    this.setRange("vignetteDarkness", settings.vignetteDarkness);
+    this.setCheckbox("lutEnabled", settings.lutEnabled);
+    this.setRange("lutStrength", settings.lutStrength);
+    this.setSelect("lutName", settings.lutName);
+    this.setSelect("envName", settings.envName);
+    this.setCheckbox("shadowFrustums", settings.shadowFrustums);
     this.updateVisibility(settings);
   }
 
   private updateVisibility(state: VisibilityState): void {
-    const supportsAdvancedFx = state.graphicsProfile !== 'performance';
+    const supportsAdvancedFx = state.graphicsProfile !== "performance";
     const postFxActive = state.postProcessingEnabled;
-    const aaAllowsCas = state.aaMode !== 'none';
+    const aaAllowsCas = state.aaMode !== "none";
     const ssrControlsVisible = postFxActive && supportsAdvancedFx;
     const ssrTuningVisible = ssrControlsVisible && state.ssrEnabled;
     const bloomControlsVisible = postFxActive && supportsAdvancedFx;
     const casControlsVisible = postFxActive && aaAllowsCas;
 
     // SSR controls follow post-FX/profile relevance and the local SSR toggle.
-    this.setVisible('ssrEnabled', ssrControlsVisible);
-    this.setVisible('ssrOpacity', ssrTuningVisible);
-    this.setVisible('ssrResolutionScale', ssrTuningVisible);
+    this.setVisible("ssrEnabled", ssrControlsVisible);
+    this.setVisible("ssrOpacity", ssrTuningVisible);
+    this.setVisible("ssrResolutionScale", ssrTuningVisible);
 
     // AO controls are part of post-FX debug.
-    this.setVisible('gtaoEnabled', postFxActive);
-    this.setVisible('aoOnly', postFxActive);
+    this.setVisible("gtaoEnabled", postFxActive);
+    this.setVisible("aoOnly", postFxActive);
 
     // Bloom controls should match active profile and toggle state.
-    this.setVisible('bloomEnabled', bloomControlsVisible);
-    this.setVisible('bloomStrength', bloomControlsVisible && state.bloomEnabled);
+    this.setVisible("bloomEnabled", bloomControlsVisible);
+    this.setVisible("bloomStrength", bloomControlsVisible && state.bloomEnabled);
 
     // CAS controls are only meaningful when post-FX is on and AA is active.
-    this.setVisible('casEnabled', casControlsVisible);
-    this.setVisible('casStrength', casControlsVisible && state.casEnabled);
+    this.setVisible("casEnabled", casControlsVisible);
+    this.setVisible("casStrength", casControlsVisible && state.casEnabled);
 
     // Grading controls should only show their sliders/selectors when enabled.
-    this.setVisible('vignetteEnabled', postFxActive);
-    this.setVisible('vignetteDarkness', postFxActive && state.vignetteEnabled);
-    this.setVisible('lutEnabled', postFxActive);
-    this.setVisible('lutName', postFxActive && state.lutEnabled);
-    this.setVisible('lutStrength', postFxActive && state.lutEnabled);
+    this.setVisible("vignetteEnabled", postFxActive);
+    this.setVisible("vignetteDarkness", postFxActive && state.vignetteEnabled);
+    this.setVisible("lutEnabled", postFxActive);
+    this.setVisible("lutName", postFxActive && state.lutEnabled);
+    this.setVisible("lutStrength", postFxActive && state.lutEnabled);
   }
 
   private updateVisibilityFromControls(): void {
-    const graphicsProfile = this.getSelectValue('graphics', 'cinematic') as GraphicsProfile;
+    const graphicsProfile = this.getSelectValue("graphics", "cinematic") as GraphicsProfile;
     this.updateVisibility({
-      postProcessingEnabled: this.getCheckboxValue('postProcessing', true),
+      postProcessingEnabled: this.getCheckboxValue("postProcessing", true),
       graphicsProfile,
-      aaMode: this.getSelectValue('aaMode', 'smaa') as AntiAliasingMode,
-      ssrEnabled: this.getCheckboxValue('ssrEnabled', false),
-      bloomEnabled: this.getCheckboxValue('bloomEnabled', true),
-      casEnabled: this.getCheckboxValue('casEnabled', true),
-      vignetteEnabled: this.getCheckboxValue('vignetteEnabled', true),
-      lutEnabled: this.getCheckboxValue('lutEnabled', true),
+      aaMode: this.getSelectValue("aaMode", "smaa") as AntiAliasingMode,
+      ssrEnabled: this.getCheckboxValue("ssrEnabled", false),
+      bloomEnabled: this.getCheckboxValue("bloomEnabled", true),
+      casEnabled: this.getCheckboxValue("casEnabled", true),
+      vignetteEnabled: this.getCheckboxValue("vignetteEnabled", true),
+      lutEnabled: this.getCheckboxValue("lutEnabled", true),
     });
   }
 
@@ -614,19 +664,19 @@ export class DebugPanel implements Disposable {
     // Check checkboxes
     if (this.checkboxControls.has(key)) {
       const el = this.checkboxControls.get(key)!.parentElement;
-      if (el) el.style.display = visible ? 'flex' : 'none';
+      if (el) el.style.display = visible ? "flex" : "none";
       return;
     }
     // Check ranges
     if (this.rangeControls.has(key)) {
       const el = this.rangeControls.get(key)!.input.parentElement;
-      if (el) el.style.display = visible ? 'grid' : 'none';
+      if (el) el.style.display = visible ? "grid" : "none";
       return;
     }
     // Check selects
     if (this.selectControls.has(key)) {
       const el = this.selectControls.get(key)!.parentElement;
-      if (el) el.style.display = visible ? 'flex' : 'none';
+      if (el) el.style.display = visible ? "flex" : "none";
       return;
     }
   }
@@ -647,7 +697,7 @@ export class DebugPanel implements Disposable {
     if (!this.visible) return;
     const fps = perf.frameMs > 0.001 ? 1000 / perf.frameMs : 0;
     this.metricState.textContent = state;
-    this.metricGrounded.textContent = grounded ? 'yes' : 'no';
+    this.metricGrounded.textContent = grounded ? "yes" : "no";
     this.metricSpeed.textContent = speed.toFixed(2);
     this.metricFps.textContent = fps.toFixed(1);
     this.metricFrame.textContent = `${perf.frameMs.toFixed(2)} ms`;
@@ -664,8 +714,8 @@ export class DebugPanel implements Disposable {
   }
 
   private syncVisibility(): void {
-    this.panel.style.display = this.visible ? 'block' : 'none';
-    this.graphWrap.style.display = this.visible && this.graphsEnabled ? 'grid' : 'none';
+    this.panel.style.display = this.visible ? "block" : "none";
+    this.graphWrap.style.display = this.visible && this.graphsEnabled ? "grid" : "none";
     if (this.visible && this.graphsEnabled) {
       void this.ensureStatsPanels();
     }
@@ -674,22 +724,22 @@ export class DebugPanel implements Disposable {
   private async ensureStatsPanels(): Promise<void> {
     if (this.statsPanels.length > 0) return;
     if (this.statsLoading) return this.statsLoading;
-    this.graphWrap.textContent = 'Loading graphs…';
-    this.statsLoading = import('three/addons/libs/stats.module.js')
+    this.graphWrap.textContent = "Loading graphs…";
+    this.statsLoading = import("three/addons/libs/stats.module.js")
       .then((mod) => {
         const StatsCtor = (mod as unknown as { default: new () => any }).default;
         const fps = this.createStatsPanel(StatsCtor, 0);
         const ms = this.createStatsPanel(StatsCtor, 1);
         const mb = this.createStatsPanel(StatsCtor, 2);
         this.statsPanels = [fps, ms, mb];
-        this.graphWrap.textContent = '';
+        this.graphWrap.textContent = "";
         this.graphWrap.appendChild(fps.dom);
         this.graphWrap.appendChild(ms.dom);
         this.graphWrap.appendChild(mb.dom);
       })
       .catch((err) => {
-        this.graphWrap.textContent = 'Graphs unavailable.';
-        console.warn('[DebugPanel] Failed to load stats graphs:', err);
+        this.graphWrap.textContent = "Graphs unavailable.";
+        console.warn("[DebugPanel] Failed to load stats graphs:", err);
       })
       .finally(() => {
         this.statsLoading = null;
@@ -701,42 +751,44 @@ export class DebugPanel implements Disposable {
   private createStatsPanel(StatsCtor: new () => any, panelIndex: number): any {
     const stats = new StatsCtor();
     stats.showPanel(panelIndex);
-    stats.dom.style.position = 'relative';
-    stats.dom.style.left = 'auto';
-    stats.dom.style.right = 'auto';
-    stats.dom.style.top = 'auto';
-    stats.dom.style.margin = '0';
-    stats.dom.style.zIndex = '0';
+    stats.dom.style.position = "relative";
+    stats.dom.style.left = "auto";
+    stats.dom.style.right = "auto";
+    stats.dom.style.top = "auto";
+    stats.dom.style.margin = "0";
+    stats.dom.style.zIndex = "0";
     // Prevent clicking a graph from cycling panel modes.
-    stats.dom.style.pointerEvents = 'none';
+    stats.dom.style.pointerEvents = "none";
     return stats;
   }
 
   private createSection(title: string): HTMLElement {
-    const section = document.createElement('section');
-    section.style.cssText = 'display:grid;grid-template-columns:1fr;row-gap:7px;padding:8px;border-radius:8px;background:rgba(8,10,13,0.44);';
-    const heading = document.createElement('div');
+    const section = document.createElement("section");
+    section.style.cssText =
+      "display:grid;grid-template-columns:1fr;row-gap:7px;padding:8px;border-radius:8px;background:rgba(8,10,13,0.44);";
+    const heading = document.createElement("div");
     heading.textContent = title;
-    heading.style.cssText = 'color:#9ec4ea;font-weight:600;font-size:11px;letter-spacing:0.04em;text-transform:uppercase;';
+    heading.style.cssText =
+      "color:#9ec4ea;font-weight:600;font-size:11px;letter-spacing:0.04em;text-transform:uppercase;";
     section.appendChild(heading);
     return section;
   }
 
   private addMetricRow(label: string): HTMLSpanElement {
-    const key = document.createElement('span');
+    const key = document.createElement("span");
     key.textContent = label;
-    key.style.cssText = 'color:#89a2ba;min-width:0;';
-    const value = document.createElement('span');
-    value.textContent = '-';
+    key.style.cssText = "color:#89a2ba;min-width:0;";
+    const value = document.createElement("span");
+    value.textContent = "-";
     value.style.cssText = [
-      'display:block',
-      'min-width:12ch',
-      'text-align:right',
-      'white-space:nowrap',
+      "display:block",
+      "min-width:12ch",
+      "text-align:right",
+      "white-space:nowrap",
       'font-family:Consolas, "Courier New", monospace',
-      'font-variant-numeric:tabular-nums lining-nums',
-      'color:#e8f3ff',
-    ].join(';');
+      "font-variant-numeric:tabular-nums lining-nums",
+      "color:#e8f3ff",
+    ].join(";");
     this.metrics.appendChild(key);
     this.metrics.appendChild(value);
     return value;
@@ -749,16 +801,16 @@ export class DebugPanel implements Disposable {
     tooltip: string,
     onChange: (value: boolean) => void,
   ): HTMLLabelElement {
-    const row = document.createElement('label');
-    row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer;';
+    const row = document.createElement("label");
+    row.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer;";
     row.title = tooltip;
-    const text = document.createElement('span');
+    const text = document.createElement("span");
     text.textContent = label;
-    text.style.cssText = 'color:#d6e4f1;';
-    const input = document.createElement('input');
-    input.type = 'checkbox';
+    text.style.cssText = "color:#d6e4f1;";
+    const input = document.createElement("input");
+    input.type = "checkbox";
     input.checked = initial;
-    input.addEventListener('change', () => onChange(input.checked));
+    input.addEventListener("change", () => onChange(input.checked));
     this.checkboxControls.set(key, input);
     row.appendChild(text);
     row.appendChild(input);
@@ -776,23 +828,23 @@ export class DebugPanel implements Disposable {
     onChange: (value: number) => void,
     format: (value: number) => string,
   ): HTMLDivElement {
-    const row = document.createElement('div');
-    row.style.cssText = 'display:grid;grid-template-columns:1fr auto;column-gap:8px;row-gap:4px;';
+    const row = document.createElement("div");
+    row.style.cssText = "display:grid;grid-template-columns:1fr auto;column-gap:8px;row-gap:4px;";
     row.title = tooltip;
-    const text = document.createElement('span');
+    const text = document.createElement("span");
     text.textContent = label;
-    text.style.cssText = 'color:#d6e4f1;';
-    const valueText = document.createElement('span');
+    text.style.cssText = "color:#d6e4f1;";
+    const valueText = document.createElement("span");
     valueText.textContent = format(initial);
     valueText.style.cssText = 'font-family:Consolas, "Courier New", monospace;color:#8cc7ff;';
-    const input = document.createElement('input');
-    input.type = 'range';
+    const input = document.createElement("input");
+    input.type = "range";
     input.min = String(min);
     input.max = String(max);
     input.step = String(step);
     input.value = String(initial);
-    input.style.cssText = 'grid-column:1 / span 2;';
-    input.addEventListener('input', () => {
+    input.style.cssText = "grid-column:1 / span 2;";
+    input.addEventListener("input", () => {
       const value = Number(input.value);
       valueText.textContent = format(value);
       onChange(value);
@@ -812,15 +864,15 @@ export class DebugPanel implements Disposable {
     tooltip: string,
     onChange: (value: string) => void,
   ): HTMLLabelElement {
-    const row = document.createElement('label');
-    row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:10px;';
+    const row = document.createElement("label");
+    row.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:10px;";
     row.title = tooltip;
-    const text = document.createElement('span');
+    const text = document.createElement("span");
     text.textContent = label;
-    text.style.cssText = 'color:#d6e4f1;';
-    const select = document.createElement('select');
+    text.style.cssText = "color:#d6e4f1;";
+    const select = document.createElement("select");
     for (const option of options) {
-      const el = document.createElement('option');
+      const el = document.createElement("option");
       el.value = option;
       el.textContent = option;
       if (option === initial) {
@@ -829,15 +881,15 @@ export class DebugPanel implements Disposable {
       select.appendChild(el);
     }
     select.style.cssText = [
-      'background:#1b2531',
-      'color:#e9f4ff',
-      'border:1px solid rgba(137,162,186,0.5)',
-      'border-radius:6px',
-      'padding:2px 6px',
-      'text-transform:uppercase',
-      'font-size:11px',
-    ].join(';');
-    select.addEventListener('change', () => onChange(select.value));
+      "background:#1b2531",
+      "color:#e9f4ff",
+      "border:1px solid rgba(137,162,186,0.5)",
+      "border-radius:6px",
+      "padding:2px 6px",
+      "text-transform:uppercase",
+      "font-size:11px",
+    ].join(";");
+    select.addEventListener("change", () => onChange(select.value));
     this.selectControls.set(key, select);
     row.appendChild(text);
     row.appendChild(select);

@@ -1,7 +1,7 @@
-import * as THREE from 'three';
-import type { EventBus } from '@core/EventBus';
-import type { FixedUpdatable, Disposable, SpawnPointData } from '@core/types';
-import type { PlayerController } from '@character/PlayerController';
+import type { PlayerController } from "@character/PlayerController";
+import type { EventBus } from "@core/EventBus";
+import type { Disposable, FixedUpdatable, SpawnPointData } from "@core/types";
+import * as THREE from "three";
 
 interface CheckpointEntry {
   id: string;
@@ -66,7 +66,7 @@ export class CheckpointManager implements FixedUpdatable, Disposable {
       if (distSq <= checkpoint.radius * checkpoint.radius) {
         this.activeCheckpointId = checkpoint.id;
         this.applyVisualState();
-        this.eventBus.emit('checkpoint:activated', {
+        this.eventBus.emit("checkpoint:activated", {
           id: checkpoint.id,
           position: {
             x: checkpoint.position.x,
@@ -109,4 +109,3 @@ export class CheckpointManager implements FixedUpdatable, Disposable {
     }
   }
 }
-

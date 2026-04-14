@@ -1,8 +1,8 @@
-import * as THREE from 'three';
-import RAPIER from '@dimforge/rapier3d-compat';
-import { STATE, type InputState } from '@core/types';
-import { shouldApplyGroundReaction } from '../CharacterMotor';
-import type { CharacterMode, PlayerContext } from './CharacterMode';
+import { type InputState, STATE } from "@core/types";
+import RAPIER from "@dimforge/rapier3d-compat";
+import * as THREE from "three";
+import { shouldApplyGroundReaction } from "../CharacterMotor";
+import type { CharacterMode, PlayerContext } from "./CharacterMode";
 
 // Pre-allocated vectors for movement, step assist, and crouch logic.
 const _movingDirection = new THREE.Vector3();
@@ -33,36 +33,36 @@ const _rv3A = new RAPIER.Vector3(0, 0, 0);
 const _rv3B = new RAPIER.Vector3(0, 0, 0);
 
 function _setRV(v: RAPIER.Vector3, x: number, y: number, z: number): RAPIER.Vector3 {
-  v.x = x; v.y = y; v.z = z;
+  v.x = x;
+  v.y = y;
+  v.z = z;
   return v;
 }
 
 function isFiniteNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value);
+  return typeof value === "number" && Number.isFinite(value);
 }
 
 function getBodyKind(body: RAPIER.RigidBody | null): string | null {
   if (!body) return null;
   const data = body.userData;
-  if (typeof data !== 'object' || data === null) return null;
+  if (typeof data !== "object" || data === null) return null;
   const kind = (data as { kind?: unknown }).kind;
-  return typeof kind === 'string' ? kind : null;
+  return typeof kind === "string" ? kind : null;
 }
 
 function getJumpBoostMultiplier(body: RAPIER.RigidBody | null): number {
   if (!body) return 1;
   const data = body.userData;
-  if (typeof data !== 'object' || data === null) return 1;
+  if (typeof data !== "object" || data === null) return 1;
   const multiplier = (data as { jumpBoostMultiplier?: unknown }).jumpBoostMultiplier;
-  return typeof multiplier === 'number' && Number.isFinite(multiplier) && multiplier > 0
-    ? multiplier
-    : 1;
+  return typeof multiplier === "number" && Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1;
 }
 
 function shouldAutoBounce(body: RAPIER.RigidBody | null): boolean {
   if (!body) return false;
   const data = body.userData;
-  if (typeof data !== 'object' || data === null) return false;
+  if (typeof data !== "object" || data === null) return false;
   return (data as { autoBounce?: unknown }).autoBounce === true;
 }
 
@@ -76,7 +76,7 @@ const STEP_ASSIST_COOLDOWN_FRAMES = 6;
 const SLOPE_SLIDE_STRENGTH = 2.0;
 
 export class GroundedMode implements CharacterMode {
-  readonly id = 'grounded';
+  readonly id = "grounded";
   private stepAssistCooldown = 0;
   private slopeSlideAudioActive = false;
 
@@ -96,12 +96,11 @@ export class GroundedMode implements CharacterMode {
     _standingForcePoint.copy(groundInfo.standingForcePoint);
     if (!ctx.stableGrounded) {
       this.updateSlopeSlideAudio(ctx, false);
-      return 'air';
+      return "air";
     }
 
     // Variable jump cut
-    if (!input.jump && ctx.verticalVelocity > 0 && ctx.jumpActive
-        && !ctx.motor.isJumpSuppressed) {
+    if (!input.jump && ctx.verticalVelocity > 0 && ctx.jumpActive && !ctx.motor.isJumpSuppressed) {
       ctx.motor.applyJumpCut(ctx.body, ctx.config);
       ctx.verticalVelocity = ctx.body.linvel().y;
       ctx.jumpActive = false;
@@ -123,7 +122,8 @@ export class GroundedMode implements CharacterMode {
         _slopeSlideDir.divideScalar(slideLen);
         slopeSliding = true;
         ctx.body.applyImpulse(
-          _setRV(_rv3A,
+          _setRV(
+            _rv3A,
             _slopeSlideDir.x * SLOPE_SLIDE_STRENGTH,
             _slopeSlideDir.y * SLOPE_SLIDE_STRENGTH,
             _slopeSlideDir.z * SLOPE_SLIDE_STRENGTH,
@@ -141,22 +141,21 @@ export class GroundedMode implements CharacterMode {
     if (groundInfo.groundBody) {
       const groundBody = groundInfo.groundBody;
       const groundBodyType = groundBody.bodyType();
-      const groundData = typeof groundBody.userData === 'object' && groundBody.userData !== null
-        ? groundBody.userData as {
-          kind?: unknown;
-          platformLinearVelocity?: { x?: unknown; y?: unknown; z?: unknown };
-          platformAngularVelocity?: { x?: unknown; y?: unknown; z?: unknown };
-        }
-        : null;
+      const groundData =
+        typeof groundBody.userData === "object" && groundBody.userData !== null
+          ? (groundBody.userData as {
+              kind?: unknown;
+              platformLinearVelocity?: { x?: unknown; y?: unknown; z?: unknown };
+              platformAngularVelocity?: { x?: unknown; y?: unknown; z?: unknown };
+            })
+          : null;
       ctx.currentGroundBody = groundBody;
 
       if (groundBodyType === 0 || groundBodyType === 2) {
         ctx.isOnMovingObject = true;
         const gbt = groundBody.translation();
         _groundBodyTranslation.set(gbt.x, gbt.y, gbt.z);
-        _distanceFromCharacterToObject
-          .copy(ctx.currentPos)
-          .sub(_groundBodyTranslation);
+        _distanceFromCharacterToObject.copy(ctx.currentPos).sub(_groundBodyTranslation);
         const bodyLinvel = groundBody.linvel();
         const bodyAngvel = groundBody.angvel();
         const authoredLinvel = groundData?.platformLinearVelocity;
@@ -168,17 +167,10 @@ export class GroundedMode implements CharacterMode {
         const avy = groundBodyType === 2 && isFiniteNumber(authoredAngvel?.y) ? authoredAngvel.y : bodyAngvel.y;
         const avz = groundBodyType === 2 && isFiniteNumber(authoredAngvel?.z) ? authoredAngvel.z : bodyAngvel.z;
         _groundBodyAngvel.set(avx, avy, avz);
-        _objectAngvelToLinvel.crossVectors(
-          _groundBodyAngvel,
-          _distanceFromCharacterToObject,
-        );
-        ctx.movingObjectVelocity.set(
-          lvx + _objectAngvelToLinvel.x,
-          lvy,
-          lvz + _objectAngvelToLinvel.z,
-        );
+        _objectAngvelToLinvel.crossVectors(_groundBodyAngvel, _distanceFromCharacterToObject);
+        ctx.movingObjectVelocity.set(lvx + _objectAngvelToLinvel.x, lvy, lvz + _objectAngvelToLinvel.z);
 
-        if (groundData?.kind === 'throwable') {
+        if (groundData?.kind === "throwable") {
           const groundMass = Math.max(groundBody.mass(), 0.001);
           const massRatio = ctx.body.mass() / groundMass;
           ctx.movingObjectVelocity.multiplyScalar(Math.min(1, 1 / massRatio));
@@ -257,7 +249,8 @@ export class GroundedMode implements CharacterMode {
     input: InputState,
   ): void {
     const crouchMult = ctx.isCrouched ? ctx.config.crouchSpeedMultiplier : 1;
-    const grabMult = ctx.fsm.current === STATE.grab ? ctx.config.crouchSpeedMultiplier * ctx.grabCarry.weightMultiplier : 1;
+    const grabMult =
+      ctx.fsm.current === STATE.grab ? ctx.config.crouchSpeedMultiplier * ctx.grabCarry.weightMultiplier : 1;
     const stickMag = Math.min(1, Math.hypot(input.moveX, input.moveY));
     const targetSpeed =
       ctx.config.moveSpeed * crouchMult * grabMult * (run ? ctx.config.sprintMultiplier : 1) * stickMag;
@@ -283,9 +276,10 @@ export class GroundedMode implements CharacterMode {
     let slopeExtraMultiplier = 1;
 
     if (onSlope && hasDir) {
-      const dot = _movingDirection.x * _actualSlopeNormal.x +
-                  _movingDirection.y * _actualSlopeNormal.y +
-                  _movingDirection.z * _actualSlopeNormal.z;
+      const dot =
+        _movingDirection.x * _actualSlopeNormal.x +
+        _movingDirection.y * _actualSlopeNormal.y +
+        _movingDirection.z * _actualSlopeNormal.z;
       _slopeProjected.set(
         _movingDirection.x - _actualSlopeNormal.x * dot,
         _movingDirection.y - _actualSlopeNormal.y * dot,
@@ -355,9 +349,9 @@ export class GroundedMode implements CharacterMode {
       const vPerpY = vPerpY0 + (0 - vPerpY0) * tSide;
       const vPerpZ = vPerpZ0 + (0 - vPerpZ0) * tSide;
 
-      nextVx = (slopeDirX * vParMag + vPerpX) + platformVx;
+      nextVx = slopeDirX * vParMag + vPerpX + platformVx;
       nextVy = slopeDirY * vParMag + vPerpY;
-      nextVz = (slopeDirZ * vParMag + vPerpZ) + platformVz;
+      nextVz = slopeDirZ * vParMag + vPerpZ + platformVz;
     } else if (hasDir) {
       const dirX = _movingDirection.x;
       const dirZ = _movingDirection.z;
@@ -369,13 +363,13 @@ export class GroundedMode implements CharacterMode {
       const vPerpX = vPerpX0 + (0 - vPerpX0) * tSide;
       const vPerpZ = vPerpZ0 + (0 - vPerpZ0) * tSide;
 
-      nextVx = (dirX * vParMag + vPerpX) + platformVx;
+      nextVx = dirX * vParMag + vPerpX + platformVx;
       nextVy = lv.y;
-      nextVz = (dirZ * vParMag + vPerpZ) + platformVz;
+      nextVz = dirZ * vParMag + vPerpZ + platformVz;
     } else {
-      nextVx = (relVx0 + (0 - relVx0) * t) + platformVx;
+      nextVx = relVx0 + (0 - relVx0) * t + platformVx;
       nextVy = lv.y;
-      nextVz = (relVz0 + (0 - relVz0) * t) + platformVz;
+      nextVz = relVz0 + (0 - relVz0) * t + platformVz;
     }
 
     ctx.body.setLinvel(_setRV(_rv3A, nextVx, nextVy, nextVz), true);
@@ -396,10 +390,7 @@ export class GroundedMode implements CharacterMode {
       jumpBoostMultiplier;
 
     if (airJump) {
-      ctx.body.setLinvel(
-        _setRV(_rv3A, ctx.currentVel.x, jumpVel, ctx.currentVel.z),
-        true,
-      );
+      ctx.body.setLinvel(_setRV(_rv3A, ctx.currentVel.x, jumpVel, ctx.currentVel.z), true);
     } else {
       _jumpVelocityVec.set(ctx.currentVel.x, jumpVel, ctx.currentVel.z);
       _jumpDirection
@@ -407,13 +398,10 @@ export class GroundedMode implements CharacterMode {
         .projectOnVector(_actualSlopeNormal)
         .add(_jumpVelocityVec);
 
-      ctx.body.setLinvel(
-        _setRV(_rv3A, _jumpDirection.x, _jumpDirection.y, _jumpDirection.z),
-        true,
-      );
+      ctx.body.setLinvel(_setRV(_rv3A, _jumpDirection.x, _jumpDirection.y, _jumpDirection.z), true);
     }
 
-    ctx.eventBus.emit('player:jumped', {
+    ctx.eventBus.emit("player:jumped", {
       airJump,
       run,
       jumpVel,
@@ -423,7 +411,7 @@ export class GroundedMode implements CharacterMode {
 
     if (ctx.currentGroundBody && shouldApplyGroundReaction(ctx.currentGroundBody)) {
       const groundKind = getBodyKind(ctx.currentGroundBody);
-      const reactionScale = groundKind === 'floating-platform' ? 0.22 : 0.5;
+      const reactionScale = groundKind === "floating-platform" ? 0.22 : 0.5;
       const down = -jumpVel * ctx.config.jumpForceToGroundMultiplier * reactionScale;
       ctx.currentGroundBody.applyImpulseAtPoint(
         _setRV(_rv3A, 0, down, 0),
@@ -437,12 +425,7 @@ export class GroundedMode implements CharacterMode {
   //  Step assist
   // ---------------------------------------------------------------------------
 
-  private applyStepAssist(
-    ctx: PlayerContext,
-    desiredInputDir: THREE.Vector3,
-    run: boolean,
-    _dt: number,
-  ): void {
+  private applyStepAssist(ctx: PlayerContext, desiredInputDir: THREE.Vector3, run: boolean, _dt: number): void {
     // Cooldown: skip if recently stepped to prevent compounding
     if (this.stepAssistCooldown > 0) {
       this.stepAssistCooldown--;
@@ -458,11 +441,7 @@ export class GroundedMode implements CharacterMode {
     _stepForward.normalize();
 
     const probeDist = ctx.config.capsuleRadius + (run ? 0.34 : 0.28);
-    _stepProbeLowOrigin.set(
-      ctx.currentPos.x,
-      ctx.currentPos.y - ctx.currentCapsuleHalfHeight + 0.05,
-      ctx.currentPos.z,
-    );
+    _stepProbeLowOrigin.set(ctx.currentPos.x, ctx.currentPos.y - ctx.currentCapsuleHalfHeight + 0.05, ctx.currentPos.z);
     _stepProbeHighOrigin.set(
       ctx.currentPos.x,
       ctx.currentPos.y - ctx.currentCapsuleHalfHeight + 0.46,
@@ -534,11 +513,7 @@ export class GroundedMode implements CharacterMode {
     // Single setLinvel call — no compounding
     if (finalVy !== lv.y || finalFwdBoost > 0) {
       ctx.body.setLinvel(
-        _setRV(_rv3A,
-          lv.x + _stepForward.x * finalFwdBoost,
-          finalVy,
-          lv.z + _stepForward.z * finalFwdBoost,
-        ),
+        _setRV(_rv3A, lv.x + _stepForward.x * finalFwdBoost, finalVy, lv.z + _stepForward.z * finalFwdBoost),
         true,
       );
       this.stepAssistCooldown = STEP_ASSIST_COOLDOWN_FRAMES;
@@ -614,7 +589,8 @@ export class GroundedMode implements CharacterMode {
     const shoulder = ctx.config.capsuleRadius * 0.55;
 
     if (
-      this.isStandProbeBlocked(ctx,
+      this.isStandProbeBlocked(
+        ctx,
         position.x + _standProbeDir.x * forward,
         position.y,
         position.z + _standProbeDir.z * forward,
@@ -624,7 +600,8 @@ export class GroundedMode implements CharacterMode {
       return false;
     }
     if (
-      this.isStandProbeBlocked(ctx,
+      this.isStandProbeBlocked(
+        ctx,
         position.x + _standProbeDir.x * forward + _standProbeRight.x * shoulder,
         position.y,
         position.z + _standProbeDir.z * forward + _standProbeRight.z * shoulder,
@@ -634,7 +611,8 @@ export class GroundedMode implements CharacterMode {
       return false;
     }
     if (
-      this.isStandProbeBlocked(ctx,
+      this.isStandProbeBlocked(
+        ctx,
         position.x + _standProbeDir.x * forward - _standProbeRight.x * shoulder,
         position.y,
         position.z + _standProbeDir.z * forward - _standProbeRight.z * shoulder,
@@ -647,11 +625,7 @@ export class GroundedMode implements CharacterMode {
   }
 
   private isStandProbeBlocked(ctx: PlayerContext, x: number, y: number, z: number, probeLength: number): boolean {
-    _standProbeOrigin.set(
-      x,
-      y + ctx.currentCapsuleHalfHeight + ctx.config.capsuleRadius,
-      z,
-    );
+    _standProbeOrigin.set(x, y + ctx.currentCapsuleHalfHeight + ctx.config.capsuleRadius, z);
     const hit = ctx.physicsWorld.castRay(
       _setRV(_rv3A, _standProbeOrigin.x, _standProbeOrigin.y, _standProbeOrigin.z),
       _rapierUp,
@@ -666,9 +640,9 @@ export class GroundedMode implements CharacterMode {
   private updateSlopeSlideAudio(ctx: PlayerContext, active: boolean): void {
     if (active === this.slopeSlideAudioActive) return;
     this.slopeSlideAudioActive = active;
-    ctx.eventBus.emit('animation:event', {
-      clip: 'grounded',
-      event: active ? 'slopeSlideStart' : 'slopeSlideStop',
+    ctx.eventBus.emit("animation:event", {
+      clip: "grounded",
+      event: active ? "slopeSlideStart" : "slopeSlideStop",
     });
   }
 }

@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from "three";
 
 export interface VfxShowcaseResult {
   objects: THREE.Object3D[];
@@ -27,23 +27,9 @@ export async function createVfxShowcase(
 
   try {
     // ── Dynamic TSL / WebGPU imports ─────────────────────────────────────
-    const { MeshBasicNodeMaterial, MeshStandardNodeMaterial } = await import(
-      'three/webgpu'
-    );
-    const {
-      time,
-      uv,
-      positionLocal,
-      float,
-      sin,
-      vec3,
-      mix,
-      step,
-      abs,
-      smoothstep,
-      cos,
-    } = await import('three/tsl');
-    const { mx_fractal_noise_float } = await import('three/tsl');
+    const { MeshBasicNodeMaterial, MeshStandardNodeMaterial } = await import("three/webgpu");
+    const { time, uv, positionLocal, float, sin, vec3, mix, step, abs, smoothstep, cos } = await import("three/tsl");
+    const { mx_fractal_noise_float } = await import("three/tsl");
 
     // =====================================================================
     // EFFECT A — DISSOLVE SPHERE
@@ -77,15 +63,11 @@ export async function createVfxShowcase(
       const edgeDist = dissolveValue.sub(dissolveThreshold).abs();
       const edgeGlow = step(edgeDist, float(0.05)).mul(3.0);
       material.colorNode = mix(
-        vec3(0, 0.87, 1),   // cyan body
-        vec3(1, 0.5, 0),    // orange edge
+        vec3(0, 0.87, 1), // cyan body
+        vec3(1, 0.5, 0), // orange edge
         edgeGlow,
       );
-      material.emissiveNode = mix(
-        vec3(0, 0.2, 0.3),
-        vec3(1, 0.4, 0),
-        edgeGlow,
-      );
+      material.emissiveNode = mix(vec3(0, 0.2, 0.3), vec3(1, 0.4, 0), edgeGlow);
 
       const mesh = new THREE.Mesh(geometry, material);
       mesh.position.set(posX, posY, posZ);
@@ -104,14 +86,16 @@ export async function createVfxShowcase(
       const posZ = base.z;
 
       const fireGroup = new THREE.Group();
-      fireGroup.name = 'VFX_FireGroup';
+      fireGroup.name = "VFX_FireGroup";
       fireGroup.position.set(posX, posY, posZ);
       scene.add(fireGroup);
       created.push(fireGroup);
 
       // --- WOOD LOGS (5 tilted cylinders like Shadertoy Wtc3W2) ---
       const logMat = new THREE.MeshStandardMaterial({
-        color: 0x4a2810, roughness: 0.9, metalness: 0.0,
+        color: 0x4a2810,
+        roughness: 0.9,
+        metalness: 0.0,
       });
       const logConfigs = [
         { pos: [0.15, 0.05, 0], rotY: 1.9, rotZ: 0.5, r: 0.08, len: 0.7 },
@@ -132,7 +116,10 @@ export async function createVfxShowcase(
 
       // --- ROCKS (ring of 6-8 around the fire base) ---
       const rockMat = new THREE.MeshStandardMaterial({
-        color: 0x555555, roughness: 0.85, metalness: 0.0, flatShading: true,
+        color: 0x555555,
+        roughness: 0.85,
+        metalness: 0.0,
+        flatShading: true,
       });
       const ROCK_COUNT = 7;
       const rockRingRadius = 0.65;
@@ -147,11 +134,7 @@ export async function createVfxShowcase(
         rpos.needsUpdate = true;
         rockGeo.computeVertexNormals();
         const rock = new THREE.Mesh(rockGeo, rockMat);
-        rock.position.set(
-          Math.cos(angle) * rockRingRadius,
-          -0.02,
-          Math.sin(angle) * rockRingRadius,
-        );
+        rock.position.set(Math.cos(angle) * rockRingRadius, -0.02, Math.sin(angle) * rockRingRadius);
         rock.rotation.y = Math.random() * Math.PI;
         rock.castShadow = true;
         rock.receiveShadow = true;
@@ -166,10 +149,7 @@ export async function createVfxShowcase(
         roughness: 0.9,
         metalness: 0.0,
       });
-      const emberDisc = new THREE.Mesh(
-        new THREE.CircleGeometry(0.45, 16),
-        emberMat,
-      );
+      const emberDisc = new THREE.Mesh(new THREE.CircleGeometry(0.45, 16), emberMat);
       emberDisc.rotation.x = -Math.PI / 2;
       emberDisc.position.y = 0.01;
       emberDisc.receiveShadow = true;
@@ -186,10 +166,14 @@ export async function createVfxShowcase(
         emberPositions[e * 3 + 2] = Math.sin(a) * r;
       }
       const emberGeo = new THREE.BufferGeometry();
-      emberGeo.setAttribute('position', new THREE.BufferAttribute(emberPositions, 3));
+      emberGeo.setAttribute("position", new THREE.BufferAttribute(emberPositions, 3));
       const emberPMat = new THREE.PointsMaterial({
-        color: 0xff6600, size: 0.04,
-        blending: THREE.AdditiveBlending, transparent: true, opacity: 0.9, depthWrite: false,
+        color: 0xff6600,
+        size: 0.04,
+        blending: THREE.AdditiveBlending,
+        transparent: true,
+        opacity: 0.9,
+        depthWrite: false,
       });
       const emberPts = new THREE.Points(emberGeo, emberPMat);
       emberPts.castShadow = false;
@@ -235,17 +219,18 @@ export async function createVfxShowcase(
         const v = uv();
         const centeredX = v.x.sub(0.5).mul(2.0);
         const t = time.mul(1.05).add(phase);
-        const sway = sin(t.add(v.y.mul(5.9))).mul(0.05)
+        const sway = sin(t.add(v.y.mul(5.9)))
+          .mul(0.05)
           .add(cos(t.mul(1.33).sub(v.y.mul(6.8))).mul(0.028));
         const flameW = mix(float(0.84), float(0.11), smoothstep(0.0, 1.0, v.y));
         const flameX = centeredX.add(sway.mul(mix(float(0.22), float(0.95), v.y)));
         const widthCoord = abs(flameX).div(flameW);
         const bodyMask = float(1.0).sub(smoothstep(0.12, 0.92, widthCoord));
         const bodyNoise = mx_fractal_noise_float(
-          vec3(flameX.mul(2.4), v.y.mul(4.1).sub(t.mul(2.25)), t.mul(0.36).add(3.1))
+          vec3(flameX.mul(2.4), v.y.mul(4.1).sub(t.mul(2.25)), t.mul(0.36).add(3.1)),
         );
         const detailNoise = mx_fractal_noise_float(
-          vec3(flameX.mul(5.1), v.y.mul(7.0).sub(t.mul(3.1)), t.mul(0.43).add(6.4))
+          vec3(flameX.mul(5.1), v.y.mul(7.0).sub(t.mul(3.1)), t.mul(0.43).add(6.4)),
         );
         const bottomFade = smoothstep(0.0, 0.08, v.y);
         const topFade = float(1.0).sub(smoothstep(0.72, 1.0, v.y));
@@ -257,16 +242,17 @@ export async function createVfxShowcase(
           .add(bodyMask.mul(bottomFade).mul(float(0.1)))
           .clamp(0, 0.98);
 
-        const heat = alpha.mul(0.82)
-          .add(float(1.0).sub(smoothstep(0.0, 0.58, v.y)).mul(0.36))
+        const heat = alpha
+          .mul(0.82)
+          .add(
+            float(1.0)
+              .sub(smoothstep(0.0, 0.58, v.y))
+              .mul(0.36),
+          )
           .add(bodyMask.mul(0.22))
           .clamp(0, 1);
 
-        let coreColor = mix(
-          vec3(0.55, 0.04, 0.0),
-          vec3(1.0, 0.34, 0.03),
-          smoothstep(0.08, 0.36, heat),
-        );
+        let coreColor = mix(vec3(0.55, 0.04, 0.0), vec3(1.0, 0.34, 0.03), smoothstep(0.08, 0.36, heat));
         coreColor = mix(coreColor, vec3(1.0, 0.78, 0.22), smoothstep(0.34, 0.72, heat));
         coreColor = mix(coreColor, vec3(1.0, 0.98, 0.9), smoothstep(0.72, 1.0, heat));
 
@@ -276,14 +262,10 @@ export async function createVfxShowcase(
         const coreSheet = new THREE.Mesh(coreFlameGeo, coreMat);
         const angle = (i / coreSheetCount) * Math.PI;
         coreSheet.rotation.y = angle;
-        coreSheet.position.set(
-          Math.cos(angle) * 0.03,
-          0,
-          Math.sin(angle) * 0.03,
-        );
+        coreSheet.position.set(Math.cos(angle) * 0.03, 0, Math.sin(angle) * 0.03);
         coreSheet.renderOrder = 8;
         coreSheet.castShadow = false;
-        coreSheet.name = i === 0 ? 'VFX_FireCore' : `VFX_FireCore_${i + 1}`;
+        coreSheet.name = i === 0 ? "VFX_FireCore" : `VFX_FireCore_${i + 1}`;
         fireGroup.add(coreSheet);
       }
 
@@ -309,7 +291,8 @@ export async function createVfxShowcase(
         const t = time.mul(0.9).add(phase);
 
         // Sway
-        const sway = sin(t.add(v.y.mul(5.5)).add(lateralBias)).mul(0.08)
+        const sway = sin(t.add(v.y.mul(5.5)).add(lateralBias))
+          .mul(0.08)
           .add(cos(t.mul(1.37).sub(v.y.mul(7.0))).mul(0.045));
 
         // Width tapers from base (1.12) to tip (0.18)
@@ -320,26 +303,27 @@ export async function createVfxShowcase(
 
         // Multi-octave noise
         const nLarge = mx_fractal_noise_float(
-          vec3(flameX.mul(1.15), v.y.mul(1.9).sub(t.mul(1.65)), t.mul(0.22).add(1.7))
+          vec3(flameX.mul(1.15), v.y.mul(1.9).sub(t.mul(1.65)), t.mul(0.22).add(1.7)),
         );
         const nMedium = mx_fractal_noise_float(
-          vec3(flameX.mul(2.5).add(sway.mul(1.8)), v.y.mul(3.4).sub(t.mul(2.35)), t.mul(0.31).add(4.3))
+          vec3(flameX.mul(2.5).add(sway.mul(1.8)), v.y.mul(3.4).sub(t.mul(2.35)), t.mul(0.31).add(4.3)),
         );
-        const nFine = mx_fractal_noise_float(
-          vec3(flameX.mul(5.3), v.y.mul(7.2).sub(t.mul(3.2)), t.mul(0.47).add(8.1))
-        );
+        const nFine = mx_fractal_noise_float(vec3(flameX.mul(5.3), v.y.mul(7.2).sub(t.mul(3.2)), t.mul(0.47).add(8.1)));
 
         // Body mask — aggressive horizontal falloff to hide plane edges
         // Use the raw centeredX distance (not divided by flameW) to ensure
         // alpha is zero well before the hard geometry edge at ±1.0
         const rawEdgeDist = abs(centeredX); // 0 at center, 1 at edge
         const edgeFade = float(1.0).sub(smoothstep(0.5, 0.92, rawEdgeDist));
-        const bodyMask = float(1.0).sub(smoothstep(0.2, 0.85, widthCoord)).mul(edgeFade);
+        const bodyMask = float(1.0)
+          .sub(smoothstep(0.2, 0.85, widthCoord))
+          .mul(edgeFade);
 
         // Noisy body
         const noisyBody = smoothstep(
-          0.18, 0.95,
-          nLarge.add(nMedium.mul(0.45)).sub(v.y.mul(0.18)).add(bodyMask.mul(0.42))
+          0.18,
+          0.95,
+          nLarge.add(nMedium.mul(0.45)).sub(v.y.mul(0.18)).add(bodyMask.mul(0.42)),
         );
 
         // Tip fade + breakup
@@ -347,10 +331,7 @@ export async function createVfxShowcase(
         // Bottom fade — prevent hard line at base of plane
         const bottomFade = smoothstep(0.0, 0.08, v.y);
         const tipBreakMask = smoothstep(0.42, 1.0, v.y);
-        const tipBreakup = smoothstep(
-          -0.10, 0.85,
-          nMedium.sub(widthCoord.mul(0.25)).add(nFine.mul(0.35))
-        );
+        const tipBreakup = smoothstep(-0.1, 0.85, nMedium.sub(widthCoord.mul(0.25)).add(nFine.mul(0.35)));
 
         const alpha = bodyMask
           .mul(noisyBody)
@@ -362,11 +343,10 @@ export async function createVfxShowcase(
         flameMat.opacityNode = alpha;
 
         // --- Fire color ramp based on heat ---
-        const coreMask = float(1.0).sub(
-          smoothstep(0.0, 0.55, abs(flameX).div(flameW.mul(0.78)))
-        );
+        const coreMask = float(1.0).sub(smoothstep(0.0, 0.55, abs(flameX).div(flameW.mul(0.78))));
         const baseHeat = float(1.0).sub(smoothstep(0.0, 0.68, v.y));
-        const heat = alpha.mul(0.65)
+        const heat = alpha
+          .mul(0.65)
           .add(coreMask.mul(0.58))
           .add(baseHeat.mul(0.34))
           .sub(v.y.mul(0.15))
@@ -374,14 +354,10 @@ export async function createVfxShowcase(
           .clamp(0, 1);
 
         // 4-stop color ramp: dark red → orange → yellow → white
-        let fireColor = mix(
-          vec3(0.10, 0.00, 0.00),
-          vec3(0.52, 0.03, 0.00),
-          smoothstep(0.02, 0.18, heat)
-        );
-        fireColor = mix(fireColor, vec3(1.00, 0.26, 0.00), smoothstep(0.16, 0.46, heat));
-        fireColor = mix(fireColor, vec3(1.00, 0.76, 0.12), smoothstep(0.42, 0.78, heat));
-        fireColor = mix(fireColor, vec3(1.00, 0.98, 0.92), smoothstep(0.78, 1.0, heat));
+        let fireColor = mix(vec3(0.1, 0.0, 0.0), vec3(0.52, 0.03, 0.0), smoothstep(0.02, 0.18, heat));
+        fireColor = mix(fireColor, vec3(1.0, 0.26, 0.0), smoothstep(0.16, 0.46, heat));
+        fireColor = mix(fireColor, vec3(1.0, 0.76, 0.12), smoothstep(0.42, 0.78, heat));
+        fireColor = mix(fireColor, vec3(1.0, 0.98, 0.92), smoothstep(0.78, 1.0, heat));
 
         flameMat.colorNode = fireColor.mul(alpha.mul(1.65).add(0.08));
 
@@ -390,15 +366,8 @@ export async function createVfxShowcase(
         const angle = (i / SHEET_COUNT) * Math.PI * 2;
         const radialOffset = i % 2 === 0 ? 0.035 : 0.065;
         sheet.rotation.y = angle;
-        sheet.position.set(
-          Math.cos(angle) * radialOffset, 0,
-          Math.sin(angle) * radialOffset
-        );
-        sheet.scale.set(
-          1.0 + (i % 3 === 0 ? 0.10 : i % 3 === 1 ? -0.05 : 0.04),
-          1.0 + (i % 2 === 0 ? 0.06 : -0.03),
-          1
-        );
+        sheet.position.set(Math.cos(angle) * radialOffset, 0, Math.sin(angle) * radialOffset);
+        sheet.scale.set(1.0 + (i % 3 === 0 ? 0.1 : i % 3 === 1 ? -0.05 : 0.04), 1.0 + (i % 2 === 0 ? 0.06 : -0.03), 1);
         sheet.renderOrder = 10;
         sheet.castShadow = false;
         fireGroup.add(sheet);
@@ -412,11 +381,19 @@ export async function createVfxShowcase(
       created.push(fireLight);
 
       // Smoke sprites (keep existing Kenney texture approach)
-      const smokeTexture = new THREE.TextureLoader().load('/assets/sprites/smoke_black.png');
+      const smokeTexture = new THREE.TextureLoader().load("/assets/sprites/smoke_black.png");
       const SMOKE_COUNT = 10;
       const smokeMinY = 3.0;
       const smokeMaxY = 8.0;
-      const smokeSprites: { sprite: THREE.Sprite; mat: THREE.SpriteMaterial; speed: number; baseX: number; baseZ: number; phase: number; startScale: number }[] = [];
+      const smokeSprites: {
+        sprite: THREE.Sprite;
+        mat: THREE.SpriteMaterial;
+        speed: number;
+        baseX: number;
+        baseZ: number;
+        phase: number;
+        startScale: number;
+      }[] = [];
       for (let s = 0; s < SMOKE_COUNT; s++) {
         const smokeMat = new THREE.SpriteMaterial({
           map: smokeTexture,
@@ -432,10 +409,13 @@ export async function createVfxShowcase(
         sprite.position.set((Math.random() - 0.5) * 0.5, startY, (Math.random() - 0.5) * 0.5);
         fireGroup.add(sprite);
         smokeSprites.push({
-          sprite, mat: smokeMat,
+          sprite,
+          mat: smokeMat,
           speed: 0.4 + Math.random() * 0.3,
-          baseX: sprite.position.x, baseZ: sprite.position.z,
-          phase: Math.random() * Math.PI * 2, startScale,
+          baseX: sprite.position.x,
+          baseZ: sprite.position.z,
+          phase: Math.random() * Math.PI * 2,
+          startScale,
         });
       }
       let smokeTime = 0;
@@ -468,11 +448,11 @@ export async function createVfxShowcase(
     // Lightning bolts flash on/off. Rain drops animate falling downward.
     // =====================================================================
     {
-      const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
+      const { GLTFLoader } = await import("three/addons/loaders/GLTFLoader.js");
       const loader = new GLTFLoader();
       try {
         const gltf = await new Promise<{ scene: THREE.Group }>((resolve, reject) => {
-          loader.load('assets/models/cloud_lightning.glb', resolve as (gltf: unknown) => void, undefined, reject);
+          loader.load("assets/models/cloud_lightning.glb", resolve as (gltf: unknown) => void, undefined, reject);
         });
         const model = gltf.scene;
         const posX = base.x + 5;
@@ -493,12 +473,12 @@ export async function createVfxShowcase(
             child.receiveShadow = false;
           }
           // Lightning bolts
-          if (child.name.toLowerCase().includes('bolt') && child instanceof THREE.Mesh) {
+          if (child.name.toLowerCase().includes("bolt") && child instanceof THREE.Mesh) {
             boltMeshes.push(child);
             child.visible = false;
           }
           // Grab geometry/material from the first rain drop mesh, hide ALL rain meshes
-          if (child.name.includes('Sphere') && child instanceof THREE.Mesh) {
+          if (child.name.includes("Sphere") && child instanceof THREE.Mesh) {
             if (!rainDropGeo) {
               rainDropGeo = child.geometry.clone();
               rainDropMat = child.material;
@@ -509,15 +489,17 @@ export async function createVfxShowcase(
 
         const boostBoltMaterial = (material: THREE.Material): THREE.Material => {
           if (
-            material instanceof THREE.MeshStandardMaterial
-            || material instanceof THREE.MeshPhysicalMaterial
-            || material instanceof THREE.MeshPhongMaterial
-            || material instanceof THREE.MeshLambertMaterial
-            || material instanceof THREE.MeshToonMaterial
+            material instanceof THREE.MeshStandardMaterial ||
+            material instanceof THREE.MeshPhysicalMaterial ||
+            material instanceof THREE.MeshPhongMaterial ||
+            material instanceof THREE.MeshLambertMaterial ||
+            material instanceof THREE.MeshToonMaterial
           ) {
             const boosted = material.clone();
-            const emissiveColor = ('color' in boosted ? boosted.color.clone() : new THREE.Color(0xaedaff))
-              .lerp(new THREE.Color(0xffffff), 0.28);
+            const emissiveColor = ("color" in boosted ? boosted.color.clone() : new THREE.Color(0xaedaff)).lerp(
+              new THREE.Color(0xffffff),
+              0.28,
+            );
             boosted.emissive.copy(emissiveColor);
             boosted.emissiveIntensity = Math.max(boosted.emissiveIntensity, 2.25);
             return boosted;
@@ -548,7 +530,7 @@ export async function createVfxShowcase(
           for (const bolt of boltMeshes) {
             const materials = Array.isArray(bolt.material) ? bolt.material : [bolt.material];
             for (const material of materials) {
-              if ('emissiveIntensity' in material && typeof material.emissiveIntensity === 'number') {
+              if ("emissiveIntensity" in material && typeof material.emissiveIntensity === "number") {
                 material.emissiveIntensity = intensity;
               }
             }
@@ -581,7 +563,7 @@ export async function createVfxShowcase(
         const RAIN_COUNT = 200;
         const RAIN_AREA_W = 7.5;
         const RAIN_AREA_D = 5.4;
-        const RAIN_TOP = base.y + 3.0;   // just below cloud visual bottom
+        const RAIN_TOP = base.y + 3.0; // just below cloud visual bottom
         const RAIN_BOTTOM = base.y - 0.5;
         const RAIN_SPEED = 4.0;
 
@@ -592,9 +574,14 @@ export async function createVfxShowcase(
 
         // Use a tiny sphere for rain drops — model's rain geometry is 600+ units tall
         const tinyDropGeo = new THREE.SphereGeometry(0.03, 4, 4);
-        const dropMat = rainDropMat ?? new THREE.MeshStandardMaterial({
-          color: 0xaaccee, transparent: true, opacity: 0.7, depthWrite: false,
-        });
+        const dropMat =
+          rainDropMat ??
+          new THREE.MeshStandardMaterial({
+            color: 0xaaccee,
+            transparent: true,
+            opacity: 0.7,
+            depthWrite: false,
+          });
         {
           rainInstancedMesh = new THREE.InstancedMesh(tinyDropGeo, dropMat, RAIN_COUNT);
           rainInstancedMesh.castShadow = false;
@@ -624,7 +611,7 @@ export async function createVfxShowcase(
         const flashLight = new THREE.PointLight(0x88ccff, 0, 20, 2);
         flashLight.position.set(posX, base.y + 6, posZ);
         flashLight.castShadow = false;
-        flashLight.name = 'VFX_LightningFlashLight';
+        flashLight.name = "VFX_LightningFlashLight";
         scene.add(flashLight);
         created.push(flashLight);
 
@@ -687,7 +674,7 @@ export async function createVfxShowcase(
           }
         });
       } catch (err) {
-        console.warn('[VfxShowcase] Failed to load cloud_lightning.glb:', err);
+        console.warn("[VfxShowcase] Failed to load cloud_lightning.glb:", err);
       }
     }
 
@@ -734,18 +721,13 @@ export async function createVfxShowcase(
         const tubeRadius = 0.2 + Math.random() * 0.3;
 
         const i3 = i * 3;
-        particlePositions[i3] =
-          (torusRadius + tubeRadius * Math.cos(tubeAngle)) * Math.cos(angle);
+        particlePositions[i3] = (torusRadius + tubeRadius * Math.cos(tubeAngle)) * Math.cos(angle);
         particlePositions[i3 + 1] = tubeRadius * Math.sin(tubeAngle);
-        particlePositions[i3 + 2] =
-          (torusRadius + tubeRadius * Math.cos(tubeAngle)) * Math.sin(angle);
+        particlePositions[i3 + 2] = (torusRadius + tubeRadius * Math.cos(tubeAngle)) * Math.sin(angle);
       }
 
       const sparkGeo = new THREE.BufferGeometry();
-      sparkGeo.setAttribute(
-        'position',
-        new THREE.BufferAttribute(particlePositions, 3),
-      );
+      sparkGeo.setAttribute("position", new THREE.BufferAttribute(particlePositions, 3));
 
       const sparkMat = new THREE.PointsMaterial({
         color: 0x00ffcc,
@@ -768,7 +750,7 @@ export async function createVfxShowcase(
       created.push(ringLight);
     }
   } catch (err) {
-    console.warn('[VfxShowcase] Failed to create VFX demos, cleaning up:', err);
+    console.warn("[VfxShowcase] Failed to create VFX demos, cleaning up:", err);
     for (const obj of created) obj.removeFromParent();
     throw err;
   }

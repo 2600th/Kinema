@@ -1,7 +1,7 @@
-import * as THREE from 'three';
-import type { RenderPipeline } from 'three/webgpu';
-import type { EnvironmentTargetLike } from './rendererAssets';
-import type { RendererLutPassNode } from './rendererPipelineBuilder';
+import * as THREE from "three";
+import type { RenderPipeline } from "three/webgpu";
+import type { EnvironmentTargetLike } from "./rendererAssets";
+import type { RendererLutPassNode } from "./rendererPipelineBuilder";
 
 const _envRotation = new THREE.Euler();
 
@@ -41,7 +41,7 @@ export function applyShadowToggle(
   renderer.shadowMap.enabled = enabled;
   if (!postProcessing) return;
   (postProcessing as { needsUpdate: boolean }).needsUpdate = true;
-  if (typeof renderer.shadowMap.needsUpdate !== 'undefined') {
+  if (typeof renderer.shadowMap.needsUpdate !== "undefined") {
     renderer.shadowMap.needsUpdate = true;
   }
 }

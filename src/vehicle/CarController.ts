@@ -1,16 +1,15 @@
-import * as THREE from 'three';
-import RAPIER from '@dimforge/rapier3d-compat';
-import type { InputState, SpawnPointData } from '@core/types';
-import { DEFAULT_PLAYER_CONFIG } from '@core/constants';
-import type { PhysicsWorld } from '@physics/PhysicsWorld';
-import { toRapierQuat } from '@physics/PhysicsHelpers';
-import { COLLISION_GROUP_VEHICLE, VEHICLE_DOMINANCE_GROUP } from '@core/constants';
-import type { VehicleController, VehicleDriftState, VehicleHandlingFeelState } from './VehicleController';
+import { COLLISION_GROUP_VEHICLE, DEFAULT_PLAYER_CONFIG, VEHICLE_DOMINANCE_GROUP } from "@core/constants";
+import type { InputState, SpawnPointData } from "@core/types";
+import RAPIER from "@dimforge/rapier3d-compat";
+import { toRapierQuat } from "@physics/PhysicsHelpers";
+import type { PhysicsWorld } from "@physics/PhysicsWorld";
+import * as THREE from "three";
+import type { VehicleController, VehicleDriftState, VehicleHandlingFeelState } from "./VehicleController";
 
 const _quat = new THREE.Quaternion();
 const _targetQuat = new THREE.Quaternion();
-const _tempEuler = new THREE.Euler(0, 0, 0, 'YXZ');
-const _yawEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+const _tempEuler = new THREE.Euler(0, 0, 0, "YXZ");
+const _yawEuler = new THREE.Euler(0, 0, 0, "YXZ");
 const _worldUp = new THREE.Vector3(0, 1, 0);
 const _chassisUp = new THREE.Vector3(0, 1, 0);
 const _uprightAxis = new THREE.Vector3();
@@ -40,16 +39,18 @@ const ACTIVE_CAR_DOMINANCE_GROUP = 0;
 const STEERING_DEBUG_AUTO_LOG_INTERVAL_FRAMES = 180;
 
 function _setCRV(v: RAPIER.Vector3, x: number, y: number, z: number): RAPIER.Vector3 {
-  v.x = x; v.y = y; v.z = z;
+  v.x = x;
+  v.y = y;
+  v.z = z;
   return v;
 }
 
 function getRigidBodyKind(body: RAPIER.RigidBody | null): string | null {
   if (!body) return null;
   const data = body.userData;
-  if (typeof data !== 'object' || data === null) return null;
+  if (typeof data !== "object" || data === null) return null;
   const kind = (data as { kind?: unknown }).kind;
-  return typeof kind === 'string' ? kind : null;
+  return typeof kind === "string" ? kind : null;
 }
 
 export function isCarWheelQueryCandidate(
@@ -59,8 +60,8 @@ export function isCarWheelQueryCandidate(
   excludedBody: boolean,
 ): boolean {
   if (isSensor || excludedBody) return false;
-  if (bodyType === RAPIER.RigidBodyType.Dynamic && bodyKind !== 'floating-platform') return false;
-  return bodyKind !== 'vehicle' && bodyKind !== 'throwable' && bodyKind !== 'player';
+  if (bodyType === RAPIER.RigidBodyType.Dynamic && bodyKind !== "floating-platform") return false;
+  return bodyKind !== "vehicle" && bodyKind !== "throwable" && bodyKind !== "player";
 }
 
 type CarTuning = {
@@ -260,8 +261,7 @@ export function deriveCarRideGeometry(tuning: CarTuning = CAR_TUNING): CarRideGe
   const nominalSuspensionLength = tuning.suspensionRestLength - nominalSuspensionCompression;
   const wheelHardPointY = tuning.wheelRadius + tuning.suspensionRestLength;
   const nominalGroundPlaneY = nominalSuspensionCompression;
-  const chassisColliderOffsetY =
-    tuning.chassisHalfExtents.y + tuning.nominalChassisClearance + nominalGroundPlaneY;
+  const chassisColliderOffsetY = tuning.chassisHalfExtents.y + tuning.nominalChassisClearance + nominalGroundPlaneY;
 
   return {
     wheelRadius: tuning.wheelRadius,
@@ -363,7 +363,7 @@ export type CarSteeringDebugSample = {
     sideImpulses: readonly number[];
   };
   derived: {
-    driveMode: 'forward' | 'reverse' | 'coast';
+    driveMode: "forward" | "reverse" | "coast";
     expectedYawSign: number;
     actualYawSign: number;
     yawAgreement: boolean;
@@ -425,11 +425,7 @@ function cloneCarSteeringDebugSample(sample: CarSteeringDebugSample): CarSteerin
   };
 }
 
-export function canCarJump(
-  groundedWheelCount: number,
-  groundedGraceRemaining: number,
-  hopCooldown: number,
-): boolean {
+export function canCarJump(groundedWheelCount: number, groundedGraceRemaining: number, hopCooldown: number): boolean {
   return hopCooldown <= 0 && (groundedWheelCount >= 2 || groundedGraceRemaining > 0);
 }
 
@@ -487,7 +483,9 @@ export function computeCarLateralGripDelta(
 ): number {
   if (dt <= 0 || Math.abs(lateralSpeed) <= 0.0001) return 0;
   const grip = grounded
-    ? (handbrake ? tuning.driveAssistHandbrakeGrip : tuning.driveAssistLateralGrip)
+    ? handbrake
+      ? tuning.driveAssistHandbrakeGrip
+      : tuning.driveAssistLateralGrip
     : tuning.driveAssistAirGrip;
   const nextLateralSpeed = THREE.MathUtils.damp(lateralSpeed, 0, grip, dt);
   return nextLateralSpeed - lateralSpeed;
@@ -514,20 +512,14 @@ export function resolveCarYawAssistEffectiveAuthority(
   return 0;
 }
 
-export function computeCarYawDirectionSign(
-  steerInput: number,
-  forwardSpeed: number,
-): number {
+export function computeCarYawDirectionSign(steerInput: number, forwardSpeed: number): number {
   if (Math.abs(steerInput) <= 0.0001 || Math.abs(forwardSpeed) <= 0.0001) return 0;
   const steerYawSign = -Math.sign(steerInput);
   const travelYawSign = forwardSpeed >= 0 ? 1 : -1;
   return steerYawSign * travelYawSign;
 }
 
-export function computeCarSlipAngle(
-  forwardSpeed: number,
-  lateralSpeed: number,
-): number {
+export function computeCarSlipAngle(forwardSpeed: number, lateralSpeed: number): number {
   if (Math.abs(forwardSpeed) <= 0.0001 && Math.abs(lateralSpeed) <= 0.0001) return 0;
   const longitudinalReference = Math.max(Math.abs(forwardSpeed), 0.85);
   return Math.atan2(lateralSpeed, longitudinalReference);
@@ -539,10 +531,10 @@ function resolveVehicleDriftState(
   tuning: CarTuning = CAR_TUNING,
 ): VehicleDriftState {
   const absSlipAngle = Math.abs(slipAngle);
-  if (driftAmount < 0.12 || absSlipAngle < tuning.handlingSlipAngleLight * 0.65) return 'none';
-  if (driftAmount < 0.34 || absSlipAngle < tuning.handlingSlipAngleDrift) return 'light';
-  if (driftAmount < 0.72) return 'drift';
-  return 'slide';
+  if (driftAmount < 0.12 || absSlipAngle < tuning.handlingSlipAngleLight * 0.65) return "none";
+  if (driftAmount < 0.34 || absSlipAngle < tuning.handlingSlipAngleDrift) return "light";
+  if (driftAmount < 0.72) return "drift";
+  return "slide";
 }
 
 export function resolveCarHandlingFeelState(
@@ -565,7 +557,7 @@ export function resolveCarHandlingFeelState(
       slipRatio: 0,
       slipSign: 0,
       driftAmount: 0,
-      driftState: 'none',
+      driftState: "none",
       handbrake,
       grounded,
       groundedWheelCount,
@@ -610,12 +602,13 @@ export function computeCarContactPushImpulse(
 ): number {
   if (dt <= 0 || targetMass <= 0) return 0;
   const sustainedImpulse = Math.max(0, driveImpulseMagnitude) * tuning.contactPushDriveTransferScale;
-  const speedImpulse = closingSpeed > tuning.contactPushMinClosingSpeed
-    ? (closingSpeed - tuning.contactPushMinClosingSpeed)
-      * THREE.MathUtils.clamp(Math.sqrt(targetMass), 0.85, 1.8)
-      * tuning.contactPushSpeedScale
-      * dt
-    : 0;
+  const speedImpulse =
+    closingSpeed > tuning.contactPushMinClosingSpeed
+      ? (closingSpeed - tuning.contactPushMinClosingSpeed) *
+        THREE.MathUtils.clamp(Math.sqrt(targetMass), 0.85, 1.8) *
+        tuning.contactPushSpeedScale *
+        dt
+      : 0;
   return Math.min(tuning.contactPushMaxImpulse, Math.max(sustainedImpulse, speedImpulse));
 }
 
@@ -705,7 +698,7 @@ export function resolveCarDriveCommand(
 
 export class CarController implements VehicleController {
   readonly id: string;
-  readonly type = 'car' as const;
+  readonly type = "car" as const;
   readonly body: RAPIER.RigidBody;
   readonly mesh: THREE.Object3D;
   readonly exitOffset = new THREE.Vector3(-1.75, 0, 0);
@@ -746,7 +739,7 @@ export class CarController implements VehicleController {
   private handlingSlipAngle = 0;
   private handlingSlipRatio = 0;
   private handlingDriftAmount = 0;
-  private handlingDriftState: VehicleDriftState = 'none';
+  private handlingDriftState: VehicleDriftState = "none";
   private visualRoll = 0;
   private visualPitch = 0;
   private visualYaw = 0;
@@ -773,7 +766,7 @@ export class CarController implements VehicleController {
   private lastDriveCommand: CarDriveCommand = { ...DEFAULT_CAR_DRIVE_COMMAND };
   private steeringDebugEnabled = false;
   private steeringDebugAutoLog = false;
-  private steeringDebugLabel = '';
+  private steeringDebugLabel = "";
   private steeringDebugCapacity = DEFAULT_STEERING_DEBUG_TRACE_CAPACITY;
   private steeringDebugIncidentCapacity = computeSteeringDebugIncidentCapacity(DEFAULT_STEERING_DEBUG_TRACE_CAPACITY);
   private steeringDebugTrace: CarSteeringDebugSample[] = [];
@@ -796,10 +789,9 @@ export class CarController implements VehicleController {
     this.spawnQuaternion.identity();
     this.wheelQueryExcludedBody = ignoredWheelQueryBody ?? null;
 
-    const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
-      .setTranslation(position.x, position.y, position.z);
+    const bodyDesc = RAPIER.RigidBodyDesc.dynamic().setTranslation(position.x, position.y, position.z);
     this.body = this.physicsWorld.world.createRigidBody(bodyDesc);
-    this.body.userData = { kind: 'vehicle' };
+    this.body.userData = { kind: "vehicle" };
     this.body.enableCcd(true);
     this.body.setDominanceGroup(VEHICLE_DOMINANCE_GROUP);
     this.body.setEnabledRotations(true, true, true, true);
@@ -858,7 +850,7 @@ export class CarController implements VehicleController {
     this.jumpVisualKick = 0;
 
     _quat.set(rot.x, rot.y, rot.z, rot.w);
-    _tempEuler.setFromQuaternion(_quat, 'YXZ');
+    _tempEuler.setFromQuaternion(_quat, "YXZ");
     _yawEuler.set(0, _tempEuler.y, 0);
     _quat.setFromEuler(_yawEuler);
 
@@ -871,9 +863,8 @@ export class CarController implements VehicleController {
       this.projectExitCandidateToGround(candidate, exitY),
     );
     return {
-      position: pickFirstClearCarExitCandidate(
-        projectedCandidates,
-        (candidate) => this.isExitCandidateClear(candidate),
+      position: pickFirstClearCarExitCandidate(projectedCandidates, (candidate) =>
+        this.isExitCandidateClear(candidate),
       ),
     };
   }
@@ -904,7 +895,7 @@ export class CarController implements VehicleController {
     this.handlingSlipAngle = 0;
     this.handlingSlipRatio = 0;
     this.handlingDriftAmount = 0;
-    this.handlingDriftState = 'none';
+    this.handlingDriftState = "none";
     this.visualRoll = 0;
     this.visualPitch = 0;
     this.visualYaw = 0;
@@ -959,12 +950,7 @@ export class CarController implements VehicleController {
     this.braking = command.braking;
 
     this.applyWheelCommand(command);
-    this.vehicleController.updateVehicle(
-      dt,
-      undefined,
-      COLLISION_GROUP_VEHICLE,
-      this.wheelQueryFilterPredicate,
-    );
+    this.vehicleController.updateVehicle(dt, undefined, COLLISION_GROUP_VEHICLE, this.wheelQueryFilterPredicate);
     this.syncVehicleStateFromController(dt);
 
     const groundedNow = this.groundedWheelCount >= 2;
@@ -1037,7 +1023,9 @@ export class CarController implements VehicleController {
       const mesh = obj as THREE.Mesh;
       mesh.geometry?.dispose();
       if (Array.isArray(mesh.material)) {
-        mesh.material.forEach((mat) => mat.dispose());
+        mesh.material.forEach((mat) => {
+          mat.dispose();
+        });
       } else {
         mesh.material?.dispose();
       }
@@ -1074,7 +1062,7 @@ export class CarController implements VehicleController {
     activeContactPushBodies: number;
     handlingFeel: VehicleHandlingFeelState;
     lastDriveCommand: CarDriveCommand;
-    rideGeometry: Pick<CarRideGeometry, 'nominalChassisClearance' | 'chassisBottomY' | 'nominalGroundPlaneY'>;
+    rideGeometry: Pick<CarRideGeometry, "nominalChassisClearance" | "chassisBottomY" | "nominalGroundPlaneY">;
   } {
     const linvel = this.body.linvel();
     return {
@@ -1111,7 +1099,7 @@ export class CarController implements VehicleController {
         slipRatio: 0,
         slipSign: 0,
         driftAmount: 0,
-        driftState: 'none',
+        driftState: "none",
         handbrake: false,
         grounded: false,
         groundedWheelCount: 0,
@@ -1125,7 +1113,11 @@ export class CarController implements VehicleController {
     };
   }
 
-  enableSteeringDebugTrace(options?: { capacity?: number; autoLog?: boolean; label?: string | null }): CarSteeringDebugTrace {
+  enableSteeringDebugTrace(options?: {
+    capacity?: number;
+    autoLog?: boolean;
+    label?: string | null;
+  }): CarSteeringDebugTrace {
     this.steeringDebugEnabled = true;
     this.steeringDebugAutoLog = options?.autoLog ?? false;
     this.steeringDebugCapacity = THREE.MathUtils.clamp(
@@ -1174,22 +1166,8 @@ export class CarController implements VehicleController {
       `[CarSteeringDebug:${trace.label}] samples=${trace.sampleCount} incidents=${trace.incidentCount} retainedIncidents=${trace.incidentSampleCount}`,
     );
     console.log(trace);
-    console.table(trace.samples.map((sample) => ({
-      frame: sample.frame,
-      t: Number(sample.timeSeconds.toFixed(3)),
-      moveX: sample.input.moveX,
-      moveY: sample.input.moveY,
-      forwardSpeed: Number(sample.state.forwardSpeed.toFixed(3)),
-      lateralSpeed: Number(sample.state.lateralSpeed.toFixed(3)),
-      yawRate: Number(sample.state.yawRate.toFixed(3)),
-      steerAngle: Number(sample.command.physicsSteerAngle.toFixed(3)),
-      grounded: sample.state.groundedWheelCount,
-      contact: sample.state.contactWheelCount,
-      traction: Number(sample.state.groundedTraction.toFixed(3)),
-      suspectedForwardSteerLoss: sample.derived.suspectedForwardSteerLoss,
-    })));
-    if (trace.incidentSamples.length > 0) {
-      console.table(trace.incidentSamples.map((sample) => ({
+    console.table(
+      trace.samples.map((sample) => ({
         frame: sample.frame,
         t: Number(sample.timeSeconds.toFixed(3)),
         moveX: sample.input.moveX,
@@ -1197,10 +1175,28 @@ export class CarController implements VehicleController {
         forwardSpeed: Number(sample.state.forwardSpeed.toFixed(3)),
         lateralSpeed: Number(sample.state.lateralSpeed.toFixed(3)),
         yawRate: Number(sample.state.yawRate.toFixed(3)),
+        steerAngle: Number(sample.command.physicsSteerAngle.toFixed(3)),
         grounded: sample.state.groundedWheelCount,
-        frontGrounded: sample.state.frontGroundedWheelCount,
-        rearGrounded: sample.state.rearGroundedWheelCount,
-      })));
+        contact: sample.state.contactWheelCount,
+        traction: Number(sample.state.groundedTraction.toFixed(3)),
+        suspectedForwardSteerLoss: sample.derived.suspectedForwardSteerLoss,
+      })),
+    );
+    if (trace.incidentSamples.length > 0) {
+      console.table(
+        trace.incidentSamples.map((sample) => ({
+          frame: sample.frame,
+          t: Number(sample.timeSeconds.toFixed(3)),
+          moveX: sample.input.moveX,
+          moveY: sample.input.moveY,
+          forwardSpeed: Number(sample.state.forwardSpeed.toFixed(3)),
+          lateralSpeed: Number(sample.state.lateralSpeed.toFixed(3)),
+          yawRate: Number(sample.state.yawRate.toFixed(3)),
+          grounded: sample.state.groundedWheelCount,
+          frontGrounded: sample.state.frontGroundedWheelCount,
+          rearGrounded: sample.state.rearGroundedWheelCount,
+        })),
+      );
     }
     console.groupEnd();
     return trace;
@@ -1228,9 +1224,7 @@ export class CarController implements VehicleController {
   private readonly wheelQueryFilterPredicate = (collider: RAPIER.Collider): boolean => {
     const parent = collider.parent();
     const excludedBody =
-      parent !== null &&
-      this.wheelQueryExcludedBody !== null &&
-      parent.handle === this.wheelQueryExcludedBody.handle;
+      parent !== null && this.wheelQueryExcludedBody !== null && parent.handle === this.wheelQueryExcludedBody.handle;
     return isCarWheelQueryCandidate(
       collider.isSensor(),
       getRigidBodyKind(parent),
@@ -1242,11 +1236,7 @@ export class CarController implements VehicleController {
   private configureVehicleController(): void {
     for (let i = 0; i < this.wheelVisualBaseCenters.length; i++) {
       const baseCenter = this.wheelVisualBaseCenters[i];
-      const hardPoint = new RAPIER.Vector3(
-        baseCenter.x,
-        this.rideGeometry.wheelHardPointY,
-        baseCenter.z,
-      );
+      const hardPoint = new RAPIER.Vector3(baseCenter.x, this.rideGeometry.wheelHardPointY, baseCenter.z);
       this.vehicleController.addWheel(
         hardPoint,
         new RAPIER.Vector3(0, -1, 0),
@@ -1263,8 +1253,14 @@ export class CarController implements VehicleController {
       this.vehicleController.setWheelBrake(i, 0);
       this.vehicleController.setWheelEngineForce(i, 0);
       this.vehicleController.setWheelSteering(i, 0);
-      this.vehicleController.setWheelFrictionSlip(i, i < 2 ? CAR_TUNING.frontFrictionSlip : CAR_TUNING.rearFrictionSlip);
-      this.vehicleController.setWheelSideFrictionStiffness(i, i < 2 ? CAR_TUNING.frontSideFriction : CAR_TUNING.rearSideFriction);
+      this.vehicleController.setWheelFrictionSlip(
+        i,
+        i < 2 ? CAR_TUNING.frontFrictionSlip : CAR_TUNING.rearFrictionSlip,
+      );
+      this.vehicleController.setWheelSideFrictionStiffness(
+        i,
+        i < 2 ? CAR_TUNING.frontSideFriction : CAR_TUNING.rearSideFriction,
+      );
     }
   }
 
@@ -1275,7 +1271,10 @@ export class CarController implements VehicleController {
       this.vehicleController.setWheelEngineForce(i, isFront ? command.frontEngineForce : command.rearEngineForce);
       this.vehicleController.setWheelBrake(i, isFront ? command.frontBrake : command.rearBrake);
       this.vehicleController.setWheelFrictionSlip(i, isFront ? command.frontFrictionSlip : command.rearFrictionSlip);
-      this.vehicleController.setWheelSideFrictionStiffness(i, isFront ? command.frontSideFriction : command.rearSideFriction);
+      this.vehicleController.setWheelSideFrictionStiffness(
+        i,
+        isFront ? command.frontSideFriction : command.rearSideFriction,
+      );
     }
   }
 
@@ -1300,12 +1299,13 @@ export class CarController implements VehicleController {
       }
 
       const suspensionLength = this.vehicleController.wheelSuspensionLength(i);
-      const resolvedLength = suspensionLength != null
-        ? suspensionLength
-        : Math.min(
-            this.rideGeometry.suspensionRestLength + this.rideGeometry.suspensionMaxTravel,
-            this.rideGeometry.suspensionRestLength + CAR_TUNING.wheelVisualDropMax,
-          );
+      const resolvedLength =
+        suspensionLength != null
+          ? suspensionLength
+          : Math.min(
+              this.rideGeometry.suspensionRestLength + this.rideGeometry.suspensionMaxTravel,
+              this.rideGeometry.suspensionRestLength + CAR_TUNING.wheelVisualDropMax,
+            );
       this.wheelSuspensionLengths[i] = resolvedLength;
       avgCompression += Math.max(0, this.rideGeometry.suspensionRestLength - resolvedLength);
 
@@ -1346,9 +1346,8 @@ export class CarController implements VehicleController {
     const avgWheelCompression = avgCompression / this.wheelVisualBaseCenters.length;
     this.averageSuspensionCompression = avgWheelCompression;
     this.averageSuspensionForce = totalSuspensionForce / this.wheelVisualBaseCenters.length;
-    this.groundedTraction = groundedCount > 0
-      ? THREE.MathUtils.clamp(totalSuspensionForce / Math.max(1, this.body.mass() * 9.81), 0, 1)
-      : 0;
+    this.groundedTraction =
+      groundedCount > 0 ? THREE.MathUtils.clamp(totalSuspensionForce / Math.max(1, this.body.mass() * 9.81), 0, 1) : 0;
     this.suspensionOffset = THREE.MathUtils.damp(this.suspensionOffset, avgWheelCompression * 0.06, 12, dt);
     this.updateArcadeMotionState();
   }
@@ -1356,7 +1355,7 @@ export class CarController implements VehicleController {
   private updateArcadeMotionState(): void {
     const rot = this.body.rotation();
     _quat.set(rot.x, rot.y, rot.z, rot.w);
-    _tempEuler.setFromQuaternion(_quat, 'YXZ');
+    _tempEuler.setFromQuaternion(_quat, "YXZ");
     this.headingYaw = _tempEuler.y;
     _carForward.set(0, 0, -1).applyQuaternion(_quat).setY(0);
     if (_carForward.lengthSq() <= 0.0001) {
@@ -1400,11 +1399,12 @@ export class CarController implements VehicleController {
     const driveSpeedDelta =
       computeCarDriveSpeedDelta(throttle, this.forwardSpeed, grounded, boosting, dt) * tractionScale;
     const appliedDriveImpulseMagnitude = Math.abs(this.body.mass() * driveSpeedDelta);
-    const requestedDriveAccel = throttle > 0.01
-      ? (boosting ? CAR_TUNING.driveAssistBoostAccel : CAR_TUNING.driveAssistForwardAccel) * throttle
-      : throttle < -0.01
-        ? CAR_TUNING.driveAssistReverseAccel * Math.abs(throttle)
-        : 0;
+    const requestedDriveAccel =
+      throttle > 0.01
+        ? (boosting ? CAR_TUNING.driveAssistBoostAccel : CAR_TUNING.driveAssistForwardAccel) * throttle
+        : throttle < -0.01
+          ? CAR_TUNING.driveAssistReverseAccel * Math.abs(throttle)
+          : 0;
     const driveIntentImpulseMagnitude = this.body.mass() * requestedDriveAccel * tractionScale * dt;
     const wheelDriveImpulseMagnitude = this.wheelForwardImpulses.reduce(
       (sum, impulse) => sum + Math.max(0, -impulse),
@@ -1432,12 +1432,7 @@ export class CarController implements VehicleController {
     const lateralDelta = computeCarLateralGripDelta(this.lateralSpeed, grounded, handbrake, dt) * tractionScale;
     if (Math.abs(lateralDelta) > 0.0001) {
       this.body.applyImpulse(
-        _setCRV(
-          _rv3A,
-          _carRight.x * this.body.mass() * lateralDelta,
-          0,
-          _carRight.z * this.body.mass() * lateralDelta,
-        ),
+        _setCRV(_rv3A, _carRight.x * this.body.mass() * lateralDelta, 0, _carRight.z * this.body.mass() * lateralDelta),
         true,
       );
     }
@@ -1448,18 +1443,14 @@ export class CarController implements VehicleController {
       this.frontGroundedWheelCount,
       this.rearGroundedWheelCount,
     );
-    const effectiveYawAuthority = resolveCarYawAssistEffectiveAuthority(
-      groundedYawAuthority,
-      grounded,
-      speedNorm,
-    );
+    const effectiveYawAuthority = resolveCarYawAssistEffectiveAuthority(groundedYawAuthority, grounded, speedNorm);
     const yawDirectionSign = computeCarYawDirectionSign(steerInput, this.forwardSpeed);
     if (Math.abs(steerInput) > 0.01 && effectiveYawAuthority > 0 && yawDirectionSign !== 0) {
       const targetYawRate =
-        Math.abs(steerInput)
-        * yawDirectionSign
-        * effectiveYawAuthority
-        * THREE.MathUtils.lerp(
+        Math.abs(steerInput) *
+        yawDirectionSign *
+        effectiveYawAuthority *
+        THREE.MathUtils.lerp(
           0.55,
           handbrake ? CAR_TUNING.driveAssistHandbrakeYawRate : CAR_TUNING.driveAssistYawRate,
           speedNorm,
@@ -1495,11 +1486,12 @@ export class CarController implements VehicleController {
 
       const otherKind = getRigidBodyKind(otherBody);
       if (
-        otherKind === 'vehicle'
-        || otherKind === 'player'
-        || otherKind === 'throwable'
-        || otherKind === 'floating-platform'
-      ) return;
+        otherKind === "vehicle" ||
+        otherKind === "player" ||
+        otherKind === "throwable" ||
+        otherKind === "floating-platform"
+      )
+        return;
 
       let frontContacts = 0;
       let bestAlignment = 0;
@@ -1510,8 +1502,7 @@ export class CarController implements VehicleController {
         for (let i = 0; i < solverContacts; i++) {
           const solverPoint = manifold.solverContactPoint(i);
           _contactPoint.set(solverPoint.x, solverPoint.y, solverPoint.z);
-          _impactDirection
-            .set(_contactPoint.x - carTranslation.x, 0, _contactPoint.z - carTranslation.z);
+          _impactDirection.set(_contactPoint.x - carTranslation.x, 0, _contactPoint.z - carTranslation.z);
 
           if (_impactDirection.lengthSq() <= 0.0001) {
             _impactDirection.copy(_carForward);
@@ -1547,20 +1538,15 @@ export class CarController implements VehicleController {
         0.72,
         1,
         THREE.MathUtils.clamp(
-          (bestAlignment - CAR_TUNING.contactPushMinForwardAlignment)
-            / Math.max(0.001, 1 - CAR_TUNING.contactPushMinForwardAlignment),
+          (bestAlignment - CAR_TUNING.contactPushMinForwardAlignment) /
+            Math.max(0.001, 1 - CAR_TUNING.contactPushMinForwardAlignment),
           0,
           1,
         ),
       );
       const resolvedImpulse = impulseMagnitude * alignmentScale;
       otherBody.applyImpulseAtPoint(
-        _setCRV(
-          _rv3A,
-          _carForward.x * resolvedImpulse,
-          0,
-          _carForward.z * resolvedImpulse,
-        ),
+        _setCRV(_rv3A, _carForward.x * resolvedImpulse, 0, _carForward.z * resolvedImpulse),
         _setCRV(
           _rv3B,
           _contactPointSum.x,
@@ -1569,24 +1555,17 @@ export class CarController implements VehicleController {
         ),
         true,
       );
-      const carDragImpulse = resolvedImpulse
-        * CAR_TUNING.contactPushCarDragScale
-        * THREE.MathUtils.clamp(otherBody.mass() / Math.max(0.001, otherBody.mass() + this.body.mass()), 0.38, 0.72);
+      const carDragImpulse =
+        resolvedImpulse *
+        CAR_TUNING.contactPushCarDragScale *
+        THREE.MathUtils.clamp(otherBody.mass() / Math.max(0.001, otherBody.mass() + this.body.mass()), 0.38, 0.72);
       if (carDragImpulse > 0) {
         this.body.applyImpulse(
-          _setCRV(
-            _rv3A,
-            -_carForward.x * carDragImpulse,
-            0,
-            -_carForward.z * carDragImpulse,
-          ),
+          _setCRV(_rv3A, -_carForward.x * carDragImpulse, 0, -_carForward.z * carDragImpulse),
           true,
         );
         const angvel = this.body.angvel();
-        this.body.setAngvel(
-          _setCRV(_rv3B, angvel.x * 0.72, angvel.y, angvel.z * 0.72),
-          true,
-        );
+        this.body.setAngvel(_setCRV(_rv3B, angvel.x * 0.72, angvel.y, angvel.z * 0.72), true);
         this.lastContactPushCarDrag += carDragImpulse;
       }
       this.lastContactPushImpulse += resolvedImpulse;
@@ -1603,7 +1582,7 @@ export class CarController implements VehicleController {
     const moveY = input?.moveY ?? 0;
     const yawRate = this.body.angvel().y;
     const verticalVelocity = this.body.linvel().y;
-    const driveMode: 'forward' | 'reverse' | 'coast' = moveY > 0.1 ? 'forward' : moveY < -0.1 ? 'reverse' : 'coast';
+    const driveMode: "forward" | "reverse" | "coast" = moveY > 0.1 ? "forward" : moveY < -0.1 ? "reverse" : "coast";
     const expectedYawSign =
       Math.abs(moveX) > 0.15 && Math.abs(this.forwardSpeed) > 0.8
         ? computeCarYawDirectionSign(moveX, this.forwardSpeed)
@@ -1611,15 +1590,13 @@ export class CarController implements VehicleController {
     const actualYawSign = Math.abs(yawRate) > 0.08 ? Math.sign(yawRate) : 0;
     const yawAgreement = expectedYawSign === 0 || actualYawSign === 0 || expectedYawSign === actualYawSign;
     const steeringEffectiveness =
-      Math.abs(command.physicsSteerAngle) > 0.001
-        ? Math.abs(yawRate) / Math.abs(command.physicsSteerAngle)
-        : 0;
+      Math.abs(command.physicsSteerAngle) > 0.001 ? Math.abs(yawRate) / Math.abs(command.physicsSteerAngle) : 0;
     const suspectedForwardSteerLoss =
-      moveY > 0.35
-      && Math.abs(moveX) > 0.35
-      && this.forwardSpeed > 2
-      && this.groundedWheelCount >= 2
-      && (!yawAgreement || (Math.abs(yawRate) < 0.18 && Math.abs(this.lateralSpeed) < 0.3));
+      moveY > 0.35 &&
+      Math.abs(moveX) > 0.35 &&
+      this.forwardSpeed > 2 &&
+      this.groundedWheelCount >= 2 &&
+      (!yawAgreement || (Math.abs(yawRate) < 0.18 && Math.abs(this.lateralSpeed) < 0.3));
 
     const sample: CarSteeringDebugSample = {
       frame: this.steeringDebugFrame,
@@ -1684,9 +1661,10 @@ export class CarController implements VehicleController {
       );
     }
     if (
-      !this.steeringDebugAutoLog
-      || this.steeringDebugFrame - this.lastSteeringDebugLogFrame < STEERING_DEBUG_AUTO_LOG_INTERVAL_FRAMES
-    ) return;
+      !this.steeringDebugAutoLog ||
+      this.steeringDebugFrame - this.lastSteeringDebugLogFrame < STEERING_DEBUG_AUTO_LOG_INTERVAL_FRAMES
+    )
+      return;
     this.lastSteeringDebugLogFrame = this.steeringDebugFrame;
     console.warn(`[CarSteeringDebug:${this.steeringDebugLabel}] suspected forward steering loss`, {
       frame: sample.frame,
@@ -1733,24 +1711,20 @@ export class CarController implements VehicleController {
       grounded ? 0.8 : 0.35,
     );
     this.body.setAngvel(
-      _setCRV(
-        _rv3B,
-        angVel.x * (1 - lateralDamping),
-        angVel.y,
-        angVel.z * (1 - lateralDamping),
-      ),
+      _setCRV(_rv3B, angVel.x * (1 - lateralDamping), angVel.y, angVel.z * (1 - lateralDamping)),
       true,
     );
 
     if (!grounded || uprightDot >= CAR_TUNING.selfRightingTiltDot) return;
 
-    _tempEuler.setFromQuaternion(_quat, 'YXZ');
+    _tempEuler.setFromQuaternion(_quat, "YXZ");
     _yawEuler.set(0, _tempEuler.y, 0);
     _targetQuat.setFromEuler(_yawEuler);
 
-    const alignFactor = uprightDot < CAR_TUNING.selfRightingSnapTiltDot
-      ? 0.22
-      : THREE.MathUtils.clamp((CAR_TUNING.selfRightingTiltDot - uprightDot) * 0.85, 0.04, 0.12);
+    const alignFactor =
+      uprightDot < CAR_TUNING.selfRightingSnapTiltDot
+        ? 0.22
+        : THREE.MathUtils.clamp((CAR_TUNING.selfRightingTiltDot - uprightDot) * 0.85, 0.04, 0.12);
     _quat.slerp(_targetQuat, alignFactor);
     this.body.setRotation(toRapierQuat(_quat), true);
 
@@ -1769,10 +1743,12 @@ export class CarController implements VehicleController {
 
   private updateVisualState(dt: number): void {
     const speedNorm = THREE.MathUtils.clamp(Math.abs(this.speed) / CAR_TUNING.maxBoostSpeed, 0, 1);
-    const targetRoll = -this.steerAngle * speedNorm * CAR_TUNING.cabinRollScale
-      - this.handlingSlipAngle * this.handlingDriftAmount * CAR_TUNING.cabinDriftRollScale;
-    const targetPitch = (-Math.sign(this.speed) * (this.braking ? 1 : 0) * CAR_TUNING.cabinPitchScale * 0.8)
-      + (this.jumpVisualKick * CAR_TUNING.cabinPitchScale * 1.8);
+    const targetRoll =
+      -this.steerAngle * speedNorm * CAR_TUNING.cabinRollScale -
+      this.handlingSlipAngle * this.handlingDriftAmount * CAR_TUNING.cabinDriftRollScale;
+    const targetPitch =
+      -Math.sign(this.speed) * (this.braking ? 1 : 0) * CAR_TUNING.cabinPitchScale * 0.8 +
+      this.jumpVisualKick * CAR_TUNING.cabinPitchScale * 1.8;
     const targetYaw = this.handlingSlipAngle * this.handlingDriftAmount * CAR_TUNING.cabinYawScale;
     this.visualRoll = THREE.MathUtils.damp(this.visualRoll, targetRoll, 8, dt);
     this.visualPitch = THREE.MathUtils.damp(this.visualPitch, targetPitch, 8, dt);
@@ -1825,7 +1801,12 @@ export class CarController implements VehicleController {
 
     const tireGeom = new THREE.CylinderGeometry(this.rideGeometry.wheelRadius, this.rideGeometry.wheelRadius, 0.22, 16);
     tireGeom.rotateZ(Math.PI / 2);
-    const rimGeom = new THREE.CylinderGeometry(this.rideGeometry.wheelRadius * 0.55, this.rideGeometry.wheelRadius * 0.55, 0.24, 10);
+    const rimGeom = new THREE.CylinderGeometry(
+      this.rideGeometry.wheelRadius * 0.55,
+      this.rideGeometry.wheelRadius * 0.55,
+      0.24,
+      10,
+    );
     rimGeom.rotateZ(Math.PI / 2);
 
     const tireMat = new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.2, roughness: 0.9 });
@@ -1839,11 +1820,7 @@ export class CarController implements VehicleController {
       const rim = new THREE.Mesh(rimGeom, rimMat);
       spinGroup.add(rim);
 
-      const hardPoint = new THREE.Vector3(
-        baseCenter.x,
-        this.rideGeometry.wheelHardPointY,
-        baseCenter.z,
-      );
+      const hardPoint = new THREE.Vector3(baseCenter.x, this.rideGeometry.wheelHardPointY, baseCenter.z);
 
       if (i < 2) {
         const steerPivot = new THREE.Group();
@@ -1880,7 +1857,8 @@ export class CarController implements VehicleController {
       hardPoint.y += pos.y;
       hardPoint.z += pos.z;
 
-      const maxToi = this.rideGeometry.suspensionRestLength + this.rideGeometry.suspensionMaxTravel + this.rideGeometry.wheelRadius;
+      const maxToi =
+        this.rideGeometry.suspensionRestLength + this.rideGeometry.suspensionMaxTravel + this.rideGeometry.wheelRadius;
       const rayHit = this.physicsWorld.castRay(
         _setCRV(_rv3A, hardPoint.x, hardPoint.y, hardPoint.z),
         _setCRV(_rv3B, localDown.x, localDown.y, localDown.z),
@@ -2001,12 +1979,7 @@ export class CarController implements VehicleController {
   private projectExitCandidateToGround(candidate: THREE.Vector3, fallbackY: number): THREE.Vector3 {
     const projected = candidate.clone();
     const groundHit = this.physicsWorld.castRay(
-      _setCRV(
-        _rv3A,
-        candidate.x,
-        candidate.y + CAR_EXIT_GROUND_PROBE_RAY_HEIGHT,
-        candidate.z,
-      ),
+      _setCRV(_rv3A, candidate.x, candidate.y + CAR_EXIT_GROUND_PROBE_RAY_HEIGHT, candidate.z),
       _setCRV(_rv3B, 0, -1, 0),
       CAR_EXIT_GROUND_PROBE_MAX_TOI,
       undefined,
@@ -2019,8 +1992,7 @@ export class CarController implements VehicleController {
       return projected;
     }
 
-    projected.y =
-      candidate.y + CAR_EXIT_GROUND_PROBE_RAY_HEIGHT - groundHit.timeOfImpact + CAR_EXIT_CAPSULE_CLEARANCE;
+    projected.y = candidate.y + CAR_EXIT_GROUND_PROBE_RAY_HEIGHT - groundHit.timeOfImpact + CAR_EXIT_CAPSULE_CLEARANCE;
     return projected;
   }
 }

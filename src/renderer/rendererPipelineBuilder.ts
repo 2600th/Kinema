@@ -1,13 +1,7 @@
-import * as THREE from 'three';
-import { RenderPipeline, WebGPURenderer } from 'three/webgpu';
-import type { RendererPipelineDescriptor } from './pipelineProfile';
-import type {
-  DenoiseNodeLike,
-  GTAONodeLike,
-  TSLNode,
-  TSLPassNode,
-  TSLRuntime,
-} from './rendererRuntime';
+import * as THREE from "three";
+import { RenderPipeline, type WebGPURenderer } from "three/webgpu";
+import type { RendererPipelineDescriptor } from "./pipelineProfile";
+import type { DenoiseNodeLike, GTAONodeLike, TSLNode, TSLPassNode, TSLRuntime } from "./rendererRuntime";
 
 export interface RendererLutPassNode {
   lutNode: { value: THREE.Data3DTexture };
@@ -117,10 +111,9 @@ export function buildRendererPipeline(args: BuildRendererPipelineArgs): BuildRen
   const lutIntensityUniform = uniform(lutEnabled ? lutStrength : 0);
   const aoStrengthUniform = uniform(descriptor.useAo && !aoOnlyView ? 1 : 0);
   const casStrengthUniform = uniform(descriptor.useCAS ? casStrength : 0);
-  const casTexelSizeUniform = uniform(new THREE.Vector2(
-    1 / Math.max(window.innerWidth, 1),
-    1 / Math.max(window.innerHeight, 1),
-  ));
+  const casTexelSizeUniform = uniform(
+    new THREE.Vector2(1 / Math.max(window.innerWidth, 1), 1 / Math.max(window.innerHeight, 1)),
+  );
 
   const postFXUniforms: RendererPostFxUniforms = {
     ssrOpacity: ssrOpacityUniform as { value: number },
@@ -138,28 +131,28 @@ export function buildRendererPipeline(args: BuildRendererPipelineArgs): BuildRen
   };
   if (descriptor.mrtAttachments.length > 0) {
     const attachments: Record<string, unknown> = { output };
-    if (descriptor.mrtAttachments.includes('metalrough')) {
+    if (descriptor.mrtAttachments.includes("metalrough")) {
       attachments.metalrough = vec2(metalness, roughness);
     }
-    if (descriptor.mrtAttachments.includes('emissive')) {
+    if (descriptor.mrtAttachments.includes("emissive")) {
       attachments.emissive = vec4(emissive, 1);
     }
     scenePass.setMRT(mrt(attachments));
-    if (descriptor.mrtAttachments.includes('metalrough')) {
-      scenePass.getTexture('metalrough').type = THREE.HalfFloatType;
+    if (descriptor.mrtAttachments.includes("metalrough")) {
+      scenePass.getTexture("metalrough").type = THREE.HalfFloatType;
     }
-    if (descriptor.mrtAttachments.includes('emissive')) {
-      scenePass.getTexture('emissive').type = THREE.HalfFloatType;
+    if (descriptor.mrtAttachments.includes("emissive")) {
+      scenePass.getTexture("emissive").type = THREE.HalfFloatType;
     }
   }
 
-  const scenePassColor = scenePass.getTextureNode('output') as TSLNode;
-  const scenePassDepth = scenePass.getTextureNode('depth') as TSLNode;
-  const scenePassEmissive = descriptor.mrtAttachments.includes('emissive')
-    ? (scenePass.getTextureNode('emissive') as TSLNode)
+  const scenePassColor = scenePass.getTextureNode("output") as TSLNode;
+  const scenePassDepth = scenePass.getTextureNode("depth") as TSLNode;
+  const scenePassEmissive = descriptor.mrtAttachments.includes("emissive")
+    ? (scenePass.getTextureNode("emissive") as TSLNode)
     : null;
-  const scenePassMetalrough = descriptor.mrtAttachments.includes('metalrough')
-    ? (scenePass.getTextureNode('metalrough') as TSLNode)
+  const scenePassMetalrough = descriptor.mrtAttachments.includes("metalrough")
+    ? (scenePass.getTextureNode("metalrough") as TSLNode)
     : null;
 
   let prePassNode: (TSLPassNode & { updateBeforeType?: string; dispose?: () => void }) | null = null;
@@ -173,10 +166,10 @@ export function buildRendererPipeline(args: BuildRendererPipelineArgs): BuildRen
     };
     prePass.transparent = false;
     prePass.setMRT(mrt({ output: directionToColor(normalView) }));
-    prePass.getTexture('output').type = THREE.UnsignedByteType;
-    const packedNormalTexture = prePass.getTextureNode('output') as { sample: (uvNode: unknown) => unknown };
+    prePass.getTexture("output").type = THREE.UnsignedByteType;
+    const packedNormalTexture = prePass.getTextureNode("output") as { sample: (uvNode: unknown) => unknown };
     prePassNormal = sample((uvNode) => colorToDirection(packedNormalTexture.sample(uvNode))) as TSLNode;
-    depthForAo = prePass.getTextureNode('depth') as TSLNode;
+    depthForAo = prePass.getTextureNode("depth") as TSLNode;
     prePassNode = prePass;
   }
 
@@ -212,8 +205,7 @@ export function buildRendererPipeline(args: BuildRendererPipelineArgs): BuildRen
     }
   }
 
-  const applyDisplayOutput = (colorInput: TSLNode): TSLNode =>
-    renderOutput(colorInput as never) as TSLNode;
+  const applyDisplayOutput = (colorInput: TSLNode): TSLNode => renderOutput(colorInput as never) as TSLNode;
 
   const placeholderLut = new THREE.Data3DTexture(new Uint8Array(4 * 2 * 2 * 2), 2, 2, 2);
   placeholderLut.format = THREE.RGBAFormat;
@@ -228,8 +220,9 @@ export function buildRendererPipeline(args: BuildRendererPipelineArgs): BuildRen
     const dist = (uvCoord as { sub: (n: number) => { mul: (n: number) => TSLNode } }).sub(0.5).mul(2);
     const vignetteFactor = smoothstep(float(0.5), float(1.15), tslLength(dist as never) as never) as TSLNode;
     const one = float(1);
-    const dark = (vignetteDarknessUniform as unknown as { mul: (n: TSLNode) => TSLNode })
-      .mul(vignetteFactor as never) as TSLNode;
+    const dark = (vignetteDarknessUniform as unknown as { mul: (n: TSLNode) => TSLNode }).mul(
+      vignetteFactor as never,
+    ) as TSLNode;
     const mult = tslMax(float(0), (one as { sub: (n: TSLNode) => TSLNode }).sub(dark as TSLNode) as never) as TSLNode;
     const withVignette = (displayColorInput as { mul: (n: TSLNode) => TSLNode }).mul(mult as TSLNode) as TSLNode;
     const lutNode = lut3D(
@@ -278,16 +271,32 @@ export function buildRendererPipeline(args: BuildRendererPipelineArgs): BuildRen
     const rightLum = luminance(right);
     const upLum = luminance(up);
     const downLum = luminance(down);
-    const localMax = tslMax(centerLum as never, leftLum as never, rightLum as never, upLum as never, downLum as never) as TSLNode;
-    const localMin = tslMin(centerLum as never, leftLum as never, rightLum as never, upLum as never, downLum as never) as TSLNode;
+    const localMax = tslMax(
+      centerLum as never,
+      leftLum as never,
+      rightLum as never,
+      upLum as never,
+      downLum as never,
+    ) as TSLNode;
+    const localMin = tslMin(
+      centerLum as never,
+      leftLum as never,
+      rightLum as never,
+      upLum as never,
+      downLum as never,
+    ) as TSLNode;
     const localContrast = (localMax as unknown as { sub: (n: unknown) => TSLNode }).sub(localMin as never) as TSLNode;
-    const adaptiveAmount = smoothstep(float(0.02), float(0.30), localContrast as never) as TSLNode;
-    const sharpenAmount = (casStrengthUniform as unknown as { mul: (n: unknown) => TSLNode }).mul(adaptiveAmount as never) as TSLNode;
+    const adaptiveAmount = smoothstep(float(0.02), float(0.3), localContrast as never) as TSLNode;
+    const sharpenAmount = (casStrengthUniform as unknown as { mul: (n: unknown) => TSLNode }).mul(
+      adaptiveAmount as never,
+    ) as TSLNode;
     const horizontalNeighbors = add(left.rgb as never, right.rgb as never) as TSLNode;
     const verticalNeighbors = add(up.rgb as never, down.rgb as never) as TSLNode;
-    const neighborAverage = (add(horizontalNeighbors as never, verticalNeighbors as never) as unknown as {
-      mul: (n: unknown) => TSLNode;
-    }).mul(float(0.25) as never) as TSLNode;
+    const neighborAverage = (
+      add(horizontalNeighbors as never, verticalNeighbors as never) as unknown as {
+        mul: (n: unknown) => TSLNode;
+      }
+    ).mul(float(0.25) as never) as TSLNode;
     const detail = (center.rgb as unknown as { sub: (n: unknown) => TSLNode }).sub(neighborAverage as never) as TSLNode;
     const sharpenedRgb = (center.rgb as unknown as { add: (n: unknown) => TSLNode }).add(
       (detail as unknown as { mul: (n: unknown) => TSLNode }).mul(sharpenAmount as never) as never,
@@ -304,14 +313,16 @@ export function buildRendererPipeline(args: BuildRendererPipelineArgs): BuildRen
   if (descriptor.useSSR && scenePassMetalrough && prePassNormal) {
     const metalnessNode = (scenePassMetalrough as TSLNode & { r: TSLNode }).r;
     const roughnessNode = (scenePassMetalrough as TSLNode & { g: TSLNode }).g;
-    const builtSsrNode = trackTempNode(ssr(
-      scenePassColor as never,
-      scenePassDepth as never,
-      prePassNormal as never,
-      metalnessNode as never,
-      roughnessNode as never,
-      camera,
-    )) as TSLNode;
+    const builtSsrNode = trackTempNode(
+      ssr(
+        scenePassColor as never,
+        scenePassDepth as never,
+        prePassNormal as never,
+        metalnessNode as never,
+        roughnessNode as never,
+        camera,
+      ),
+    ) as TSLNode;
     (builtSsrNode as unknown as { resolutionScale: number }).resolutionScale = ssrResolutionScale;
     const u = builtSsrNode as unknown as {
       maxDistance: { value: number };
@@ -339,13 +350,13 @@ export function buildRendererPipeline(args: BuildRendererPipelineArgs): BuildRen
     currentNode = keepAlphaWithRgb(currentNode, add(currentRgb() as never, bloomRgb as never) as TSLNode);
   }
 
-  if (descriptor.aaMode === 'smaa') {
+  if (descriptor.aaMode === "smaa") {
     currentNode = trackTempNode(smaa(currentNode as never)) as TSLNode;
   }
 
   currentNode = applyDisplayOutput(currentNode);
 
-  if (descriptor.aaMode === 'fxaa') {
+  if (descriptor.aaMode === "fxaa") {
     currentNode = trackTempNode(fxaa(currentNode as never)) as TSLNode;
   }
 
@@ -359,8 +370,9 @@ export function buildRendererPipeline(args: BuildRendererPipelineArgs): BuildRen
     renderer,
     (aoOnlyView && aoOnlyOutputNode ? aoOnlyOutputNode : currentNode) as never,
   );
-  if ('outputColorTransform' in postProcessing) {
-    (postProcessing as unknown as { outputColorTransform: boolean }).outputColorTransform = descriptor.outputColorTransform;
+  if ("outputColorTransform" in postProcessing) {
+    (postProcessing as unknown as { outputColorTransform: boolean }).outputColorTransform =
+      descriptor.outputColorTransform;
   }
 
   return {

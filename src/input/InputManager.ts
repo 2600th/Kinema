@@ -1,7 +1,8 @@
-import type { EventBus } from '@core/EventBus';
-import type { InputState, Disposable } from '@core/types';
-import { NULL_INPUT } from '@core/types';
-import type { TouchControlsManager } from './TouchControlsManager';
+import type { EventBus } from "@core/EventBus";
+import type { Disposable, InputState } from "@core/types";
+import { NULL_INPUT } from "@core/types";
+import { getPointerLockRequest } from "./pointerLock";
+import type { TouchControlsManager } from "./TouchControlsManager";
 
 const GAMEPAD_MOVE_THRESHOLD = 0.25;
 const GAMEPAD_LOOK_SPEED = 18;
@@ -56,6 +57,8 @@ export class InputManager implements Disposable {
   private editorActive = false;
   private touchControls: TouchControlsManager | null = null;
   private touchActive = false;
+  private desiredTouchEnabled = false;
+  private touchControlsLoad: Promise<void> | null = null;
   private rawPointerLockAvailable = true;
   private unsubs: (() => void)[] = [];
 
@@ -72,26 +75,26 @@ export class InputManager implements Disposable {
     private eventBus: EventBus,
     private canvas: HTMLCanvasElement,
   ) {
-    window.addEventListener('keydown', this._onKeyDown);
-    window.addEventListener('keyup', this._onKeyUp);
-    document.addEventListener('mousemove', this._onMouseMove);
-    canvas.addEventListener('mousedown', this._onMouseDown);
-    window.addEventListener('mouseup', this._onMouseUp);
-    canvas.addEventListener('wheel', this._onWheel, { passive: false });
-    document.addEventListener('click', this._onClick);
-    document.addEventListener('pointerlockchange', this._onPointerLockChange);
+    window.addEventListener("keydown", this._onKeyDown);
+    window.addEventListener("keyup", this._onKeyUp);
+    document.addEventListener("mousemove", this._onMouseMove);
+    canvas.addEventListener("mousedown", this._onMouseDown);
+    window.addEventListener("mouseup", this._onMouseUp);
+    canvas.addEventListener("wheel", this._onWheel, { passive: false });
+    document.addEventListener("click", this._onClick);
+    document.addEventListener("pointerlockchange", this._onPointerLockChange);
 
     this.unsubs.push(
-      this.eventBus.on('menu:opened', () => {
+      this.eventBus.on("menu:opened", () => {
         this.inputSuppressed = true;
       }),
-      this.eventBus.on('menu:closed', () => {
+      this.eventBus.on("menu:closed", () => {
         this.inputSuppressed = false;
       }),
-      this.eventBus.on('editor:opened', () => {
+      this.eventBus.on("editor:opened", () => {
         this.editorActive = true;
       }),
-      this.eventBus.on('editor:closed', () => {
+      this.eventBus.on("editor:closed", () => {
         this.editorActive = false;
       }),
     );
@@ -107,25 +110,40 @@ export class InputManager implements Disposable {
       this.prevCrouch = false;
       this.prevPrimary = false;
       this.latchedKeys.clear();
-      this.eventBus.emit('input:state', NULL_INPUT);
+      this.eventBus.emit("input:state", NULL_INPUT);
       return NULL_INPUT;
     }
     const gamepad = this.readGamepadState();
-    const touch = this.touchActive ? this.touchControls?.getInputState() ?? null : null;
+    const touch = this.touchActive ? (this.touchControls?.getInputState() ?? null) : null;
 
     // Use latchedKeys for edge detection so short keypresses (down+up between
     // two polls) aren't missed. Held state still comes from live keys set.
-    const crouch = (this.locked && (this.keys.has('KeyC') || this.keys.has('ControlLeft'))) || gamepad.crouch || (touch?.crouch ?? false);
-    const crouchPressed = ((crouch || (this.locked && (this.latchedKeys.has('KeyC') || this.latchedKeys.has('ControlLeft')))) && !this.prevCrouch) || (touch?.crouchPressed ?? false);
-    const jump = (this.locked && (this.keys.has('Space') || this.latchedKeys.has('Space'))) || gamepad.jump || (touch?.jump ?? false);
-    const interact = (this.locked && (this.keys.has('KeyF') || this.latchedKeys.has('KeyF'))) || gamepad.interact || (touch?.interact ?? false);
+    const crouch =
+      (this.locked && (this.keys.has("KeyC") || this.keys.has("ControlLeft"))) ||
+      gamepad.crouch ||
+      (touch?.crouch ?? false);
+    const crouchPressed =
+      ((crouch || (this.locked && (this.latchedKeys.has("KeyC") || this.latchedKeys.has("ControlLeft")))) &&
+        !this.prevCrouch) ||
+      (touch?.crouchPressed ?? false);
+    const jump =
+      (this.locked && (this.keys.has("Space") || this.latchedKeys.has("Space"))) ||
+      gamepad.jump ||
+      (touch?.jump ?? false);
+    const interact =
+      (this.locked && (this.keys.has("KeyF") || this.latchedKeys.has("KeyF"))) ||
+      gamepad.interact ||
+      (touch?.interact ?? false);
     const primary = (this.locked && this.mousePrimary) || gamepad.primary;
-    const altitudeUp = this.locked && this.keys.has('KeyE');
-    const altitudeDown = this.locked && this.keys.has('KeyQ');
+    const altitudeUp = this.locked && this.keys.has("KeyE");
+    const altitudeDown = this.locked && this.keys.has("KeyQ");
     const keyboardVehicleVertical = (altitudeUp ? 1 : 0) - (altitudeDown ? 1 : 0);
-    const vehicleVertical = touch != null
-      ? touch.vehicleVertical
-      : (gamepad.vehicleVertical !== 0 ? gamepad.vehicleVertical : keyboardVehicleVertical);
+    const vehicleVertical =
+      touch != null
+        ? touch.vehicleVertical
+        : gamepad.vehicleVertical !== 0
+          ? gamepad.vehicleVertical
+          : keyboardVehicleVertical;
     this.prevCrouch = crouch;
     const jumpPressed = (jump && !this.prevJump) || (touch?.jumpPressed ?? false);
     const interactPressed = (interact && !this.prevInteract) || (touch?.interactPressed ?? false);
@@ -137,14 +155,16 @@ export class InputManager implements Disposable {
     this.latchedKeys.clear();
 
     // Compute analog move axes — touch overrides if active
-    const kbX = (this.locked && (this.keys.has('KeyD') || this.keys.has('ArrowRight')) ? 1 : 0)
-              - (this.locked && (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) ? 1 : 0);
-    const kbY = (this.locked && (this.keys.has('KeyW') || this.keys.has('ArrowUp')) ? 1 : 0)
-              - (this.locked && (this.keys.has('KeyS') || this.keys.has('ArrowDown')) ? 1 : 0);
+    const kbX =
+      (this.locked && (this.keys.has("KeyD") || this.keys.has("ArrowRight")) ? 1 : 0) -
+      (this.locked && (this.keys.has("KeyA") || this.keys.has("ArrowLeft")) ? 1 : 0);
+    const kbY =
+      (this.locked && (this.keys.has("KeyW") || this.keys.has("ArrowUp")) ? 1 : 0) -
+      (this.locked && (this.keys.has("KeyS") || this.keys.has("ArrowDown")) ? 1 : 0);
     const touchMoveX = touch?.moveX ?? 0;
     const touchMoveY = touch?.moveY ?? 0;
-    const rawMoveX = touchMoveX !== 0 ? touchMoveX : (gamepad.moveX !== 0 ? gamepad.moveX : kbX);
-    const rawMoveY = touchMoveY !== 0 ? touchMoveY : (gamepad.moveY !== 0 ? gamepad.moveY : kbY);
+    const rawMoveX = touchMoveX !== 0 ? touchMoveX : gamepad.moveX !== 0 ? gamepad.moveX : kbX;
+    const rawMoveY = touchMoveY !== 0 ? touchMoveY : gamepad.moveY !== 0 ? gamepad.moveY : kbY;
     const moveMag = Math.hypot(rawMoveX, rawMoveY);
     const moveX = moveMag > 1 ? rawMoveX / moveMag : rawMoveX;
     const moveY = moveMag > 1 ? rawMoveY / moveMag : rawMoveY;
@@ -156,10 +176,11 @@ export class InputManager implements Disposable {
     }
 
     const state: InputState = Object.freeze({
-      forward: (this.locked && (this.keys.has('KeyW') || this.keys.has('ArrowUp'))) || gamepad.forward || moveY > 0.25,
-      backward: (this.locked && (this.keys.has('KeyS') || this.keys.has('ArrowDown'))) || gamepad.backward || moveY < -0.25,
-      left: (this.locked && (this.keys.has('KeyA') || this.keys.has('ArrowLeft'))) || gamepad.left || moveX < -0.25,
-      right: (this.locked && (this.keys.has('KeyD') || this.keys.has('ArrowRight'))) || gamepad.right || moveX > 0.25,
+      forward: (this.locked && (this.keys.has("KeyW") || this.keys.has("ArrowUp"))) || gamepad.forward || moveY > 0.25,
+      backward:
+        (this.locked && (this.keys.has("KeyS") || this.keys.has("ArrowDown"))) || gamepad.backward || moveY < -0.25,
+      left: (this.locked && (this.keys.has("KeyA") || this.keys.has("ArrowLeft"))) || gamepad.left || moveX < -0.25,
+      right: (this.locked && (this.keys.has("KeyD") || this.keys.has("ArrowRight"))) || gamepad.right || moveX > 0.25,
       crouch,
       crouchPressed,
       jump,
@@ -173,7 +194,10 @@ export class InputManager implements Disposable {
       vehicleVertical,
       moveX,
       moveY,
-      sprint: (this.locked && (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight'))) || gamepad.sprint || (touch?.sprint ?? false),
+      sprint:
+        (this.locked && (this.keys.has("ShiftLeft") || this.keys.has("ShiftRight"))) ||
+        gamepad.sprint ||
+        (touch?.sprint ?? false),
       // Look deltas are now consumed via pollLook() in the render loop.
       // Kept at 0 here for backward compatibility with InputState consumers.
       mouseDeltaX: 0,
@@ -181,7 +205,7 @@ export class InputManager implements Disposable {
       mouseWheelDelta: 0,
     });
 
-    this.eventBus.emit('input:state', state);
+    this.eventBus.emit("input:state", state);
     return state;
   }
 
@@ -214,28 +238,23 @@ export class InputManager implements Disposable {
     return this.locked;
   }
 
-  /** Initialize touch controls if device supports touch and has no fine pointer. */
+  /** Initialize touch controls when a touch-capable device is detected. */
   initTouchControls(): void {
-    if (!('ontouchstart' in window) || matchMedia('(pointer: fine)').matches) return;
-    // Lazy-load to avoid bundling touch code on desktop
-    void import('./TouchControlsManager').then(({ TouchControlsManager }) => {
-      const overlay = document.getElementById('ui-overlay');
-      if (!overlay) return;
-      this.touchControls = new TouchControlsManager(overlay);
-      this.touchControls.show();
-      this.touchActive = true;
-    });
+    if (!this.detectTouchSupport()) return;
+    this.desiredTouchEnabled = true;
+    this.ensureTouchControls();
   }
 
   /** Toggle touch controls visibility. */
   setTouchControlsEnabled(enabled: boolean): void {
-    if (!this.touchControls) return;
-    this.touchActive = enabled;
-    if (enabled) {
-      this.touchControls.show();
-    } else {
-      this.touchControls.hide();
+    this.desiredTouchEnabled = enabled;
+    if (enabled && !this.touchControls) {
+      if (this.detectTouchSupport()) {
+        this.ensureTouchControls();
+      }
+      return;
     }
+    this.applyTouchControlsVisibility(enabled);
   }
 
   get isTouchActive(): boolean {
@@ -244,6 +263,10 @@ export class InputManager implements Disposable {
 
   get hasTouchControls(): boolean {
     return this.touchControls !== null;
+  }
+
+  get supportsTouchControls(): boolean {
+    return this.detectTouchSupport();
   }
 
   setRawMouseInput(enabled: boolean): void {
@@ -261,11 +284,10 @@ export class InputManager implements Disposable {
   }
 
   async requestPointerLock(options?: { preferRaw?: boolean }): Promise<void> {
-    if (this.editorActive || this.locked) return;
+    if (this.editorActive || this.locked || this.touchActive) return;
 
-    const request = this.canvas.requestPointerLock.bind(this.canvas) as unknown as (
-      options?: unknown,
-    ) => Promise<void> | void;
+    const request = getPointerLockRequest(this.canvas);
+    if (!request) return;
     const preferRaw = options?.preferRaw ?? true;
 
     if (preferRaw && this.rawMouseInput && this.rawPointerLockAvailable) {
@@ -285,20 +307,20 @@ export class InputManager implements Disposable {
   private handleKeyDown(e: KeyboardEvent): void {
     // Don't capture game keys while typing in text fields (editor inspector, settings, etc.)
     const tag = (e.target as HTMLElement)?.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
     this.keys.add(e.code);
     this.latchedKeys.add(e.code);
 
     // Prevent default for game keys
-    if (['Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyE', 'KeyF', 'KeyQ', 'KeyC', 'ControlLeft'].includes(e.code)) {
+    if (["Space", "KeyW", "KeyA", "KeyS", "KeyD", "KeyE", "KeyF", "KeyQ", "KeyC", "ControlLeft"].includes(e.code)) {
       e.preventDefault();
     }
-    if (e.code === 'Escape') {
-      this.eventBus.emit('menu:toggle', undefined);
+    if (e.code === "Escape") {
+      this.eventBus.emit("menu:toggle", undefined);
     }
-    if (e.code === 'F1' && !this.inputSuppressed) {
-      this.eventBus.emit('editor:toggle', undefined);
+    if (e.code === "F1" && !this.inputSuppressed) {
+      this.eventBus.emit("editor:toggle", undefined);
     }
   }
 
@@ -333,16 +355,20 @@ export class InputManager implements Disposable {
   }
 
   private handleClick(event: MouseEvent): void {
-    if (this.inputSuppressed || this.editorActive || this.locked) return;
+    if (this.inputSuppressed || this.editorActive || this.locked || this.touchActive) return;
     const target = event.target;
     if (
-      typeof Element !== 'undefined'
-      && target instanceof Element
-      && target.closest('button, input, select, textarea, label, a, [role="button"]')
+      typeof Element !== "undefined" &&
+      target instanceof Element &&
+      target.closest(
+        'button, input, select, textarea, label, a, [role="button"], .touch-controls-container, .touch-zone, .touch-joystick, .touch-btn',
+      )
     ) {
       return;
     }
-    void this.requestPointerLock();
+    void this.requestPointerLock().catch(() => {
+      // Pointer lock can be unavailable on touch/mobile and in some embeds.
+    });
   }
 
   private handlePointerLockChange(): void {
@@ -365,9 +391,20 @@ export class InputManager implements Disposable {
 
   private readGamepadState(): GamepadSnapshot {
     const nullSnap: GamepadSnapshot = {
-      forward: false, backward: false, left: false, right: false,
-      crouch: false, jump: false, interact: false, primary: false, sprint: false,
-      lookX: 0, lookY: 0, vehicleVertical: 0, moveX: 0, moveY: 0,
+      forward: false,
+      backward: false,
+      left: false,
+      right: false,
+      crouch: false,
+      jump: false,
+      interact: false,
+      primary: false,
+      sprint: false,
+      lookX: 0,
+      lookY: 0,
+      vehicleVertical: 0,
+      moveX: 0,
+      moveY: 0,
     };
     const api = navigator.getGamepads?.bind(navigator);
     if (!api) return nullSnap;
@@ -413,18 +450,60 @@ export class InputManager implements Disposable {
     return sign * curved;
   }
 
+  private ensureTouchControls(): void {
+    if (this.touchControls || this.touchControlsLoad) return;
+    this.touchControlsLoad = import("./TouchControlsManager")
+      .then(({ TouchControlsManager }) => {
+        const overlay = document.getElementById("ui-overlay");
+        if (!overlay || this.touchControls) return;
+        this.touchControls = new TouchControlsManager(overlay);
+        this.applyTouchControlsVisibility(this.desiredTouchEnabled);
+      })
+      .finally(() => {
+        this.touchControlsLoad = null;
+      });
+  }
+
+  private applyTouchControlsVisibility(enabled: boolean): void {
+    if (!this.touchControls) {
+      this.touchActive = false;
+      return;
+    }
+    this.touchActive = enabled;
+    if (enabled) {
+      this.touchControls.show();
+    } else {
+      this.touchControls.hide();
+    }
+  }
+
+  private detectTouchSupport(): boolean {
+    if (typeof window === "undefined") return false;
+    const hasTouchEvents = "ontouchstart" in window;
+    const maxTouchPoints = typeof navigator?.maxTouchPoints === "number" ? navigator.maxTouchPoints : 0;
+    let hasCoarsePointer = false;
+    if (typeof matchMedia === "function") {
+      try {
+        hasCoarsePointer = matchMedia("(any-pointer: coarse)").matches;
+      } catch {
+        hasCoarsePointer = false;
+      }
+    }
+    return hasTouchEvents || maxTouchPoints > 0 || hasCoarsePointer;
+  }
+
   dispose(): void {
     for (const unsub of this.unsubs) unsub();
     this.unsubs.length = 0;
     this.touchControls?.dispose();
     this.touchControls = null;
-    window.removeEventListener('keydown', this._onKeyDown);
-    window.removeEventListener('keyup', this._onKeyUp);
-    document.removeEventListener('mousemove', this._onMouseMove);
-    this.canvas.removeEventListener('mousedown', this._onMouseDown);
-    window.removeEventListener('mouseup', this._onMouseUp);
-    this.canvas.removeEventListener('wheel', this._onWheel);
-    document.removeEventListener('click', this._onClick);
-    document.removeEventListener('pointerlockchange', this._onPointerLockChange);
+    window.removeEventListener("keydown", this._onKeyDown);
+    window.removeEventListener("keyup", this._onKeyUp);
+    document.removeEventListener("mousemove", this._onMouseMove);
+    this.canvas.removeEventListener("mousedown", this._onMouseDown);
+    window.removeEventListener("mouseup", this._onMouseUp);
+    this.canvas.removeEventListener("wheel", this._onWheel);
+    document.removeEventListener("click", this._onClick);
+    document.removeEventListener("pointerlockchange", this._onPointerLockChange);
   }
 }

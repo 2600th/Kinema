@@ -1,15 +1,15 @@
-import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { type BrushDefinition, type BrushParams, computeRectFootprint, MIN_BRUSH_DIMENSION } from './Brush';
+import * as THREE from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { type BrushDefinition, type BrushParams, computeRectFootprint, MIN_BRUSH_DIMENSION } from "./Brush";
 
 const FRAME_THICKNESS = 0.2;
 
 export const DoorFrameBrush: BrushDefinition = {
-  id: 'doorframe',
-  label: 'Door Frame',
-  shortcut: '6',
+  id: "doorframe",
+  label: "Door Frame",
+  shortcut: "6",
   // Door frame icon — rectangular opening with frame
-  icon: 'M4 2v20h3V6h10v16h3V2zM7 6h10v16H7z',
+  icon: "M4 2v20h3V6h10v16h3V2zM7 6h10v16H7z",
   defaultParams: { current: new THREE.Vector3(1.4, 0, 0.3), height: 2.4 },
 
   buildPreviewGeometry(params: BrushParams): THREE.BufferGeometry {

@@ -1,6 +1,7 @@
 import type { EventBus } from "@core/EventBus";
 import type { RuntimeSystem } from "@core/RuntimeSystem";
 import type { EditorManager } from "@editor/EditorManager";
+import { exitPointerLockIfSupported } from "@input/pointerLock";
 import type { LevelManager } from "@level/LevelManager";
 import type { NavDebugOverlay } from "@navigation/NavDebugOverlay";
 import type { NavPatrolSystem } from "@navigation/NavPatrolSystem";
@@ -107,7 +108,7 @@ export class DebugRuntimeSystem implements RuntimeSystem {
       this.navTargetMode = !this.navTargetMode;
       console.log(`[Nav] target mode ${this.navTargetMode ? "ON — click floor to redirect nearest agent" : "OFF"}`);
       if (this.navTargetMode) {
-        document.exitPointerLock();
+        exitPointerLockIfSupported();
         this._onNavTargetClick = (ev: MouseEvent) => this.handleNavTargetClick(ev);
         window.addEventListener("click", this._onNavTargetClick);
       } else {

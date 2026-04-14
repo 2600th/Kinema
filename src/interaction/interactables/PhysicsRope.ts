@@ -1,10 +1,10 @@
-import * as THREE from 'three';
-import RAPIER from '@dimforge/rapier3d-compat';
-import { COLLISION_GROUP_INTERACTABLE } from '@core/constants';
-import type { InputState } from '@core/types';
-import type { IInteractable, InteractionAccess, InteractionSpec } from '../Interactable';
-import type { PhysicsWorld } from '@physics/PhysicsWorld';
-import type { PlayerController } from '@character/PlayerController';
+import type { PlayerController } from "@character/PlayerController";
+import { COLLISION_GROUP_INTERACTABLE } from "@core/constants";
+import type { InputState } from "@core/types";
+import RAPIER from "@dimforge/rapier3d-compat";
+import type { PhysicsWorld } from "@physics/PhysicsWorld";
+import * as THREE from "three";
+import type { IInteractable, InteractionAccess, InteractionSpec } from "../Interactable";
 
 const _anchorPos = new THREE.Vector3();
 const _tailPos = new THREE.Vector3();
@@ -65,7 +65,7 @@ export class PhysicsRope implements IInteractable {
   private readonly playerBaseSolverIters: number;
 
   get label(): string {
-    return 'Grab Rope';
+    return "Grab Rope";
   }
 
   constructor(
@@ -162,24 +162,21 @@ export class PhysicsRope implements IInteractable {
 
     // Interaction sensor centered on rope mid-point.
     this.sensorBody = physicsWorld.world.createRigidBody(
-      RAPIER.RigidBodyDesc.kinematicPositionBased()
-        .setTranslation(this.position.x, this.position.y, this.position.z),
+      RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(this.position.x, this.position.y, this.position.z),
     );
     this.collider = physicsWorld.world.createCollider(
-      RAPIER.ColliderDesc.cuboid(1.65, 2.3, 1.65)
-        .setSensor(true)
-        .setCollisionGroups(COLLISION_GROUP_INTERACTABLE),
+      RAPIER.ColliderDesc.cuboid(1.65, 2.3, 1.65).setSensor(true).setCollisionGroups(COLLISION_GROUP_INTERACTABLE),
       this.sensorBody,
     );
   }
 
   getInteractionSpec(): InteractionSpec {
-    return { mode: 'press' };
+    return { mode: "press" };
   }
 
   canInteract(player: PlayerController): InteractionAccess {
     if (this.attachedPlayer === player) {
-      return { allowed: false, reason: 'WSAD swing, Shift+W/S climb, Space release' };
+      return { allowed: false, reason: "WSAD swing, Shift+W/S climb, Space release" };
     }
     return { allowed: true };
   }
@@ -300,12 +297,14 @@ export class PhysicsRope implements IInteractable {
     const nearestIndex = this.findClosestSegmentIndex(player.position);
     this.attachedPlayer = player;
     this.attachToSegment(nearestIndex, false);
-    player.body.setAdditionalSolverIterations(
-      Math.max(this.playerBaseSolverIters, PLAYER_SOLVER_ITERS_WHILE_ATTACHED),
-    );
-    _rv3RopeA.x = carryVel.x * 0.28; _rv3RopeA.y = carryVel.y * 0.12; _rv3RopeA.z = carryVel.z * 0.28;
+    player.body.setAdditionalSolverIterations(Math.max(this.playerBaseSolverIters, PLAYER_SOLVER_ITERS_WHILE_ATTACHED));
+    _rv3RopeA.x = carryVel.x * 0.28;
+    _rv3RopeA.y = carryVel.y * 0.12;
+    _rv3RopeA.z = carryVel.z * 0.28;
     player.body.setLinvel(_rv3RopeA, true);
-    _rv3RopeB.x = 0; _rv3RopeB.y = 0; _rv3RopeB.z = 0;
+    _rv3RopeB.x = 0;
+    _rv3RopeB.y = 0;
+    _rv3RopeB.z = 0;
     player.body.setAngvel(_rv3RopeB, true);
     for (const body of this.segmentBodies) {
       body.setLinearDamping(ROPE_ATTACHED_LINEAR_DAMPING);
@@ -335,7 +334,9 @@ export class PhysicsRope implements IInteractable {
         forward.set(0, 0, -1);
       }
       const boostY = 3.2 + Math.max(0, this.ropeTopY - player.position.y) * 0.18;
-      _rv3RopeA.x = forward.x * 3.6; _rv3RopeA.y = boostY; _rv3RopeA.z = forward.z * 3.6;
+      _rv3RopeA.x = forward.x * 3.6;
+      _rv3RopeA.y = boostY;
+      _rv3RopeA.z = forward.z * 3.6;
       player.body.applyImpulse(_rv3RopeA, true);
     }
     this.attachedSegmentIndex = -1;
@@ -392,9 +393,7 @@ export class PhysicsRope implements IInteractable {
     _pivotToPlayer.normalize();
 
     // Tangential impulse around pivot based on camera-relative desired move direction.
-    _swingTangent
-      .copy(_swingDesired)
-      .addScaledVector(_pivotToPlayer, -_swingDesired.dot(_pivotToPlayer));
+    _swingTangent.copy(_swingDesired).addScaledVector(_pivotToPlayer, -_swingDesired.dot(_pivotToPlayer));
     if (_swingTangent.lengthSq() < 0.0001) return;
     _swingTangent.normalize();
     if (_swingTangent.dot(_worldUp) > 0.9) {
@@ -458,14 +457,20 @@ export class PhysicsRope implements IInteractable {
 
     const t = segment.translation();
     const playerTopAnchor = this.getPlayerTopAnchor(player);
-    _rv3RopeA.x = t.x; _rv3RopeA.y = t.y - (playerTopAnchor + 0.08); _rv3RopeA.z = t.z;
+    _rv3RopeA.x = t.x;
+    _rv3RopeA.y = t.y - (playerTopAnchor + 0.08);
+    _rv3RopeA.z = t.z;
     player.body.setTranslation(_rv3RopeA, true);
     if (!preserveVelocity) {
-      _rv3RopeB.x = 0; _rv3RopeB.y = 0; _rv3RopeB.z = 0;
+      _rv3RopeB.x = 0;
+      _rv3RopeB.y = 0;
+      _rv3RopeB.z = 0;
       player.body.setLinvel(_rv3RopeB, true);
     } else {
       const lv = player.body.linvel();
-      _rv3RopeB.x = lv.x * 0.85; _rv3RopeB.y = lv.y * 0.2; _rv3RopeB.z = lv.z * 0.85;
+      _rv3RopeB.x = lv.x * 0.85;
+      _rv3RopeB.y = lv.y * 0.2;
+      _rv3RopeB.z = lv.z * 0.85;
       player.body.setLinvel(_rv3RopeB, true);
     }
     player.body.wakeUp();
@@ -496,9 +501,13 @@ export class PhysicsRope implements IInteractable {
     for (const body of this.segmentBodies) {
       const lv = body.linvel();
       const av = body.angvel();
-      _rv3RopeA.x = lv.x * linKeep; _rv3RopeA.y = lv.y * linKeep; _rv3RopeA.z = lv.z * linKeep;
+      _rv3RopeA.x = lv.x * linKeep;
+      _rv3RopeA.y = lv.y * linKeep;
+      _rv3RopeA.z = lv.z * linKeep;
       body.setLinvel(_rv3RopeA, true);
-      _rv3RopeB.x = av.x * angKeep; _rv3RopeB.y = av.y * angKeep; _rv3RopeB.z = av.z * angKeep;
+      _rv3RopeB.x = av.x * angKeep;
+      _rv3RopeB.y = av.y * angKeep;
+      _rv3RopeB.z = av.z * angKeep;
       body.setAngvel(_rv3RopeB, true);
     }
   }

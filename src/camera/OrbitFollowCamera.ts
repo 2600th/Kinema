@@ -1,14 +1,13 @@
-import * as THREE from 'three';
-import RAPIER from '@dimforge/rapier3d-compat';
-import type { EventBus } from '@core/EventBus';
-import type { Updatable, Disposable, InputState } from '@core/types';
-import type { CameraConfig } from '@core/types';
-import { COLLISION_GROUP_PLAYER, DEFAULT_CAMERA_CONFIG } from '@core/constants';
-import type { PhysicsWorld } from '@physics/PhysicsWorld';
-import type { PlayerController } from '@character/PlayerController';
-import { ScreenShake } from '@juice/ScreenShake';
-import type { FOVPunch } from '@juice/FOVPunch';
-import type { VehicleHandlingFeelState } from '@vehicle/VehicleController';
+import type { PlayerController } from "@character/PlayerController";
+import { COLLISION_GROUP_PLAYER, DEFAULT_CAMERA_CONFIG } from "@core/constants";
+import type { EventBus } from "@core/EventBus";
+import type { CameraConfig, Disposable, InputState, Updatable } from "@core/types";
+import RAPIER from "@dimforge/rapier3d-compat";
+import type { FOVPunch } from "@juice/FOVPunch";
+import { ScreenShake } from "@juice/ScreenShake";
+import type { PhysicsWorld } from "@physics/PhysicsWorld";
+import type { VehicleHandlingFeelState } from "@vehicle/VehicleController";
+import * as THREE from "three";
 
 // Pre-allocated temp objects
 const _pivotPos = new THREE.Vector3();
@@ -86,12 +85,12 @@ export class OrbitFollowCamera implements Updatable, Disposable {
   ) {
     this.baseFov = this.camera.fov;
     this.unsubs.push(
-      this.eventBus.on('player:landed', ({ impactSpeed }) => {
+      this.eventBus.on("player:landed", ({ impactSpeed }) => {
         this.landingDipVelocity -= Math.min(impactSpeed * 0.18, 1.25);
       }),
     );
     this.unsubs.push(
-      this.eventBus.on('player:respawned', () => {
+      this.eventBus.on("player:respawned", () => {
         this.snapToTarget();
       }),
     );
@@ -103,10 +102,7 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     // Pitch handling with clamp from camera config
     const signedDeltaY = this.invertY ? -deltaY : deltaY;
     this.targetPitch += signedDeltaY * this.mouseSensitivity;
-    this.targetPitch = Math.max(
-      this.config.pitchMin,
-      Math.min(this.config.pitchMax, this.targetPitch),
-    );
+    this.targetPitch = Math.max(this.config.pitchMin, Math.min(this.config.pitchMax, this.targetPitch));
   }
 
   setMouseSensitivity(value: number): void {
@@ -212,8 +208,8 @@ export class OrbitFollowCamera implements Updatable, Disposable {
    * speed-feel effects: FOV widening and distance pullback.
    */
   setVehicleSpeedRatio(ratio: number): void {
-    this.speedFovOffset = ratio * 15;       // up to +15° FOV at top speed
-    this.speedDistanceOffset = ratio * 3;   // up to +3 m pullback at top speed
+    this.speedFovOffset = ratio * 15; // up to +15° FOV at top speed
+    this.speedDistanceOffset = ratio * 3; // up to +3 m pullback at top speed
   }
 
   setVehicleHandlingFeel(state: VehicleHandlingFeelState | null): void {
@@ -279,7 +275,7 @@ export class OrbitFollowCamera implements Updatable, Disposable {
       const behindYaw = Math.atan2(-_velDir.x, -_velDir.z);
       // Smoothly drift targetYaw toward behindYaw along the shortest arc
       const twoPi = Math.PI * 2;
-      let delta = ((((behindYaw - this.targetYaw) % twoPi) + Math.PI * 3) % twoPi) - Math.PI;
+      const delta = ((((behindYaw - this.targetYaw) % twoPi) + Math.PI * 3) % twoPi) - Math.PI;
       const chaseT = 1 - Math.exp(-3 * dt);
       this.targetYaw += delta * chaseT;
     }
@@ -418,9 +414,9 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     desiredDistance = Math.max(selfClipMin, desiredDistance);
 
     // Smooth camera distance with frame-rate independent exponential smoothing.
-    const contractionSpeed = 12;  // fast pull-in on collision
+    const contractionSpeed = 12; // fast pull-in on collision
     const expansionSpeed = ropeAttached ? 11.5 : 4; // slower return (faster when rope attached)
-    const speed = (this.currentDistance > desiredDistance) ? contractionSpeed : expansionSpeed;
+    const speed = this.currentDistance > desiredDistance ? contractionSpeed : expansionSpeed;
     this.currentDistance += (desiredDistance - this.currentDistance) * (1 - Math.exp(-speed * dt));
     this.currentDistance = Math.max(this.config.zoomMinDistance, this.currentDistance);
 
@@ -430,11 +426,8 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     const positionDamp = 1 - Math.exp(-this.config.positionDamping * dt);
     this.camera.position.lerp(_targetPos, positionDamp);
 
-    const input = this.target ? this.inputProvider?.() ?? null : this.player.lastInputSnapshot;
-    const sprinting =
-      !!input &&
-      input.sprint &&
-      (input.forward || input.backward || input.left || input.right);
+    const input = this.target ? (this.inputProvider?.() ?? null) : this.player.lastInputSnapshot;
+    const sprinting = !!input && input.sprint && (input.forward || input.backward || input.left || input.right);
     const speedFov = speedNorm * speedNorm * this.config.speedFovBoost;
     const sprintFov = sprinting ? this.config.sprintFovBoost : 0;
     const locomotionFov = Math.min(12, speedFov + sprintFov);

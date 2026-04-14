@@ -1,12 +1,12 @@
-import * as THREE from 'three';
-import type { GraphicsProfile } from '@core/UserSettings';
-import type { RendererPipelineDescriptor } from './pipelineProfile';
-import type { RendererPostFxUniforms } from './rendererPipelineBuilder';
-import type { DenoiseNodeLike, GTAONodeLike, TSLPassNode } from './rendererRuntime';
+import type { GraphicsProfile } from "@core/UserSettings";
+import * as THREE from "three";
+import type { RendererPipelineDescriptor } from "./pipelineProfile";
+import type { RendererPostFxUniforms } from "./rendererPipelineBuilder";
+import type { DenoiseNodeLike, GTAONodeLike, TSLPassNode } from "./rendererRuntime";
 
 const _drawingSize = new THREE.Vector2();
 
-export type RendererAntiAliasingMode = 'smaa' | 'fxaa' | 'none';
+export type RendererAntiAliasingMode = "smaa" | "fxaa" | "none";
 
 export interface DrawingBufferRendererLike {
   getDrawingBufferSize(target: THREE.Vector2): THREE.Vector2;
@@ -42,7 +42,7 @@ export function getEffectiveCasStrength(
   casStrength: number,
 ): number {
   if (!casEnabled) return 0;
-  if (antiAliasingMode === 'none') return 0;
+  if (antiAliasingMode === "none") return 0;
   return casStrength;
 }
 
@@ -57,27 +57,19 @@ export function syncCasTexelSize(
 }
 
 export function syncGtaoSettings(args: SyncGtaoSettingsArgs): void {
-  const {
-    postFXUniforms,
-    gtaoPass,
-    aoDenoisePass,
-    prePassNode,
-    descriptor,
-    aoOnlyView,
-    graphicsProfile,
-  } = args;
+  const { postFXUniforms, gtaoPass, aoDenoisePass, prePassNode, descriptor, aoOnlyView, graphicsProfile } = args;
 
   if (postFXUniforms) {
     postFXUniforms.aoStrength.value = descriptor.useAo && !aoOnlyView ? 1 : 0;
   }
   if (!gtaoPass) return;
 
-  const isCinematic = graphicsProfile === 'cinematic';
+  const isCinematic = graphicsProfile === "cinematic";
   if (gtaoPass.samples) {
     gtaoPass.samples.value = descriptor.aoSamples;
   }
   if (gtaoPass.radius) {
-    gtaoPass.radius.value = isCinematic ? 0.65 : graphicsProfile === 'balanced' ? 0.5 : 0.4;
+    gtaoPass.radius.value = isCinematic ? 0.65 : graphicsProfile === "balanced" ? 0.5 : 0.4;
   }
   if (gtaoPass.thickness) {
     gtaoPass.thickness.value = 1.0;
@@ -94,14 +86,14 @@ export function syncGtaoSettings(args: SyncGtaoSettingsArgs): void {
   gtaoPass.resolutionScale = descriptor.aoResolutionScale;
   gtaoPass.useTemporalFiltering = false;
 
-  if (typeof gtaoPass.updateBeforeType !== 'undefined') {
-    gtaoPass.updateBeforeType = descriptor.useAo ? 'frame' : 'none';
+  if (typeof gtaoPass.updateBeforeType !== "undefined") {
+    gtaoPass.updateBeforeType = descriptor.useAo ? "frame" : "none";
   }
-  if (aoDenoisePass && typeof aoDenoisePass.updateBeforeType !== 'undefined') {
-    aoDenoisePass.updateBeforeType = descriptor.useAoDenoise ? 'frame' : 'none';
+  if (aoDenoisePass && typeof aoDenoisePass.updateBeforeType !== "undefined") {
+    aoDenoisePass.updateBeforeType = descriptor.useAoDenoise ? "frame" : "none";
   }
-  if (prePassNode && typeof prePassNode.updateBeforeType !== 'undefined') {
-    prePassNode.updateBeforeType = descriptor.usePrePassNormals ? 'frame' : 'none';
+  if (prePassNode && typeof prePassNode.updateBeforeType !== "undefined") {
+    prePassNode.updateBeforeType = descriptor.usePrePassNormals ? "frame" : "none";
   }
 }
 

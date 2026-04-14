@@ -1,7 +1,7 @@
-import * as THREE from 'three';
-import type { Disposable } from '@core/types';
-import type { GraphicsProfile, ShadowQualityTier } from '@core/UserSettings';
-import { getShadowMapSizeForProfile } from '@renderer/pipelineProfile';
+import type { Disposable } from "@core/types";
+import type { GraphicsProfile, ShadowQualityTier } from "@core/UserSettings";
+import { getShadowMapSizeForProfile } from "@renderer/pipelineProfile";
+import * as THREE from "three";
 
 const _lightGoalPos = new THREE.Vector3();
 const _lightGoalTarget = new THREE.Vector3();
@@ -18,8 +18,8 @@ export class LightingSystem implements Disposable {
   private lightHelpers: THREE.Object3D[] = [];
   private shadowFrustumHelpers: THREE.CameraHelper[] = [];
   private shadowsEnabled = true;
-  private graphicsProfile: GraphicsProfile = 'cinematic';
-  private shadowQualityTier: ShadowQualityTier = 'auto';
+  private graphicsProfile: GraphicsProfile = "cinematic";
+  private shadowQualityTier: ShadowQualityTier = "auto";
   private lightFollowPos = new THREE.Vector3(20, 30, 10);
   private lightTargetPos = new THREE.Vector3(0, 1, 0);
 
@@ -37,13 +37,13 @@ export class LightingSystem implements Disposable {
 
     // Minimal ambient to prevent pitch-black shadows.
     const ambientLight = new THREE.AmbientLight(0xf0f0ff, 0.15);
-    ambientLight.name = '__kinema_ambient';
+    ambientLight.name = "__kinema_ambient";
     this.scene.add(ambientLight);
     this.ownedObjects.push(ambientLight);
 
     // Gentle hemisphere fill — sky white, ground blue-gray.
     const hemiLight = new THREE.HemisphereLight(0xffffff, 0x8899aa, 0.3);
-    hemiLight.name = '__kinema_hemilight';
+    hemiLight.name = "__kinema_hemilight";
     this.scene.add(hemiLight);
     this.ownedObjects.push(hemiLight);
 
@@ -73,11 +73,11 @@ export class LightingSystem implements Disposable {
     dirLight.shadow.camera.bottom = -35;
     dirLight.shadow.radius = 2;
     dirLight.shadow.blurSamples = 8;
-    dirLight.name = '__kinema_dirlight';
+    dirLight.name = "__kinema_dirlight";
 
     const lightTarget = new THREE.Object3D();
     lightTarget.position.set(0, 1, 0);
-    lightTarget.name = '__kinema_dirlight_target';
+    lightTarget.name = "__kinema_dirlight_target";
     this.scene.add(lightTarget);
     this.ownedObjects.push(lightTarget);
     dirLight.target = lightTarget;
@@ -181,9 +181,7 @@ export class LightingSystem implements Disposable {
   // ── Private ──────────────────────────────────────────────────────────
 
   private getShadowMapSize(): number {
-    const effectiveProfile = this.shadowQualityTier === 'auto'
-      ? this.graphicsProfile
-      : this.shadowQualityTier;
+    const effectiveProfile = this.shadowQualityTier === "auto" ? this.graphicsProfile : this.shadowQualityTier;
     return getShadowMapSizeForProfile(effectiveProfile);
   }
 
@@ -313,7 +311,7 @@ export class LightingSystem implements Disposable {
     if (this.lightDebugEnabled) {
       for (const helper of this.lightHelpers) {
         (helper as unknown as { update?: () => void }).update?.();
-        const ref = (helper.userData?.__kinemaLightRef ?? null) as (THREE.Object3D | null);
+        const ref = (helper.userData?.__kinemaLightRef ?? null) as THREE.Object3D | null;
         if (ref && helper instanceof THREE.Mesh) {
           helper.position.copy(ref.position);
           helper.updateWorldMatrix(true, false);

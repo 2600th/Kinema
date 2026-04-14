@@ -8,25 +8,25 @@ interface MainMenuOptions {
 }
 
 export class MainMenu {
-  readonly id = 'main';
+  readonly id = "main";
   readonly root: HTMLDivElement;
 
   constructor(private options: MainMenuOptions) {
-    this.root = document.createElement('div');
-    this.root.className = 'menu-screen';
+    this.root = document.createElement("div");
+    this.root.className = "menu-screen";
 
-    const title = document.createElement('h1');
-    title.className = 'menu-title';
-    title.textContent = 'Kinema';
+    const title = document.createElement("h1");
+    title.className = "menu-title";
+    title.textContent = "Kinema";
     this.root.appendChild(title);
 
-    const playBtn = this.createButton('Play', this.options.onPlay);
-    playBtn.classList.add('menu-button-primary');
-    const levelSelectBtn = this.createButton('Level Select', this.options.onLevelSelect);
-    const createLevelBtn = this.createButton('Create Level', this.options.onCreateLevel);
-    const settingsBtn = this.createButton('Settings', this.options.onSettings);
-    const helpBtn = this.createButton('Help', this.options.onHelp);
-    const quitBtn = this.createButton('Quit', this.options.onQuit);
+    const playBtn = this.createButton("Play", this.options.onPlay);
+    playBtn.classList.add("menu-button-primary");
+    const levelSelectBtn = this.createButton("Level Select", this.options.onLevelSelect);
+    const createLevelBtn = this.createButton("Create Level", this.options.onCreateLevel);
+    const settingsBtn = this.createButton("Settings", this.options.onSettings);
+    const helpBtn = this.createButton("Help", this.options.onHelp);
+    const quitBtn = this.createButton("Quit", this.options.onQuit);
 
     this.root.appendChild(playBtn);
     this.root.appendChild(levelSelectBtn);
@@ -36,18 +36,18 @@ export class MainMenu {
     this.root.appendChild(quitBtn);
 
     // Version text
-    const version = document.createElement('div');
-    version.className = 'menu-version';
-    version.textContent = 'v0.1 alpha';
+    const version = document.createElement("div");
+    version.className = "menu-version";
+    version.textContent = "v0.1 alpha";
     this.root.appendChild(version);
   }
 
   show(): void {
-    this.root.classList.add('active');
+    this.root.classList.add("active");
   }
 
   hide(): void {
-    this.root.classList.remove('active');
+    this.root.classList.remove("active");
   }
 
   dispose(): void {
@@ -55,10 +55,10 @@ export class MainMenu {
   }
 
   private createButton(label: string, onClick: () => void): HTMLButtonElement {
-    const btn = document.createElement('button');
-    btn.className = 'menu-button';
+    const btn = document.createElement("button");
+    btn.className = "menu-button";
     btn.textContent = label;
-    btn.addEventListener('click', onClick);
+    btn.addEventListener("click", onClick);
     return btn;
   }
 }

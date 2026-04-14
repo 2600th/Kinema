@@ -1,6 +1,6 @@
-import * as THREE from 'three';
-import type { PhysicsWorld } from '@physics/PhysicsWorld';
-import type { EditorObject } from './EditorObject';
+import type { PhysicsWorld } from "@physics/PhysicsWorld";
+import * as THREE from "three";
+import type { EditorObject } from "./EditorObject";
 
 /**
  * EditorDocument owns the editor object list and all object-mutation
@@ -78,8 +78,8 @@ export class EditorDocument {
     clone.position.addScalar(0.5); // Offset slightly
     const newObj: EditorObject = {
       ...structuredClone({
-        id: '',
-        name: obj.name + '_copy',
+        id: "",
+        name: `${obj.name}_copy`,
         source: obj.source,
         transform: {
           position: [clone.position.x, clone.position.y, clone.position.z] as [number, number, number],
@@ -92,7 +92,7 @@ export class EditorDocument {
         locked: false,
         material: obj.material,
         brushParams: obj.brushParams,
-        physicsType: obj.physicsType ?? 'static',
+        physicsType: obj.physicsType ?? "static",
       }),
       id: clone.uuid,
       mesh: clone,
@@ -186,9 +186,7 @@ export class EditorDocument {
 
   groupObjects(ids: string[]): EditorObject | null {
     if (ids.length === 0) return null;
-    const groupedObjects = ids
-      .map((id) => this.findById(id))
-      .filter((o): o is EditorObject => o != null);
+    const groupedObjects = ids.map((id) => this.findById(id)).filter((o): o is EditorObject => o != null);
     if (groupedObjects.length === 0) return null;
 
     const selectedIds = new Set(groupedObjects.map((o) => o.id));
@@ -210,19 +208,19 @@ export class EditorDocument {
     center.multiplyScalar(1 / rootObjects.length);
 
     const group = new THREE.Group();
-    group.name = 'Group';
+    group.name = "Group";
     group.position.copy(center);
-    group.userData.editorSource = { type: 'primitive', primitive: 'group' };
+    group.userData.editorSource = { type: "primitive", primitive: "group" };
     this.scene.add(group);
 
-    const sharedParentIds = new Set(rootObjects.map((obj) => obj.parentId ?? '__scene__'));
+    const sharedParentIds = new Set(rootObjects.map((obj) => obj.parentId ?? "__scene__"));
     const commonParentId = sharedParentIds.size === 1 ? (rootObjects[0]?.parentId ?? null) : null;
 
     const groupObj: EditorObject = {
       id: group.uuid,
-      name: 'Group',
+      name: "Group",
       mesh: group,
-      source: { type: 'primitive', primitive: 'group' },
+      source: { type: "primitive", primitive: "group" },
       transform: {
         position: [group.position.x, group.position.y, group.position.z],
         rotation: [group.rotation.x, group.rotation.y, group.rotation.z],
@@ -232,7 +230,7 @@ export class EditorDocument {
       children: [],
       visible: true,
       locked: false,
-      physicsType: 'static',
+      physicsType: "static",
     };
 
     if (commonParentId) {
@@ -260,7 +258,7 @@ export class EditorDocument {
 
   ungroupObject(groupId: string): boolean {
     const groupObj = this.findById(groupId);
-    if (!groupObj || !groupObj.children || groupObj.children.length === 0) return false;
+    if (!groupObj?.children || groupObj.children.length === 0) return false;
 
     const targetParent = groupObj.parentId ? this.findById(groupObj.parentId) : null;
     this.removeChildRef(groupObj.parentId ?? null, groupObj.id);
@@ -302,7 +300,7 @@ export class EditorDocument {
             child.geometry?.dispose();
             const mat = child.material;
             if (Array.isArray(mat)) {
-              mat.forEach((m) => m.dispose());
+              mat.forEach((m) => void m.dispose());
             } else if (mat) {
               (mat as THREE.Material).dispose();
             }

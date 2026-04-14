@@ -1,20 +1,20 @@
-import * as THREE from 'three';
-import type { EventBus } from '@core/EventBus';
-import { STATE, type InputState, type StateId } from '@core/types';
-import type { PlayerController } from './PlayerController';
-import { State } from './states/State';
-import { IdleState } from './states/IdleState';
-import { MoveState } from './states/MoveState';
-import { JumpState } from './states/JumpState';
-import { AirState } from './states/AirState';
-import { InteractState } from './states/InteractState';
-import { CrouchState } from './states/CrouchState';
-import { GrabState } from './states/GrabState';
-import { AirJumpState } from './states/AirJumpState';
-import { CarryState } from './states/CarryState';
-import { LandState } from './states/LandState';
-import { ClimbState } from './states/ClimbState';
-import { RopeState } from './states/RopeState';
+import type { EventBus } from "@core/EventBus";
+import { type InputState, STATE, type StateId } from "@core/types";
+import type * as THREE from "three";
+import type { PlayerController } from "./PlayerController";
+import { AirJumpState } from "./states/AirJumpState";
+import { AirState } from "./states/AirState";
+import { CarryState } from "./states/CarryState";
+import { ClimbState } from "./states/ClimbState";
+import { CrouchState } from "./states/CrouchState";
+import { GrabState } from "./states/GrabState";
+import { IdleState } from "./states/IdleState";
+import { InteractState } from "./states/InteractState";
+import { JumpState } from "./states/JumpState";
+import { LandState } from "./states/LandState";
+import { MoveState } from "./states/MoveState";
+import { RopeState } from "./states/RopeState";
+import type { State } from "./states/State";
 
 /**
  * Finite state machine runner for character states.
@@ -43,7 +43,11 @@ export class CharacterFSM {
     this.registerState(new RopeState(player));
 
     // Start in idle
-    this.currentState = this.states.get(STATE.idle)!;
+    const idleState = this.states.get(STATE.idle);
+    if (!idleState) {
+      throw new Error("[CharacterFSM] Missing idle state registration.");
+    }
+    this.currentState = idleState;
     this.currentState.enter();
   }
 
@@ -93,6 +97,6 @@ export class CharacterFSM {
     this.currentState = nextState;
     this.currentState.enter();
 
-    this.eventBus.emit('player:stateChanged', { previous: prevId, current: nextId });
+    this.eventBus.emit("player:stateChanged", { previous: prevId, current: nextId });
   }
 }

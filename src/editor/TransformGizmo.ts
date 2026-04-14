@@ -1,5 +1,5 @@
-import * as THREE from 'three';
-import { TransformControls } from 'three/addons/controls/TransformControls.js';
+import * as THREE from "three";
+import { TransformControls } from "three/addons/controls/TransformControls.js";
 
 export class TransformGizmo {
   readonly controls: TransformControls;
@@ -14,10 +14,10 @@ export class TransformGizmo {
   ) {
     this.controls = new TransformControls(camera, domElement);
     this.helper = this.controls.getHelper();
-    this.controls.addEventListener('dragging-changed', (e) => {
+    this.controls.addEventListener("dragging-changed", (e) => {
       onDraggingChanged((e as { value: boolean }).value);
     });
-    this.controls.addEventListener('objectChange', () => {
+    this.controls.addEventListener("objectChange", () => {
       onObjectChange();
     });
     this.helper.visible = false;
@@ -35,7 +35,7 @@ export class TransformGizmo {
     this.helper.visible = true;
   }
 
-  setMode(mode: 'translate' | 'rotate' | 'scale'): void {
+  setMode(mode: "translate" | "rotate" | "scale"): void {
     this.controls.setMode(mode);
   }
 
@@ -53,14 +53,14 @@ export class TransformGizmo {
   private ensureNormalAttributes(root: THREE.Object3D): void {
     root.traverse((node) => {
       const mesh = node as THREE.Mesh;
-      if (!mesh.geometry || !('attributes' in mesh.geometry)) return;
+      if (!mesh.geometry || !("attributes" in mesh.geometry)) return;
       const geometry = mesh.geometry as THREE.BufferGeometry;
       if (geometry.attributes.normal) return;
       const position = geometry.attributes.position;
       if (!position) return;
       const count = position.count;
       const normals = new Float32Array(count * 3);
-      geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+      geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
     });
   }
 }

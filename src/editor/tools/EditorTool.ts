@@ -1,10 +1,10 @@
-import type * as THREE from 'three';
-import type { PhysicsWorld } from '@physics/PhysicsWorld';
-import type { TransformGizmo } from '../TransformGizmo';
-import type { SnapGrid } from '../SnapGrid';
-import type { CommandHistory } from '../CommandHistory';
-import type { EditorObject } from '../EditorObject';
-import type { EventBus } from '@core/EventBus';
+import type { EventBus } from "@core/EventBus";
+import type { PhysicsWorld } from "@physics/PhysicsWorld";
+import type * as THREE from "three";
+import type { CommandHistory } from "../CommandHistory";
+import type { EditorObject } from "../EditorObject";
+import type { SnapGrid } from "../SnapGrid";
+import type { TransformGizmo } from "../TransformGizmo";
 
 export interface EditorToolContext {
   scene: THREE.Scene;

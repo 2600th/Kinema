@@ -1,10 +1,10 @@
-import type { EventBus } from '@core/EventBus';
-import type { Disposable } from '@core/types';
-import { HUD } from './components/HUD';
-import { FadeScreen } from './components/FadeScreen';
-import { DebugPanel } from './components/DebugPanel';
-import { LoadingScreen } from './components/LoadingScreen';
-import { DeathEffect } from './components/DeathEffect';
+import type { EventBus } from "@core/EventBus";
+import type { Disposable } from "@core/types";
+import { DeathEffect } from "./components/DeathEffect";
+import { DebugPanel } from "./components/DebugPanel";
+import { FadeScreen } from "./components/FadeScreen";
+import { HUD } from "./components/HUD";
+import { LoadingScreen } from "./components/LoadingScreen";
 
 /**
  * DOM-based UI overlay manager.
@@ -22,19 +22,19 @@ export class UIManager implements Disposable {
   private hintEl: HTMLDivElement | null = null;
 
   constructor(private eventBus: EventBus) {
-    let overlay = document.getElementById('ui-overlay');
+    let overlay = document.getElementById("ui-overlay");
     if (!overlay) {
       if (!document.body) {
-        throw new Error('[UIManager] Missing #ui-overlay and document.body is unavailable.');
+        throw new Error("[UIManager] Missing #ui-overlay and document.body is unavailable.");
       }
-      overlay = document.createElement('div');
-      overlay.id = 'ui-overlay';
-      overlay.style.position = 'absolute';
-      overlay.style.inset = '0';
-      overlay.style.pointerEvents = 'none';
+      overlay = document.createElement("div");
+      overlay.id = "ui-overlay";
+      overlay.style.position = "absolute";
+      overlay.style.inset = "0";
+      overlay.style.pointerEvents = "none";
       document.body.appendChild(overlay);
       this.overlayEl = overlay;
-      console.warn('[UIManager] #ui-overlay missing. Created fallback overlay element.');
+      console.warn("[UIManager] #ui-overlay missing. Created fallback overlay element.");
     }
 
     this.hud = new HUD(overlay);
@@ -48,7 +48,7 @@ export class UIManager implements Disposable {
 
     // Wire events
     this.unsubscribers.push(
-      this.eventBus.on('interaction:focusChanged', ({ id, label }) => {
+      this.eventBus.on("interaction:focusChanged", ({ id, label }) => {
         if (id && label) {
           this.hud.showPrompt(label);
         } else {
@@ -59,7 +59,7 @@ export class UIManager implements Disposable {
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('interaction:holdProgress', (payload) => {
+      this.eventBus.on("interaction:holdProgress", (payload) => {
         if (!payload) {
           this.hud.setHoldProgress(null);
           return;
@@ -69,86 +69,86 @@ export class UIManager implements Disposable {
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('interaction:blocked', ({ reason }) => {
+      this.eventBus.on("interaction:blocked", ({ reason }) => {
         this.hud.showStatus(reason, 1200);
       }),
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('debug:toggle', () => {
+      this.eventBus.on("debug:toggle", () => {
         this.debugPanel.toggle();
       }),
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('objective:set', ({ text }) => {
+      this.eventBus.on("objective:set", ({ text }) => {
         this.hud.setObjective(text);
       }),
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('objective:completed', ({ text }) => {
+      this.eventBus.on("objective:completed", ({ text }) => {
         this.hud.flashObjectiveComplete(text);
         this.hud.showStatus(`Objective complete: ${text}`);
       }),
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('checkpoint:activated', () => {
-        this.hud.showStatus('Checkpoint activated');
+      this.eventBus.on("checkpoint:activated", () => {
+        this.hud.showStatus("Checkpoint activated");
       }),
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('player:dying', () => {
+      this.eventBus.on("player:dying", () => {
         this.deathEffect.play();
       }),
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('player:respawned', () => {
-        this.hud.showStatus('Respawned');
+      this.eventBus.on("player:respawned", () => {
+        this.hud.showStatus("Respawned");
       }),
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('loading:progress', ({ progress }) => {
+      this.eventBus.on("loading:progress", ({ progress }) => {
         this.loadingScreen.setProgress(progress);
       }),
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('collectible:changed', ({ count }) => {
+      this.eventBus.on("collectible:changed", ({ count }) => {
         this.hud.updateCollectibles(count);
       }),
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('collectible:collected', ({ value }) => {
+      this.eventBus.on("collectible:collected", ({ value }) => {
         this.hud.celebrateCollectible(value);
       }),
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('health:changed', ({ current, max }) => {
+      this.eventBus.on("health:changed", ({ current, max }) => {
         this.hud.updateHealth(current, max);
       }),
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('player:damaged', ({ reason }) => {
+      this.eventBus.on("player:damaged", ({ reason }) => {
         this.hud.flashDamage(reason);
       }),
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('level:loaded', () => {
+      this.eventBus.on("level:loaded", () => {
         this.hud.showGameHUD();
       }),
     );
 
     this.unsubscribers.push(
-      this.eventBus.on('level:unloaded', () => {
+      this.eventBus.on("level:unloaded", () => {
         this.hud.hideGameHUD();
       }),
     );
@@ -168,22 +168,22 @@ export class UIManager implements Disposable {
   }
 
   private createInteractionHint(): void {
-    if (!document.body || typeof document.addEventListener !== 'function') return;
+    if (!document.body || typeof document.addEventListener !== "function") return;
 
-    this.hintEl = document.createElement('div');
+    this.hintEl = document.createElement("div");
     const hint = this.hintEl;
-    hint.textContent = 'Click to start';
-    hint.className = 'kinema-ui-hint';
+    hint.textContent = "Click to start";
+    hint.className = "kinema-ui-hint";
 
     document.body.appendChild(hint);
 
     const dismiss = (): void => {
-      document.removeEventListener('pointerdown', dismiss);
-      hint.style.opacity = '0';
+      document.removeEventListener("pointerdown", dismiss);
+      hint.style.opacity = "0";
       setTimeout(() => {
         hint.remove();
       }, 500);
     };
-    document.addEventListener('pointerdown', dismiss);
+    document.addEventListener("pointerdown", dismiss);
   }
 }

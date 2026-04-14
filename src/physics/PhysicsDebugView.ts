@@ -1,6 +1,6 @@
-import * as THREE from 'three';
-import type { Disposable } from '@core/types';
-import type { PhysicsWorld } from './PhysicsWorld';
+import type { Disposable } from "@core/types";
+import * as THREE from "three";
+import type { PhysicsWorld } from "./PhysicsWorld";
 
 /**
  * Rapier debug-render lines for collider visualization.
@@ -21,7 +21,7 @@ export class PhysicsDebugView implements Disposable {
     private physicsWorld: PhysicsWorld,
   ) {
     this.lines.frustumCulled = false;
-    this.lines.name = '__kinema_physics_debug';
+    this.lines.name = "__kinema_physics_debug";
     this.lines.renderOrder = 40;
   }
 
@@ -40,8 +40,8 @@ export class PhysicsDebugView implements Disposable {
     const buffers = this.physicsWorld.world.debugRender();
     const { vertices, colors } = buffers;
     if (!vertices || vertices.length === 0) {
-      this.geometry.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
-      this.geometry.setAttribute('color', new THREE.Float32BufferAttribute([], 3));
+      this.geometry.setAttribute("position", new THREE.Float32BufferAttribute([], 3));
+      this.geometry.setAttribute("color", new THREE.Float32BufferAttribute([], 3));
       return;
     }
 
@@ -52,8 +52,8 @@ export class PhysicsDebugView implements Disposable {
       rgbColors[j + 2] = colors[i + 2];
     }
 
-    this.geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
-    this.geometry.setAttribute('color', new THREE.BufferAttribute(rgbColors, 3));
+    this.geometry.setAttribute("position", new THREE.BufferAttribute(vertices, 3));
+    this.geometry.setAttribute("color", new THREE.BufferAttribute(rgbColors, 3));
     this.geometry.computeBoundingSphere();
   }
 

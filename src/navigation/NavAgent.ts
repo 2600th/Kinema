@@ -1,10 +1,10 @@
-import * as THREE from 'three';
-import type { AssetLoader } from '@level/AssetLoader';
-import type { AnimationController } from '@character/animation/AnimationController';
-import type { CharacterModel } from '@character/animation/CharacterModel';
-import { createAnimatedCharacter } from '@character/animation/CharacterFactory';
-import { NPC_PROFILE } from '@character/animation/profiles';
-import { STATE } from '@core/types';
+import type { AnimationController } from "@character/animation/AnimationController";
+import { createAnimatedCharacter } from "@character/animation/CharacterFactory";
+import type { CharacterModel } from "@character/animation/CharacterModel";
+import { NPC_PROFILE } from "@character/animation/profiles";
+import { STATE } from "@core/types";
+import type { AssetLoader } from "@level/AssetLoader";
+import * as THREE from "three";
 
 export class NavAgent {
   readonly mesh: THREE.Group;
@@ -22,7 +22,11 @@ export class NavAgent {
   private velocity = 0;
   private disposed = false;
 
-  constructor(scene: THREE.Scene, position: THREE.Vector3, private tintColor?: THREE.Color) {
+  constructor(
+    scene: THREE.Scene,
+    position: THREE.Vector3,
+    private tintColor?: THREE.Color,
+  ) {
     this.mesh = new THREE.Group();
     this.mesh.position.copy(position);
 
@@ -42,15 +46,14 @@ export class NavAgent {
 
   async init(loader: AssetLoader): Promise<void> {
     try {
-      const { model, animator } = await createAnimatedCharacter(
-        NPC_PROFILE, this.mesh, loader,
-        { tint: this.tintColor },
-      );
+      const { model, animator } = await createAnimatedCharacter(NPC_PROFILE, this.mesh, loader, {
+        tint: this.tintColor,
+      });
       this.characterModel = model;
       this.animator = animator;
       this.capsuleMesh.visible = false;
     } catch (err) {
-      console.warn('[NavAgent] Model load failed, keeping capsule:', err);
+      console.warn("[NavAgent] Model load failed, keeping capsule:", err);
     }
   }
 
@@ -87,10 +90,7 @@ export class NavAgent {
     this.animator?.update(dt);
   }
 
-  updatePathVisualization(
-    scene: THREE.Scene,
-    points: Array<{ x: number; y: number; z: number }>,
-  ): void {
+  updatePathVisualization(scene: THREE.Scene, points: Array<{ x: number; y: number; z: number }>): void {
     if (points.length < 2) {
       if (this.pathLine) this.pathLine.visible = false;
       return;
@@ -113,7 +113,7 @@ export class NavAgent {
       this.pathCapacity = points.length;
       this.pathPositions = new Float32Array(neededFloats);
       this.pathAttribute = new THREE.BufferAttribute(this.pathPositions, 3);
-      this.pathLine.geometry.setAttribute('position', this.pathAttribute);
+      this.pathLine.geometry.setAttribute("position", this.pathAttribute);
     }
     const positions = this.pathPositions;
     for (let i = 0; i < points.length; i++) {

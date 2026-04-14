@@ -1,10 +1,10 @@
-import type { EditorTool, EditorToolContext } from './EditorTool';
+import type { EditorTool, EditorToolContext } from "./EditorTool";
 
 /**
  * Default tool: click to select objects, gizmo transform with undo recording.
  */
 export class SelectionTool implements EditorTool {
-  readonly id = 'selection';
+  readonly id = "selection";
 
   onPointerDown(ctx: EditorToolContext, e: MouseEvent): boolean {
     if (e.button !== 0) return false;
@@ -24,9 +24,7 @@ export class SelectionTool implements EditorTool {
     ctx.mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
     ctx.raycaster.setFromCamera(ctx.mouse, ctx.camera);
 
-    const meshes = ctx.editorObjects
-      .filter((obj) => !obj.locked && obj.visible !== false)
-      .map((obj) => obj.mesh);
+    const meshes = ctx.editorObjects.filter((obj) => !obj.locked && obj.visible !== false).map((obj) => obj.mesh);
     const hits = ctx.raycaster.intersectObjects(meshes, true);
 
     if (!hits.length) {
@@ -35,9 +33,7 @@ export class SelectionTool implements EditorTool {
     }
 
     const mesh = hits[0].object;
-    const target = ctx.editorObjects.find(
-      (obj) => obj.mesh === mesh || obj.mesh.getObjectById(mesh.id) !== undefined,
-    );
+    const target = ctx.editorObjects.find((obj) => obj.mesh === mesh || obj.mesh.getObjectById(mesh.id) !== undefined);
     ctx.setSelection(target ?? null);
   }
 }

@@ -1,10 +1,10 @@
-import * as THREE from 'three';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { LUT3dlLoader } from 'three/addons/loaders/LUT3dlLoader.js';
-import { LUTCubeLoader } from 'three/addons/loaders/LUTCubeLoader.js';
-import { LUTImageLoader } from 'three/addons/loaders/LUTImageLoader.js';
-import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
-import { ENV_PRESETS, LUT_PRESETS, type LutPresetFormat } from './rendererPresets';
+import type * as THREE from "three";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
+import { LUT3dlLoader } from "three/addons/loaders/LUT3dlLoader.js";
+import { LUTCubeLoader } from "three/addons/loaders/LUTCubeLoader.js";
+import { LUTImageLoader } from "three/addons/loaders/LUTImageLoader.js";
+import { ENV_PRESETS, LUT_PRESETS, type LutPresetFormat } from "./rendererPresets";
 
 export interface EnvironmentTargetLike {
   texture: THREE.Texture;
@@ -67,19 +67,19 @@ export class RendererAssetLibrary {
   }
 
   getOrCreateRoomEnvironment(): EnvironmentTargetLike | null {
-    const cached = this.envCache.get('Room Environment');
+    const cached = this.envCache.get("Room Environment");
     if (cached) return cached;
     if (!this.pmrem) return null;
 
     const target = this.pmrem.fromScene(new RoomEnvironment(), 0.04);
-    this.envCache.set('Room Environment', target);
+    this.envCache.set("Room Environment", target);
     return target;
   }
 
   async ensureEnvironment(name: string): Promise<EnvironmentTargetLike | null> {
     const cached = this.envCache.get(name);
     if (cached) return cached;
-    if (name === 'Room Environment') {
+    if (name === "Room Environment") {
       return this.getOrCreateRoomEnvironment();
     }
     if (!this.pmrem) return null;
@@ -119,12 +119,12 @@ export class RendererAssetLibrary {
 
   private async loadLutByFormat(url: string, format: LutPresetFormat): Promise<THREE.Data3DTexture | null> {
     let parsed: { texture3D?: THREE.Data3DTexture };
-    if (format === 'cube') {
-      parsed = await this.lutCubeLoader.loadAsync(url) as { texture3D?: THREE.Data3DTexture };
-    } else if (format === 'image') {
-      parsed = await this.lutImageLoader.loadAsync(url) as { texture3D?: THREE.Data3DTexture };
+    if (format === "cube") {
+      parsed = (await this.lutCubeLoader.loadAsync(url)) as { texture3D?: THREE.Data3DTexture };
+    } else if (format === "image") {
+      parsed = (await this.lutImageLoader.loadAsync(url)) as { texture3D?: THREE.Data3DTexture };
     } else {
-      parsed = await this.lut3dlLoader.loadAsync(url) as { texture3D?: THREE.Data3DTexture };
+      parsed = (await this.lut3dlLoader.loadAsync(url)) as { texture3D?: THREE.Data3DTexture };
     }
     return parsed.texture3D ?? null;
   }

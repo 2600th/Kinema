@@ -1,9 +1,16 @@
-import type * as THREE from 'three';
-import type RAPIER from '@dimforge/rapier3d-compat';
-import type { FixedUpdatable, PostPhysicsUpdatable, Updatable, Disposable, InputState, SpawnPointData } from '@core/types';
-import type { CameraConfig } from '@core/types';
+import type {
+  CameraConfig,
+  Disposable,
+  FixedUpdatable,
+  InputState,
+  PostPhysicsUpdatable,
+  SpawnPointData,
+  Updatable,
+} from "@core/types";
+import type RAPIER from "@dimforge/rapier3d-compat";
+import type * as THREE from "three";
 
-export type VehicleDriftState = 'none' | 'light' | 'drift' | 'slide';
+export type VehicleDriftState = "none" | "light" | "drift" | "slide";
 
 export interface VehicleHandlingFeelState {
   readonly speedNorm: number;
@@ -21,7 +28,7 @@ export interface VehicleHandlingFeelState {
 
 export interface VehicleController extends FixedUpdatable, PostPhysicsUpdatable, Updatable, Disposable {
   readonly id: string;
-  readonly type: 'car' | 'drone';
+  readonly type: "car" | "drone";
   readonly body: RAPIER.RigidBody;
   readonly mesh: THREE.Object3D;
   readonly exitOffset: THREE.Vector3;
@@ -31,7 +38,7 @@ export interface VehicleController extends FixedUpdatable, PostPhysicsUpdatable,
    * - full: normal orbit (yaw + pitch)
    * - yawOnly: consume X for yaw, keep pitch stable (use look Y for vehicle-specific controls)
    */
-  readonly cameraLookMode?: 'full' | 'yawOnly';
+  readonly cameraLookMode?: "full" | "yawOnly";
   enter(input: InputState): void;
   exit(): SpawnPointData;
   setInput(input: InputState): void;

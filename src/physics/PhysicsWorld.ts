@@ -1,5 +1,5 @@
-import RAPIER from '@dimforge/rapier3d-compat';
-import type { Disposable } from '@core/types';
+import type { Disposable } from "@core/types";
+import RAPIER from "@dimforge/rapier3d-compat";
 
 /**
  * Wraps Rapier world.
@@ -51,13 +51,13 @@ export class PhysicsWorld implements Disposable {
     return this.world.castShape(
       origin,
       rotation,
-      direction,       // shapeVel
+      direction, // shapeVel
       shape,
       targetDistance,
       maxToi,
-      true,            // stopAtPenetration
-      undefined,       // filterFlags
-      filterGroups,    // filterGroups
+      true, // stopAtPenetration
+      undefined, // filterFlags
+      filterGroups, // filterGroups
       excludeCollider, // filterExcludeCollider
       excludeRigidBody, // filterExcludeRigidBody
       filterPredicate,

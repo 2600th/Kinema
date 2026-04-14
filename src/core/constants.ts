@@ -1,4 +1,4 @@
-import type { PlayerConfig, CameraConfig } from './types';
+import type { CameraConfig, PlayerConfig } from "./types";
 
 /** Fixed physics timestep (60 Hz) */
 export const PHYSICS_TIMESTEP = 1 / 60;

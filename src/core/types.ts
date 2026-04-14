@@ -1,7 +1,7 @@
-import type * as THREE from 'three';
-import type * as RAPIER from '@dimforge/rapier3d-compat';
-import type { VehicleController, VehicleHandlingFeelState } from '@vehicle/VehicleController';
-import type { ThrowableObject } from '@interaction/interactables/ThrowableObject';
+import type * as RAPIER from "@dimforge/rapier3d-compat";
+import type { ThrowableObject } from "@interaction/interactables/ThrowableObject";
+import type { VehicleController, VehicleHandlingFeelState } from "@vehicle/VehicleController";
+import type * as THREE from "three";
 
 /** Frozen snapshot of input state — safe to read from any system */
 export interface InputState {
@@ -20,8 +20,8 @@ export interface InputState {
   readonly altitudeUp: boolean;
   readonly altitudeDown: boolean;
   readonly vehicleVertical: number;
-  readonly moveX: number;   // -1..1 (left/right analog axis)
-  readonly moveY: number;   // -1..1 (backward/forward analog axis)
+  readonly moveX: number; // -1..1 (left/right analog axis)
+  readonly moveY: number; // -1..1 (backward/forward analog axis)
   readonly sprint: boolean;
   readonly mouseDeltaX: number;
   readonly mouseDeltaY: number;
@@ -59,21 +59,21 @@ export const NULL_INPUT: InputState = Object.freeze({
  * Typos in state transitions are caught at compile time.
  */
 export const STATE = {
-  idle: 'idle',
-  move: 'move',
-  jump: 'jump',
-  air: 'air',
-  airJump: 'airJump',
-  interact: 'interact',
-  crouch: 'crouch',
-  carry: 'carry',
-  grab: 'grab',
-  land: 'land',
-  climb: 'climb',
-  rope: 'rope',
+  idle: "idle",
+  move: "move",
+  jump: "jump",
+  air: "air",
+  airJump: "airJump",
+  interact: "interact",
+  crouch: "crouch",
+  carry: "carry",
+  grab: "grab",
+  land: "land",
+  climb: "climb",
+  rope: "rope",
 } as const;
 
-export type StateId = typeof STATE[keyof typeof STATE];
+export type StateId = (typeof STATE)[keyof typeof STATE];
 
 /** Objects that tick at fixed 60Hz */
 export interface FixedUpdatable {
@@ -172,88 +172,94 @@ export interface SpawnPointData {
 
 /** Event map — every event name and its payload type */
 export interface EventMap {
-  'input:state': InputState;
-  'player:stateChanged': { previous: StateId; current: StateId };
-  'player:grounded': boolean;
-  'player:landed': { impactSpeed: number };
-  'player:jumped': { airJump: boolean; run: boolean; jumpVel: number; position: THREE.Vector3; groundPosition: THREE.Vector3 };
-  'player:respawned': { reason: string };
-  'player:damaged': { current: number; max: number; reason: 'spike' | 'fall'; position: THREE.Vector3 };
-  'player:invulnerabilityChanged': { active: boolean; remaining: number; reason: 'spike' | 'fall' | null };
-  'interaction:focusChanged': { id: string | null; label: string | null };
-  'interaction:triggered': { id: string };
-  'interaction:blocked': { id: string; reason: string };
-  'interaction:grabStart': { body: RAPIER.RigidBody; offset: THREE.Vector3; grabWeight?: number };
-  'interaction:grabEnd': undefined;
-  'interaction:pickUp': { object: ThrowableObject };
-  'interaction:throw': { direction: THREE.Vector3; force: number };
-  'interaction:drop': undefined;
-  'interaction:holdProgress': { id: string; progress: number; position: THREE.Vector3 } | null;
-  'checkpoint:activated': { id: string; position: { x: number; y: number; z: number } };
-  'objective:set': { id: string; text: string };
-  'objective:completed': { id: string; text: string };
-  'level:loaded': { name: string };
-  'level:unloaded': { name: string };
-  'loading:progress': { progress: number };
-  'collectible:changed': { count: number };
-  'collectible:collected': { id: string; position: THREE.Vector3; count: number; value: number };
-  'health:changed': { current: number; max: number };
-  'player:dying': { reason: string };
-  'player:deathMidpoint': undefined;
-  'run:restartRequested': { reason: 'health-depleted' };
-  'vehicle:enter': { vehicle: VehicleController };
-  'vehicle:exit': { position: THREE.Vector3 };
-  'vehicle:engineStart': undefined;
-  'vehicle:engineStop': undefined;
-  'vehicle:speedUpdate': { speedNorm: number };
-  'vehicle:handlingUpdate': VehicleHandlingFeelState | null;
-  'menu:toggle': undefined;
-  'menu:opened': { screen: string };
-  'menu:closed': undefined;
-  'debug:toggle': undefined;
-  'debug:showColliders': boolean;
-  'debug:showLightHelpers': boolean;
-  'debug:postProcessing': boolean;
-  'debug:shadows': boolean;
-  'debug:cameraCollision': boolean;
-  'debug:exposure': number;
-  'debug:graphicsProfile': { profile: 'performance' | 'balanced' | 'cinematic' };
-  'debug:aoOnly': boolean;
-  'debug:aaMode': { mode: 'smaa' | 'fxaa' | 'none' };
-  'debug:ssaoEnabled': boolean;
-  'debug:ssrEnabled': boolean;
-  'debug:ssrOpacity': number;
-  'debug:ssrResolutionScale': number;
-  'debug:bloomEnabled': boolean;
-  'debug:bloomStrength': number;
-  'debug:vignetteEnabled': boolean;
-  'debug:vignetteDarkness': number;
-  'debug:lutEnabled': boolean;
-  'debug:lutStrength': number;
-  'debug:lutName': string;
-  'debug:envBackgroundIntensity': number;
-  'debug:envBackgroundBlurriness': number;
-  'debug:environment': string;
-  'debug:environmentRotation': number;
-  'debug:shadowQuality': { tier: 'auto' | 'performance' | 'balanced' | 'cinematic' };
-  'debug:casEnabled': boolean;
-  'debug:casStrength': number;
-  'debug:showShadowFrustums': boolean;
-  'editor:toggle': undefined;
-  'editor:opened': undefined;
-  'editor:closed': undefined;
-  'editor:objectSelected': { id: string } | null;
-  'editor:objectAdded': { id: string };
-  'editor:objectRemoved': { id: string };
-  'editor:saved': { name: string };
-  'editor:loaded': { name: string };
-  'audio:musicVolume': number;
-  'audio:sfxVolume': number;
-  'audio:masterVolume': number;
-  'ui:click': undefined;
-  'ui:hover': undefined;
-  'animation:footstep': undefined;
-  'animation:event': { clip: string; event: string };
-  'camera:applyConfig': Partial<CameraConfig>;
-  'camera:resetConfig': undefined;
+  "input:state": InputState;
+  "player:stateChanged": { previous: StateId; current: StateId };
+  "player:grounded": boolean;
+  "player:landed": { impactSpeed: number };
+  "player:jumped": {
+    airJump: boolean;
+    run: boolean;
+    jumpVel: number;
+    position: THREE.Vector3;
+    groundPosition: THREE.Vector3;
+  };
+  "player:respawned": { reason: string };
+  "player:damaged": { current: number; max: number; reason: "spike" | "fall"; position: THREE.Vector3 };
+  "player:invulnerabilityChanged": { active: boolean; remaining: number; reason: "spike" | "fall" | null };
+  "interaction:focusChanged": { id: string | null; label: string | null };
+  "interaction:triggered": { id: string };
+  "interaction:blocked": { id: string; reason: string };
+  "interaction:grabStart": { body: RAPIER.RigidBody; offset: THREE.Vector3; grabWeight?: number };
+  "interaction:grabEnd": undefined;
+  "interaction:pickUp": { object: ThrowableObject };
+  "interaction:throw": { direction: THREE.Vector3; force: number };
+  "interaction:drop": undefined;
+  "interaction:holdProgress": { id: string; progress: number; position: THREE.Vector3 } | null;
+  "checkpoint:activated": { id: string; position: { x: number; y: number; z: number } };
+  "objective:set": { id: string; text: string };
+  "objective:completed": { id: string; text: string };
+  "level:loaded": { name: string };
+  "level:unloaded": { name: string };
+  "loading:progress": { progress: number };
+  "collectible:changed": { count: number };
+  "collectible:collected": { id: string; position: THREE.Vector3; count: number; value: number };
+  "health:changed": { current: number; max: number };
+  "player:dying": { reason: string };
+  "player:deathMidpoint": undefined;
+  "run:restartRequested": { reason: "health-depleted" };
+  "vehicle:enter": { vehicle: VehicleController };
+  "vehicle:exit": { position: THREE.Vector3 };
+  "vehicle:engineStart": undefined;
+  "vehicle:engineStop": undefined;
+  "vehicle:speedUpdate": { speedNorm: number };
+  "vehicle:handlingUpdate": VehicleHandlingFeelState | null;
+  "menu:toggle": undefined;
+  "menu:opened": { screen: string };
+  "menu:closed": undefined;
+  "debug:toggle": undefined;
+  "debug:showColliders": boolean;
+  "debug:showLightHelpers": boolean;
+  "debug:postProcessing": boolean;
+  "debug:shadows": boolean;
+  "debug:cameraCollision": boolean;
+  "debug:exposure": number;
+  "debug:graphicsProfile": { profile: "performance" | "balanced" | "cinematic" };
+  "debug:aoOnly": boolean;
+  "debug:aaMode": { mode: "smaa" | "fxaa" | "none" };
+  "debug:ssaoEnabled": boolean;
+  "debug:ssrEnabled": boolean;
+  "debug:ssrOpacity": number;
+  "debug:ssrResolutionScale": number;
+  "debug:bloomEnabled": boolean;
+  "debug:bloomStrength": number;
+  "debug:vignetteEnabled": boolean;
+  "debug:vignetteDarkness": number;
+  "debug:lutEnabled": boolean;
+  "debug:lutStrength": number;
+  "debug:lutName": string;
+  "debug:envBackgroundIntensity": number;
+  "debug:envBackgroundBlurriness": number;
+  "debug:environment": string;
+  "debug:environmentRotation": number;
+  "debug:shadowQuality": { tier: "auto" | "performance" | "balanced" | "cinematic" };
+  "debug:casEnabled": boolean;
+  "debug:casStrength": number;
+  "debug:showShadowFrustums": boolean;
+  "editor:toggle": undefined;
+  "editor:opened": undefined;
+  "editor:closed": undefined;
+  "editor:objectSelected": { id: string } | null;
+  "editor:objectAdded": { id: string };
+  "editor:objectRemoved": { id: string };
+  "editor:saved": { name: string };
+  "editor:loaded": { name: string };
+  "audio:musicVolume": number;
+  "audio:sfxVolume": number;
+  "audio:masterVolume": number;
+  "ui:click": undefined;
+  "ui:hover": undefined;
+  "animation:footstep": undefined;
+  "animation:event": { clip: string; event: string };
+  "camera:applyConfig": Partial<CameraConfig>;
+  "camera:resetConfig": undefined;
 }

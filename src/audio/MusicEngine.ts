@@ -1,9 +1,9 @@
-import * as Tone from 'tone';
+import * as Tone from "tone";
 
 // C major pentatonic
-const C_SCALE = ['C', 'D', 'E', 'G', 'A'] as const;
+const C_SCALE = ["C", "D", "E", "G", "A"] as const;
 // G major pentatonic (for key changes)
-const G_SCALE = ['G', 'A', 'B', 'D', 'E'] as const;
+const G_SCALE = ["G", "A", "B", "D", "E"] as const;
 
 type ScaleNote = string;
 
@@ -26,17 +26,17 @@ function buildScale(scale: readonly string[], lowOctave: number, highOctave: num
 
 // Chord progressions: I → vi → IV → V
 const C_CHORDS = [
-  ['C3', 'E3', 'G3'],   // C major
-  ['A2', 'C3', 'E3'],   // Am
-  ['F2', 'A2', 'C3'],   // F major
-  ['G2', 'B2', 'D3'],   // G major
+  ["C3", "E3", "G3"], // C major
+  ["A2", "C3", "E3"], // Am
+  ["F2", "A2", "C3"], // F major
+  ["G2", "B2", "D3"], // G major
 ] as const;
 
 const G_CHORDS = [
-  ['G3', 'B3', 'D4'],   // G major
-  ['E3', 'G3', 'B3'],   // Em
-  ['C3', 'E3', 'G3'],   // C major
-  ['D3', 'F#3', 'A3'],  // D major
+  ["G3", "B3", "D4"], // G major
+  ["E3", "G3", "B3"], // Em
+  ["C3", "E3", "G3"], // C major
+  ["D3", "F#3", "A3"], // D major
 ] as const;
 
 /**
@@ -85,14 +85,13 @@ export class MusicEngine {
   private currentScale: readonly string[] = C_SCALE;
   private currentChords: readonly (readonly string[])[] = C_CHORDS;
   private chordIndex = 0;
-  private barCounter = 0;
 
   constructor() {
     this.output = new Tone.Gain(0); // starts silent for fade-in
 
     // Effects chain: AutoFilter → FeedbackDelay → Reverb → Compressor → Limiter → output
     this.autoFilter = new Tone.AutoFilter({ frequency: 0.06, baseFrequency: 300, octaves: 3, wet: 0.3 }).start();
-    this.feedbackDelay = new Tone.FeedbackDelay({ delayTime: '4n', feedback: 0.3, wet: 0.25 });
+    this.feedbackDelay = new Tone.FeedbackDelay({ delayTime: "4n", feedback: 0.3, wet: 0.25 });
     this.reverb = new Tone.Reverb({ decay: 6, wet: 0.5 });
     this.compressor = new Tone.Compressor({ threshold: -18, ratio: 2.5, attack: 0.05, release: 0.2 });
     this.limiter = new Tone.Limiter(-1);
@@ -111,8 +110,8 @@ export class MusicEngine {
       voice: Tone.AMSynth,
       options: {
         harmonicity: 2,
-        oscillator: { type: 'sine' },
-        modulation: { type: 'triangle' },
+        oscillator: { type: "sine" },
+        modulation: { type: "triangle" },
         envelope: { attack: 2, decay: 3, sustain: 0.4, release: 4 },
         modulationEnvelope: { attack: 0.5, decay: 1, sustain: 0.3, release: 2 },
         volume: -16,
@@ -131,8 +130,8 @@ export class MusicEngine {
     this.melodySynth = new Tone.FMSynth({
       harmonicity: 3,
       modulationIndex: 1,
-      oscillator: { type: 'sine' },
-      modulation: { type: 'triangle' },
+      oscillator: { type: "sine" },
+      modulation: { type: "triangle" },
       envelope: { attack: 0.05, decay: 0.3, sustain: 0.2, release: 0.8 },
       modulationEnvelope: { attack: 0.1, decay: 0.2, sustain: 0, release: 0.5 },
       volume: -18,
@@ -156,11 +155,10 @@ export class MusicEngine {
     this.stopGeneration++;
 
     Tone.getTransport().bpm.value = 72;
-    const padHoldSeconds = Tone.Time('2n').toSeconds();
-    const melodyHoldSeconds = Tone.Time('4n').toSeconds();
-    const percHitSeconds = Tone.Time('16n').toSeconds();
+    const padHoldSeconds = Tone.Time("2n").toSeconds();
+    const melodyHoldSeconds = Tone.Time("4n").toSeconds();
+    const percHitSeconds = Tone.Time("16n").toSeconds();
     this.chordIndex = 0;
-    this.barCounter = 0;
     this.currentScale = C_SCALE;
     this.currentChords = C_CHORDS;
 
@@ -172,7 +170,6 @@ export class MusicEngine {
 
       // Every 4 bars (8 half-notes), consider key change
       if (this.chordIndex % 8 === 0) {
-        this.barCounter += 4;
         if (Math.random() > 0.5) {
           // Toggle between C and G major pentatonic
           if (this.currentScale === C_SCALE) {
@@ -184,7 +181,7 @@ export class MusicEngine {
           }
         }
       }
-    }, '2n');
+    }, "2n");
     this.padLoop.start(0);
 
     // Bass loop — quarter note walking bass
@@ -192,7 +189,7 @@ export class MusicEngine {
       const notes = buildScale(this.currentScale, 2, 3);
       const note = pick(notes);
       this.bassSynth.triggerAttack(note, time);
-    }, '4n');
+    }, "4n");
     this.bassLoop.start(0);
 
     // Melody loop — quarter note with 40% rest
@@ -201,8 +198,8 @@ export class MusicEngine {
       const notes = buildScale(this.currentScale, 4, 5);
       const note = pick(notes);
       this.melodySynth.triggerAttackRelease(note, melodyHoldSeconds, time);
-    }, '4n');
-    this.melodyLoop.start('1m'); // start after first measure
+    }, "4n");
+    this.melodyLoop.start("1m"); // start after first measure
 
     // Percussion loop — eighth note with 60% rest
     this.percLoop = new Tone.Loop((time) => {
@@ -210,8 +207,8 @@ export class MusicEngine {
       const freqs = [200, 300, 400, 500, 600];
       this.percSynth.frequency.setValueAtTime(pick(freqs), time);
       this.percSynth.triggerAttackRelease(percHitSeconds, time);
-    }, '8n');
-    this.percLoop.start('2m'); // start after two measures
+    }, "8n");
+    this.percLoop.start("2m"); // start after two measures
 
     Tone.getTransport().start();
 
@@ -234,14 +231,25 @@ export class MusicEngine {
     this.output.gain.linearRampToValueAtTime(0, now + fadeOutSec);
 
     const gen = this.stopGeneration;
-    setTimeout(() => {
-      if (this.stopGeneration !== gen) return;
-      this.padLoop?.stop(); this.padLoop?.dispose(); this.padLoop = null;
-      this.bassLoop?.stop(); this.bassLoop?.dispose(); this.bassLoop = null;
-      this.melodyLoop?.stop(); this.melodyLoop?.dispose(); this.melodyLoop = null;
-      this.percLoop?.stop(); this.percLoop?.dispose(); this.percLoop = null;
-      Tone.getTransport().stop();
-    }, fadeOutSec * 1000 + 100);
+    setTimeout(
+      () => {
+        if (this.stopGeneration !== gen) return;
+        this.padLoop?.stop();
+        this.padLoop?.dispose();
+        this.padLoop = null;
+        this.bassLoop?.stop();
+        this.bassLoop?.dispose();
+        this.bassLoop = null;
+        this.melodyLoop?.stop();
+        this.melodyLoop?.dispose();
+        this.melodyLoop = null;
+        this.percLoop?.stop();
+        this.percLoop?.dispose();
+        this.percLoop = null;
+        Tone.getTransport().stop();
+      },
+      fadeOutSec * 1000 + 100,
+    );
   }
 
   /** Set music intensity (0..1) — drives layer crossfading */
@@ -293,10 +301,18 @@ export class MusicEngine {
     this.output.gain.cancelScheduledValues(Tone.now());
     this.output.gain.value = 0;
 
-    this.padLoop?.stop(); this.padLoop?.dispose(); this.padLoop = null;
-    this.bassLoop?.stop(); this.bassLoop?.dispose(); this.bassLoop = null;
-    this.melodyLoop?.stop(); this.melodyLoop?.dispose(); this.melodyLoop = null;
-    this.percLoop?.stop(); this.percLoop?.dispose(); this.percLoop = null;
+    this.padLoop?.stop();
+    this.padLoop?.dispose();
+    this.padLoop = null;
+    this.bassLoop?.stop();
+    this.bassLoop?.dispose();
+    this.bassLoop = null;
+    this.melodyLoop?.stop();
+    this.melodyLoop?.dispose();
+    this.melodyLoop = null;
+    this.percLoop?.stop();
+    this.percLoop?.dispose();
+    this.percLoop = null;
     Tone.getTransport().stop();
 
     this.padSynth.dispose();

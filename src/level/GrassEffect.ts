@@ -1,18 +1,6 @@
-import * as THREE from 'three';
-import { MeshStandardNodeMaterial } from 'three/webgpu';
-import {
-  positionLocal,
-  positionWorld,
-  uv,
-  time,
-  float,
-  vec3,
-  sin,
-  cos,
-  mix,
-  Fn,
-  uniform,
-} from 'three/tsl';
+import * as THREE from "three";
+import { cos, Fn, float, mix, positionLocal, positionWorld, sin, time, uniform, uv, vec3 } from "three/tsl";
+import { MeshStandardNodeMaterial } from "three/webgpu";
 
 /**
  * Procedural grass patch using InstancedMesh + TSL vertex displacement.
@@ -85,19 +73,12 @@ export class GrassEffect {
       const weight = uvY.mul(uvY);
 
       // Wind displacement on X axis
-      const windX = sin(
-        worldPos.x
-          .mul(0.5)
-          .add(worldPos.z.mul(0.3))
-          .add(time.mul(uWindSpeed)),
-      )
+      const windX = sin(worldPos.x.mul(0.5).add(worldPos.z.mul(0.3)).add(time.mul(uWindSpeed)))
         .mul(uWindStrength)
         .mul(weight);
 
       // Wind displacement on Z axis (offset frequency for natural look)
-      const windZ = cos(
-        worldPos.z.mul(0.4).add(time.mul(uWindSpeed).mul(0.7)),
-      )
+      const windZ = cos(worldPos.z.mul(0.4).add(time.mul(uWindSpeed).mul(0.7)))
         .mul(uWindStrength)
         .mul(0.5)
         .mul(weight);
@@ -112,11 +93,7 @@ export class GrassEffect {
     this.material.metalness = 0.0;
 
     // --- Instanced mesh ---
-    this.mesh = new THREE.InstancedMesh(
-      this.geometry,
-      this.material,
-      bladeCount,
-    );
+    this.mesh = new THREE.InstancedMesh(this.geometry, this.material, bladeCount);
 
     this.mesh.castShadow = true;
     this.mesh.receiveShadow = false;

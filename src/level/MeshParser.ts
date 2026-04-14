@@ -1,6 +1,6 @@
-import * as THREE from 'three';
+import * as THREE from "three";
 
-export type ParsedNodeType = 'visual' | 'collider' | 'sensor' | 'navmesh' | 'spawnpoint';
+export type ParsedNodeType = "visual" | "collider" | "sensor" | "navmesh" | "spawnpoint";
 
 /** Parsed result for a single scene node. */
 export interface ParsedNode {
@@ -13,33 +13,33 @@ export interface ParsedNode {
 type UserDataRecord = Record<string, unknown>;
 
 function getTypeFromUserData(userData: UserDataRecord): ParsedNodeType | null {
-  if (userData.isSpawnPoint === true || userData.spawnPoint === true || userData.type === 'spawnpoint') {
-    return 'spawnpoint';
+  if (userData.isSpawnPoint === true || userData.spawnPoint === true || userData.type === "spawnpoint") {
+    return "spawnpoint";
   }
-  if (userData.isCollider === true || userData.type === 'collider') {
-    return 'collider';
+  if (userData.isCollider === true || userData.type === "collider") {
+    return "collider";
   }
-  if (userData.isSensor === true || userData.type === 'sensor') {
-    return 'sensor';
+  if (userData.isSensor === true || userData.type === "sensor") {
+    return "sensor";
   }
-  if (userData.isNavmesh === true || userData.type === 'navmesh') {
-    return 'navmesh';
+  if (userData.isNavmesh === true || userData.type === "navmesh") {
+    return "navmesh";
   }
   return null;
 }
 
 function getTypeFromName(name: string): ParsedNodeType | null {
   const lower = name.toLowerCase();
-  if (lower.includes('spawnpoint')) return 'spawnpoint';
-  if (lower.includes('_col')) return 'collider';
-  if (lower.includes('_sensor')) return 'sensor';
-  if (lower.includes('_nav')) return 'navmesh';
+  if (lower.includes("spawnpoint")) return "spawnpoint";
+  if (lower.includes("_col")) return "collider";
+  if (lower.includes("_sensor")) return "sensor";
+  if (lower.includes("_nav")) return "navmesh";
   return null;
 }
 
 function getMassFromUserData(userData: UserDataRecord): number | null {
   const rawMass = userData.mass;
-  return typeof rawMass === 'number' && Number.isFinite(rawMass) ? rawMass : null;
+  return typeof rawMass === "number" && Number.isFinite(rawMass) ? rawMass : null;
 }
 
 /**
@@ -62,18 +62,18 @@ export class MeshParser {
       const resolvedType = typedByUserData ?? typedByName;
       const mass = getMassFromUserData(userData);
 
-      if (resolvedType === 'spawnpoint') {
+      if (resolvedType === "spawnpoint") {
         results.push({
           object: child,
           mesh: child instanceof THREE.Mesh ? child : null,
-          type: 'spawnpoint',
+          type: "spawnpoint",
           mass,
         });
         return;
       }
 
       // Allow non-Mesh nodes with collider/sensor/navmesh tags to pass through.
-      if (resolvedType && resolvedType !== 'visual') {
+      if (resolvedType && resolvedType !== "visual") {
         results.push({
           object: child,
           mesh: child instanceof THREE.Mesh ? child : null,
@@ -88,7 +88,7 @@ export class MeshParser {
       results.push({
         object: child,
         mesh: child,
-        type: 'visual',
+        type: "visual",
         mass,
       });
     });

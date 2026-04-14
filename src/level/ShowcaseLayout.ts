@@ -1,5 +1,5 @@
-import * as THREE from 'three';
-import type { SpawnPointData } from '@core/types';
+import type { SpawnPointData } from "@core/types";
+import * as THREE from "three";
 
 const SHOWCASE_STATION_SHIFT_Z = 50;
 
@@ -40,45 +40,50 @@ export const SHOWCASE_LAYOUT = {
 } as const;
 
 export type ShowcaseStationKey = keyof typeof SHOWCASE_LAYOUT.stations;
-export type ShowcaseReviewSpawnKey = ShowcaseStationKey | 'entrance' | 'overviewMid' | 'overviewEnd';
+export type ShowcaseReviewSpawnKey = ShowcaseStationKey | "entrance" | "overviewMid" | "overviewEnd";
 export const SHOWCASE_ENTRANCE_START_Z = SHOWCASE_LAYOUT.stations.steps + 14;
 
 // Corridor order from entrance (positive Z) to end wall (negative Z).
 export const SHOWCASE_STATION_ORDER: ShowcaseStationKey[] = [
-  'steps',
-  'slopes',
-  'movement',
-  'doubleJump',
-  'grab',
-  'throw',
-  'door',
-  'vehicles',
-  'platformsMoving',
-  'platformsPhysics',
-  'materials',
-  'vfx',
-  'navigation',
-  'futureA',
+  "steps",
+  "slopes",
+  "movement",
+  "doubleJump",
+  "grab",
+  "throw",
+  "door",
+  "vehicles",
+  "platformsMoving",
+  "platformsPhysics",
+  "materials",
+  "vfx",
+  "navigation",
+  "futureA",
 ];
 
-export const STATION_SPAWN_OVERRIDES: Partial<Record<ShowcaseStationKey, {
-  offset?: [number, number, number];
-  rotation?: [number, number, number];
-}>> = {
-  steps:            { offset: [0, 0, 2] },
-  slopes:           { offset: [0, 0, 2] },
-  movement:         { offset: [4, 0, 2] },
-  doubleJump:       { offset: [0, 0, 4] },
-  grab:             { offset: [0, 0, 2] },
-  throw:            { offset: [0, 0, 4] },
-  door:             { offset: [0, 0, 4] },
-  vehicles:         { offset: [0, 0, 4] },
-  platformsMoving:  { offset: [0, 1, 2] },
+export const STATION_SPAWN_OVERRIDES: Partial<
+  Record<
+    ShowcaseStationKey,
+    {
+      offset?: [number, number, number];
+      rotation?: [number, number, number];
+    }
+  >
+> = {
+  steps: { offset: [0, 0, 2] },
+  slopes: { offset: [0, 0, 2] },
+  movement: { offset: [4, 0, 2] },
+  doubleJump: { offset: [0, 0, 4] },
+  grab: { offset: [0, 0, 2] },
+  throw: { offset: [0, 0, 4] },
+  door: { offset: [0, 0, 4] },
+  vehicles: { offset: [0, 0, 4] },
+  platformsMoving: { offset: [0, 1, 2] },
   platformsPhysics: { offset: [0, 1, 2] },
-  materials:        { offset: [0, 0, 2] },
-  vfx:              { offset: [0, 0, 2] },
-  navigation:       { offset: [0, 0, 4] },
-  futureA:          { offset: [0, 0, 4] },
+  materials: { offset: [0, 0, 2] },
+  vfx: { offset: [0, 0, 2] },
+  navigation: { offset: [0, 0, 4] },
+  futureA: { offset: [0, 0, 4] },
 };
 
 export function getShowcaseStationZ(key: ShowcaseStationKey): number {
@@ -103,8 +108,8 @@ const REVIEW_GROUND_Y = getShowcaseBayTopY() + 0.325;
 
 export const PROCEDURAL_REVIEW_SPAWNS: Record<ShowcaseReviewSpawnKey, ShowcaseReviewSpawn> = {
   entrance: {
-    key: 'entrance',
-    label: 'Corridor Entrance',
+    key: "entrance",
+    label: "Corridor Entrance",
     station: null,
     offset: [0, REVIEW_GROUND_Y, SHOWCASE_ENTRANCE_START_Z],
     rotation: [0, 0, 0],
@@ -112,8 +117,8 @@ export const PROCEDURAL_REVIEW_SPAWNS: Record<ShowcaseReviewSpawnKey, ShowcaseRe
     cameraPitch: -0.1,
   },
   overviewMid: {
-    key: 'overviewMid',
-    label: 'Mid Corridor Overview',
+    key: "overviewMid",
+    label: "Mid Corridor Overview",
     station: null,
     offset: [6, REVIEW_GROUND_Y, 44],
     rotation: [0, Math.PI * 0.82, 0],
@@ -121,8 +126,8 @@ export const PROCEDURAL_REVIEW_SPAWNS: Record<ShowcaseReviewSpawnKey, ShowcaseRe
     cameraPitch: -0.12,
   },
   overviewEnd: {
-    key: 'overviewEnd',
-    label: 'Deep Corridor Overview',
+    key: "overviewEnd",
+    label: "Deep Corridor Overview",
     station: null,
     offset: [-6, REVIEW_GROUND_Y, -168],
     rotation: [0, 0.12, 0],
@@ -130,126 +135,126 @@ export const PROCEDURAL_REVIEW_SPAWNS: Record<ShowcaseReviewSpawnKey, ShowcaseRe
     cameraPitch: -0.12,
   },
   steps: {
-    key: 'steps',
-    label: 'Steps Bay',
-    station: 'steps',
+    key: "steps",
+    label: "Steps Bay",
+    station: "steps",
     offset: [0, REVIEW_GROUND_Y, 9.5],
     rotation: [0, 0, 0],
     cameraYaw: 0,
     cameraPitch: -0.18,
   },
   slopes: {
-    key: 'slopes',
-    label: 'Slopes Bay',
-    station: 'slopes',
+    key: "slopes",
+    label: "Slopes Bay",
+    station: "slopes",
     offset: [0, REVIEW_GROUND_Y, 9.2],
     rotation: [0, 0, 0],
     cameraYaw: 0,
     cameraPitch: -0.2,
   },
   movement: {
-    key: 'movement',
-    label: 'Movement Bay',
-    station: 'movement',
+    key: "movement",
+    label: "Movement Bay",
+    station: "movement",
     offset: [0, REVIEW_GROUND_Y, 10.4],
     rotation: [0, 0.08, 0],
     cameraYaw: 0.08,
     cameraPitch: -0.2,
   },
   doubleJump: {
-    key: 'doubleJump',
-    label: 'Double Jump Bay',
-    station: 'doubleJump',
+    key: "doubleJump",
+    label: "Double Jump Bay",
+    station: "doubleJump",
     offset: [-2.5, REVIEW_GROUND_Y, 9.2],
     rotation: [0, 0.12, 0],
     cameraYaw: 0.12,
     cameraPitch: -0.26,
   },
   grab: {
-    key: 'grab',
-    label: 'Grab Bay',
-    station: 'grab',
+    key: "grab",
+    label: "Grab Bay",
+    station: "grab",
     offset: [0, REVIEW_GROUND_Y, 9.0],
     rotation: [0, 0, 0],
     cameraYaw: 0,
     cameraPitch: -0.18,
   },
   throw: {
-    key: 'throw',
-    label: 'Throw Bay',
-    station: 'throw',
+    key: "throw",
+    label: "Throw Bay",
+    station: "throw",
     offset: [0, REVIEW_GROUND_Y, 8.9],
     rotation: [0, 0, 0],
     cameraYaw: 0,
     cameraPitch: -0.2,
   },
   door: {
-    key: 'door',
-    label: 'Door Bay',
-    station: 'door',
+    key: "door",
+    label: "Door Bay",
+    station: "door",
     offset: [0, REVIEW_GROUND_Y, 9.0],
     rotation: [0, 0, 0],
     cameraYaw: 0,
     cameraPitch: -0.18,
   },
   vehicles: {
-    key: 'vehicles',
-    label: 'Vehicles Bay',
-    station: 'vehicles',
+    key: "vehicles",
+    label: "Vehicles Bay",
+    station: "vehicles",
     offset: [0, REVIEW_GROUND_Y, 9.4],
     rotation: [0, 0, 0],
     cameraYaw: 0,
     cameraPitch: -0.17,
   },
   platformsMoving: {
-    key: 'platformsMoving',
-    label: 'Moving Platforms Bay',
-    station: 'platformsMoving',
+    key: "platformsMoving",
+    label: "Moving Platforms Bay",
+    station: "platformsMoving",
     offset: [-4.5, REVIEW_GROUND_Y, 13.2],
     rotation: [0, 0.12, 0],
     cameraYaw: 0.12,
     cameraPitch: -0.16,
   },
   platformsPhysics: {
-    key: 'platformsPhysics',
-    label: 'Physics Platforms Bay',
-    station: 'platformsPhysics',
+    key: "platformsPhysics",
+    label: "Physics Platforms Bay",
+    station: "platformsPhysics",
     offset: [5, REVIEW_GROUND_Y, 13.2],
     rotation: [0, -0.08, 0],
     cameraYaw: -0.08,
     cameraPitch: -0.16,
   },
   materials: {
-    key: 'materials',
-    label: 'Materials Bay',
-    station: 'materials',
+    key: "materials",
+    label: "Materials Bay",
+    station: "materials",
     offset: [0, REVIEW_GROUND_Y, 8.8],
     rotation: [0, 0, 0],
     cameraYaw: 0,
     cameraPitch: -0.18,
   },
   vfx: {
-    key: 'vfx',
-    label: 'VFX Bay',
-    station: 'vfx',
+    key: "vfx",
+    label: "VFX Bay",
+    station: "vfx",
     offset: [0, REVIEW_GROUND_Y, 8.8],
     rotation: [0, 0, 0],
     cameraYaw: 0,
     cameraPitch: -0.22,
   },
   navigation: {
-    key: 'navigation',
-    label: 'Navigation Bay',
-    station: 'navigation',
+    key: "navigation",
+    label: "Navigation Bay",
+    station: "navigation",
     offset: [0, REVIEW_GROUND_Y, 9.1],
     rotation: [0, 0, 0],
     cameraYaw: 0,
     cameraPitch: -0.18,
   },
   futureA: {
-    key: 'futureA',
-    label: 'Future Bay',
-    station: 'futureA',
+    key: "futureA",
+    label: "Future Bay",
+    station: "futureA",
     offset: [0, REVIEW_GROUND_Y, 11.8],
     rotation: [0, 0, 0],
     cameraYaw: 0,
@@ -258,23 +263,23 @@ export const PROCEDURAL_REVIEW_SPAWNS: Record<ShowcaseReviewSpawnKey, ShowcaseRe
 };
 
 export const PROCEDURAL_REVIEW_SPAWN_ORDER: ShowcaseReviewSpawnKey[] = [
-  'entrance',
-  'overviewMid',
-  'steps',
-  'slopes',
-  'movement',
-  'doubleJump',
-  'grab',
-  'throw',
-  'door',
-  'vehicles',
-  'platformsMoving',
-  'platformsPhysics',
-  'materials',
-  'vfx',
-  'navigation',
-  'futureA',
-  'overviewEnd',
+  "entrance",
+  "overviewMid",
+  "steps",
+  "slopes",
+  "movement",
+  "doubleJump",
+  "grab",
+  "throw",
+  "door",
+  "vehicles",
+  "platformsMoving",
+  "platformsPhysics",
+  "materials",
+  "vfx",
+  "navigation",
+  "futureA",
+  "overviewEnd",
 ];
 
 export interface ResolvedReviewSpawn {
@@ -285,9 +290,7 @@ export interface ResolvedReviewSpawn {
   cameraPitch: number;
 }
 
-export function resolveProceduralReviewSpawn(
-  key: string,
-): ResolvedReviewSpawn | null {
+export function resolveProceduralReviewSpawn(key: string): ResolvedReviewSpawn | null {
   const reviewSpawn = PROCEDURAL_REVIEW_SPAWNS[key as ShowcaseReviewSpawnKey];
   if (!reviewSpawn) return null;
 

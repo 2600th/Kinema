@@ -1,7 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
-import * as THREE from "three";
 import { EventBus } from "@core/EventBus";
 import { getProceduralCoinPlacements } from "@level/CoinLayout";
+import * as THREE from "three";
+import { describe, expect, it, vi } from "vitest";
 import { CoinCollectibleSystem } from "./CoinCollectibleSystem";
 
 function createSystem() {

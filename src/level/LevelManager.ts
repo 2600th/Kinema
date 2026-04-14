@@ -1,30 +1,30 @@
-import * as THREE from 'three';
-import RAPIER from '@dimforge/rapier3d-compat';
-import type { EventBus } from '@core/EventBus';
-import type { Disposable, SpawnPointData } from '@core/types';
-import type { GraphicsProfile, ShadowQualityTier } from '@core/UserSettings';
-import { COLLISION_GROUP_WORLD } from '@core/constants';
-import type { PhysicsWorld } from '@physics/PhysicsWorld';
-import { ColliderFactory } from '@physics/ColliderFactory';
-import type { LevelDataV2, SerializedObjectV2 } from '@editor/LevelSerializer';
-import { getBrushById } from '@editor/brushes/index';
-import type { ShowcaseStationKey } from '@level/ShowcaseLayout';
-import { NavMeshManager } from '@navigation/NavMeshManager';
-import { NavPatrolSystem } from '@navigation/NavPatrolSystem';
-import { NavDebugOverlay } from '@navigation/NavDebugOverlay';
-import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
-import { AssetLoader } from './AssetLoader';
-import { MeshParser } from './MeshParser';
-import { LevelValidator } from './LevelValidator';
-import { LightingSystem } from './LightingSystem';
+import { COLLISION_GROUP_WORLD } from "@core/constants";
+import type { EventBus } from "@core/EventBus";
+import type { Disposable, SpawnPointData } from "@core/types";
+import type { GraphicsProfile, ShadowQualityTier } from "@core/UserSettings";
+import RAPIER from "@dimforge/rapier3d-compat";
+import { getBrushById } from "@editor/brushes/index";
+import type { LevelDataV2, SerializedObjectV2 } from "@editor/LevelSerializer";
+import type { ShowcaseStationKey } from "@level/ShowcaseLayout";
+import type { NavDebugOverlay } from "@navigation/NavDebugOverlay";
+import type { NavMeshManager } from "@navigation/NavMeshManager";
+import type { NavPatrolSystem } from "@navigation/NavPatrolSystem";
+import { ColliderFactory } from "@physics/ColliderFactory";
+import type { PhysicsWorld } from "@physics/PhysicsWorld";
+import * as THREE from "three";
+import { clone as skeletonClone } from "three/addons/utils/SkeletonUtils.js";
+import { AssetLoader } from "./AssetLoader";
+import { LevelValidator } from "./LevelValidator";
+import { LightingSystem } from "./LightingSystem";
+import { MeshParser } from "./MeshParser";
 import {
-  ProceduralBuilder,
-  type MovingPlatformEntry,
-  type FloatingPlatformEntry,
-  type DynamicBodyEntry,
   type AnimatedMaterialEntry,
   type DustMoteEntry,
-} from './ProceduralBuilder';
+  type DynamicBodyEntry,
+  type FloatingPlatformEntry,
+  type MovingPlatformEntry,
+  ProceduralBuilder,
+} from "./ProceduralBuilder";
 
 const _platformNextPos = new THREE.Vector3();
 const _platformEuler = new THREE.Euler();
@@ -121,7 +121,7 @@ export class LevelManager implements Disposable {
   ) {
     this.colliderFactory = new ColliderFactory(physicsWorld);
     this.lighting = new LightingSystem(scene);
-    if (typeof maxAnisotropy === 'number' && Number.isFinite(maxAnisotropy) && maxAnisotropy > 0) {
+    if (typeof maxAnisotropy === "number" && Number.isFinite(maxAnisotropy) && maxAnisotropy > 0) {
       this.textureAnisotropy = Math.max(1, Math.floor(maxAnisotropy));
     }
   }
@@ -151,9 +151,7 @@ export class LevelManager implements Disposable {
    *  Physics body/collider should be cleaned up by the caller (EditorDocument). */
   removeLevelObject(mesh: THREE.Object3D): void {
     this.levelObjects = this.levelObjects.filter((o) => o !== mesh);
-    this.dynamicBodies = this.dynamicBodies.filter(
-      (d) => (d as { mesh: THREE.Object3D }).mesh !== mesh,
-    );
+    this.dynamicBodies = this.dynamicBodies.filter((d) => (d as { mesh: THREE.Object3D }).mesh !== mesh);
   }
 
   /** Navigation patrol system (for game loop wiring). */
@@ -208,18 +206,18 @@ export class LevelManager implements Disposable {
     // Always reset before each load so levels without spawnpoints are deterministic.
     this.spawnPoint = createDefaultSpawnPoint();
 
-    if (name === 'procedural') {
+    if (name === "procedural") {
       await this.buildProcedural(null);
     } else {
-      this.eventBus.emit('loading:progress', { progress: 0.1 });
+      this.eventBus.emit("loading:progress", { progress: 0.1 });
       await this.loadGLTF(name);
-      this.eventBus.emit('loading:progress', { progress: 0.8 });
+      this.eventBus.emit("loading:progress", { progress: 0.8 });
     }
 
     this.currentLevelName = name;
     this.addLighting();
-    this.eventBus.emit('loading:progress', { progress: 1.0 });
-    this.eventBus.emit('level:loaded', { name });
+    this.eventBus.emit("loading:progress", { progress: 1.0 });
+    this.eventBus.emit("level:loaded", { name });
     console.log(`[LevelManager] Level "${name}" loaded`);
   }
 
@@ -229,12 +227,12 @@ export class LevelManager implements Disposable {
       this.unload();
     }
     this.spawnPoint = createDefaultSpawnPoint();
-    this.eventBus.emit('loading:progress', { progress: 0.1 });
+    this.eventBus.emit("loading:progress", { progress: 0.1 });
     await this.buildProcedural(key);
     this.currentLevelName = `station:${key}`;
     this.addLighting();
-    this.eventBus.emit('loading:progress', { progress: 1.0 });
-    this.eventBus.emit('level:loaded', { name: `station:${key}` });
+    this.eventBus.emit("loading:progress", { progress: 1.0 });
+    this.eventBus.emit("level:loaded", { name: `station:${key}` });
     console.log(`[LevelManager] Station "${key}" loaded`);
   }
 
@@ -252,10 +250,10 @@ export class LevelManager implements Disposable {
       this.unload();
     }
     this.spawnPoint = createDefaultSpawnPoint();
-    this.eventBus.emit('loading:progress', { progress: 0.1 });
+    this.eventBus.emit("loading:progress", { progress: 0.1 });
 
     // Apply spawn point from JSON — prefer tagged spawnPoints array, fall back to legacy
-    const playerSpawn = data.spawnPoints?.find((s) => s.tag === 'player') ?? data.spawnPoints?.[0];
+    const playerSpawn = data.spawnPoints?.find((s) => s.tag === "player") ?? data.spawnPoints?.[0];
     if (playerSpawn) {
       const [x, y, z] = playerSpawn.position;
       this.spawnPoint = {
@@ -283,7 +281,7 @@ export class LevelManager implements Disposable {
     for (const entry of data.objects) {
       const spawned = spawnedObjects.get(entry.id);
       if (!spawned) continue;
-      const parent = entry.parentId ? spawnedObjects.get(entry.parentId)?.obj ?? null : null;
+      const parent = entry.parentId ? (spawnedObjects.get(entry.parentId)?.obj ?? null) : null;
       if (parent) {
         parent.add(spawned.obj);
       } else {
@@ -298,24 +296,24 @@ export class LevelManager implements Disposable {
       this.finalizeSpawnedJSONObject(spawned);
     }
 
-    this.eventBus.emit('loading:progress', { progress: 0.5 });
+    this.eventBus.emit("loading:progress", { progress: 0.5 });
 
-    this.currentLevelName = data.name || 'custom';
+    this.currentLevelName = data.name || "custom";
     this.addLighting();
-    this.eventBus.emit('loading:progress', { progress: 0.8 });
-    this.eventBus.emit('loading:progress', { progress: 1.0 });
-    this.eventBus.emit('level:loaded', { name: this.currentLevelName });
+    this.eventBus.emit("loading:progress", { progress: 0.8 });
+    this.eventBus.emit("loading:progress", { progress: 1.0 });
+    this.eventBus.emit("level:loaded", { name: this.currentLevelName });
     console.log(`[LevelManager] JSON level "${this.currentLevelName}" loaded (${data.objects.length} objects)`);
   }
 
   private async spawnJSONObject(entry: SerializedObjectV2): Promise<SpawnedJsonObject | null> {
     let obj: THREE.Object3D | null = null;
 
-    if (entry.source.type === 'primitive' && entry.source.primitive) {
+    if (entry.source.type === "primitive" && entry.source.primitive) {
       obj = this.createPrimitiveMesh(entry.source.primitive);
-    } else if (entry.source.type === 'brush' && entry.source.brush) {
+    } else if (entry.source.type === "brush" && entry.source.brush) {
       obj = this.createBrushMesh(entry.source.brush);
-    } else if (entry.source.type === 'glb' && entry.source.asset) {
+    } else if (entry.source.type === "glb" && entry.source.asset) {
       obj = await this.loadGLBObject(entry.source.asset);
     }
 
@@ -356,8 +354,8 @@ export class LevelManager implements Disposable {
     obj.name = entry.name;
 
     // Editor-only gizmos (spawn, trigger) — hide in play mode, skip physics
-    const isEditorGizmo = entry.source.type === 'brush' &&
-      (entry.source.brush === 'spawn' || entry.source.brush === 'trigger');
+    const isEditorGizmo =
+      entry.source.type === "brush" && (entry.source.brush === "spawn" || entry.source.brush === "trigger");
     return { entry, obj, isEditorGizmo };
   }
 
@@ -369,11 +367,11 @@ export class LevelManager implements Disposable {
     }
 
     // Create physics body
-    const physType = entry.physics?.type ?? 'static';
+    const physType = entry.physics?.type ?? "static";
     let bodyDesc: RAPIER.RigidBodyDesc;
-    if (physType === 'dynamic') {
+    if (physType === "dynamic") {
       bodyDesc = RAPIER.RigidBodyDesc.dynamic();
-    } else if (physType === 'kinematic') {
+    } else if (physType === "kinematic") {
       bodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased();
     } else {
       bodyDesc = RAPIER.RigidBodyDesc.fixed();
@@ -398,7 +396,7 @@ export class LevelManager implements Disposable {
     this.levelColliders.push(collider);
 
     // Track dynamic bodies for interpolation
-    if (physType === 'dynamic') {
+    if (physType === "dynamic") {
       this.dynamicBodies.push({
         mesh: obj,
         body,
@@ -439,11 +437,7 @@ export class LevelManager implements Disposable {
 
     localBounds.getCenter(scaledCenter);
     localBounds.getSize(scaledSize);
-    scaledCenter.set(
-      scaledCenter.x * obj.scale.x,
-      scaledCenter.y * obj.scale.y,
-      scaledCenter.z * obj.scale.z,
-    );
+    scaledCenter.set(scaledCenter.x * obj.scale.x, scaledCenter.y * obj.scale.y, scaledCenter.z * obj.scale.z);
     scaledSize.set(
       scaledSize.x * Math.abs(obj.scale.x),
       scaledSize.y * Math.abs(obj.scale.y),
@@ -457,14 +451,14 @@ export class LevelManager implements Disposable {
   }
 
   private createPrimitiveMesh(primitive: string): THREE.Object3D {
-    if (primitive === 'group') {
+    if (primitive === "group") {
       return new THREE.Group();
     }
     let geometry: THREE.BufferGeometry;
-    if (primitive === 'sphere') geometry = new THREE.SphereGeometry(0.5, 16, 16);
-    else if (primitive === 'cylinder') geometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 16);
-    else if (primitive === 'capsule') geometry = new THREE.CapsuleGeometry(0.4, 0.6, 6, 12);
-    else if (primitive === 'plane') geometry = new THREE.PlaneGeometry(1, 1);
+    if (primitive === "sphere") geometry = new THREE.SphereGeometry(0.5, 16, 16);
+    else if (primitive === "cylinder") geometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 16);
+    else if (primitive === "capsule") geometry = new THREE.CapsuleGeometry(0.4, 0.6, 6, 12);
+    else if (primitive === "plane") geometry = new THREE.PlaneGeometry(1, 1);
     else geometry = new THREE.BoxGeometry(1, 1, 1);
     return new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0xb0c4de, roughness: 0.6 }));
   }
@@ -515,7 +509,7 @@ export class LevelManager implements Disposable {
     const name = this.currentLevelName;
 
     // Evict GLTF cache to avoid reusing disposed geometries/materials
-    if (name && name !== 'procedural') {
+    if (name && name !== "procedural") {
       this.assetLoader.evict(`/assets/levels/${name}.glb`);
     }
     // Evict per-object imported GLB assets
@@ -592,7 +586,7 @@ export class LevelManager implements Disposable {
     this.spawnPoint = createDefaultSpawnPoint();
 
     if (name) {
-      this.eventBus.emit('level:unloaded', { name });
+      this.eventBus.emit("level:unloaded", { name });
       console.log(`[LevelManager] Level "${name}" unloaded`);
     }
   }
@@ -607,24 +601,24 @@ export class LevelManager implements Disposable {
       let nextRotX = platform.mesh.rotation.x;
 
       switch (platform.mode) {
-        case 'x':
+        case "x":
           _platformNextPos.x = platform.base.x + Math.sin(this.simTime * platform.speed) * platform.amplitude;
           break;
-        case 'y':
+        case "y":
           _platformNextPos.y = platform.base.y + Math.sin(this.simTime * platform.speed) * platform.amplitude;
           break;
-        case 'yRotate':
+        case "yRotate":
           _platformNextPos.y = platform.base.y + Math.sin(this.simTime * platform.speed) * platform.amplitude;
           nextRotY = this.simTime * platform.speed;
           break;
-        case 'xy':
+        case "xy":
           _platformNextPos.x = platform.base.x + Math.sin(this.simTime * platform.speed) * platform.amplitude;
           _platformNextPos.y = platform.base.y + Math.cos(this.simTime * platform.speed) * (platform.amplitude * 0.4);
           break;
-        case 'rotateY':
+        case "rotateY":
           nextRotY = this.simTime * platform.speed;
           break;
-        case 'rotateX':
+        case "rotateX":
           nextRotX = this.simTime * platform.speed;
           break;
       }
@@ -643,14 +637,14 @@ export class LevelManager implements Disposable {
       platform.lastRotY = nextRotY;
 
       platform.mesh.position.copy(_platformNextPos);
-      if (platform.mode === 'rotateY' || platform.mode === 'yRotate') {
+      if (platform.mode === "rotateY" || platform.mode === "yRotate") {
         platform.mesh.rotation.set(
           platform.rotationOffset.x,
           nextRotY + platform.rotationOffset.y,
           platform.rotationOffset.z,
         );
       }
-      if (platform.mode === 'rotateX') {
+      if (platform.mode === "rotateX") {
         platform.mesh.rotation.set(
           nextRotX + platform.rotationOffset.x,
           platform.rotationOffset.y,
@@ -658,13 +652,15 @@ export class LevelManager implements Disposable {
         );
       }
 
-      _platformRV3.x = _platformNextPos.x; _platformRV3.y = _platformNextPos.y; _platformRV3.z = _platformNextPos.z;
+      _platformRV3.x = _platformNextPos.x;
+      _platformRV3.y = _platformNextPos.y;
+      _platformRV3.z = _platformNextPos.z;
       platform.body.setNextKinematicTranslation(_platformRV3);
-      if (typeof platform.body.userData !== 'object' || platform.body.userData === null) {
+      if (typeof platform.body.userData !== "object" || platform.body.userData === null) {
         platform.body.userData = {};
       }
       Object.assign(platform.body.userData as Record<string, unknown>, {
-        kind: 'moving-platform',
+        kind: "moving-platform",
         platformLinearVelocity: {
           x: platform.linearVelocity.x,
           y: platform.linearVelocity.y,
@@ -676,14 +672,17 @@ export class LevelManager implements Disposable {
           z: platform.angularVelocity.z,
         },
       });
-      if (platform.mode === 'rotateY' || platform.mode === 'yRotate' || platform.mode === 'rotateX') {
+      if (platform.mode === "rotateY" || platform.mode === "yRotate" || platform.mode === "rotateX") {
         _platformEuler.set(
-          (platform.mode === 'rotateX' ? nextRotX : 0) + platform.rotationOffset.x,
-          (platform.mode === 'rotateY' || platform.mode === 'yRotate' ? nextRotY : 0) + platform.rotationOffset.y,
+          (platform.mode === "rotateX" ? nextRotX : 0) + platform.rotationOffset.x,
+          (platform.mode === "rotateY" || platform.mode === "yRotate" ? nextRotY : 0) + platform.rotationOffset.y,
           platform.rotationOffset.z,
         );
         _platformQuat.setFromEuler(_platformEuler);
-        _platformRQuat.x = _platformQuat.x; _platformRQuat.y = _platformQuat.y; _platformRQuat.z = _platformQuat.z; _platformRQuat.w = _platformQuat.w;
+        _platformRQuat.x = _platformQuat.x;
+        _platformRQuat.y = _platformQuat.y;
+        _platformRQuat.z = _platformQuat.z;
+        _platformRQuat.w = _platformQuat.w;
         platform.body.setNextKinematicRotation(_platformRQuat);
       }
     }
@@ -693,7 +692,9 @@ export class LevelManager implements Disposable {
       const p = platform.body.translation();
       // Cast from the body center so compressed platforms do not lose their
       // support sample when they dip close to the ground plane.
-      _floatOrigin.x = p.x; _floatOrigin.y = p.y; _floatOrigin.z = p.z;
+      _floatOrigin.x = p.x;
+      _floatOrigin.y = p.y;
+      _floatOrigin.z = p.z;
       const rayHit = this.physicsWorld.castRay(
         _floatOrigin,
         _floatDown,
@@ -705,11 +706,12 @@ export class LevelManager implements Disposable {
       if (rayHit && rayHit.collider.parent()) {
         const lv = platform.body.linvel();
         const floatingForce =
-          platform.springK * (platform.floatingDistance - rayHit.timeOfImpact) -
-          lv.y * platform.dampingC;
+          platform.springK * (platform.floatingDistance - rayHit.timeOfImpact) - lv.y * platform.dampingC;
         const compression = Math.max(0, platform.floatingDistance - rayHit.timeOfImpact);
         const recoveryBoost = compression > 0.18 ? compression * platform.springK * 0.75 : 0;
-        _floatImpulse.x = 0; _floatImpulse.y = floatingForce + recoveryBoost; _floatImpulse.z = 0;
+        _floatImpulse.x = 0;
+        _floatImpulse.y = floatingForce + recoveryBoost;
+        _floatImpulse.z = 0;
         platform.body.applyImpulse(_floatImpulse, true);
       }
 
@@ -761,7 +763,6 @@ export class LevelManager implements Disposable {
       );
       mote.sprite.material.rotation = t * 0.2;
     }
-
   }
 
   /** Runs after physics step: capture poses for interpolation. */
@@ -812,7 +813,7 @@ export class LevelManager implements Disposable {
 
     for (const entry of parsed) {
       switch (entry.type) {
-        case 'spawnpoint':
+        case "spawnpoint":
           entry.object.updateWorldMatrix(true, false);
           entry.object.getWorldPosition(_worldPos);
           entry.object.getWorldQuaternion(_worldQuat);
@@ -822,7 +823,7 @@ export class LevelManager implements Disposable {
           };
           break;
 
-        case 'collider': {
+        case "collider": {
           if (entry.mesh) {
             entry.mesh.visible = false;
             this.bakeWorldTransformAndAdd(entry.mesh);
@@ -852,7 +853,7 @@ export class LevelManager implements Disposable {
           break;
         }
 
-        case 'sensor': {
+        case "sensor": {
           if (entry.mesh) {
             const { collider, body } = this.colliderFactory.createSensor(entry.mesh);
             this.levelColliders.push(collider);
@@ -875,13 +876,16 @@ export class LevelManager implements Disposable {
               this.levelBodies.push(body);
               this.levelColliders.push(collider);
             } else {
-              console.warn('[LevelManager] Sensor node has no mesh and empty bounding box, skipped:', entry.object.name);
+              console.warn(
+                "[LevelManager] Sensor node has no mesh and empty bounding box, skipped:",
+                entry.object.name,
+              );
             }
           }
           break;
         }
 
-        case 'visual':
+        case "visual":
           if (!entry.mesh) break;
           entry.mesh.castShadow = true;
           entry.mesh.receiveShadow = true;
@@ -889,7 +893,7 @@ export class LevelManager implements Disposable {
           this.levelObjects.push(entry.mesh);
           break;
 
-        case 'navmesh':
+        case "navmesh":
           // Future use — skip for now
           break;
       }
@@ -905,7 +909,6 @@ export class LevelManager implements Disposable {
     this.scene.add(mesh);
   }
 
-
   /**
    * Delegate procedural level construction to ProceduralBuilder and absorb its results.
    */
@@ -919,7 +922,7 @@ export class LevelManager implements Disposable {
       this.assetLoader,
     );
     await builder.build((progress) => {
-      this.eventBus.emit('loading:progress', { progress });
+      this.eventBus.emit("loading:progress", { progress });
     });
     const result = builder.getResult();
 
@@ -946,7 +949,6 @@ export class LevelManager implements Disposable {
     this.vfxDisposeCallbacks = result.vfxDisposeCallbacks;
     this.vfxUpdateCallbacks = result.vfxUpdateCallbacks;
   }
-
 
   private addLighting(): void {
     const lightObjects = this.lighting.addLighting();

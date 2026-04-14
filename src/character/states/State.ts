@@ -1,6 +1,6 @@
-import * as THREE from 'three';
-import type { InputState, StateId } from '@core/types';
-import type { PlayerController } from '../PlayerController';
+import type { InputState, StateId } from "@core/types";
+import type * as THREE from "three";
+import type { PlayerController } from "../PlayerController";
 
 /**
  * Abstract base for all character states.

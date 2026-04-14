@@ -1,5 +1,5 @@
-import './hud.css';
-import type { Disposable } from '@core/types';
+import "./hud.css";
+import type { Disposable } from "@core/types";
 
 /**
  * HUD component — shows interaction prompts.
@@ -29,54 +29,54 @@ export class HUD implements Disposable {
 
   constructor(parent: HTMLElement) {
     this.container = parent;
-    this.prompt = document.createElement('div');
-    this.prompt.id = 'hud-prompt';
-    this.prompt.className = 'hud-glass-card hud-prompt';
+    this.prompt = document.createElement("div");
+    this.prompt.id = "hud-prompt";
+    this.prompt.className = "hud-glass-card hud-prompt";
     parent.appendChild(this.prompt);
 
-    this.holdWrap = document.createElement('div');
-    this.holdWrap.id = 'hud-hold';
-    this.holdWrap.className = 'hud-hold-track';
-    this.holdFill = document.createElement('div');
-    this.holdFill.className = 'hud-hold-fill';
-    const holdKey = document.createElement('div');
-    holdKey.className = 'hud-hold-key';
-    holdKey.textContent = 'F';
-    const holdCaption = document.createElement('div');
-    holdCaption.className = 'hud-hold-caption';
-    holdCaption.textContent = 'Hold';
+    this.holdWrap = document.createElement("div");
+    this.holdWrap.id = "hud-hold";
+    this.holdWrap.className = "hud-hold-track";
+    this.holdFill = document.createElement("div");
+    this.holdFill.className = "hud-hold-fill";
+    const holdKey = document.createElement("div");
+    holdKey.className = "hud-hold-key";
+    holdKey.textContent = "F";
+    const holdCaption = document.createElement("div");
+    holdCaption.className = "hud-hold-caption";
+    holdCaption.textContent = "Hold";
     this.holdFill.appendChild(holdKey);
     this.holdFill.appendChild(holdCaption);
     this.holdWrap.appendChild(this.holdFill);
     parent.appendChild(this.holdWrap);
 
-    this.objectiveRegion = document.createElement('div');
-    this.objectiveRegion.className = 'hud-objective-region';
+    this.objectiveRegion = document.createElement("div");
+    this.objectiveRegion.className = "hud-objective-region";
     parent.appendChild(this.objectiveRegion);
 
-    this.objective = document.createElement('div');
-    this.objective.id = 'hud-objective';
-    this.objective.className = 'hud-glass-card hud-objective-card';
-    const objectiveEyebrow = document.createElement('div');
-    objectiveEyebrow.className = 'hud-card-eyebrow';
-    objectiveEyebrow.textContent = 'Objective';
-    this.objectiveText = document.createElement('div');
-    this.objectiveText.className = 'hud-objective-text';
+    this.objective = document.createElement("div");
+    this.objective.id = "hud-objective";
+    this.objective.className = "hud-glass-card hud-objective-card";
+    const objectiveEyebrow = document.createElement("div");
+    objectiveEyebrow.className = "hud-card-eyebrow";
+    objectiveEyebrow.textContent = "Objective";
+    this.objectiveText = document.createElement("div");
+    this.objectiveText.className = "hud-objective-text";
     this.objective.appendChild(objectiveEyebrow);
     this.objective.appendChild(this.objectiveText);
     this.objectiveRegion.appendChild(this.objective);
 
-    this.statusLane = document.createElement('div');
-    this.statusLane.id = 'hud-status-lane';
-    this.statusLane.className = 'hud-status-lane';
+    this.statusLane = document.createElement("div");
+    this.statusLane.id = "hud-status-lane";
+    this.statusLane.className = "hud-status-lane";
     this.objectiveRegion.appendChild(this.statusLane);
 
-    this.crosshair = document.createElement('div');
-    this.crosshair.className = 'hud-crosshair';
+    this.crosshair = document.createElement("div");
+    this.crosshair.className = "hud-crosshair";
     parent.appendChild(this.crosshair);
 
-    this.damageOverlay = document.createElement('div');
-    this.damageOverlay.className = 'hud-damage-overlay';
+    this.damageOverlay = document.createElement("div");
+    this.damageOverlay.className = "hud-damage-overlay";
     parent.appendChild(this.damageOverlay);
 
     this.createCollectibleCounter();
@@ -85,16 +85,16 @@ export class HUD implements Disposable {
 
   showPrompt(text: string): void {
     this.prompt.textContent = text;
-    this.prompt.classList.add('is-visible');
+    this.prompt.classList.add("is-visible");
   }
 
   hidePrompt(): void {
-    this.prompt.classList.remove('is-visible');
+    this.prompt.classList.remove("is-visible");
   }
 
   setHoldProgress(progress: number | null): void {
     if (progress === null) {
-      if (this.holdWrap.classList.contains('is-complete')) {
+      if (this.holdWrap.classList.contains("is-complete")) {
         if (this.holdResetTimer) {
           clearTimeout(this.holdResetTimer);
         }
@@ -112,10 +112,10 @@ export class HUD implements Disposable {
       this.holdResetTimer = null;
     }
     const clamped = Math.max(0, Math.min(1, progress));
-    this.holdWrap.classList.add('is-visible');
-    this.holdWrap.classList.toggle('is-complete', clamped >= 1);
-    this.holdWrap.style.setProperty('--hold-progress', clamped.toFixed(3));
-    this.holdWrap.style.setProperty('--hold-progress-angle', `${(clamped * 360).toFixed(1)}deg`);
+    this.holdWrap.classList.add("is-visible");
+    this.holdWrap.classList.toggle("is-complete", clamped >= 1);
+    this.holdWrap.style.setProperty("--hold-progress", clamped.toFixed(3));
+    this.holdWrap.style.setProperty("--hold-progress-angle", `${(clamped * 360).toFixed(1)}deg`);
   }
 
   setObjective(text: string): void {
@@ -123,26 +123,26 @@ export class HUD implements Disposable {
     this.objectiveText.textContent = text;
     this.showObjective();
     if (changed) {
-      this.triggerPulse(this.objective, 'is-updated', 480);
+      this.triggerPulse(this.objective, "is-updated", 480);
       this.previousObjectiveText = text;
     }
   }
 
   hideObjective(): void {
-    this.objective.classList.remove('is-visible');
+    this.objective.classList.remove("is-visible");
   }
 
   showObjective(): void {
-    this.objective.classList.add('is-visible');
+    this.objective.classList.add("is-visible");
   }
 
   showStatus(text: string, durationMs = 1600): void {
-    const status = document.createElement('div');
-    status.className = 'hud-glass-card hud-status-card';
+    const status = document.createElement("div");
+    status.className = "hud-glass-card hud-status-card";
     status.textContent = text;
     this.statusLane.appendChild(status);
     void status.offsetHeight;
-    status.classList.add('is-visible');
+    status.classList.add("is-visible");
 
     while (this.statusLane.children.length > 3) {
       const oldest = this.statusLane.firstElementChild as HTMLDivElement | null;
@@ -157,16 +157,16 @@ export class HUD implements Disposable {
   }
 
   private createCollectibleCounter(): void {
-    this.collectibleEl = document.createElement('div');
-    this.collectibleEl.className = 'hud-stat-chip hud-collectible-chip';
+    this.collectibleEl = document.createElement("div");
+    this.collectibleEl.className = "hud-stat-chip hud-collectible-chip";
 
-    const icon = document.createElement('div');
-    icon.className = 'hud-stat-icon hud-collectible-icon';
-    icon.textContent = '\u2726';
+    const icon = document.createElement("div");
+    icon.className = "hud-stat-icon hud-collectible-icon";
+    icon.textContent = "\u2726";
 
-    const count = document.createElement('span');
-    count.className = 'collectible-count';
-    count.textContent = '0';
+    const count = document.createElement("span");
+    count.className = "collectible-count";
+    count.textContent = "0";
 
     this.collectibleEl.appendChild(icon);
     this.collectibleEl.appendChild(count);
@@ -174,13 +174,13 @@ export class HUD implements Disposable {
   }
 
   private createHealthHearts(): void {
-    this.healthEl = document.createElement('div');
-    this.healthEl.className = 'hud-stat-chip hud-health-chip';
+    this.healthEl = document.createElement("div");
+    this.healthEl.className = "hud-stat-chip hud-health-chip";
 
     for (let i = 0; i < 3; i++) {
-      const heart = document.createElement('span');
-      heart.className = 'hud-heart is-filled';
-      heart.textContent = '\u2764';
+      const heart = document.createElement("span");
+      heart.className = "hud-heart is-filled";
+      heart.textContent = "\u2764";
       this.hearts.push(heart);
       this.healthEl.appendChild(heart);
     }
@@ -189,13 +189,15 @@ export class HUD implements Disposable {
   }
 
   updateCollectibles(count: number): void {
-    const countEl = this.collectibleEl.querySelector('.collectible-count') as HTMLSpanElement;
+    const countEl = this.collectibleEl.querySelector(".collectible-count") as HTMLSpanElement;
     if (countEl) {
       countEl.textContent = String(count);
       if (count !== this.previousCollectibleCount) {
-        this.triggerPulse(this.collectibleEl, 'is-boosted', 440);
-        countEl.style.transform = 'scale(1.3)';
-        setTimeout(() => { countEl.style.transform = 'scale(1)'; }, 200);
+        this.triggerPulse(this.collectibleEl, "is-boosted", 440);
+        countEl.style.transform = "scale(1.3)";
+        setTimeout(() => {
+          countEl.style.transform = "scale(1)";
+        }, 200);
       }
     }
     this.previousCollectibleCount = count;
@@ -204,14 +206,14 @@ export class HUD implements Disposable {
   updateHealth(current: number, _max: number): void {
     if (this.previousHealth !== null && current < this.previousHealth) {
       const lostCount = this.previousHealth - current;
-      this.healthEl.classList.remove('is-hit');
+      this.healthEl.classList.remove("is-hit");
       void this.healthEl.offsetWidth;
-      this.healthEl.classList.add('is-hit');
+      this.healthEl.classList.add("is-hit");
       if (this.healthHitTimer) {
         clearTimeout(this.healthHitTimer);
       }
       this.healthHitTimer = setTimeout(() => {
-        this.healthEl.classList.remove('is-hit');
+        this.healthEl.classList.remove("is-hit");
         this.healthHitTimer = null;
       }, 620);
 
@@ -222,11 +224,11 @@ export class HUD implements Disposable {
         if (existing) {
           clearTimeout(existing);
         }
-        heart.classList.remove('is-lost');
+        heart.classList.remove("is-lost");
         void heart.offsetWidth;
-        heart.classList.add('is-lost');
+        heart.classList.add("is-lost");
         const timer = setTimeout(() => {
-          heart.classList.remove('is-lost');
+          heart.classList.remove("is-lost");
           this.heartTimers.delete(heart);
         }, 420);
         this.heartTimers.set(heart, timer);
@@ -234,54 +236,54 @@ export class HUD implements Disposable {
       for (let index = 0; index < current; index++) {
         const heart = this.hearts[index];
         if (!heart) continue;
-        this.triggerPulse(heart, 'is-alert', 520);
+        this.triggerPulse(heart, "is-alert", 520);
       }
       this.spawnFloatingDelta(
         this.healthEl,
-        lostCount === 1 ? '-1 Heart' : `-${lostCount} Hearts`,
-        'hud-floating-delta health-loss',
+        lostCount === 1 ? "-1 Heart" : `-${lostCount} Hearts`,
+        "hud-floating-delta health-loss",
       );
     } else if (this.previousHealth !== null && current > this.previousHealth) {
-      this.triggerPulse(this.healthEl, 'is-restored', 460);
+      this.triggerPulse(this.healthEl, "is-restored", 460);
       for (let index = this.previousHealth; index < current; index++) {
         const heart = this.hearts[index];
         if (!heart) continue;
-        this.triggerPulse(heart, 'is-refilled', 420);
+        this.triggerPulse(heart, "is-refilled", 420);
       }
     }
 
     this.hearts.forEach((heart, i) => {
       const filled = i < current;
-      heart.classList.toggle('is-filled', filled);
-      heart.classList.toggle('is-empty', !filled);
+      heart.classList.toggle("is-filled", filled);
+      heart.classList.toggle("is-empty", !filled);
     });
     this.previousHealth = current;
   }
 
   celebrateCollectible(value: number): void {
-    this.triggerPulse(this.collectibleEl, 'is-celebrating', 520);
-    this.spawnFloatingDelta(this.collectibleEl, `+${value}`, 'hud-floating-delta collectible');
+    this.triggerPulse(this.collectibleEl, "is-celebrating", 520);
+    this.spawnFloatingDelta(this.collectibleEl, `+${value}`, "hud-floating-delta collectible");
   }
 
   flashObjectiveComplete(text: string): void {
-    this.triggerPulse(this.objective, 'is-complete', 620);
-    this.spawnFloatingDelta(this.objective, 'Complete', 'hud-floating-delta objective');
+    this.triggerPulse(this.objective, "is-complete", 620);
+    this.spawnFloatingDelta(this.objective, "Complete", "hud-floating-delta objective");
     this.objectiveText.textContent = text;
   }
 
-  flashDamage(reason: 'spike' | 'fall'): void {
-    this.damageOverlay.classList.toggle('is-fall', reason === 'fall');
-    this.triggerPulse(this.damageOverlay, 'is-hit', reason === 'fall' ? 420 : 2500);
+  flashDamage(reason: "spike" | "fall"): void {
+    this.damageOverlay.classList.toggle("is-fall", reason === "fall");
+    this.triggerPulse(this.damageOverlay, "is-hit", reason === "fall" ? 420 : 2500);
   }
 
   showGameHUD(): void {
-    this.collectibleEl.classList.add('is-visible');
-    this.healthEl.classList.add('is-visible');
+    this.collectibleEl.classList.add("is-visible");
+    this.healthEl.classList.add("is-visible");
   }
 
   hideGameHUD(): void {
-    this.collectibleEl.classList.remove('is-visible');
-    this.healthEl.classList.remove('is-visible');
+    this.collectibleEl.classList.remove("is-visible");
+    this.healthEl.classList.remove("is-visible");
   }
 
   dispose(): void {
@@ -327,14 +329,14 @@ export class HUD implements Disposable {
       return;
     }
 
-    status.classList.remove('is-visible');
+    status.classList.remove("is-visible");
     window.setTimeout(() => status.remove(), 180);
   }
 
   private resetHoldProgressVisuals(): void {
-    this.holdWrap.classList.remove('is-visible', 'is-complete');
-    this.holdWrap.style.setProperty('--hold-progress', '0');
-    this.holdWrap.style.setProperty('--hold-progress-angle', '0deg');
+    this.holdWrap.classList.remove("is-visible", "is-complete");
+    this.holdWrap.style.setProperty("--hold-progress", "0");
+    this.holdWrap.style.setProperty("--hold-progress-angle", "0deg");
   }
 
   private triggerPulse(element: HTMLElement, className: string, durationMs: number): void {
@@ -353,14 +355,14 @@ export class HUD implements Disposable {
   }
 
   private spawnFloatingDelta(parent: HTMLElement, text: string, className: string): void {
-    const delta = document.createElement('div');
+    const delta = document.createElement("div");
     delta.className = className;
     delta.textContent = text;
     parent.appendChild(delta);
     void delta.offsetWidth;
-    delta.classList.add('is-visible');
+    delta.classList.add("is-visible");
     window.setTimeout(() => {
-      delta.classList.remove('is-visible');
+      delta.classList.remove("is-visible");
       window.setTimeout(() => delta.remove(), 220);
     }, 320);
   }

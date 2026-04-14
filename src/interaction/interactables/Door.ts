@@ -1,15 +1,15 @@
-import * as THREE from 'three';
-import RAPIER from '@dimforge/rapier3d-compat';
-import { COLLISION_GROUP_INTERACTABLE, COLLISION_GROUP_WORLD } from '@core/constants';
-import type { IInteractable, InteractionAccess, InteractionSpec } from '../Interactable';
-import type { PhysicsWorld } from '@physics/PhysicsWorld';
-import type { PlayerController } from '@character/PlayerController';
+import type { PlayerController } from "@character/PlayerController";
+import { COLLISION_GROUP_INTERACTABLE, COLLISION_GROUP_WORLD } from "@core/constants";
+import RAPIER from "@dimforge/rapier3d-compat";
+import type { PhysicsWorld } from "@physics/PhysicsWorld";
+import * as THREE from "three";
+import type { IInteractable, InteractionAccess, InteractionSpec } from "../Interactable";
 
 const _doorRV3 = new RAPIER.Vector3(0, 0, 0);
 const _doorRQuat = new RAPIER.Quaternion(0, 0, 0, 1);
 
 interface DoorOptions {
-  interactionMode?: 'press' | 'hold';
+  interactionMode?: "press" | "hold";
   holdDuration?: number;
   unlockCondition?: () => boolean;
   lockedReason?: string;
@@ -20,7 +20,9 @@ interface DoorOptions {
  */
 export class Door implements IInteractable {
   readonly id: string;
-  get label(): string { return this.isOpen ? 'Close Door' : 'Open Door'; }
+  get label(): string {
+    return this.isOpen ? "Close Door" : "Open Door";
+  }
   readonly position: THREE.Vector3;
   readonly collider: RAPIER.Collider;
 
@@ -42,7 +44,7 @@ export class Door implements IInteractable {
   private worldPos = new THREE.Vector3();
   private worldQuat = new THREE.Quaternion();
   private playerLocal = new THREE.Vector3();
-  private interactionMode: 'press' | 'hold';
+  private interactionMode: "press" | "hold";
   private holdDuration: number;
   private unlockCondition?: () => boolean;
   private lockedReason: string;
@@ -56,10 +58,10 @@ export class Door implements IInteractable {
   ) {
     this.id = id;
     this.position = position.clone().add(new THREE.Vector3(0, 1.25, 0));
-    this.interactionMode = options?.interactionMode ?? 'press';
+    this.interactionMode = options?.interactionMode ?? "press";
     this.holdDuration = Math.max(options?.holdDuration ?? 0.85, 0.05);
     this.unlockCondition = options?.unlockCondition;
-    this.lockedReason = options?.lockedReason ?? 'The door is locked';
+    this.lockedReason = options?.lockedReason ?? "The door is locked";
 
     // Create door mesh
     const geom = new THREE.BoxGeometry(1.5, 2.5, 0.15);
@@ -81,8 +83,7 @@ export class Door implements IInteractable {
     this.pivot.add(this.mesh);
 
     // Create sensor collider for proximity detection
-    const bodyDesc = RAPIER.RigidBodyDesc.fixed()
-      .setTranslation(position.x, position.y + 1.25, position.z);
+    const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(position.x, position.y + 1.25, position.z);
     this.sensorBody = physicsWorld.world.createRigidBody(bodyDesc);
     const colliderDesc = RAPIER.ColliderDesc.cuboid(1.0, 1.5, 0.5)
       .setSensor(true)
@@ -90,8 +91,11 @@ export class Door implements IInteractable {
     this.collider = physicsWorld.world.createCollider(colliderDesc, this.sensorBody);
 
     // Solid kinematic panel collider so player cannot walk through closed door.
-    const doorBodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased()
-      .setTranslation(position.x, position.y + 1.25, position.z);
+    const doorBodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(
+      position.x,
+      position.y + 1.25,
+      position.z,
+    );
     this.doorBody = physicsWorld.world.createRigidBody(doorBodyDesc);
     const doorColliderDesc = RAPIER.ColliderDesc.cuboid(0.75, 1.25, 0.08)
       .setCollisionGroups(COLLISION_GROUP_WORLD)
@@ -101,15 +105,15 @@ export class Door implements IInteractable {
   }
 
   getInteractionSpec(): InteractionSpec {
-    if (this.interactionMode === 'hold') {
-      return { mode: 'hold', holdDuration: this.holdDuration };
+    if (this.interactionMode === "hold") {
+      return { mode: "hold", holdDuration: this.holdDuration };
     }
-    return { mode: 'press' };
+    return { mode: "press" };
   }
 
   canInteract(player: PlayerController): InteractionAccess {
     if (!player.isGrounded) {
-      return { allowed: false, reason: 'Must be grounded' };
+      return { allowed: false, reason: "Must be grounded" };
     }
     if (this.unlockCondition && !this.unlockCondition()) {
       return {
@@ -133,9 +137,14 @@ export class Door implements IInteractable {
     this.mesh.updateWorldMatrix(true, false);
     this.mesh.getWorldPosition(this.worldPos);
     this.mesh.getWorldQuaternion(this.worldQuat);
-    _doorRV3.x = this.worldPos.x; _doorRV3.y = this.worldPos.y; _doorRV3.z = this.worldPos.z;
+    _doorRV3.x = this.worldPos.x;
+    _doorRV3.y = this.worldPos.y;
+    _doorRV3.z = this.worldPos.z;
     this.doorBody.setNextKinematicTranslation(_doorRV3);
-    _doorRQuat.x = this.worldQuat.x; _doorRQuat.y = this.worldQuat.y; _doorRQuat.z = this.worldQuat.z; _doorRQuat.w = this.worldQuat.w;
+    _doorRQuat.x = this.worldQuat.x;
+    _doorRQuat.y = this.worldQuat.y;
+    _doorRQuat.z = this.worldQuat.z;
+    _doorRQuat.w = this.worldQuat.w;
     this.doorBody.setNextKinematicRotation(_doorRQuat);
   }
 

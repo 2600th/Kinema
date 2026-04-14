@@ -1,6 +1,6 @@
-export type GraphicsProfile = 'performance' | 'balanced' | 'cinematic';
-export type AntiAliasingMode = 'smaa' | 'fxaa' | 'none';
-export type ShadowQualityTier = 'auto' | GraphicsProfile;
+export type GraphicsProfile = "performance" | "balanced" | "cinematic";
+export type AntiAliasingMode = "smaa" | "fxaa" | "none";
+export type ShadowQualityTier = "auto" | GraphicsProfile;
 
 export interface UserSettings {
   mouseSensitivity: number;
@@ -22,8 +22,8 @@ export interface UserSettings {
   sfxVolume: number;
 }
 
-const STORAGE_KEY = 'kinema.user-settings.v1';
-const PROFILE_ORDER: readonly GraphicsProfile[] = ['performance', 'balanced', 'cinematic'] as const;
+const STORAGE_KEY = "kinema.user-settings.v1";
+const PROFILE_ORDER: readonly GraphicsProfile[] = ["performance", "balanced", "cinematic"] as const;
 const MIN_MOUSE_SENSITIVITY = 0.0005;
 const MAX_MOUSE_SENSITIVITY = 0.01;
 const MIN_GAMEPAD_DEADZONE = 0.02;
@@ -48,11 +48,11 @@ export const DEFAULT_USER_SETTINGS: Readonly<UserSettings> = Object.freeze({
   gamepadDeadzone: 0.12,
   gamepadCurve: 1.4,
   // Default aims for a good balance of quality and performance out of the box.
-  graphicsProfile: 'balanced',
-  aaMode: 'fxaa',
+  graphicsProfile: "balanced",
+  aaMode: "fxaa",
   resolutionScale: 1,
   shadowsEnabled: true,
-  shadowQuality: 'auto',
+  shadowQuality: "auto",
   envRotationDegrees: 0,
   casEnabled: false,
   casStrength: 0.2,
@@ -67,7 +67,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function parseSettings(raw: unknown): UserSettings {
-  if (!raw || typeof raw !== 'object') {
+  if (!raw || typeof raw !== "object") {
     return { ...DEFAULT_USER_SETTINGS };
   }
   const value = raw as Partial<UserSettings>;
@@ -79,9 +79,9 @@ function parseSettings(raw: unknown): UserSettings {
   const profileFromLegacyField = (() => {
     // Back-compat: older builds stored graphicsQuality: low|medium|high.
     const legacy = (value as unknown as { graphicsQuality?: unknown }).graphicsQuality;
-    if (legacy === 'low') return 'performance' as const;
-    if (legacy === 'medium') return 'balanced' as const;
-    if (legacy === 'high') return 'cinematic' as const;
+    if (legacy === "low") return "performance" as const;
+    if (legacy === "medium") return "balanced" as const;
+    if (legacy === "high") return "cinematic" as const;
     return null;
   })();
   const profile = profileFromNewField ?? profileFromLegacyField ?? DEFAULT_USER_SETTINGS.graphicsProfile;
@@ -94,11 +94,8 @@ function parseSettings(raw: unknown): UserSettings {
       MIN_MOUSE_SENSITIVITY,
       MAX_MOUSE_SENSITIVITY,
     ),
-    invertY: typeof value.invertY === 'boolean' ? value.invertY : DEFAULT_USER_SETTINGS.invertY,
-    rawMouseInput:
-      typeof value.rawMouseInput === 'boolean'
-        ? value.rawMouseInput
-        : DEFAULT_USER_SETTINGS.rawMouseInput,
+    invertY: typeof value.invertY === "boolean" ? value.invertY : DEFAULT_USER_SETTINGS.invertY,
+    rawMouseInput: typeof value.rawMouseInput === "boolean" ? value.rawMouseInput : DEFAULT_USER_SETTINGS.rawMouseInput,
     gamepadDeadzone: clamp(
       Number.isFinite(value.gamepadDeadzone)
         ? (value.gamepadDeadzone as number)
@@ -115,8 +112,8 @@ function parseSettings(raw: unknown): UserSettings {
     aaMode: (() => {
       const rawMode = (value as Record<string, unknown>).aaMode;
       // Back-compat: older builds stored 'taa'; map it to deterministic SMAA.
-      if (rawMode === 'taa') return 'smaa';
-      if (rawMode === 'smaa' || rawMode === 'fxaa' || rawMode === 'none') return rawMode;
+      if (rawMode === "taa") return "smaa";
+      if (rawMode === "smaa" || rawMode === "fxaa" || rawMode === "none") return rawMode;
       return DEFAULT_USER_SETTINGS.aaMode;
     })(),
     resolutionScale: clamp(
@@ -127,14 +124,14 @@ function parseSettings(raw: unknown): UserSettings {
       MAX_RESOLUTION_SCALE,
     ),
     shadowsEnabled:
-      typeof value.shadowsEnabled === 'boolean' ? value.shadowsEnabled : DEFAULT_USER_SETTINGS.shadowsEnabled,
+      typeof value.shadowsEnabled === "boolean" ? value.shadowsEnabled : DEFAULT_USER_SETTINGS.shadowsEnabled,
     shadowQuality: (() => {
       const rawShadowQuality = (value as Record<string, unknown>).shadowQuality;
       if (
-        rawShadowQuality === 'auto'
-        || rawShadowQuality === 'performance'
-        || rawShadowQuality === 'balanced'
-        || rawShadowQuality === 'cinematic'
+        rawShadowQuality === "auto" ||
+        rawShadowQuality === "performance" ||
+        rawShadowQuality === "balanced" ||
+        rawShadowQuality === "cinematic"
       ) {
         return rawShadowQuality;
       }
@@ -148,7 +145,7 @@ function parseSettings(raw: unknown): UserSettings {
       MAX_ENV_ROTATION_DEGREES,
     ),
     casEnabled:
-      typeof (value as Record<string, unknown>).casEnabled === 'boolean'
+      typeof (value as Record<string, unknown>).casEnabled === "boolean"
         ? ((value as Record<string, unknown>).casEnabled as boolean)
         : DEFAULT_USER_SETTINGS.casEnabled,
     casStrength: clamp(
@@ -182,14 +179,14 @@ function parseSettings(raw: unknown): UserSettings {
 }
 
 function getStorage(): Storage | null {
-  if (typeof globalThis === 'undefined' || !('localStorage' in globalThis)) {
+  if (typeof globalThis === "undefined" || !("localStorage" in globalThis)) {
     return null;
   }
   return globalThis.localStorage ?? null;
 }
 
 export class UserSettingsStore {
-  private constructor(private state: UserSettings) { }
+  private constructor(private state: UserSettings) {}
 
   static load(): UserSettingsStore {
     const storage = getStorage();
@@ -238,4 +235,3 @@ export class UserSettingsStore {
     }
   }
 }
-

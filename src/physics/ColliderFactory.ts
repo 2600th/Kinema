@@ -1,11 +1,7 @@
-import * as THREE from 'three';
-import RAPIER from '@dimforge/rapier3d-compat';
-import {
-  COLLISION_GROUP_WORLD,
-  COLLISION_GROUP_PLAYER,
-  COLLISION_GROUP_PLAYER_SENSOR,
-} from '@core/constants';
-import type { PhysicsWorld } from './PhysicsWorld';
+import { COLLISION_GROUP_PLAYER, COLLISION_GROUP_PLAYER_SENSOR, COLLISION_GROUP_WORLD } from "@core/constants";
+import RAPIER from "@dimforge/rapier3d-compat";
+import * as THREE from "three";
+import type { PhysicsWorld } from "./PhysicsWorld";
 
 /**
  * Converts THREE.Mesh geometry into Rapier colliders.
@@ -33,7 +29,7 @@ export class ColliderFactory {
     mesh.updateWorldMatrix(true, false);
 
     const geometry = mesh.geometry;
-    const posAttr = geometry.getAttribute('position') as THREE.BufferAttribute | undefined;
+    const posAttr = geometry.getAttribute("position") as THREE.BufferAttribute | undefined;
     if (!posAttr || posAttr.itemSize < 3) {
       throw new Error(`[ColliderFactory] Mesh "${mesh.name}" is missing valid position attribute.`);
     }
@@ -81,7 +77,6 @@ export class ColliderFactory {
       .setFriction(0.7)
       .setCollisionGroups(COLLISION_GROUP_WORLD);
 
-
     return this.physicsWorld.world.createCollider(colliderDesc);
   }
 
@@ -96,8 +91,7 @@ export class ColliderFactory {
     const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(center.x, center.y, center.z);
     const body = this.physicsWorld.world.createRigidBody(bodyDesc);
 
-    const colliderDesc = RAPIER.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2)
-      .setSensor(true);
+    const colliderDesc = RAPIER.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2).setSensor(true);
 
     const collider = this.physicsWorld.world.createCollider(colliderDesc, body);
     return { collider, body };
@@ -109,8 +103,7 @@ export class ColliderFactory {
     halfHeight: number,
     radius: number,
   ): { body: RAPIER.RigidBody; collider: RAPIER.Collider } {
-    const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
-      .setTranslation(position.x, position.y, position.z);
+    const bodyDesc = RAPIER.RigidBodyDesc.dynamic().setTranslation(position.x, position.y, position.z);
     const body = this.physicsWorld.world.createRigidBody(bodyDesc);
 
     const colliderDesc = RAPIER.ColliderDesc.capsule(halfHeight, radius)
@@ -122,11 +115,7 @@ export class ColliderFactory {
   }
 
   /** Create a cylinder sensor attached to a body. */
-  createCylinderSensor(
-    body: RAPIER.RigidBody,
-    halfHeight: number,
-    radius: number,
-  ): RAPIER.Collider {
+  createCylinderSensor(body: RAPIER.RigidBody, halfHeight: number, radius: number): RAPIER.Collider {
     const colliderDesc = RAPIER.ColliderDesc.cylinder(halfHeight, radius)
       .setSensor(true)
       .setCollisionGroups(COLLISION_GROUP_PLAYER_SENSOR);

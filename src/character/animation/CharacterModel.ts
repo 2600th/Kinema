@@ -1,7 +1,7 @@
-import * as THREE from 'three';
-import type { AssetLoader } from '@level/AssetLoader';
-import type { Disposable } from '@core/types';
-import type { AnimationProfile } from './AnimationProfile';
+import type { Disposable } from "@core/types";
+import type { AssetLoader } from "@level/AssetLoader";
+import * as THREE from "three";
+import type { AnimationProfile } from "./AnimationProfile";
 
 export class CharacterModel implements Disposable {
   readonly root: THREE.Object3D;
@@ -26,15 +26,11 @@ export class CharacterModel implements Disposable {
     this.baseRootY = baseRootY;
   }
 
-  static async load(
-    profile: AnimationProfile,
-    parent: THREE.Object3D,
-    loader: AssetLoader,
-  ): Promise<CharacterModel> {
+  static async load(profile: AnimationProfile, parent: THREE.Object3D, loader: AssetLoader): Promise<CharacterModel> {
     // 1. Load model GLB
     const modelGltf = await loader.load(profile.modelUrl);
     const root = modelGltf.scene as THREE.Group;
-    root.name = 'CharacterModel';
+    root.name = "CharacterModel";
 
     // 2. Enable shadows + clone materials so each character has independent colors
     root.traverse((node) => {
@@ -70,7 +66,7 @@ export class CharacterModel implements Disposable {
 
     // 5. Attach to parent, hide capsule
     parent.add(root);
-    const capsule = parent.getObjectByName('PlayerCapsule');
+    const capsule = parent.getObjectByName("PlayerCapsule");
     if (capsule) capsule.visible = false;
 
     // 6. Collect clips from all animation URLs (clone to avoid cache mutation)
@@ -102,33 +98,37 @@ export class CharacterModel implements Disposable {
 
     // Diagnostic: verify track targets match skeleton bones
     const boneNames: string[] = [];
-    root.traverse((n) => { if ((n as THREE.Bone).isBone) boneNames.push(n.name); });
+    root.traverse((n) => {
+      if ((n as THREE.Bone).isBone) boneNames.push(n.name);
+    });
     const trackBoneNames = new Set<string>();
     for (const clip of clips.values()) {
       for (const track of clip.tracks) {
-        trackBoneNames.add(track.name.split('.')[0]);
+        trackBoneNames.add(track.name.split(".")[0]);
       }
     }
-    const missing = [...trackBoneNames].filter(n => !boneNames.includes(n));
+    const missing = [...trackBoneNames].filter((n) => !boneNames.includes(n));
     if (missing.length > 0) {
-      console.warn('[CharacterModel] Track targets NOT found in skeleton:', missing);
+      console.warn("[CharacterModel] Track targets NOT found in skeleton:", missing);
     }
-    console.debug(`[CharacterModel] Loaded: ${clips.size} clips, ${boneNames.length} bones, ${trackBoneNames.size} track targets, ${missing.length} missing`);
+    console.debug(
+      `[CharacterModel] Loaded: ${clips.size} clips, ${boneNames.length} bones, ${trackBoneNames.size} track targets, ${missing.length} missing`,
+    );
 
     // Verify SkinnedMesh is properly bound to skeleton
-    let skinnedMeshCount = 0;
     root.traverse((n) => {
       if ((n as THREE.SkinnedMesh).isSkinnedMesh) {
-        skinnedMeshCount++;
         const sm = n as THREE.SkinnedMesh;
-        console.debug(`[CharacterModel] SkinnedMesh "${sm.name}": skeleton has ${sm.skeleton?.bones?.length ?? 0} bones, bound=${sm.skeleton?.bones?.[0]?.parent ? 'yes' : 'no'}`);
+        console.debug(
+          `[CharacterModel] SkinnedMesh "${sm.name}": skeleton has ${sm.skeleton?.bones?.length ?? 0} bones, bound=${sm.skeleton?.bones?.[0]?.parent ? "yes" : "no"}`,
+        );
       }
     });
 
     // Find right hand bone for grab/carry attachment
     let handBone: THREE.Object3D | null = null;
     root.traverse((n) => {
-      if (!handBone && (n as THREE.Bone).isBone && n.name === 'hand_r') {
+      if (!handBone && (n as THREE.Bone).isBone && n.name === "hand_r") {
         handBone = n;
       }
     });
@@ -221,7 +221,7 @@ export class CharacterModel implements Disposable {
     const parent = this.root.parent;
     if (parent) {
       parent.remove(this.root);
-      const capsule = parent.getObjectByName('PlayerCapsule');
+      const capsule = parent.getObjectByName("PlayerCapsule");
       if (capsule) capsule.visible = true;
     }
     this.root.traverse((node) => {
@@ -247,21 +247,21 @@ export class CharacterModel implements Disposable {
   }
 
   private static findRootBoneName(root: THREE.Object3D): string {
-    let boneName = '';
+    let boneName = "";
     root.traverse((node) => {
       if (!boneName && (node as THREE.Bone).isBone) {
         boneName = node.name;
       }
     });
-    return boneName || 'root';
+    return boneName || "root";
   }
 
   private static stripRootMotion(clip: THREE.AnimationClip, rootBoneName: string): void {
     for (const track of clip.tracks) {
-      if (track.name === rootBoneName + '.position') {
+      if (track.name === `${rootBoneName}.position`) {
         const values = track.values;
         for (let i = 0; i < values.length; i += 3) {
-          values[i] = 0;     // X
+          values[i] = 0; // X
           values[i + 1] = 0; // Y
           values[i + 2] = 0; // Z
         }
@@ -290,9 +290,8 @@ export class CharacterModel implements Disposable {
       return material;
     }
 
-    const physical = material instanceof THREE.MeshPhysicalMaterial
-      ? material
-      : CharacterModel.upgradeStandardToPhysical(material);
+    const physical =
+      material instanceof THREE.MeshPhysicalMaterial ? material : CharacterModel.upgradeStandardToPhysical(material);
 
     const basePalette = [
       new THREE.Color(0x5a41c7),

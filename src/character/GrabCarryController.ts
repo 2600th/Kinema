@@ -1,7 +1,7 @@
-import * as THREE from 'three';
-import RAPIER from '@dimforge/rapier3d-compat';
-import type { EventBus } from '@core/EventBus';
-import { COLLISION_GROUP_WORLD_ONLY } from '@core/constants';
+import { COLLISION_GROUP_WORLD_ONLY } from "@core/constants";
+import type { EventBus } from "@core/EventBus";
+import RAPIER from "@dimforge/rapier3d-compat";
+import * as THREE from "three";
 
 // Pre-allocated vectors used only by grab/carry logic.
 const _grabTarget = new THREE.Vector3();
@@ -14,15 +14,24 @@ const _rv3A = new RAPIER.Vector3(0, 0, 0);
 const _rv3B = new RAPIER.Vector3(0, 0, 0);
 const _rqA = new RAPIER.Quaternion(0, 0, 0, 1);
 
+type CuboidColliderLike = RAPIER.Collider & {
+  halfExtents?: () => { x: number; y: number; z: number };
+};
+
 /** Set x/y/z on a pre-allocated RAPIER.Vector3 and return it. */
 function _setRV(v: RAPIER.Vector3, x: number, y: number, z: number): RAPIER.Vector3 {
-  v.x = x; v.y = y; v.z = z;
+  v.x = x;
+  v.y = y;
+  v.z = z;
   return v;
 }
 
 /** Set x/y/z/w on a pre-allocated RAPIER.Quaternion and return it. */
 function _setRQ(q: RAPIER.Quaternion, x: number, y: number, z: number, w: number): RAPIER.Quaternion {
-  q.x = x; q.y = y; q.z = z; q.w = w;
+  q.x = x;
+  q.y = y;
+  q.z = z;
+  q.w = w;
   return q;
 }
 
@@ -102,14 +111,15 @@ export class GrabCarryController {
       this.grabbedActiveCollisionTypes = collider.activeCollisionTypes();
       collider.setCollisionGroups(COLLISION_GROUP_WORLD_ONLY);
       // Enable kinematic-vs-fixed collisions so the held object doesn't ghost through walls
-      collider.setActiveCollisionTypes(RAPIER.ActiveCollisionTypes.DEFAULT | RAPIER.ActiveCollisionTypes.KINEMATIC_FIXED);
+      collider.setActiveCollisionTypes(
+        RAPIER.ActiveCollisionTypes.DEFAULT | RAPIER.ActiveCollisionTypes.KINEMATIC_FIXED,
+      );
     } else {
       this.grabbedCollisionGroups = null;
       this.grabbedActiveCollisionTypes = null;
     }
     const bodyPos = body.translation();
-    const sourceOffset =
-      offset ?? new THREE.Vector3(bodyPos.x, bodyPos.y, bodyPos.z).sub(playerPosition);
+    const sourceOffset = offset ?? new THREE.Vector3(bodyPos.x, bodyPos.y, bodyPos.z).sub(playerPosition);
     // Keep grab distance short for natural push/pull feel (arm's length)
     this.grabDistance = Math.min(1.0, Math.max(0.6, Math.sqrt(sourceOffset.x ** 2 + sourceOffset.z ** 2)));
     this.grabOriginalY = bodyPos.y;
@@ -123,15 +133,21 @@ export class GrabCarryController {
   /** Find which horizontal box face the player is closest to and lock the grab axis. */
   private computeGrabFace(body: RAPIER.RigidBody, playerPosition: THREE.Vector3): void {
     const collider = body.collider(0);
-    if (!collider) { this.grabFaceNormal = null; return; }
+    if (!collider) {
+      this.grabFaceNormal = null;
+      return;
+    }
 
     const bodyPos = body.translation();
     const bodyRot = body.rotation();
     const q = new THREE.Quaternion(bodyRot.x, bodyRot.y, bodyRot.z, bodyRot.w);
 
     // Get half-extents for a cuboid collider
-    const he = (collider as any).halfExtents?.();
-    if (!he) { this.grabFaceNormal = null; return; }
+    const he = (collider as CuboidColliderLike).halfExtents?.();
+    if (!he) {
+      this.grabFaceNormal = null;
+      return;
+    }
 
     // Test 4 horizontal face normals rotated by body orientation
     const normals: THREE.Vector3[] = [
@@ -182,7 +198,7 @@ export class GrabCarryController {
     this.grabbedCollisionGroups = null;
     this.grabFaceNormal = null;
     this.grabWeightMult = 1.0;
-    eventBus.emit('interaction:grabEnd', undefined);
+    eventBus.emit("interaction:grabEnd", undefined);
   }
 
   updateGrab(playerPosition: THREE.Vector3, cameraForward: THREE.Vector3): void {
@@ -252,9 +268,7 @@ export class GrabCarryController {
     // Release from the current carry socket so throws originate from the palm,
     // then push slightly forward to avoid immediate self-overlap.
     const bodyPos = object.body.translation();
-    const release = releasePosition
-      ? releasePosition
-      : new THREE.Vector3(bodyPos.x, bodyPos.y, bodyPos.z);
+    const release = releasePosition ? releasePosition : new THREE.Vector3(bodyPos.x, bodyPos.y, bodyPos.z);
     const clearance = releasePosition ? 0.12 : 0.35;
     object.body.setTranslation(
       _setRV(
@@ -266,7 +280,10 @@ export class GrabCarryController {
       true,
     );
     if (releaseRotation) {
-      object.body.setRotation(_setRQ(_rqA, releaseRotation.x, releaseRotation.y, releaseRotation.z, releaseRotation.w), true);
+      object.body.setRotation(
+        _setRQ(_rqA, releaseRotation.x, releaseRotation.y, releaseRotation.z, releaseRotation.w),
+        true,
+      );
     }
 
     // Treat throwForce as a *target throw speed* (m/s) rather than a raw impulse.
@@ -277,7 +294,7 @@ export class GrabCarryController {
     );
     // Add some spin for readability.
     object.body.setAngvel(_setRV(_rv3B, forward.z * 6, 5, -forward.x * 6), true);
-    eventBus.emit('interaction:throw', { direction: forward.clone(), force: targetSpeed });
+    eventBus.emit("interaction:throw", { direction: forward.clone(), force: targetSpeed });
   }
 
   dropCarried(
@@ -294,7 +311,7 @@ export class GrabCarryController {
     this.releaseCarryBody();
     object.body.setTranslation(_setRV(_rv3A, _carryTarget.x, _carryTarget.y, _carryTarget.z), true);
     object.body.setLinvel(_setRV(_rv3B, 0, 0, 0), true);
-    eventBus.emit('interaction:drop', undefined);
+    eventBus.emit("interaction:drop", undefined);
   }
 
   /** Update carry position to a specific world-space target (e.g., hand bone). */
@@ -302,13 +319,9 @@ export class GrabCarryController {
     if (!this.carriedObject) return;
     // Use setNextKinematicTranslation so Rapier computes derived velocity
     // for proper collision response (not teleport via setTranslation).
-    this.carriedObject.body.setNextKinematicTranslation(
-      _setRV(_rv3A, target.x, target.y, target.z),
-    );
+    this.carriedObject.body.setNextKinematicTranslation(_setRV(_rv3A, target.x, target.y, target.z));
     if (rotation) {
-      this.carriedObject.body.setNextKinematicRotation(
-        _setRQ(_rqA, rotation.x, rotation.y, rotation.z, rotation.w),
-      );
+      this.carriedObject.body.setNextKinematicRotation(_setRQ(_rqA, rotation.x, rotation.y, rotation.z, rotation.w));
     }
   }
 
@@ -329,7 +342,8 @@ export class GrabCarryController {
       const collider = body.collider(0);
       if (collider) {
         if (this.grabbedCollisionGroups != null) collider.setCollisionGroups(this.grabbedCollisionGroups);
-        if (this.grabbedActiveCollisionTypes != null) collider.setActiveCollisionTypes(this.grabbedActiveCollisionTypes);
+        if (this.grabbedActiveCollisionTypes != null)
+          collider.setActiveCollisionTypes(this.grabbedActiveCollisionTypes);
       }
       body.setBodyType(this.grabbedBodyType ?? RAPIER.RigidBodyType.Dynamic, true);
       body.setGravityScale(this.grabbedGravityScale ?? 1, true);

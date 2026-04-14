@@ -1,15 +1,15 @@
-import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { type BrushDefinition, type BrushParams, computeRectFootprint, MIN_BRUSH_DIMENSION } from './Brush';
+import * as THREE from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { type BrushDefinition, type BrushParams, computeRectFootprint, MIN_BRUSH_DIMENSION } from "./Brush";
 
 const DEFAULT_STEP_COUNT = 8;
 
 export const StairsBrush: BrushDefinition = {
-  id: 'stairs',
-  label: 'Stairs',
-  shortcut: '4',
+  id: "stairs",
+  label: "Stairs",
+  shortcut: "4",
   // Staircase icon — ascending steps
-  icon: 'M2 20h4v-4h4v-4h4v-4h4v-4h2v20H2z',
+  icon: "M2 20h4v-4h4v-4h4v-4h4v-4h2v20H2z",
   defaultParams: { current: new THREE.Vector3(2, 0, 3), height: 3 },
 
   buildPreviewGeometry(params: BrushParams): THREE.BufferGeometry {

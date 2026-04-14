@@ -1,7 +1,7 @@
-import * as THREE from 'three';
-import RAPIER from '@dimforge/rapier3d-compat';
-import type { PlayerConfig } from '@core/types';
-import type { PhysicsWorld } from '@physics/PhysicsWorld';
+import type { PlayerConfig } from "@core/types";
+import RAPIER from "@dimforge/rapier3d-compat";
+import type { PhysicsWorld } from "@physics/PhysicsWorld";
+import * as THREE from "three";
 
 // Pre-allocated vectors for ground queries — owned by the motor.
 const _rayOrigin = new THREE.Vector3();
@@ -23,16 +23,18 @@ const _identityQuat = new RAPIER.Quaternion(0, 0, 0, 1);
 
 /** Set x/y/z on a pre-allocated RAPIER.Vector3 and return it. */
 function _setRV(v: RAPIER.Vector3, x: number, y: number, z: number): RAPIER.Vector3 {
-  v.x = x; v.y = y; v.z = z;
+  v.x = x;
+  v.y = y;
+  v.z = z;
   return v;
 }
 
 function getBodyKind(body: RAPIER.RigidBody | null): string | null {
   if (!body) return null;
   const data = body.userData;
-  if (typeof data !== 'object' || data === null) return null;
+  if (typeof data !== "object" || data === null) return null;
   const kind = (data as { kind?: unknown }).kind;
-  return typeof kind === 'string' ? kind : null;
+  return typeof kind === "string" ? kind : null;
 }
 
 /** Raycast filter: skip sensors and vehicle colliders. */
@@ -41,7 +43,7 @@ export function notSensorOrVehicle(c: RAPIER.Collider): boolean {
   const parent = c.parent();
   if (parent) {
     const ud = parent.userData as { kind?: string } | null;
-    if (ud?.kind === 'vehicle') return false;
+    if (ud?.kind === "vehicle") return false;
   }
   return true;
 }
@@ -66,9 +68,9 @@ export interface GroundInfo {
 export function shouldApplyGroundReaction(body: RAPIER.RigidBody | null): boolean {
   if (!body) return false;
   const data = body.userData;
-  if (typeof data !== 'object' || data === null) return true;
+  if (typeof data !== "object" || data === null) return true;
   const kind = (data as { kind?: unknown }).kind;
-  return kind !== 'throwable' && kind !== 'vehicle';
+  return kind !== "throwable" && kind !== "vehicle";
 }
 
 /**
@@ -95,11 +97,7 @@ export class CharacterMotor {
   ): GroundInfo {
     const pos = body.translation();
 
-    _rayOrigin.set(
-      pos.x,
-      pos.y - capsuleHalfHeight,
-      pos.z,
-    );
+    _rayOrigin.set(pos.x, pos.y - capsuleHalfHeight, pos.z);
 
     // Use a sphere shape cast instead of a zero-width ray for ground detection.
     // This prevents premature ungrounding on ledge edges where the capsule
@@ -141,7 +139,9 @@ export class CharacterMotor {
       );
       if (standingNormal) {
         const standAngle = new THREE.Vector3(
-          standingNormal.normal.x, standingNormal.normal.y, standingNormal.normal.z,
+          standingNormal.normal.x,
+          standingNormal.normal.y,
+          standingNormal.normal.z,
         ).angleTo(_worldUp);
         standingSlopeAllowed = standAngle < config.slopeMaxAngle;
       }
@@ -197,10 +197,8 @@ export class CharacterMotor {
       _rayOrigin.z,
     );
 
-    let groundBody: RAPIER.RigidBody | null = null;
-    if (floatingShapeHit?.collider.parent() && canJump) {
-      groundBody = floatingShapeHit.collider.parent()!;
-    }
+    const standingBody = floatingShapeHit?.collider.parent() ?? null;
+    const groundBody = canJump ? standingBody : null;
 
     return {
       closeToGround,
@@ -237,10 +235,15 @@ export class CharacterMotor {
 
     const standingBody = groundInfo.floatingRayHit.collider.parent();
     if (standingBody && floatingForce > 0 && shouldApplyGroundReaction(standingBody)) {
-      const reactionScale = getBodyKind(standingBody) === 'floating-platform' ? 0.28 : 1;
+      const reactionScale = getBodyKind(standingBody) === "floating-platform" ? 0.28 : 1;
       standingBody.applyImpulseAtPoint(
         _setRV(_rv3A, 0, -floatingForce * reactionScale, 0),
-        _setRV(_rv3B, groundInfo.standingForcePoint.x, groundInfo.standingForcePoint.y, groundInfo.standingForcePoint.z),
+        _setRV(
+          _rv3B,
+          groundInfo.standingForcePoint.x,
+          groundInfo.standingForcePoint.y,
+          groundInfo.standingForcePoint.z,
+        ),
         true,
       );
     }
@@ -249,12 +252,7 @@ export class CharacterMotor {
   /**
    * Apply gravity scaling (apex, falling, terminal velocity clamp).
    */
-  applyGravity(
-    body: RAPIER.RigidBody,
-    currentVelY: number,
-    canJump: boolean,
-    config: PlayerConfig,
-  ): void {
+  applyGravity(body: RAPIER.RigidBody, currentVelY: number, canJump: boolean, config: PlayerConfig): void {
     if (currentVelY < -config.fallingMaxVelocity) {
       const lv = body.linvel();
       body.setLinvel(_setRV(_rv3A, lv.x, -config.fallingMaxVelocity, lv.z), true);
@@ -274,10 +272,7 @@ export class CharacterMotor {
   }
 
   /** Apply variable jump cut (called from PlayerController when jump key released while rising). */
-  applyJumpCut(
-    body: RAPIER.RigidBody,
-    config: PlayerConfig,
-  ): void {
+  applyJumpCut(body: RAPIER.RigidBody, config: PlayerConfig): void {
     const jumpCutCeiling = config.jumpForce * 0.58;
     const lv = body.linvel();
     const newVy = Math.min(lv.y, jumpCutCeiling);

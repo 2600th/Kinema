@@ -1,6 +1,6 @@
-import * as THREE from 'three';
-import { STATE, type InputState, type StateId } from '@core/types';
-import { State } from './State';
+import { type InputState, STATE, type StateId } from "@core/types";
+import * as THREE from "three";
+import { State } from "./State";
 
 const _result = new THREE.Vector3();
 

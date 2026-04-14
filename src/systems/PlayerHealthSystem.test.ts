@@ -1,6 +1,6 @@
+import { EventBus } from "@core/EventBus";
 import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
-import { EventBus } from "@core/EventBus";
 import { PlayerHealthSystem } from "./PlayerHealthSystem";
 
 describe("PlayerHealthSystem", () => {

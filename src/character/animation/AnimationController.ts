@@ -1,9 +1,9 @@
-import * as THREE from 'three';
-import { AnimationUtils } from 'three';
-import type { Disposable, StateId } from '@core/types';
-import { STATE } from '@core/types';
-import type { AnimationProfile } from './AnimationProfile';
-import type { CharacterModel } from './CharacterModel';
+import type { Disposable, StateId } from "@core/types";
+import { STATE } from "@core/types";
+import * as THREE from "three";
+import { AnimationUtils } from "three";
+import type { AnimationProfile } from "./AnimationProfile";
+import type { CharacterModel } from "./CharacterModel";
 
 const FADE_LOCOMOTION = 0.15;
 const FADE_ACTION = 0.1;
@@ -15,6 +15,13 @@ const SPRINT_AUTHORED_SPEED = 6.5;
 
 const WEIGHT_LAMBDA = 8;
 const SPEED_SWITCH_THRESHOLD = 0.1;
+
+type MixerFinishedListener = THREE.EventListener<
+  THREE.AnimationMixerEventMap["finished"],
+  "finished",
+  THREE.AnimationMixer
+>;
+type MixerLoopListener = THREE.EventListener<THREE.AnimationMixerEventMap["loop"], "loop", THREE.AnimationMixer>;
 
 /** Callback interface for animation-driven gameplay events. */
 export interface AnimationEventListener {
@@ -56,7 +63,7 @@ export class AnimationController implements Disposable {
   private carryIdleWeight = 1;
   private carryMoveWeight = 0;
 
-  private onMixerFinished = (e: { type: string; action: THREE.AnimationAction }) => {
+  private onMixerFinished: MixerFinishedListener = (e) => {
     if (e.action === this.additiveAction) {
       this.additiveAction.fadeOut(FADE_ACTION);
       this.additiveAction = null;
@@ -70,7 +77,7 @@ export class AnimationController implements Disposable {
     }
   };
 
-  private onMixerLoop = (e: { type: string; action: THREE.AnimationAction }) => {
+  private onMixerLoop: MixerLoopListener = (e) => {
     const a = e.action;
 
     // Main locomotion blend: only fire for the dominant (highest weight) action
@@ -101,8 +108,8 @@ export class AnimationController implements Disposable {
   ) {
     this.additiveClipNames = new Set(profile.additiveOneShots ?? []);
     this.mixer = new THREE.AnimationMixer(model.root);
-    this.mixer.addEventListener('finished', this.onMixerFinished as any);
-    this.mixer.addEventListener('loop', this.onMixerLoop as any);
+    this.mixer.addEventListener("finished", this.onMixerFinished);
+    this.mixer.addEventListener("loop", this.onMixerLoop);
     this.buildActions();
     this.buildAdditiveOneShots();
     this.playImmediate(STATE.idle);
@@ -117,16 +124,17 @@ export class AnimationController implements Disposable {
     const clips = this.model.clips;
 
     for (const [stateId, clipDef] of Object.entries(stateMap)) {
-      const clip = clips.get(clipDef!.clip);
+      if (!clipDef) continue;
+      const clip = clips.get(clipDef.clip);
       if (!clip) {
-        console.warn(`[AnimationController] Clip "${clipDef!.clip}" not found for state "${stateId}"`);
+        console.warn(`[AnimationController] Clip "${clipDef.clip}" not found for state "${stateId}"`);
         continue;
       }
       const action = this.mixer.clipAction(clip);
       action.enabled = true;
-      action.loop = clipDef!.loop ? THREE.LoopRepeat : THREE.LoopOnce;
-      action.clampWhenFinished = !clipDef!.loop;
-      if (clipDef!.timeScale != null) action.timeScale = clipDef!.timeScale;
+      action.loop = clipDef.loop ? THREE.LoopRepeat : THREE.LoopOnce;
+      action.clampWhenFinished = !clipDef.loop;
+      if (clipDef.timeScale != null) action.timeScale = clipDef.timeScale;
       // Don't pre-play — actions are activated on demand via setState/activateLocomotion
       this.actions.set(stateId, action);
     }
@@ -195,9 +203,8 @@ export class AnimationController implements Disposable {
     const prevState = this.currentState;
     this.currentState = state;
 
-    const fadeDuration = state === STATE.land ? FADE_LAND
-      : (state === STATE.move || state === STATE.idle) ? FADE_LOCOMOTION
-      : FADE_ACTION;
+    const fadeDuration =
+      state === STATE.land ? FADE_LAND : state === STATE.move || state === STATE.idle ? FADE_LOCOMOTION : FADE_ACTION;
 
     if (prevState === STATE.move && state !== STATE.move) {
       this.deactivateLocomotion(fadeDuration);
@@ -274,17 +281,29 @@ export class AnimationController implements Disposable {
       }
 
       const a = this.forwardAlignment;
-      if (this.locoWalk) this.locoWalk.timeScale = Math.max(0.1, a * horizontalSpeed / WALK_AUTHORED_SPEED);
-      if (this.locoJog) this.locoJog.timeScale = Math.max(0.1, a * horizontalSpeed / JOG_AUTHORED_SPEED);
-      if (this.locoSprint) this.locoSprint.timeScale = Math.max(0.1, a * horizontalSpeed / SPRINT_AUTHORED_SPEED);
+      if (this.locoWalk) this.locoWalk.timeScale = Math.max(0.1, (a * horizontalSpeed) / WALK_AUTHORED_SPEED);
+      if (this.locoJog) this.locoJog.timeScale = Math.max(0.1, (a * horizontalSpeed) / JOG_AUTHORED_SPEED);
+      if (this.locoSprint) this.locoSprint.timeScale = Math.max(0.1, (a * horizontalSpeed) / SPRINT_AUTHORED_SPEED);
     }
 
     if (this.currentState === STATE.crouch && this.crouchIdleAction && this.crouchMoveAction) {
-      this.updateSpeedSwitch(this.crouchIdleAction, this.crouchMoveAction, horizontalSpeed, 'crouchIdleWeight', 'crouchMoveWeight');
+      this.updateSpeedSwitch(
+        this.crouchIdleAction,
+        this.crouchMoveAction,
+        horizontalSpeed,
+        "crouchIdleWeight",
+        "crouchMoveWeight",
+      );
     }
 
     if (this.currentState === STATE.carry && this.carryIdleAction && this.carryMoveAction) {
-      this.updateSpeedSwitch(this.carryIdleAction, this.carryMoveAction, horizontalSpeed, 'carryIdleWeight', 'carryMoveWeight');
+      this.updateSpeedSwitch(
+        this.carryIdleAction,
+        this.carryMoveAction,
+        horizontalSpeed,
+        "carryIdleWeight",
+        "carryMoveWeight",
+      );
     }
   }
 
@@ -412,8 +431,8 @@ export class AnimationController implements Disposable {
   }
 
   dispose(): void {
-    this.mixer.removeEventListener('finished', this.onMixerFinished as any);
-    this.mixer.removeEventListener('loop', this.onMixerLoop as any);
+    this.mixer.removeEventListener("finished", this.onMixerFinished);
+    this.mixer.removeEventListener("loop", this.onMixerLoop);
     this.mixer.stopAllAction();
     this.mixer.uncacheRoot(this.model.root);
     this.actions.clear();
@@ -444,9 +463,18 @@ export class AnimationController implements Disposable {
     this.locoWeights.jog = 0;
     this.locoWeights.sprint = 0;
 
-    if (this.locoWalk) { this.locoWalk.reset().play(); this.locoWalk.setEffectiveWeight(0); }
-    if (this.locoJog) { this.locoJog.reset().play(); this.locoJog.setEffectiveWeight(0); }
-    if (this.locoSprint) { this.locoSprint.reset().play(); this.locoSprint.setEffectiveWeight(0); }
+    if (this.locoWalk) {
+      this.locoWalk.reset().play();
+      this.locoWalk.setEffectiveWeight(0);
+    }
+    if (this.locoJog) {
+      this.locoJog.reset().play();
+      this.locoJog.setEffectiveWeight(0);
+    }
+    if (this.locoSprint) {
+      this.locoSprint.reset().play();
+      this.locoSprint.setEffectiveWeight(0);
+    }
   }
 
   private deactivateLocomotion(fadeDuration: number): void {
@@ -462,8 +490,14 @@ export class AnimationController implements Disposable {
     _fadeDuration: number,
   ): void {
     const moving = this.speed > SPEED_SWITCH_THRESHOLD;
-    if (idleAction) { idleAction.reset().play(); idleAction.setEffectiveWeight(moving ? 0 : 1); }
-    if (moveAction) { moveAction.reset().play(); moveAction.setEffectiveWeight(moving ? 1 : 0); }
+    if (idleAction) {
+      idleAction.reset().play();
+      idleAction.setEffectiveWeight(moving ? 0 : 1);
+    }
+    if (moveAction) {
+      moveAction.reset().play();
+      moveAction.setEffectiveWeight(moving ? 1 : 0);
+    }
   }
 
   private deactivateSpeedSwitch(
@@ -479,8 +513,8 @@ export class AnimationController implements Disposable {
     _idleAction: THREE.AnimationAction,
     moveAction: THREE.AnimationAction,
     speed: number,
-    idleWeightKey: 'crouchIdleWeight' | 'carryIdleWeight',
-    moveWeightKey: 'crouchMoveWeight' | 'carryMoveWeight',
+    idleWeightKey: "crouchIdleWeight" | "carryIdleWeight",
+    moveWeightKey: "crouchMoveWeight" | "carryMoveWeight",
   ): void {
     // Store target weights — actual interpolation happens in update()
     this[idleWeightKey] = speed > SPEED_SWITCH_THRESHOLD ? 0 : 1;

@@ -1,5 +1,5 @@
-import * as THREE from 'three';
-import type { NavMeshManager } from './NavMeshManager';
+import type * as THREE from "three";
+import type { NavMeshManager } from "./NavMeshManager";
 
 export class NavDebugOverlay {
   private visible = false;

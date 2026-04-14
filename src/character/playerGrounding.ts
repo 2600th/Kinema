@@ -1,5 +1,5 @@
-import type { GroundInfo } from './CharacterMotor';
-import type { PlayerContext } from './modes/CharacterMode';
+import type { GroundInfo } from "./CharacterMotor";
+import type { PlayerContext } from "./modes/CharacterMode";
 
 const STABLE_GROUNDED_GRACE_SECONDS = 0.08;
 const STABLE_GROUNDED_MAX_VERTICAL_SPEED = 1.2;
@@ -10,7 +10,7 @@ export interface StableGroundedResult {
 }
 
 export function resolveStableGroundedState(
-  groundInfo: Pick<GroundInfo, 'isGrounded' | 'closeToGround' | 'standingSlopeAllowed'>,
+  groundInfo: Pick<GroundInfo, "isGrounded" | "closeToGround" | "standingSlopeAllowed">,
   verticalVelocity: number,
   graceRemaining: number,
   dt: number,
@@ -61,13 +61,13 @@ export function refreshPlayerGroundState(ctx: PlayerContext, dt: number): Ground
   }
 
   if (ctx.isGrounded !== wasGrounded) {
-    ctx.eventBus.emit('player:grounded', ctx.isGrounded);
+    ctx.eventBus.emit("player:grounded", ctx.isGrounded);
   }
 
   if (ctx.justGrounded) {
     const groundVy = groundInfo.floatingRayHit?.collider.parent()?.linvel().y ?? 0;
     const impactSpeed = Math.max(0, Math.abs(ctx.prevVerticalVelocity - groundVy));
-    ctx.eventBus.emit('player:landed', { impactSpeed });
+    ctx.eventBus.emit("player:landed", { impactSpeed });
     ctx.jumpActive = false;
   }
 

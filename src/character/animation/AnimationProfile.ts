@@ -1,4 +1,4 @@
-import type { StateId } from '@core/types';
+import type { StateId } from "@core/types";
 
 /** Single animation clip binding. */
 export interface ClipDef {

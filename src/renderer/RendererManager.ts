@@ -2,56 +2,45 @@
 // `three` provides core types/classes shared across backends.
 // `three/webgpu` provides WebGPU-specific exports (WebGPURenderer, RenderPipeline, PMREMGenerator).
 // No Vite alias is needed — these are distinct entry points by design since r182.
-import * as THREE from 'three';
-import { WebGPURenderer, RenderPipeline, PMREMGenerator } from 'three/webgpu';
-import type { Disposable } from '@core/types';
-import type { GraphicsProfile, ShadowQualityTier } from '@core/UserSettings';
+
+import type { Disposable } from "@core/types";
+import type { GraphicsProfile, ShadowQualityTier } from "@core/UserSettings";
+import * as THREE from "three";
+import { PMREMGenerator, type RenderPipeline, WebGPURenderer } from "three/webgpu";
+import {
+  buildRendererPipelineDescriptor,
+  getRendererMaxPixelRatio,
+  type RendererPipelineDescriptor,
+} from "./pipelineProfile";
+import { RendererAssetLibrary } from "./rendererAssets";
 import {
   attachRendererCanvas,
   createFallbackRenderer,
   createWebGpuRenderer,
   showDeviceLostOverlay,
-} from './rendererBootstrap';
-import {
-  buildRendererPipelineDescriptor,
-  getRendererMaxPixelRatio,
-  type RendererPipelineDescriptor,
-} from './pipelineProfile';
+} from "./rendererBootstrap";
+import { clampFiniteNumber, resolveCasStrengthMutation } from "./rendererMutations";
 import {
   buildRendererPipeline,
   type RendererLutPassNode,
   type RendererPostFxUniforms,
-} from './rendererPipelineBuilder';
-import {
-  getEffectiveCasStrength,
-  syncCasTexelSize,
-  syncGtaoSettings,
-  syncRuntimePostFxState,
-} from './rendererQuality';
-import {
-  applyEnvironmentRotation,
-  applyEnvironmentTarget,
-  applyLutTexture,
-  applyShadowToggle,
-} from './rendererSceneState';
-import { ENV_PRESETS } from './rendererPresets';
-import { RendererAssetLibrary } from './rendererAssets';
-import {
-  buildRendererDebugFlags,
-  getGraphicsProfileDefaults,
-  type RendererDebugFlags,
-} from './rendererState';
-import {
-  clampFiniteNumber,
-  resolveCasStrengthMutation,
-} from './rendererMutations';
+} from "./rendererPipelineBuilder";
+import { ENV_PRESETS } from "./rendererPresets";
+import { getEffectiveCasStrength, syncCasTexelSize, syncGtaoSettings, syncRuntimePostFxState } from "./rendererQuality";
 import {
   type DenoiseNodeLike,
   type GTAONodeLike,
   loadTslRuntime,
   type TSLPassNode,
   type TSLRuntime,
-} from './rendererRuntime';
+} from "./rendererRuntime";
+import {
+  applyEnvironmentRotation,
+  applyEnvironmentTarget,
+  applyLutTexture,
+  applyShadowToggle,
+} from "./rendererSceneState";
+import { buildRendererDebugFlags, getGraphicsProfileDefaults, type RendererDebugFlags } from "./rendererState";
 
 /**
  * Renderer notes for the r183 WebGPU path.
@@ -63,9 +52,9 @@ import {
  * - `onDeviceLost` is wired so the user gets a visible recovery overlay.
  */
 
-export { LUT_NAMES, ENV_NAMES } from './rendererPresets';
+export { ENV_NAMES, LUT_NAMES } from "./rendererPresets";
 
-export type AntiAliasingMode = 'smaa' | 'fxaa' | 'none';
+export type AntiAliasingMode = "smaa" | "fxaa" | "none";
 
 const CAMERA_CLIP_NEAR = 0.5;
 const CAMERA_CLIP_FAR = 1000;
@@ -91,21 +80,21 @@ export class RendererManager implements Disposable {
   private isWebGPUPipeline = false;
   private readonly forceWebGL: boolean;
 
-  private antiAliasingMode: AntiAliasingMode = 'fxaa';
+  private antiAliasingMode: AntiAliasingMode = "fxaa";
   private ssrEnabled = false;
   private ssrResolutionScale = 0.5;
   private bloomEnabled = true;
   private vignetteEnabled = true;
   private lutEnabled = true;
   private lutStrength = 0.42;
-  private lutName = 'Cubicle 99';
+  private lutName = "Cubicle 99";
   private lutReady = false;
   private readonly assetLibrary = new RendererAssetLibrary();
-  private graphicsProfile: GraphicsProfile = 'cinematic';
-  private envName = 'Sunrise';
+  private graphicsProfile: GraphicsProfile = "cinematic";
+  private envName = "Sunrise";
   private postProcessingEnabled = true;
   private shadowsEnabled = true;
-  private shadowQualityTier: ShadowQualityTier = 'auto';
+  private shadowQualityTier: ShadowQualityTier = "auto";
   private toneExposure = 0.85;
   private resolutionScale = 1;
   private envRotationDegrees = 0;
@@ -151,7 +140,7 @@ export class RendererManager implements Disposable {
     this.renderer = createFallbackRenderer(this.toneExposure);
 
     void this.loadSingleLut(this.lutName);
-    this.setGraphicsProfile('balanced');
+    this.setGraphicsProfile("balanced");
   }
 
   /**
@@ -161,9 +150,9 @@ export class RendererManager implements Disposable {
    * backend when WebGPU is unavailable (browser-dependent).
    */
   async init(): Promise<void> {
-    document.body.style.margin = '0';
-    document.body.style.background = '#d8dce8';
-    document.body.style.backgroundAttachment = 'fixed';
+    document.body.style.margin = "0";
+    document.body.style.background = "#d8dce8";
+    document.body.style.backgroundAttachment = "fixed";
 
     try {
       this.tslRuntime = await loadTslRuntime();
@@ -174,7 +163,7 @@ export class RendererManager implements Disposable {
         shadowsEnabled: this.shadowsEnabled,
         exposure: this.toneExposure,
         onDeviceLost: (info) => {
-          console.error('[RendererManager] GPU device lost:', info);
+          console.error("[RendererManager] GPU device lost:", info);
           showDeviceLostOverlay(info);
         },
       });
@@ -184,7 +173,7 @@ export class RendererManager implements Disposable {
       this.assetLibrary.setPmremGenerator(pmrem);
       const bootstrapEnvTarget = this.assetLibrary.getOrCreateRoomEnvironment();
       if (!bootstrapEnvTarget) {
-        throw new Error('Failed to build room environment during WebGPU bootstrap');
+        throw new Error("Failed to build room environment during WebGPU bootstrap");
       }
       applyEnvironmentTarget(this.scene, bootstrapEnvTarget, this.envRotationDegrees);
       this.scene.environmentIntensity = 0.68;
@@ -199,9 +188,9 @@ export class RendererManager implements Disposable {
 
       this.pipelineRebuildNeeded = true;
       this.applyQualitySettings();
-      console.log('[RendererManager] WebGPU + TSL pipeline initialized');
+      console.log("[RendererManager] WebGPU + TSL pipeline initialized");
     } catch (e) {
-      console.warn('[RendererManager] WebGPU/TSL not available, using WebGL only:', e);
+      console.warn("[RendererManager] WebGPU/TSL not available, using WebGL only:", e);
       this.isWebGPUPipeline = false;
       this.tslRuntime = null;
       this.currentPipelineDescriptor = null;
@@ -214,7 +203,7 @@ export class RendererManager implements Disposable {
       this.assetLibrary.setPmremGenerator(pmrem);
       const envTarget = this.assetLibrary.getOrCreateRoomEnvironment();
       if (!envTarget) {
-        throw new Error('Failed to build room environment during fallback bootstrap');
+        throw new Error("Failed to build room environment during fallback bootstrap");
       }
       applyEnvironmentTarget(this.scene, envTarget, this.envRotationDegrees);
       this.scene.environmentIntensity = 0.68;
@@ -223,14 +212,14 @@ export class RendererManager implements Disposable {
     }
 
     attachRendererCanvas(this.renderer);
-    window.addEventListener('resize', this._onResize);
+    window.addEventListener("resize", this._onResize);
     this.handleResize();
-    console.log('[RendererManager] Initialized');
+    console.log("[RendererManager] Initialized");
 
     // Load the default HDR environment if it's not the procedural Room Environment
-    if (this.envName !== 'Room Environment') {
+    if (this.envName !== "Room Environment") {
       const defaultEnv = this.envName;
-      this.envName = ''; // Reset to bypass setEnvironment guard
+      this.envName = ""; // Reset to bypass setEnvironment guard
       void this.setEnvironment(defaultEnv);
     }
   }
@@ -267,7 +256,7 @@ export class RendererManager implements Disposable {
 
   private registerPipelineDisposable(node: unknown): void {
     const disposable = node as { dispose?: () => void };
-    if (typeof disposable?.dispose === 'function') {
+    if (typeof disposable?.dispose === "function") {
       this.pipelineDisposables.push({ dispose: disposable.dispose.bind(disposable) });
     }
   }
@@ -302,14 +291,14 @@ export class RendererManager implements Disposable {
   }
 
   private resetPipelineResources(): void {
-    if (this.postProcessing && typeof (this.postProcessing as { dispose?: () => void }).dispose === 'function') {
+    if (this.postProcessing && typeof (this.postProcessing as { dispose?: () => void }).dispose === "function") {
       (this.postProcessing as { dispose: () => void }).dispose();
     }
     this.postProcessing = null;
     this.disposePipelineDisposables();
-    if (typeof this.prePassNode?.dispose === 'function') this.prePassNode.dispose();
-    if (typeof this.aoDenoisePass?.dispose === 'function') this.aoDenoisePass.dispose();
-    if (typeof this.gtaoPass?.dispose === 'function') this.gtaoPass.dispose();
+    if (typeof this.prePassNode?.dispose === "function") this.prePassNode.dispose();
+    if (typeof this.aoDenoisePass?.dispose === "function") this.aoDenoisePass.dispose();
+    if (typeof this.gtaoPass?.dispose === "function") this.gtaoPass.dispose();
     this.prePassNode = null;
     this.aoDenoisePass = null;
     this.gtaoPass = null;
@@ -401,14 +390,18 @@ export class RendererManager implements Disposable {
   }
 
   private getEffectiveShadowQualityProfile(): GraphicsProfile {
-    return this.shadowQualityTier === 'auto' ? this.graphicsProfile : this.shadowQualityTier;
+    return this.shadowQualityTier === "auto" ? this.graphicsProfile : this.shadowQualityTier;
   }
 
   private isSsrActiveForPipeline(): boolean {
     return this.currentPipelineDescriptor?.useSSR ?? false;
   }
 
-  private applyStructuralToggleChange(currentValue: boolean, nextValue: boolean, assign: (value: boolean) => void): void {
+  private applyStructuralToggleChange(
+    currentValue: boolean,
+    nextValue: boolean,
+    assign: (value: boolean) => void,
+  ): void {
     if (currentValue === nextValue) return;
     assign(nextValue);
     this.markPipelineDirty();
@@ -580,7 +573,8 @@ export class RendererManager implements Disposable {
     const nextValue = clampFiniteNumber(value, 0, 0.8);
     if (nextValue === null) return;
     this.vignetteDarkness = nextValue;
-    if (this.postFXUniforms) this.postFXUniforms.vignetteDarkness.value = this.vignetteEnabled ? this.vignetteDarkness : 0;
+    if (this.postFXUniforms)
+      this.postFXUniforms.vignetteDarkness.value = this.vignetteEnabled ? this.vignetteDarkness : 0;
   }
 
   setLutEnabled(enabled: boolean): void {
@@ -687,9 +681,7 @@ export class RendererManager implements Disposable {
     });
 
     // 2. Cap pixel ratio by profile to avoid runaway GPU cost
-    this.renderer.setPixelRatio(
-      Math.min(window.devicePixelRatio, descriptor.maxPixelRatio) * this.resolutionScale,
-    );
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, descriptor.maxPixelRatio) * this.resolutionScale);
     this.renderer.shadowMap.enabled = this.shadowsEnabled;
 
     // 3. Rebuild the TSL node graph only when structural settings changed
@@ -718,15 +710,13 @@ export class RendererManager implements Disposable {
     this.camera.updateProjectionMatrix();
     // Recalculate pixel ratio with profile-based cap (must be BEFORE setSize)
     const maxPR = this.getProfileMaxPixelRatio(this.graphicsProfile);
-    this.renderer.setPixelRatio(
-      Math.min(window.devicePixelRatio, maxPR) * this.resolutionScale,
-    );
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPR) * this.resolutionScale);
     this.renderer.setSize(w, h);
     syncCasTexelSize(this.renderer, this.postFXUniforms);
   }
 
   dispose(): void {
-    window.removeEventListener('resize', this._onResize);
+    window.removeEventListener("resize", this._onResize);
     this.setAnimationLoop(null);
     this.resetPipelineResources();
     this.pipelineRebuildNeeded = false;
@@ -735,7 +725,7 @@ export class RendererManager implements Disposable {
     this.assetLibrary.dispose();
 
     // Clean up custom device-lost handler to avoid dangling closure references.
-    if (this.isWebGPUPipeline && typeof (this.renderer as any).onDeviceLost !== 'undefined') {
+    if (this.isWebGPUPipeline && typeof (this.renderer as any).onDeviceLost !== "undefined") {
       (this.renderer as any).onDeviceLost = null;
     }
 

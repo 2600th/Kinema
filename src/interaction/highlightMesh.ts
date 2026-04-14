@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from "three";
 
 const _highlightColor = new THREE.Color();
 
@@ -15,7 +15,7 @@ export function setMeshHighlight(root: THREE.Object3D, enabled: boolean, color =
     const materials = Array.isArray(m.material) ? m.material : [m.material];
     for (const mat of materials) {
       const std = mat as THREE.MeshStandardMaterial;
-      if (!('emissive' in std)) continue;
+      if (!("emissive" in std)) continue;
       if (!_originalMaterials.has(mat)) {
         _originalMaterials.set(mat, {
           emissive: (std.emissive as THREE.Color | undefined)?.getHex?.() ?? 0x000000,
@@ -26,7 +26,8 @@ export function setMeshHighlight(root: THREE.Object3D, enabled: boolean, color =
         (std.emissive as THREE.Color).set(_highlightColor.set(color));
         std.emissiveIntensity = intensity;
       } else {
-        const original = _originalMaterials.get(mat)!;
+        const original = _originalMaterials.get(mat);
+        if (!original) continue;
         (std.emissive as THREE.Color).setHex(original.emissive);
         std.emissiveIntensity = original.emissiveIntensity;
       }

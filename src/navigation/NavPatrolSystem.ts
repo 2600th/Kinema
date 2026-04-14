@@ -1,16 +1,16 @@
-import * as THREE from 'three';
-import { crowd } from 'navcat/blocks';
+import type { AssetLoader } from "@level/AssetLoader";
 import {
-  type NavMesh,
-  type Vec3,
-  type QueryFilter,
-  findRandomPoint,
-  findNearestPoly,
-  createFindNearestPolyResult,
   createDefaultQueryFilter,
-} from 'navcat';
-import type { AssetLoader } from '@level/AssetLoader';
-import { NavAgent } from './NavAgent';
+  createFindNearestPolyResult,
+  findNearestPoly,
+  findRandomPoint,
+  type NavMesh,
+  type QueryFilter,
+  type Vec3,
+} from "navcat";
+import { crowd } from "navcat/blocks";
+import * as THREE from "three";
+import { NavAgent } from "./NavAgent";
 
 const NPC_COLORS = [
   new THREE.Color(0xcc4444),
@@ -60,12 +60,18 @@ export class NavPatrolSystem {
     for (let i = 0; i < count; i++) {
       const randomResult = this.tryFindRandomPoint();
       if (!randomResult) {
-        console.warn(`[NavPatrolSystem] Could not find spawn point for agent ${i} after ${RANDOM_POINT_MAX_RETRIES} retries`);
+        console.warn(
+          `[NavPatrolSystem] Could not find spawn point for agent ${i} after ${RANDOM_POINT_MAX_RETRIES} retries`,
+        );
         continue;
       }
 
       const pos = randomResult.position;
-      const navAgent = new NavAgent(this.scene, new THREE.Vector3(pos[0], pos[1], pos[2]), NPC_COLORS[i % NPC_COLORS.length]);
+      const navAgent = new NavAgent(
+        this.scene,
+        new THREE.Vector3(pos[0], pos[1], pos[2]),
+        NPC_COLORS[i % NPC_COLORS.length],
+      );
       if (this.assetLoader) void navAgent.init(this.assetLoader);
 
       const agentId = crowd.addAgent(this.crowdInstance, this.navMesh, pos, {
@@ -92,12 +98,7 @@ export class NavPatrolSystem {
   private setRandomTarget(agentId: string): void {
     const randomResult = this.tryFindRandomPoint();
     if (!randomResult) return;
-    crowd.requestMoveTarget(
-      this.crowdInstance,
-      agentId,
-      randomResult.nodeRef,
-      randomResult.position,
-    );
+    crowd.requestMoveTarget(this.crowdInstance, agentId, randomResult.nodeRef, randomResult.position);
   }
 
   update(dt: number): void {
@@ -147,13 +148,7 @@ export class NavPatrolSystem {
     if (!closest) return null;
 
     const targetPos: Vec3 = [worldPos.x, worldPos.y, worldPos.z];
-    findNearestPoly(
-      this.nearestPolyResult,
-      this.navMesh,
-      targetPos,
-      [2, 4, 2],
-      this.queryFilter,
-    );
+    findNearestPoly(this.nearestPolyResult, this.navMesh, targetPos, [2, 4, 2], this.queryFilter);
 
     if (this.nearestPolyResult.success) {
       crowd.requestMoveTarget(

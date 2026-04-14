@@ -1,10 +1,10 @@
-import type { Disposable } from '@core/types';
-import type { EventBus } from '@core/EventBus';
+import type { EventBus } from "@core/EventBus";
+import type { Disposable } from "@core/types";
 
 const IRIS_CLOSE_MS = 400;
 const IRIS_HOLD_MS = 500;
 const IRIS_OPEN_MS = 400;
-const PARTICLE_COLORS = ['#ff6b9d', '#7b2fff', '#00d2ff', '#FFD700'];
+const PARTICLE_COLORS = ["#ff6b9d", "#7b2fff", "#00d2ff", "#FFD700"];
 const PARTICLE_COUNT = 14;
 
 /**
@@ -18,7 +18,7 @@ export class DeathEffect implements Disposable {
   private playing = false;
 
   constructor(private eventBus: EventBus) {
-    this.overlay = document.getElementById('ui-overlay') as HTMLDivElement;
+    this.overlay = document.getElementById("ui-overlay") as HTMLDivElement;
     this.injectStyles();
   }
 
@@ -32,25 +32,25 @@ export class DeathEffect implements Disposable {
 
     // Phase 1: iris close
     void container.offsetHeight; // force reflow
-    const mask = container.querySelector('.iris-mask') as HTMLDivElement;
-    mask.style.setProperty('--iris-size', '0%');
+    const mask = container.querySelector(".iris-mask") as HTMLDivElement;
+    mask.style.setProperty("--iris-size", "0%");
 
     await this.wait(IRIS_CLOSE_MS);
 
     // Show icon at center during hold
-    const icon = container.querySelector('.iris-icon') as HTMLDivElement;
-    icon.style.opacity = '1';
-    icon.style.transform = 'translate(-50%, -50%) scale(1)';
+    const icon = container.querySelector(".iris-icon") as HTMLDivElement;
+    icon.style.opacity = "1";
+    icon.style.transform = "translate(-50%, -50%) scale(1)";
 
     // Signal that screen is black — Game.ts listens to respawn now
-    this.eventBus.emit('player:deathMidpoint', undefined);
+    this.eventBus.emit("player:deathMidpoint", undefined);
 
     await this.wait(IRIS_HOLD_MS);
 
     // Phase 2: iris open
-    icon.style.opacity = '0';
-    icon.style.transform = 'translate(-50%, -50%) scale(0.5)';
-    mask.style.setProperty('--iris-size', '150%');
+    icon.style.opacity = "0";
+    icon.style.transform = "translate(-50%, -50%) scale(0.5)";
+    mask.style.setProperty("--iris-size", "150%");
 
     // Burst particles as iris opens
     this.burstParticles();
@@ -62,17 +62,17 @@ export class DeathEffect implements Disposable {
   }
 
   dispose(): void {
-    document.getElementById('iris-wipe-style')?.remove();
+    document.getElementById("iris-wipe-style")?.remove();
   }
 
   private wait(ms: number): Promise<void> {
-    return new Promise(r => setTimeout(r, ms));
+    return new Promise((r) => setTimeout(r, ms));
   }
 
   private injectStyles(): void {
-    if (document.getElementById('iris-wipe-style')) return;
-    const style = document.createElement('style');
-    style.id = 'iris-wipe-style';
+    if (document.getElementById("iris-wipe-style")) return;
+    const style = document.createElement("style");
+    style.id = "iris-wipe-style";
     style.textContent = `
       .iris-container {
         position: fixed;
@@ -118,17 +118,17 @@ export class DeathEffect implements Disposable {
   }
 
   private createContainer(): HTMLDivElement {
-    const container = document.createElement('div');
-    container.className = 'iris-container';
+    const container = document.createElement("div");
+    container.className = "iris-container";
 
-    const mask = document.createElement('div');
-    mask.className = 'iris-mask';
-    mask.style.setProperty('--iris-size', '150%');
+    const mask = document.createElement("div");
+    mask.className = "iris-mask";
+    mask.style.setProperty("--iris-size", "150%");
     container.appendChild(mask);
 
-    const icon = document.createElement('div');
-    icon.className = 'iris-icon';
-    icon.textContent = '💫';
+    const icon = document.createElement("div");
+    icon.className = "iris-icon";
+    icon.textContent = "💫";
     container.appendChild(icon);
 
     return container;
@@ -142,22 +142,22 @@ export class DeathEffect implements Disposable {
       const dx = Math.cos(angle) * dist;
       const dy = Math.sin(angle) * dist;
 
-      const particle = document.createElement('div');
+      const particle = document.createElement("div");
       Object.assign(particle.style, {
-        position: 'fixed',
-        left: '50%',
-        top: '50%',
+        position: "fixed",
+        left: "50%",
+        top: "50%",
         width: `${size}px`,
         height: `${size}px`,
-        borderRadius: '50%',
+        borderRadius: "50%",
         background: PARTICLE_COLORS[i % PARTICLE_COLORS.length],
         boxShadow: `0 0 6px ${PARTICLE_COLORS[i % PARTICLE_COLORS.length]}88`,
-        zIndex: '1101',
-        pointerEvents: 'none',
+        zIndex: "1101",
+        pointerEvents: "none",
         animation: `deathParticleBurst 400ms ease-out forwards`,
       });
-      particle.style.setProperty('--dx', `${dx}px`);
-      particle.style.setProperty('--dy', `${dy}px`);
+      particle.style.setProperty("--dx", `${dx}px`);
+      particle.style.setProperty("--dy", `${dy}px`);
 
       this.overlay.appendChild(particle);
       setTimeout(() => particle.remove(), 400);

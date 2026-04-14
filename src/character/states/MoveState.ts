@@ -1,9 +1,8 @@
-import * as THREE from 'three';
-import { STATE, type InputState, type StateId } from '@core/types';
-import { State } from './State';
+import { type InputState, STATE, type StateId } from "@core/types";
+import * as THREE from "three";
+import { State } from "./State";
 
 const _movement = new THREE.Vector3();
-
 
 export class MoveState extends State {
   readonly id: StateId = STATE.move;

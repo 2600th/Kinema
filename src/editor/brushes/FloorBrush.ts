@@ -1,14 +1,14 @@
-import * as THREE from 'three';
-import { type BrushDefinition, type BrushParams, computeRectFootprint } from './Brush';
+import * as THREE from "three";
+import { type BrushDefinition, type BrushParams, computeRectFootprint } from "./Brush";
 
 const FLOOR_THICKNESS = 0.1;
 
 export const FloorBrush: BrushDefinition = {
-  id: 'floor',
-  label: 'Floor',
-  shortcut: '2',
+  id: "floor",
+  label: "Floor",
+  shortcut: "2",
   // Flat rectangle icon
-  icon: 'M2 16l10 4 10-4-10-4zM2 16v-2l10-4 10 4v2',
+  icon: "M2 16l10 4 10-4-10-4zM2 16v-2l10-4 10 4v2",
   defaultParams: { current: new THREE.Vector3(4, 0, 4) },
 
   buildPreviewGeometry(params: BrushParams): THREE.BufferGeometry {

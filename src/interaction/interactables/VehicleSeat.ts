@@ -1,10 +1,10 @@
-import * as THREE from 'three';
-import type RAPIER from '@dimforge/rapier3d-compat';
-import type { EventBus } from '@core/EventBus';
-import type { PlayerController } from '@character/PlayerController';
-import type { IInteractable, InteractionAccess } from '../Interactable';
-import type { VehicleController } from '@vehicle/VehicleController';
-import { setMeshHighlight } from '../highlightMesh';
+import type { PlayerController } from "@character/PlayerController";
+import type { EventBus } from "@core/EventBus";
+import type RAPIER from "@dimforge/rapier3d-compat";
+import type { VehicleController } from "@vehicle/VehicleController";
+import * as THREE from "three";
+import { setMeshHighlight } from "../highlightMesh";
+import type { IInteractable, InteractionAccess } from "../Interactable";
 
 const _rotatedOffset = new THREE.Vector3();
 
@@ -41,11 +41,11 @@ export class VehicleSeat implements IInteractable {
   }
 
   canInteract(player: PlayerController): InteractionAccess {
-    return player.isGrounded ? { allowed: true } : { allowed: false, reason: 'Must be grounded' };
+    return player.isGrounded ? { allowed: true } : { allowed: false, reason: "Must be grounded" };
   }
 
   interact(_player: PlayerController): void {
-    this.eventBus.emit('vehicle:enter', { vehicle: this.vehicle });
+    this.eventBus.emit("vehicle:enter", { vehicle: this.vehicle });
   }
 
   getIgnoredColliderHandles(): number[] {

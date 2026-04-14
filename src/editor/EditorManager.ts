@@ -1,30 +1,31 @@
-import * as THREE from 'three';
-import RAPIER from '@dimforge/rapier3d-compat';
-import type { EventBus } from '@core/EventBus';
-import type { GameLoop } from '@core/GameLoop';
-import type { RendererManager } from '@renderer/RendererManager';
-import type { PhysicsWorld } from '@physics/PhysicsWorld';
-import type { LevelManager } from '@level/LevelManager';
-import type { PlayerController } from '@character/PlayerController';
-import type { InteractionManager } from '@interaction/InteractionManager';
-import { TransformGizmo } from './TransformGizmo';
-import { SnapGrid } from './SnapGrid';
-import { FreeCamera } from './FreeCamera';
-import { CommandHistory } from './CommandHistory';
-import { LevelSerializer, type LevelData } from './LevelSerializer';
-import { LevelSaveStore } from '@level/LevelSaveStore';
-import { EditorDocument } from './EditorDocument';
-import type { EditorObject } from './EditorObject';
-import { ToolbarPanel } from './panels/ToolbarPanel';
-import { BrushPanel } from './panels/BrushPanel';
-import { HierarchyPanel } from './panels/HierarchyPanel';
-import { InspectorPanel } from './panels/InspectorPanel';
-import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
-import { getBrushById, BRUSH_REGISTRY } from './brushes/index';
-import type { EditorTool, EditorToolContext } from './tools/EditorTool';
-import { SelectionTool } from './tools/SelectionTool';
-import { BrushPlacementTool, buildColliderDesc } from './tools/BrushPlacementTool';
-import { GLBPlacementTool } from './tools/GLBPlacementTool';
+import type { PlayerController } from "@character/PlayerController";
+import type { EventBus } from "@core/EventBus";
+import type { GameLoop } from "@core/GameLoop";
+import RAPIER from "@dimforge/rapier3d-compat";
+import { exitPointerLockIfSupported } from "@input/pointerLock";
+import type { InteractionManager } from "@interaction/InteractionManager";
+import type { LevelManager } from "@level/LevelManager";
+import { LevelSaveStore } from "@level/LevelSaveStore";
+import type { PhysicsWorld } from "@physics/PhysicsWorld";
+import type { RendererManager } from "@renderer/RendererManager";
+import * as THREE from "three";
+import { clone as skeletonClone } from "three/addons/utils/SkeletonUtils.js";
+import { BRUSH_REGISTRY, getBrushById } from "./brushes/index";
+import { CommandHistory } from "./CommandHistory";
+import { EditorDocument } from "./EditorDocument";
+import type { EditorObject } from "./EditorObject";
+import { FreeCamera } from "./FreeCamera";
+import { type LevelData, LevelSerializer } from "./LevelSerializer";
+import { BrushPanel } from "./panels/BrushPanel";
+import { HierarchyPanel } from "./panels/HierarchyPanel";
+import { InspectorPanel } from "./panels/InspectorPanel";
+import { ToolbarPanel } from "./panels/ToolbarPanel";
+import { SnapGrid } from "./SnapGrid";
+import { TransformGizmo } from "./TransformGizmo";
+import { BrushPlacementTool, buildColliderDesc } from "./tools/BrushPlacementTool";
+import type { EditorTool, EditorToolContext } from "./tools/EditorTool";
+import { GLBPlacementTool } from "./tools/GLBPlacementTool";
+import { SelectionTool } from "./tools/SelectionTool";
 
 export class EditorManager {
   private active = false;
@@ -176,40 +177,38 @@ export class EditorManager {
     /* ---- Tools ---- */
     this.selectionTool = new SelectionTool();
     this.brushPlacementTool = new BrushPlacementTool({
-      onFinished: () => this.switchTool('selection'),
+      onFinished: () => this.switchTool("selection"),
       onBrushChanged: (brushId) => this.brushPanel.setActiveBrush(brushId),
     });
     this.glbPlacementTool = new GLBPlacementTool({
       levelManager: this.levelManager,
-      onFinished: () => this.switchTool('selection'),
+      onFinished: () => this.switchTool("selection"),
     });
     this.tools.set(this.selectionTool.id, this.selectionTool);
     this.tools.set(this.brushPlacementTool.id, this.brushPlacementTool);
     this.tools.set(this.glbPlacementTool.id, this.glbPlacementTool);
     this.activeTool = this.selectionTool;
 
-    this.unsubs.push(
-      this.eventBus.on('editor:toggle', () => this.toggle()),
-    );
+    this.unsubs.push(this.eventBus.on("editor:toggle", () => this.toggle()));
 
     // Hide editor panels + play-test stop button when menu overlay opens
     this.unsubs.push(
-      this.eventBus.on('menu:opened', () => {
+      this.eventBus.on("menu:opened", () => {
         if (this.active) {
           for (const panel of this.panels) panel.hide();
         }
         if (this.playTestStopButton) {
-          this.playTestStopButton.style.display = 'none';
+          this.playTestStopButton.style.display = "none";
         }
       }),
     );
     this.unsubs.push(
-      this.eventBus.on('menu:closed', () => {
+      this.eventBus.on("menu:closed", () => {
         if (this.active) {
           for (const panel of this.panels) panel.show();
         }
         if (this.playTestStopButton) {
-          this.playTestStopButton.style.display = '';
+          this.playTestStopButton.style.display = "";
         }
       }),
     );
@@ -217,14 +216,14 @@ export class EditorManager {
     // Global Ctrl+P handler to stop play-test (persists while play-testing)
     const onGlobalKeyDown = (e: KeyboardEvent): void => {
       if (!this.playTestActive) return;
-      const cmdKey = navigator.platform.toUpperCase().includes('MAC') ? e.metaKey : e.ctrlKey;
-      if (e.code === 'KeyP' && cmdKey) {
+      const cmdKey = navigator.platform.toUpperCase().includes("MAC") ? e.metaKey : e.ctrlKey;
+      if (e.code === "KeyP" && cmdKey) {
         e.preventDefault();
         void this.stopPlayTest();
       }
     };
-    window.addEventListener('keydown', onGlobalKeyDown);
-    this.unsubs.push(() => window.removeEventListener('keydown', onGlobalKeyDown));
+    window.addEventListener("keydown", onGlobalKeyDown);
+    this.unsubs.push(() => window.removeEventListener("keydown", onGlobalKeyDown));
   }
 
   /* ==================================================================
@@ -266,11 +265,11 @@ export class EditorManager {
    * ================================================================== */
 
   private injectStyles(): void {
-    if (document.getElementById('ke-editor-styles')) return;
-    const link = document.createElement('link');
-    link.id = 'ke-editor-styles';
-    link.rel = 'stylesheet';
-    link.href = new URL('./styles/editor.css', import.meta.url).href;
+    if (document.getElementById("ke-editor-styles")) return;
+    const link = document.createElement("link");
+    link.id = "ke-editor-styles";
+    link.rel = "stylesheet";
+    link.href = new URL("./styles/editor.css", import.meta.url).href;
     document.head.appendChild(link);
   }
 
@@ -330,9 +329,9 @@ export class EditorManager {
     this.player.setActive(false);
     this.player.setEnabled(false); // Hide player mesh + disable physics
     // Ensure cursor is free and visible in editor mode
-    document.exitPointerLock();
-    this.renderer.canvas.style.cursor = 'default';
-    this.eventBus.emit('editor:opened', undefined);
+    exitPointerLockIfSupported();
+    this.renderer.canvas.style.cursor = "default";
+    this.eventBus.emit("editor:opened", undefined);
     this.freeCamera.enable();
     this.grid.setVisible(this.gridWasVisible);
     for (const panel of this.panels) panel.show();
@@ -342,8 +341,8 @@ export class EditorManager {
     this.syncHierarchy();
     this.syncToolbarState();
     this.bindEditorInput();
-    this.renderer.canvas.addEventListener('dragover', this.onDragOver);
-    this.renderer.canvas.addEventListener('drop', this.onDrop);
+    this.renderer.canvas.addEventListener("dragover", this.onDragOver);
+    this.renderer.canvas.addEventListener("drop", this.onDrop);
   }
 
   private exit(): void {
@@ -352,17 +351,17 @@ export class EditorManager {
     this.interactionManager.setEnabled(true);
     this.player.setActive(true);
     this.player.setEnabled(true); // Show player mesh + enable physics
-    this.renderer.canvas.style.cursor = '';
+    this.renderer.canvas.style.cursor = "";
     this.gridWasVisible = this.grid.isVisible();
     this.grid.setVisible(false);
-    this.eventBus.emit('editor:closed', undefined);
+    this.eventBus.emit("editor:closed", undefined);
     this.freeCamera.disable();
     for (const panel of this.panels) panel.hide();
     this.activeTool.deactivate?.(this.buildToolContext());
-    this.switchTool('selection');
+    this.switchTool("selection");
     this.setSelection(null);
-    this.renderer.canvas.removeEventListener('dragover', this.onDragOver);
-    this.renderer.canvas.removeEventListener('drop', this.onDrop);
+    this.renderer.canvas.removeEventListener("dragover", this.onDragOver);
+    this.renderer.canvas.removeEventListener("drop", this.onDrop);
     this.unbindEditorInput();
     this.gizmo.attach(null);
   }
@@ -381,7 +380,7 @@ export class EditorManager {
     }
 
     // Serialize current level state
-    const data = LevelSerializer.serialize('__playtest__', this.document.objects);
+    const data = LevelSerializer.serialize("__playtest__", this.document.objects);
     this.playTestSnapshot = JSON.stringify(data);
 
     // Save camera state (enter() will call freeCamera.enable() which re-derives yaw/pitch)
@@ -407,7 +406,7 @@ export class EditorManager {
 
     // Hide editor-only gizmos (spawn/trigger cones) during play-test
     for (const obj of this.document.objects) {
-      if (obj.source.type === 'brush' && (obj.source.brush === 'spawn' || obj.source.brush === 'trigger')) {
+      if (obj.source.type === "brush" && (obj.source.brush === "spawn" || obj.source.brush === "trigger")) {
         obj.mesh.visible = false;
       }
     }
@@ -416,41 +415,43 @@ export class EditorManager {
     this.player.spawn({ position: spawnPos, rotation: spawnRot });
 
     // Create floating transport bar with stop button (Unity-style)
-    const stopBar = document.createElement('div');
-    stopBar.className = 'ke-toolbar ke-playtest-bar';
+    const stopBar = document.createElement("div");
+    stopBar.className = "ke-toolbar ke-playtest-bar";
     Object.assign(stopBar.style, {
-      position: 'fixed',
-      top: '12px',
-      left: '50%',
-      transform: 'translateX(-50%)',
-      zIndex: '10001',
+      position: "fixed",
+      top: "12px",
+      left: "50%",
+      transform: "translateX(-50%)",
+      zIndex: "10001",
     });
 
-    const stopBtn = document.createElement('button');
-    stopBtn.className = 'ke-btn ke-btn-stop';
-    stopBtn.title = 'Stop Play Test (Ctrl+P)';
+    const stopBtn = document.createElement("button");
+    stopBtn.className = "ke-btn ke-btn-stop";
+    stopBtn.title = "Stop Play Test (Ctrl+P)";
     // Square stop icon
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('width', '16');
-    svg.setAttribute('height', '16');
-    svg.setAttribute('viewBox', '0 0 24 24');
-    svg.setAttribute('fill', 'currentColor');
-    svg.setAttribute('stroke', 'none');
-    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    rect.setAttribute('x', '4');
-    rect.setAttribute('y', '4');
-    rect.setAttribute('width', '16');
-    rect.setAttribute('height', '16');
-    rect.setAttribute('rx', '2');
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("width", "16");
+    svg.setAttribute("height", "16");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "currentColor");
+    svg.setAttribute("stroke", "none");
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("x", "4");
+    rect.setAttribute("y", "4");
+    rect.setAttribute("width", "16");
+    rect.setAttribute("height", "16");
+    rect.setAttribute("rx", "2");
     svg.appendChild(rect);
     stopBtn.appendChild(svg);
 
-    const label = document.createElement('span');
-    label.textContent = 'Stop';
-    label.style.fontSize = '12px';
+    const label = document.createElement("span");
+    label.textContent = "Stop";
+    label.style.fontSize = "12px";
     stopBtn.appendChild(label);
 
-    stopBtn.addEventListener('click', () => { void this.stopPlayTest(); });
+    stopBtn.addEventListener("click", () => {
+      void this.stopPlayTest();
+    });
     stopBar.appendChild(stopBtn);
     document.body.appendChild(stopBar);
     this.playTestStopButton = stopBar;
@@ -474,7 +475,7 @@ export class EditorManager {
       try {
         await this.applyLoadedLevel(data);
       } catch (err) {
-        console.error('[Editor] Failed to restore play-test snapshot:', err);
+        console.error("[Editor] Failed to restore play-test snapshot:", err);
       }
       this.playTestSnapshot = null;
     }
@@ -502,17 +503,17 @@ export class EditorManager {
    * ================================================================== */
 
   private bindEditorInput(): void {
-    this.renderer.canvas.addEventListener('mousedown', this.onMouseDown);
-    this.renderer.canvas.addEventListener('mousemove', this.onMouseMove);
+    this.renderer.canvas.addEventListener("mousedown", this.onMouseDown);
+    this.renderer.canvas.addEventListener("mousemove", this.onMouseMove);
     // Use capture phase so editor Escape handling fires BEFORE InputManager's
     // bubble-phase handler (which unconditionally fires menu:toggle on Escape).
-    window.addEventListener('keydown', this.onKeyDown, true);
+    window.addEventListener("keydown", this.onKeyDown, true);
   }
 
   private unbindEditorInput(): void {
-    this.renderer.canvas.removeEventListener('mousedown', this.onMouseDown);
-    this.renderer.canvas.removeEventListener('mousemove', this.onMouseMove);
-    window.removeEventListener('keydown', this.onKeyDown, true);
+    this.renderer.canvas.removeEventListener("mousedown", this.onMouseDown);
+    this.renderer.canvas.removeEventListener("mousemove", this.onMouseMove);
+    window.removeEventListener("keydown", this.onKeyDown, true);
   }
 
   private onMouseDown = (e: MouseEvent): void => {
@@ -540,12 +541,12 @@ export class EditorManager {
     // Ignore keyboard shortcuts when typing in an input or contenteditable
     const target = e.target as HTMLElement;
     const tag = target?.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
     if (target?.isContentEditable) return;
 
-    const cmd = navigator.platform.toUpperCase().includes('MAC') ? e.metaKey : e.ctrlKey;
+    const cmd = navigator.platform.toUpperCase().includes("MAC") ? e.metaKey : e.ctrlKey;
 
-    if (e.code === 'KeyP' && cmd) {
+    if (e.code === "KeyP" && cmd) {
       e.preventDefault();
       this.startPlayTest();
       return;
@@ -553,7 +554,7 @@ export class EditorManager {
 
     // Escape: deselect object first, or cancel brush tool. Only let it through
     // to InputManager (which fires menu:toggle → pause) if nothing to deselect.
-    if (e.code === 'Escape') {
+    if (e.code === "Escape") {
       const ctx = this.buildToolContext();
       // If brush tool is active, let it handle Escape (cancel placement)
       if (this.activeTool.onKeyDown?.(ctx, e)) {
@@ -574,26 +575,26 @@ export class EditorManager {
     const ctx = this.buildToolContext();
     if (this.activeTool.onKeyDown?.(ctx, e)) return;
 
-    if (e.code === 'KeyW' && !cmd && this.document.selected) this.setTransformMode('translate');
-    if (e.code === 'KeyE' && !cmd && this.document.selected) this.setTransformMode('rotate');
-    if (e.code === 'KeyR' && !cmd && this.document.selected) this.setTransformMode('scale');
-    if (e.code === 'KeyG' && !cmd) {
+    if (e.code === "KeyW" && !cmd && this.document.selected) this.setTransformMode("translate");
+    if (e.code === "KeyE" && !cmd && this.document.selected) this.setTransformMode("rotate");
+    if (e.code === "KeyR" && !cmd && this.document.selected) this.setTransformMode("scale");
+    if (e.code === "KeyG" && !cmd) {
       this.grid.toggleGrid();
       this.toolbarPanel.setGridActive(this.grid.isVisible());
     }
-    if (e.code === 'KeyZ' && cmd) {
+    if (e.code === "KeyZ" && cmd) {
       this.history.undo();
       e.preventDefault();
     }
-    if ((e.code === 'KeyY' && cmd) || (e.code === 'KeyZ' && cmd && e.shiftKey)) {
+    if ((e.code === "KeyY" && cmd) || (e.code === "KeyZ" && cmd && e.shiftKey)) {
       this.history.redo();
       e.preventDefault();
     }
-    if (e.code === 'Delete' || e.code === 'Backspace') {
+    if (e.code === "Delete" || e.code === "Backspace") {
       this.deleteSelection();
       e.preventDefault();
     }
-    if (e.code === 'KeyF' && !cmd && this.document.selected) {
+    if (e.code === "KeyF" && !cmd && this.document.selected) {
       this.focusSelection();
     }
 
@@ -626,22 +627,22 @@ export class EditorManager {
    * ================================================================== */
 
   private onImportGLB(): void {
-    this.switchTool('glb-placement');
+    this.switchTool("glb-placement");
     this.glbPlacementTool.openFilePicker(this.buildToolContext());
   }
 
   private onDragOver = (e: DragEvent): void => {
     if (!this.active) return;
     e.preventDefault();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
   };
 
   private onDrop = (e: DragEvent): void => {
     if (!this.active) return;
     e.preventDefault();
     const file = e.dataTransfer?.files?.[0];
-    if (file && (file.name.endsWith('.glb') || file.name.endsWith('.gltf'))) {
-      this.switchTool('glb-placement');
+    if (file && (file.name.endsWith(".glb") || file.name.endsWith(".gltf"))) {
+      this.switchTool("glb-placement");
       void this.glbPlacementTool.importFile(this.buildToolContext(), file);
     }
   };
@@ -654,12 +655,12 @@ export class EditorManager {
     if (!brushId) {
       // Deselect brush, return to selection tool
       this.brushPanel.setActiveBrush(null);
-      this.switchTool('selection');
+      this.switchTool("selection");
       return;
     }
 
     // Switch to brush placement tool and start the brush
-    this.switchTool('brush-placement');
+    this.switchTool("brush-placement");
     this.brushPlacementTool.startBrush(this.buildToolContext(), brushId);
   }
 
@@ -682,7 +683,7 @@ export class EditorManager {
     this.inspectorPanel.setSelection(obj);
     this.hierarchyPanel.setSelection(obj?.id ?? null);
     this.setSelectionHelper(obj?.mesh ?? null);
-    this.eventBus.emit('editor:objectSelected', obj ? { id: obj.id } : null);
+    this.eventBus.emit("editor:objectSelected", obj ? { id: obj.id } : null);
   }
 
   /** Frame the camera to look at and focus on the selected object (F key). */
@@ -700,9 +701,7 @@ export class EditorManager {
     // Position camera at a comfortable distance looking at the object
     const dist = Math.max(radius * 3, 2);
     const cam = this.renderer.camera;
-    const dir = new THREE.Vector3()
-      .subVectors(cam.position, center)
-      .normalize();
+    const dir = new THREE.Vector3().subVectors(cam.position, center).normalize();
     // If camera is exactly at center, use a default direction
     if (dir.lengthSq() < 0.001) dir.set(0, 0.5, 1).normalize();
 
@@ -777,7 +776,7 @@ export class EditorManager {
     };
 
     // Extract material properties — for Mesh directly, for Groups find first child mesh
-    let material: EditorObject['material'];
+    let material: EditorObject["material"];
     let matSource: THREE.MeshStandardMaterial | null = null;
     const meshObj = mesh as THREE.Mesh;
     if (meshObj.isMesh && meshObj.material) {
@@ -796,10 +795,10 @@ export class EditorManager {
     }
     if (matSource) {
       material = {
-        color: '#' + matSource.color.getHexString(),
+        color: "#" + matSource.color.getHexString(),
         roughness: matSource.roughness,
         metalness: matSource.metalness,
-        emissive: '#' + matSource.emissive.getHexString(),
+        emissive: "#" + matSource.emissive.getHexString(),
         emissiveIntensity: matSource.emissiveIntensity,
         opacity: matSource.opacity,
       };
@@ -807,7 +806,7 @@ export class EditorManager {
 
     return {
       id: mesh.uuid,
-      name: mesh.name || 'Object',
+      name: mesh.name || "Object",
       mesh,
       source,
       transform,
@@ -816,37 +815,41 @@ export class EditorManager {
       visible: mesh.visible,
       locked: false,
       material,
-      physicsType: 'static',
+      physicsType: "static",
     };
   }
 
-  private detectSource(
-    mesh: THREE.Object3D,
-  ): { type: 'primitive' | 'glb' | 'sprite' | 'brush'; asset?: string; primitive?: string; brush?: string } {
-    const userSource = (mesh.userData as { editorSource?: { type: string; asset?: string; primitive?: string; brush?: string } })
-      .editorSource;
+  private detectSource(mesh: THREE.Object3D): {
+    type: "primitive" | "glb" | "sprite" | "brush";
+    asset?: string;
+    primitive?: string;
+    brush?: string;
+  } {
+    const userSource = (
+      mesh.userData as { editorSource?: { type: string; asset?: string; primitive?: string; brush?: string } }
+    ).editorSource;
     if (userSource) {
       return {
-        type: userSource.type as 'primitive' | 'glb' | 'sprite' | 'brush',
+        type: userSource.type as "primitive" | "glb" | "sprite" | "brush",
         asset: userSource.asset,
         primitive: userSource.primitive,
         brush: userSource.brush,
       };
     }
     if ((mesh as THREE.Sprite).isSprite) {
-      return { type: 'sprite' };
+      return { type: "sprite" };
     }
     if ((mesh as THREE.Group).isGroup) {
-      return { type: 'primitive', primitive: 'group' };
+      return { type: "primitive", primitive: "group" };
     }
     if ((mesh as THREE.Mesh).isMesh && (mesh as THREE.Mesh).geometry) {
       const geomType = (mesh as THREE.Mesh).geometry.type;
-      if (geomType.includes('Box')) return { type: 'primitive', primitive: 'cube' };
-      if (geomType.includes('Sphere')) return { type: 'primitive', primitive: 'sphere' };
-      if (geomType.includes('Cylinder')) return { type: 'primitive', primitive: 'cylinder' };
-      if (geomType.includes('Plane')) return { type: 'primitive', primitive: 'plane' };
+      if (geomType.includes("Box")) return { type: "primitive", primitive: "cube" };
+      if (geomType.includes("Sphere")) return { type: "primitive", primitive: "sphere" };
+      if (geomType.includes("Cylinder")) return { type: "primitive", primitive: "cylinder" };
+      if (geomType.includes("Plane")) return { type: "primitive", primitive: "plane" };
     }
-    return { type: 'primitive', primitive: 'cube' };
+    return { type: "primitive", primitive: "cube" };
   }
 
   /* ==================================================================
@@ -867,13 +870,13 @@ export class EditorManager {
     // Create fresh physics body/collider for the duplicate (structuredClone
     // cannot clone live Rapier handles — the duplicated EditorObject has none).
     const meshObj = newObj.mesh as THREE.Mesh;
-    if (newObj.physicsType && newObj.physicsType !== 'static' || meshObj.isMesh) {
+    if ((newObj.physicsType && newObj.physicsType !== "static") || meshObj.isMesh) {
       const pos = newObj.mesh.position;
       const q = newObj.mesh.quaternion;
       let bodyDesc: RAPIER.RigidBodyDesc;
-      if (newObj.physicsType === 'dynamic') {
+      if (newObj.physicsType === "dynamic") {
         bodyDesc = RAPIER.RigidBodyDesc.dynamic();
-      } else if (newObj.physicsType === 'kinematic') {
+      } else if (newObj.physicsType === "kinematic") {
         bodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased();
       } else {
         bodyDesc = RAPIER.RigidBodyDesc.fixed();
@@ -884,7 +887,7 @@ export class EditorManager {
 
       newObj.mesh.updateMatrixWorld(true);
       let colliderDesc: RAPIER.ColliderDesc;
-      if (newObj.source?.type === 'brush' && newObj.source.brush && meshObj.isMesh && meshObj.geometry) {
+      if (newObj.source?.type === "brush" && newObj.source.brush && meshObj.isMesh && meshObj.geometry) {
         colliderDesc = buildColliderDesc(newObj.source.brush, meshObj.geometry, meshObj);
       } else {
         const box = new THREE.Box3().setFromObject(newObj.mesh);
@@ -904,12 +907,12 @@ export class EditorManager {
       execute: () => {
         this.document.addObject(newObj, this.renderer.scene);
         this.syncHierarchy();
-        this.eventBus.emit('editor:objectAdded', { id: newObj.id });
+        this.eventBus.emit("editor:objectAdded", { id: newObj.id });
       },
       undo: () => {
         this.document.removeObject(newObj);
         this.syncHierarchy();
-        this.eventBus.emit('editor:objectRemoved', { id: newObj.id });
+        this.eventBus.emit("editor:objectRemoved", { id: newObj.id });
       },
     });
     this.setSelection(newObj);
@@ -954,7 +957,7 @@ export class EditorManager {
    *  Physics type change
    * ================================================================== */
 
-  private applyPhysicsTypeChange(id: string, type: 'static' | 'dynamic' | 'kinematic'): void {
+  private applyPhysicsTypeChange(id: string, type: "static" | "dynamic" | "kinematic"): void {
     const obj = this.document.findById(id);
     if (!obj) return;
 
@@ -972,9 +975,9 @@ export class EditorManager {
     const pos = obj.mesh.position;
     const q = obj.mesh.quaternion;
     let bodyDesc: RAPIER.RigidBodyDesc;
-    if (type === 'static') {
+    if (type === "static") {
       bodyDesc = RAPIER.RigidBodyDesc.fixed();
-    } else if (type === 'kinematic') {
+    } else if (type === "kinematic") {
       bodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased();
     } else {
       bodyDesc = RAPIER.RigidBodyDesc.dynamic();
@@ -1066,9 +1069,9 @@ export class EditorManager {
    *  Transform mode + toolbar sync
    * ================================================================== */
 
-  private currentTransformMode: 'translate' | 'rotate' | 'scale' = 'translate';
+  private currentTransformMode: "translate" | "rotate" | "scale" = "translate";
 
-  private setTransformMode(mode: 'translate' | 'rotate' | 'scale'): void {
+  private setTransformMode(mode: "translate" | "rotate" | "scale"): void {
     this.currentTransformMode = mode;
     this.gizmo.setMode(mode);
     this.toolbarPanel.setActiveMode(mode);
@@ -1098,11 +1101,7 @@ export class EditorManager {
     if (!this.document.selected) return;
     const snap = this.grid.positionSnap;
     const pos = this.document.selected.mesh.position;
-    pos.set(
-      Math.round(pos.x / snap) * snap,
-      Math.round(pos.y / snap) * snap,
-      Math.round(pos.z / snap) * snap,
-    );
+    pos.set(Math.round(pos.x / snap) * snap, Math.round(pos.y / snap) * snap, Math.round(pos.z / snap) * snap);
   }
 
   /* ==================================================================
@@ -1135,9 +1134,10 @@ export class EditorManager {
 
       if (shapeType === RAPIER.ShapeType.Cuboid) {
         const cur = (obj.collider.shape as RAPIER.Cuboid).halfExtents;
-        needsRebuild = Math.abs(cur.x - size.x / 2) > 0.001 ||
-                        Math.abs(cur.y - size.y / 2) > 0.001 ||
-                        Math.abs(cur.z - size.z / 2) > 0.001;
+        needsRebuild =
+          Math.abs(cur.x - size.x / 2) > 0.001 ||
+          Math.abs(cur.y - size.y / 2) > 0.001 ||
+          Math.abs(cur.z - size.z / 2) > 0.001;
       } else {
         // For trimesh/cylinder: always rebuild on any scale change since
         // we can't easily compare the current shape's dimensions
@@ -1149,7 +1149,7 @@ export class EditorManager {
         // Use shape-appropriate collider if this is a brush object
         const meshObj = obj.mesh as THREE.Mesh;
         let colliderDesc: RAPIER.ColliderDesc;
-        if (obj.source?.type === 'brush' && obj.source.brush && meshObj.isMesh && meshObj.geometry) {
+        if (obj.source?.type === "brush" && obj.source.brush && meshObj.isMesh && meshObj.geometry) {
           colliderDesc = buildColliderDesc(obj.source.brush, meshObj.geometry, meshObj);
         } else {
           colliderDesc = RAPIER.ColliderDesc.cuboid(
@@ -1189,12 +1189,12 @@ export class EditorManager {
         this.levelManager.removeLevelObject(target.mesh);
         this.setSelection(null);
         this.syncHierarchy();
-        this.eventBus.emit('editor:objectRemoved', { id: target.id });
+        this.eventBus.emit("editor:objectRemoved", { id: target.id });
       },
       undo: () => {
         this.document.addObject(target, parent);
         this.syncHierarchy();
-        this.eventBus.emit('editor:objectAdded', { id: target.id });
+        this.eventBus.emit("editor:objectAdded", { id: target.id });
       },
     });
   }
@@ -1209,16 +1209,9 @@ export class EditorManager {
     const originY = camPos.y + 0.5;
     const origin = new RAPIER.Vector3(camPos.x, originY, camPos.z);
     const dir = new RAPIER.Vector3(0, -1, 0);
-    let exclude: RAPIER.Collider | undefined = undefined;
+    let exclude: RAPIER.Collider | undefined;
     for (let i = 0; i < 3; i += 1) {
-      const hit = this.physicsWorld.castRay(
-        origin,
-        dir,
-        400,
-        exclude,
-        undefined,
-        (c) => !c.isSensor(),
-      );
+      const hit = this.physicsWorld.castRay(origin, dir, 400, exclude, undefined, (c) => !c.isSensor());
       if (!hit) return;
       const n = this.physicsWorld.castRayAndGetNormal(origin, dir, hit.timeOfImpact + 0.001, exclude);
       if (n?.normal?.y != null && n.normal.y > 0.25) {
@@ -1243,11 +1236,11 @@ export class EditorManager {
    * ================================================================== */
 
   private async saveLevel(): Promise<void> {
-    const name = window.prompt('Level name:', 'custom');
+    const name = window.prompt("Level name:", "custom");
     if (!name) return;
     // Preserve the original created timestamp when overwriting an existing level
     const existingLevels = LevelSaveStore.list();
-    const existingMeta = existingLevels.find(m => m.name === name);
+    const existingMeta = existingLevels.find((m) => m.name === name);
     let existingCreated: string | undefined;
     if (existingMeta) {
       const existingData = LevelSaveStore.load(existingMeta.key);
@@ -1256,14 +1249,14 @@ export class EditorManager {
     const data = LevelSerializer.serialize(name, this.document.objects, existingCreated);
     LevelSerializer.download(data);
     LevelSaveStore.save(data);
-    this.eventBus.emit('editor:saved', { name: data.name });
+    this.eventBus.emit("editor:saved", { name: data.name });
   }
 
   private async loadLevel(): Promise<void> {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.json';
-    input.addEventListener('change', async () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json";
+    input.addEventListener("change", async () => {
       const file = input.files?.[0];
       if (!file) return;
       const data = await LevelSerializer.loadFromFile(file);
@@ -1340,25 +1333,25 @@ export class EditorManager {
     }
 
     this.syncHierarchy();
-    this.eventBus.emit('editor:loaded', { name: data.name });
+    this.eventBus.emit("editor:loaded", { name: data.name });
   }
 
-  private async spawnSerializedObject(entry: LevelData['objects'][number]): Promise<void> {
+  private async spawnSerializedObject(entry: LevelData["objects"][number]): Promise<void> {
     let obj: THREE.Object3D | null = null;
-    if (entry.source.type === 'primitive' && entry.source.primitive) {
+    if (entry.source.type === "primitive" && entry.source.primitive) {
       const p = entry.source.primitive;
-      if (p === 'group') {
+      if (p === "group") {
         obj = new THREE.Group();
       } else {
         let geometry: THREE.BufferGeometry;
-        if (p === 'sphere') geometry = new THREE.SphereGeometry(0.5, 16, 16);
-        else if (p === 'cylinder') geometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 16);
-        else if (p === 'capsule') geometry = new THREE.CapsuleGeometry(0.4, 0.6, 6, 12);
-        else if (p === 'plane') geometry = new THREE.PlaneGeometry(1, 1);
+        if (p === "sphere") geometry = new THREE.SphereGeometry(0.5, 16, 16);
+        else if (p === "cylinder") geometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 16);
+        else if (p === "capsule") geometry = new THREE.CapsuleGeometry(0.4, 0.6, 6, 12);
+        else if (p === "plane") geometry = new THREE.PlaneGeometry(1, 1);
         else geometry = new THREE.BoxGeometry(1, 1, 1);
         obj = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0xb0c4de, roughness: 0.6 }));
       }
-    } else if (entry.source.type === 'brush' && entry.source.brush) {
+    } else if (entry.source.type === "brush" && entry.source.brush) {
       const brush = getBrushById(entry.source.brush);
       if (brush) {
         // Use the brush's own default params — NOT hardcoded (1,0,1)/height:1
@@ -1373,7 +1366,7 @@ export class EditorManager {
         const material = brush.getDefaultMaterial();
         obj = new THREE.Mesh(geometry, material);
       }
-    } else if (entry.source.type === 'glb' && entry.source.asset) {
+    } else if (entry.source.type === "glb" && entry.source.asset) {
       try {
         const gltf = await this.levelManager.getAssetLoader().load(entry.source.asset);
         obj = skeletonClone(gltf.scene);
@@ -1436,13 +1429,12 @@ export class EditorManager {
     }
 
     // Create physics body if applicable
-    const isTransformOnlyGroup =
-      entry.source.type === 'primitive' && entry.source.primitive === 'group';
+    const isTransformOnlyGroup = entry.source.type === "primitive" && entry.source.primitive === "group";
     if (entry.physics && !isTransformOnlyGroup) {
       let bodyDesc: RAPIER.RigidBodyDesc;
-      if (entry.physics.type === 'static') {
+      if (entry.physics.type === "static") {
         bodyDesc = RAPIER.RigidBodyDesc.fixed();
-      } else if (entry.physics.type === 'kinematic') {
+      } else if (entry.physics.type === "kinematic") {
         bodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased();
       } else {
         bodyDesc = RAPIER.RigidBodyDesc.dynamic();
@@ -1456,7 +1448,7 @@ export class EditorManager {
       // Use shape-appropriate collider for brushes, AABB cuboid for others
       let colliderDesc: RAPIER.ColliderDesc;
       const meshObj = obj as THREE.Mesh;
-      if (entry.source.type === 'brush' && entry.source.brush && meshObj.isMesh && meshObj.geometry) {
+      if (entry.source.type === "brush" && entry.source.brush && meshObj.isMesh && meshObj.geometry) {
         colliderDesc = buildColliderDesc(entry.source.brush, meshObj.geometry, meshObj);
       } else {
         const size = box.getSize(new THREE.Vector3());
@@ -1470,7 +1462,7 @@ export class EditorManager {
       const collider = this.physicsWorld.world.createCollider(colliderDesc, body);
       editorObj.body = body;
       editorObj.collider = collider;
-      editorObj.physicsType = entry.physics.type as 'static' | 'dynamic' | 'kinematic';
+      editorObj.physicsType = entry.physics.type as "static" | "dynamic" | "kinematic";
     }
 
     this.document.addObject(editorObj, this.renderer.scene);

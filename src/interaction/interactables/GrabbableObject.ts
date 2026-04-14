@@ -1,15 +1,15 @@
-import * as THREE from 'three';
-import type RAPIER from '@dimforge/rapier3d-compat';
-import type { EventBus } from '@core/EventBus';
-import type { PlayerController } from '@character/PlayerController';
-import type { IInteractable, InteractionAccess } from '../Interactable';
-import { setMeshHighlight } from '../highlightMesh';
+import type { PlayerController } from "@character/PlayerController";
+import type { EventBus } from "@core/EventBus";
+import type RAPIER from "@dimforge/rapier3d-compat";
+import * as THREE from "three";
+import { setMeshHighlight } from "../highlightMesh";
+import type { IInteractable, InteractionAccess } from "../Interactable";
 
 const _grabOffset = new THREE.Vector3();
 
 export class GrabbableObject implements IInteractable {
   readonly id: string;
-  readonly label = 'Grab';
+  readonly label = "Grab";
   readonly position = new THREE.Vector3();
 
   constructor(
@@ -36,14 +36,14 @@ export class GrabbableObject implements IInteractable {
   }
 
   canInteract(player: PlayerController): InteractionAccess {
-    return player.isGrounded ? { allowed: true } : { allowed: false, reason: 'Must be grounded' };
+    return player.isGrounded ? { allowed: true } : { allowed: false, reason: "Must be grounded" };
   }
 
   interact(player: PlayerController): void {
     const bodyPos = this.body.translation();
     _grabOffset.set(bodyPos.x, bodyPos.y, bodyPos.z).sub(player.position);
     const grabWeight = this.mesh?.userData?.grabWeight as number | undefined;
-    this.eventBus.emit('interaction:grabStart', { body: this.body, offset: _grabOffset, grabWeight });
+    this.eventBus.emit("interaction:grabStart", { body: this.body, offset: _grabOffset, grabWeight });
   }
 
   dispose(): void {

@@ -1,4 +1,4 @@
-import type { EventMap } from './types';
+import type { EventMap } from "./types";
 
 type Listener<T> = (payload: T) => void;
 
@@ -12,10 +12,11 @@ export class EventBus {
   /** Subscribe to an event. Returns an unsubscribe function. */
   on<K extends keyof EventMap>(event: K, listener: Listener<EventMap[K]>): () => void {
     const key = event as string;
-    if (!this.listeners.has(key)) {
-      this.listeners.set(key, new Set());
+    let set = this.listeners.get(key);
+    if (!set) {
+      set = new Set();
+      this.listeners.set(key, set);
     }
-    const set = this.listeners.get(key)!;
     const fn = listener as Listener<unknown>;
     set.add(fn);
     return () => {

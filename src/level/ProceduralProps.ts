@@ -1,5 +1,5 @@
-import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import * as THREE from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
 /** Stylized puffy bush — cluster of smooth icosahedrons. Astro Bot style. */
 export function createBush(scale = 1.0, color = 0x4cd137): THREE.Mesh {
@@ -28,16 +28,12 @@ export function createBush(scale = 1.0, color = 0x4cd137): THREE.Mesh {
   const mesh = new THREE.Mesh(merged, material);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
-  mesh.name = 'Bush';
+  mesh.name = "Bush";
   return mesh;
 }
 
 /** Stylized low-poly tree — cylinder trunk + puffy icosahedron canopy. */
-export function createTree(
-  height = 3.0,
-  color = 0x2ecc71,
-  trunkColor = 0x8b6914,
-): THREE.Mesh {
+export function createTree(height = 3.0, color = 0x2ecc71, trunkColor = 0x8b6914): THREE.Mesh {
   const trunkHeight = height * 0.4;
   const trunkGeo = new THREE.CylinderGeometry(0.08, 0.12, trunkHeight, 8);
   trunkGeo.translate(0, trunkHeight * 0.5, 0);
@@ -82,7 +78,7 @@ export function createTree(
   const group = new THREE.Group();
   group.add(trunk);
   group.add(canopy);
-  group.name = 'Tree';
+  group.name = "Tree";
 
   // Wrap in a mesh-like object — since we need a Group for two materials,
   // we cast the group; callers should treat it as Object3D.
@@ -102,8 +98,8 @@ export function createRock(scale = 1.0, color = 0x95a5a6): THREE.Mesh {
     vertex.set(pos.getX(i), pos.getY(i), pos.getZ(i));
     const len = vertex.length();
     // Displace along the vertex normal direction (radial) — keeps faces intact
-    const noise = 1.0 + (Math.sin(vertex.x * 7.3 + vertex.y * 5.1) *
-                          Math.cos(vertex.z * 6.2 + vertex.x * 3.7)) * 0.15 * scale;
+    const noise =
+      1.0 + Math.sin(vertex.x * 7.3 + vertex.y * 5.1) * Math.cos(vertex.z * 6.2 + vertex.x * 3.7) * 0.15 * scale;
     vertex.normalize().multiplyScalar(len * noise);
     pos.setXYZ(i, vertex.x, vertex.y, vertex.z);
   }
@@ -126,15 +122,12 @@ export function createRock(scale = 1.0, color = 0x95a5a6): THREE.Mesh {
   const mesh = new THREE.Mesh(geo, material);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
-  mesh.name = 'Rock';
+  mesh.name = "Rock";
   return mesh;
 }
 
 /** Stylized flower — thin cylinder stem + colored petal sphere on top. */
-export function createFlower(
-  height = 0.6,
-  petalColor = 0xff69b4,
-): THREE.Mesh {
+export function createFlower(height = 0.6, petalColor = 0xff69b4): THREE.Mesh {
   const stemGeo = new THREE.CylinderGeometry(0.015, 0.02, height, 6);
   stemGeo.translate(0, height * 0.5, 0);
 
@@ -165,7 +158,7 @@ export function createFlower(
   const group = new THREE.Group();
   group.add(stem);
   group.add(petal);
-  group.name = 'Flower';
+  group.name = "Flower";
 
   return group as unknown as THREE.Mesh;
 }
@@ -210,6 +203,6 @@ export function scatterProps(
     group.add(prop);
   }
 
-  group.name = 'ScatteredProps';
+  group.name = "ScatteredProps";
   return group;
 }

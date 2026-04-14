@@ -10,16 +10,16 @@ import {
   type Updatable,
 } from "@core/types";
 import RAPIER from "@dimforge/rapier3d-compat";
+import type { AssetLoader } from "@level/AssetLoader";
 import { ColliderFactory } from "@physics/ColliderFactory";
 import type { PhysicsWorld } from "@physics/PhysicsWorld";
 import * as THREE from "three";
-import { CharacterFSM } from "./CharacterFSM";
-import { CharacterMotor, type GroundInfo } from "./CharacterMotor";
-import type { CharacterModel } from "./animation/CharacterModel";
 import type { AnimationController } from "./animation/AnimationController";
 import { createAnimatedCharacter } from "./animation/CharacterFactory";
+import type { CharacterModel } from "./animation/CharacterModel";
 import { PLAYER_PROFILE } from "./animation/profiles";
-import type { AssetLoader } from "@level/AssetLoader";
+import { CharacterFSM } from "./CharacterFSM";
+import { CharacterMotor, type GroundInfo } from "./CharacterMotor";
 import { type CarryableObject, GrabCarryController } from "./GrabCarryController";
 import { AirMode } from "./modes/AirMode";
 import type { CharacterMode, PlayerContext } from "./modes/CharacterMode";
@@ -174,7 +174,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     );
     this.body = body;
     this.collider = collider;
-    this.body.userData = { kind: 'player' };
+    this.body.userData = { kind: "player" };
     this.body.setAdditionalMass(this.config.mass, true);
     this.body.setDominanceGroup(PLAYER_DOMINANCE_GROUP);
     this.body.setEnabledRotations(false, false, false, true);
@@ -211,25 +211,25 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
     void this.initCharacter();
 
-    this.eventBus.on('player:dying', () => {
+    this.eventBus.on("player:dying", () => {
       if (this.animator) {
-        this.animator.playOneShot(PLAYER_PROFILE.deathClip ?? 'Death01');
+        this.animator.playOneShot(PLAYER_PROFILE.deathClip ?? "Death01");
       }
     });
-    this.eventBus.on('player:damaged', ({ reason }) => {
+    this.eventBus.on("player:damaged", ({ reason }) => {
       this.damagePulse = 1;
-      if (reason === 'spike' && this.spikeDamageClipName && this.animator) {
+      if (reason === "spike" && this.spikeDamageClipName && this.animator) {
         this.animator.playOneShot(this.spikeDamageClipName, 0.08);
       }
     });
-    this.eventBus.on('player:invulnerabilityChanged', ({ active, reason }) => {
-      this.damageBlinkActive = active && reason === 'spike';
+    this.eventBus.on("player:invulnerabilityChanged", ({ active, reason }) => {
+      this.damageBlinkActive = active && reason === "spike";
       this.damageBlinkTime = 0;
       if (!this.damageBlinkActive) {
         this.applyDamageVisual(this.damagePulse);
       }
     });
-    this.eventBus.on('player:respawned', () => {
+    this.eventBus.on("player:respawned", () => {
       this.damagePulse = 0;
       this.damageBlinkActive = false;
       this.damageBlinkTime = 0;
@@ -243,24 +243,24 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
   private async initCharacter(): Promise<void> {
     try {
-      const { model, animator } = await createAnimatedCharacter(
-        PLAYER_PROFILE, this.mesh, this.assetLoader,
-        { heroFinish: true },
-      );
+      const { model, animator } = await createAnimatedCharacter(PLAYER_PROFILE, this.mesh, this.assetLoader, {
+        heroFinish: true,
+      });
       this.characterModel = model;
       this.animator = animator;
-      this.spikeDamageClipName = PLAYER_PROFILE.spikeDamageClipCandidates?.find((clipName) => model.clips.has(clipName)) ?? null;
+      this.spikeDamageClipName =
+        PLAYER_PROFILE.spikeDamageClipCandidates?.find((clipName) => model.clips.has(clipName)) ?? null;
       this.animator.setEventListener({
-        onFootstep: () => this.eventBus.emit('animation:footstep', undefined),
+        onFootstep: () => this.eventBus.emit("animation:footstep", undefined),
         onActionEvent: (clip, event) => {
-          this.eventBus.emit('animation:event', { clip, event });
-          if (clip === 'OverhandThrow' && event === 'release') {
+          this.eventBus.emit("animation:event", { clip, event });
+          if (clip === "OverhandThrow" && event === "release") {
             this.executePendingThrow();
           }
         },
       });
     } catch (err) {
-      console.warn('[PlayerController] Character load failed, using capsule fallback:', err);
+      console.warn("[PlayerController] Character load failed, using capsule fallback:", err);
       this.spikeDamageClipName = null;
     }
   }
@@ -310,7 +310,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.grabCarry.forceRelease();
     this.pendingThrow = false;
     this.fsm.requestState(STATE.idle);
-    this.eventBus.emit('camera:resetConfig', undefined);
+    this.eventBus.emit("camera:resetConfig", undefined);
     // Reset animation one-shot override (e.g., death) so FSM animations resume
     this.animator?.resetOneShot();
     this.respawnPoint = {
@@ -401,11 +401,27 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
   /** Neutral input state used when no real input is available (pre-pointer-lock). */
   private static readonly NEUTRAL_INPUT: InputState = {
-    forward: false, backward: false, left: false, right: false,
-    crouch: false, crouchPressed: false, jump: false, jumpPressed: false,
-    interact: false, interactPressed: false, primary: false, primaryPressed: false,
-    altitudeUp: false, altitudeDown: false, vehicleVertical: 0, moveX: 0, moveY: 0,
-    sprint: false, mouseDeltaX: 0, mouseDeltaY: 0, mouseWheelDelta: 0,
+    forward: false,
+    backward: false,
+    left: false,
+    right: false,
+    crouch: false,
+    crouchPressed: false,
+    jump: false,
+    jumpPressed: false,
+    interact: false,
+    interactPressed: false,
+    primary: false,
+    primaryPressed: false,
+    altitudeUp: false,
+    altitudeDown: false,
+    vehicleVertical: 0,
+    moveX: 0,
+    moveY: 0,
+    sprint: false,
+    mouseDeltaX: 0,
+    mouseDeltaY: 0,
+    mouseWheelDelta: 0,
   };
 
   fixedUpdate(dt: number): void {
@@ -440,11 +456,11 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
         // Direction is recomputed at release time so the throw follows current aim.
         if (this.animator) {
           this.pendingThrow = true;
-          this.animator.playOneShot(PLAYER_PROFILE.throwClip ?? 'OverhandThrow', 0.1);
+          this.animator.playOneShot(PLAYER_PROFILE.throwClip ?? "OverhandThrow", 0.1);
         } else {
           this.throwCarriedObject();
         }
-        this.eventBus.emit('camera:resetConfig', undefined);
+        this.eventBus.emit("camera:resetConfig", undefined);
         this.fsm.requestState(this.hasMovementInput(input) ? STATE.move : STATE.idle);
       } else if (input.crouchPressed) {
         this.grabCarry.dropCarried(
@@ -453,7 +469,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
           this.getCameraForward(),
           this.eventBus,
         );
-        this.eventBus.emit('camera:resetConfig', undefined);
+        this.eventBus.emit("camera:resetConfig", undefined);
         this.fsm.requestState(this.hasMovementInput(input) ? STATE.move : STATE.idle);
       }
     }
@@ -567,7 +583,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     // Only allow jump to trigger ladder grab while airborne — grounded jumps
     // should fire normally even inside a ladder zone.
     const wantsLadder =
-      !movementLocked && (input.forward || input.backward || (input.jumpPressed && !groundedForTransitions) || this.onLadder);
+      !movementLocked &&
+      (input.forward || input.backward || (input.jumpPressed && !groundedForTransitions) || this.onLadder);
     if (inLadderZone && wantsLadder) return "ladder";
 
     // When leaving ladder zone, restore gravity
@@ -629,21 +646,15 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     // so keep the hero mesh at unit scale and reserve crouchVisual for camera
     // offset smoothing (and any future fallback-only visuals).
     this.mesh.scale.set(1, 1, 1);
-    const crouchVisualLift =
-      (this.standingCapsuleHalfHeight - this.currentCapsuleHalfHeight) * this.crouchVisual;
+    const crouchVisualLift = (this.standingCapsuleHalfHeight - this.currentCapsuleHalfHeight) * this.crouchVisual;
     this.characterModel?.setVisualLift(crouchVisualLift);
     this.damagePulse += (0 - this.damagePulse) * (1 - Math.exp(-18 * _dt));
     if (this.damageBlinkActive) {
       this.damageBlinkTime += _dt;
     }
-    const blinkPulse =
-      this.damageBlinkActive && Math.floor(this.damageBlinkTime / 0.12) % 2 === 0
-        ? 0.95
-        : 0;
+    const blinkPulse = this.damageBlinkActive && Math.floor(this.damageBlinkTime / 0.12) % 2 === 0 ? 0.95 : 0;
     this.applyDamageVisual(Math.max(this.damagePulse, blinkPulse));
-    const animSpeed = this.currentMode.id === 'ladder'
-      ? Math.abs(this.body.linvel().y)
-      : this.cachedHorizontalSpeed;
+    const animSpeed = this.currentMode.id === "ladder" ? Math.abs(this.body.linvel().y) : this.cachedHorizontalSpeed;
     this.animator?.setSpeed(animSpeed);
     this.animator?.setForwardAlignment(this.computeForwardAlignment());
     this.animator?.setState(this.fsm.current);
@@ -686,13 +697,13 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.grabCarry.startGrab(body, this.currPosition, offset, grabWeight);
     if (this.grabCarry.isGrabbing) {
       this.fsm.requestState(STATE.grab);
-      this.eventBus.emit('camera:applyConfig', GRAB_CAMERA_CONFIG);
+      this.eventBus.emit("camera:applyConfig", GRAB_CAMERA_CONFIG);
     }
   }
 
   endGrab(): void {
     this.grabCarry.endGrab(this.getCameraForward(), this.eventBus);
-    this.eventBus.emit('camera:resetConfig', undefined);
+    this.eventBus.emit("camera:resetConfig", undefined);
   }
 
   startCarry(object: CarryableObject): void {
@@ -767,10 +778,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     _carryForward.set(Math.sin(yaw), 0, Math.cos(yaw));
     _carryRight.set(Math.cos(yaw), 0, -Math.sin(yaw));
 
-    targetPosition
-      .copy(this.currPosition)
-      .addScaledVector(_carryForward, 0.38)
-      .addScaledVector(_carryRight, 0.22);
+    targetPosition.copy(this.currPosition).addScaledVector(_carryForward, 0.38).addScaledVector(_carryRight, 0.22);
     targetPosition.y -= 0.02;
 
     targetRotation.setFromAxisAngle(_worldUp, yaw);
@@ -891,7 +899,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
   /** Reset camera to default config (called by states on exit). */
   resetCameraConfig(): void {
-    this.eventBus.emit('camera:resetConfig', undefined);
+    this.eventBus.emit("camera:resetConfig", undefined);
   }
 
   /** The rigidbody of the currently carried throwable, if any. */

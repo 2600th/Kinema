@@ -1,5 +1,5 @@
-import * as THREE from "three";
 import { getShowcaseBayTopY, getShowcaseStationZ, type ShowcaseStationKey } from "@level/ShowcaseLayout";
+import * as THREE from "three";
 
 export interface CoinPlacement {
   id: string;

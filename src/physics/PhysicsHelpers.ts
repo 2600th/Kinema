@@ -1,5 +1,5 @@
-import * as THREE from 'three';
-import RAPIER from '@dimforge/rapier3d-compat';
+import RAPIER from "@dimforge/rapier3d-compat";
+import * as THREE from "three";
 
 // Pre-allocated temp objects to avoid GC pressure in hot paths
 const _tempVec3 = new THREE.Vector3();

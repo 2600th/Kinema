@@ -1,5 +1,5 @@
-import * as THREE from 'three';
-import { ParticlePool } from './ParticlePool';
+import * as THREE from "three";
+import { ParticlePool } from "./ParticlePool";
 
 const _emitPos = new THREE.Vector3();
 const _dustVelMin = new THREE.Vector3();

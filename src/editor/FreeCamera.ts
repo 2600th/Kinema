@@ -1,10 +1,10 @@
-import * as THREE from 'three';
+import * as THREE from "three";
 
 const _fcForward = new THREE.Vector3();
 const _fcRight = new THREE.Vector3();
 const _fcUp = new THREE.Vector3(0, 1, 0);
-const _fcEuler = new THREE.Euler(0, 0, 0, 'YXZ');
-const _fcEnableEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+const _fcEuler = new THREE.Euler(0, 0, 0, "YXZ");
+const _fcEnableEuler = new THREE.Euler(0, 0, 0, "YXZ");
 
 export class FreeCamera {
   private enabled = false;
@@ -86,16 +86,16 @@ export class FreeCamera {
   enable(): void {
     if (this.enabled) return;
     this.enabled = true;
-    const euler = _fcEnableEuler.setFromQuaternion(this.camera.quaternion, 'YXZ');
+    const euler = _fcEnableEuler.setFromQuaternion(this.camera.quaternion, "YXZ");
     this.pitch = euler.x;
     this.yaw = euler.y;
-    window.addEventListener('keydown', this.onKeyDown);
-    window.addEventListener('keyup', this.onKeyUp);
-    this.domElement.addEventListener('mousedown', this.onMouseDown);
-    window.addEventListener('mouseup', this.onMouseUp);
-    window.addEventListener('mousemove', this.onMouseMove);
-    this.domElement.addEventListener('wheel', this.onWheel, { passive: true });
-    this.domElement.addEventListener('contextmenu', this.onContextMenu);
+    window.addEventListener("keydown", this.onKeyDown);
+    window.addEventListener("keyup", this.onKeyUp);
+    this.domElement.addEventListener("mousedown", this.onMouseDown);
+    window.addEventListener("mouseup", this.onMouseUp);
+    window.addEventListener("mousemove", this.onMouseMove);
+    this.domElement.addEventListener("wheel", this.onWheel, { passive: true });
+    this.domElement.addEventListener("contextmenu", this.onContextMenu);
   }
 
   disable(): void {
@@ -104,13 +104,13 @@ export class FreeCamera {
     this.keys.clear();
     this.lookActive = false;
     this.panActive = false;
-    window.removeEventListener('keydown', this.onKeyDown);
-    window.removeEventListener('keyup', this.onKeyUp);
-    this.domElement.removeEventListener('mousedown', this.onMouseDown);
-    window.removeEventListener('mouseup', this.onMouseUp);
-    window.removeEventListener('mousemove', this.onMouseMove);
-    this.domElement.removeEventListener('wheel', this.onWheel);
-    this.domElement.removeEventListener('contextmenu', this.onContextMenu);
+    window.removeEventListener("keydown", this.onKeyDown);
+    window.removeEventListener("keyup", this.onKeyUp);
+    this.domElement.removeEventListener("mousedown", this.onMouseDown);
+    window.removeEventListener("mouseup", this.onMouseUp);
+    window.removeEventListener("mousemove", this.onMouseMove);
+    this.domElement.removeEventListener("wheel", this.onWheel);
+    this.domElement.removeEventListener("contextmenu", this.onContextMenu);
   }
 
   update(dt: number): void {
@@ -121,14 +121,14 @@ export class FreeCamera {
     const right = _fcRight;
     const up = _fcUp;
 
-    const speedMult = this.keys.has('ShiftLeft') ? this.fastMult : this.keys.has('ControlLeft') ? this.slowMult : 1;
+    const speedMult = this.keys.has("ShiftLeft") ? this.fastMult : this.keys.has("ControlLeft") ? this.slowMult : 1;
     const speed = this.moveSpeed * speedMult * dt;
 
-    if (this.keys.has('KeyW')) this.camera.position.addScaledVector(forward, speed);
-    if (this.keys.has('KeyS')) this.camera.position.addScaledVector(forward, -speed);
-    if (this.keys.has('KeyA')) this.camera.position.addScaledVector(right, -speed);
-    if (this.keys.has('KeyD')) this.camera.position.addScaledVector(right, speed);
-    if (this.keys.has('KeyQ')) this.camera.position.addScaledVector(up, speed);
-    if (this.keys.has('KeyE')) this.camera.position.addScaledVector(up, -speed);
+    if (this.keys.has("KeyW")) this.camera.position.addScaledVector(forward, speed);
+    if (this.keys.has("KeyS")) this.camera.position.addScaledVector(forward, -speed);
+    if (this.keys.has("KeyA")) this.camera.position.addScaledVector(right, -speed);
+    if (this.keys.has("KeyD")) this.camera.position.addScaledVector(right, speed);
+    if (this.keys.has("KeyQ")) this.camera.position.addScaledVector(up, speed);
+    if (this.keys.has("KeyE")) this.camera.position.addScaledVector(up, -speed);
   }
 }

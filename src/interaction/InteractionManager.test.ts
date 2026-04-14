@@ -1,12 +1,62 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import * as THREE from 'three';
-import { InteractionManager } from './InteractionManager';
-import type { IInteractable, InteractionSpec } from './Interactable';
+import type { PlayerController } from "@character/PlayerController";
+import type { EventBus } from "@core/EventBus";
+import type RAPIER from "@dimforge/rapier3d-compat";
+import type { PhysicsWorld } from "@physics/PhysicsWorld";
+import * as THREE from "three";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { IInteractable, InteractionSpec } from "./Interactable";
+import { InteractionManager } from "./InteractionManager";
 
-vi.mock('@physics/ColliderFactory', () => ({
+type MockFn = ReturnType<typeof vi.fn>;
+type TestPhysicsWorld = {
+  castRay: MockFn;
+  removeCollider: MockFn;
+};
+type TestPlayer = {
+  body: RAPIER.RigidBody;
+  position: THREE.Vector3;
+  lastInputSnapshot?: { interact: boolean };
+};
+type TestEventBus = {
+  emit: MockFn;
+};
+type TestInteractable = IInteractable & {
+  update: MockFn;
+  onFocus: MockFn;
+  onBlur: MockFn;
+  interact: MockFn;
+  dispose: MockFn;
+};
+type PredicateCollider = Pick<RAPIER.Collider, "handle" | "isSensor">;
+
+function asCollider(handle: number): RAPIER.Collider {
+  return { handle } as unknown as RAPIER.Collider;
+}
+
+function asPhysicsWorld(physicsWorld: TestPhysicsWorld): PhysicsWorld {
+  return physicsWorld as unknown as PhysicsWorld;
+}
+
+function asPlayerController(player: TestPlayer): PlayerController {
+  return player as unknown as PlayerController;
+}
+
+function asEventBus(eventBus: TestEventBus): EventBus {
+  return eventBus as unknown as EventBus;
+}
+
+function asCanInteract(fn: MockFn): NonNullable<IInteractable["canInteract"]> {
+  return fn as unknown as NonNullable<IInteractable["canInteract"]>;
+}
+
+function asSetHoldProgress(fn: MockFn): NonNullable<IInteractable["setHoldProgress"]> {
+  return fn as unknown as NonNullable<IInteractable["setHoldProgress"]>;
+}
+
+vi.mock("@physics/ColliderFactory", () => ({
   ColliderFactory: class {
     createCylinderSensor() {
-      return { handle: 999 };
+      return asCollider(999);
     }
   },
 }));
@@ -18,26 +68,27 @@ function makeInteractable(
   handle: number,
   spec?: InteractionSpec,
   ignoredHandles?: number[],
-): IInteractable {
-  return {
+): TestInteractable {
+  const interactable = {
     id,
     label: `label-${id}`,
     position: new THREE.Vector3(x, 0, z),
-    collider: { handle } as any,
+    collider: asCollider(handle),
     update: vi.fn(),
     onFocus: vi.fn(),
     onBlur: vi.fn(),
     interact: vi.fn(),
-    getInteractionSpec: spec ? vi.fn(() => spec) : undefined,
-    getIgnoredColliderHandles: ignoredHandles ? vi.fn(() => ignoredHandles) : undefined,
+    getInteractionSpec: spec ? () => spec : undefined,
+    getIgnoredColliderHandles: ignoredHandles ? () => ignoredHandles : undefined,
     dispose: vi.fn(),
   };
+  return interactable as unknown as TestInteractable;
 }
 
-describe('InteractionManager', () => {
-  let physicsWorld: { castRay: ReturnType<typeof vi.fn>; removeCollider: ReturnType<typeof vi.fn> };
-  let player: { body: unknown; position: THREE.Vector3 };
-  let eventBus: { emit: ReturnType<typeof vi.fn> };
+describe("InteractionManager", () => {
+  let physicsWorld: TestPhysicsWorld;
+  let player: TestPlayer;
+  let eventBus: TestEventBus;
 
   beforeEach(() => {
     physicsWorld = {
@@ -45,7 +96,7 @@ describe('InteractionManager', () => {
       removeCollider: vi.fn(),
     };
     player = {
-      body: { handle: 1 },
+      body: { handle: 1 } as unknown as RAPIER.RigidBody,
       position: new THREE.Vector3(0, 0, 0),
     };
     eventBus = {
@@ -53,11 +104,15 @@ describe('InteractionManager', () => {
     };
   });
 
-  it('focuses nearest visible interactable', () => {
+  it("focuses nearest visible interactable", () => {
     physicsWorld.castRay.mockReturnValue(null);
-    const manager = new InteractionManager(physicsWorld as any, player as any, eventBus as any);
-    const near = makeInteractable('near', 1, 0, 11);
-    const far = makeInteractable('far', 2, 0, 12);
+    const manager = new InteractionManager(
+      asPhysicsWorld(physicsWorld),
+      asPlayerController(player),
+      asEventBus(eventBus),
+    );
+    const near = makeInteractable("near", 1, 0, 11);
+    const far = makeInteractable("far", 2, 0, 12);
     manager.register(near);
     manager.register(far);
 
@@ -65,20 +120,22 @@ describe('InteractionManager', () => {
 
     expect(near.onFocus).toHaveBeenCalledTimes(1);
     expect(far.onFocus).not.toHaveBeenCalled();
-    expect(eventBus.emit).toHaveBeenCalledWith('interaction:focusChanged', {
-      id: 'near',
-      label: 'Press F to label-near',
+    expect(eventBus.emit).toHaveBeenCalledWith("interaction:focusChanged", {
+      id: "near",
+      label: "Press F to label-near",
     });
   });
 
-  it('skips occluded nearest interactable', () => {
-    physicsWorld.castRay
-      .mockReturnValueOnce({ timeOfImpact: 0.5 }) // near target is blocked
-      .mockReturnValueOnce(null); // far target is clear
+  it("skips occluded nearest interactable", () => {
+    physicsWorld.castRay.mockReturnValueOnce({ timeOfImpact: 0.5 }).mockReturnValueOnce(null);
 
-    const manager = new InteractionManager(physicsWorld as any, player as any, eventBus as any);
-    const near = makeInteractable('near', 1, 0, 21);
-    const far = makeInteractable('far', 2, 0, 22);
+    const manager = new InteractionManager(
+      asPhysicsWorld(physicsWorld),
+      asPlayerController(player),
+      asEventBus(eventBus),
+    );
+    const near = makeInteractable("near", 1, 0, 21);
+    const far = makeInteractable("far", 2, 0, 22);
     manager.register(near);
     manager.register(far);
 
@@ -86,35 +143,44 @@ describe('InteractionManager', () => {
 
     expect(near.onFocus).not.toHaveBeenCalled();
     expect(far.onFocus).toHaveBeenCalledTimes(1);
-    expect(eventBus.emit).toHaveBeenCalledWith('interaction:focusChanged', {
-      id: 'far',
-      label: 'Press F to label-far',
+    expect(eventBus.emit).toHaveBeenCalledWith("interaction:focusChanged", {
+      id: "far",
+      label: "Press F to label-far",
     });
   });
 
-  it('emits blocked event for locked interactables', () => {
+  it("emits blocked event for locked interactables", () => {
     physicsWorld.castRay.mockReturnValue(null);
-    const manager = new InteractionManager(physicsWorld as any, player as any, eventBus as any);
-    const locked = makeInteractable('locked', 1, 0, 51);
-    locked.canInteract = vi.fn(() => ({ allowed: false, reason: 'Needs keycard' }));
+    const manager = new InteractionManager(
+      asPhysicsWorld(physicsWorld),
+      asPlayerController(player),
+      asEventBus(eventBus),
+    );
+    const locked = makeInteractable("locked", 1, 0, 51);
+    const canInteract = vi.fn(() => ({ allowed: false, reason: "Needs keycard" }));
+    locked.canInteract = asCanInteract(canInteract);
     manager.register(locked);
 
     manager.refreshFocusFromPosition({ x: 0, y: 0, z: 0 });
     manager.triggerInteraction();
 
     expect(locked.interact).not.toHaveBeenCalled();
-    expect(eventBus.emit).toHaveBeenCalledWith('interaction:blocked', {
-      id: 'locked',
-      reason: 'Needs keycard',
+    expect(eventBus.emit).toHaveBeenCalledWith("interaction:blocked", {
+      id: "locked",
+      reason: "Needs keycard",
     });
   });
 
-  it('requires hold duration before triggering hold interactable', () => {
+  it("requires hold duration before triggering hold interactable", () => {
     physicsWorld.castRay.mockReturnValue(null);
-    const manager = new InteractionManager(physicsWorld as any, player as any, eventBus as any);
-    const holdDoor = makeInteractable('hold', 1, 0, 61, { mode: 'hold', holdDuration: 0.3 });
+    const manager = new InteractionManager(
+      asPhysicsWorld(physicsWorld),
+      asPlayerController(player),
+      asEventBus(eventBus),
+    );
+    const holdDoor = makeInteractable("hold", 1, 0, 61, { mode: "hold", holdDuration: 0.3 });
     manager.register(holdDoor);
-    (player as any).lastInputSnapshot = { interact: true };
+    player.lastInputSnapshot = { interact: true };
 
     manager.refreshFocusFromPosition({ x: 0, y: 0, z: 0 });
     manager.triggerInteraction();
@@ -123,51 +189,64 @@ describe('InteractionManager', () => {
 
     manager.fixedUpdate(0.25);
     expect(holdDoor.interact).toHaveBeenCalledTimes(1);
-    expect(eventBus.emit).toHaveBeenCalledWith('interaction:triggered', { id: 'hold' });
+    expect(eventBus.emit).toHaveBeenCalledWith("interaction:triggered", { id: "hold" });
   });
 
-  it('feeds hold progress into the interactable and emits world position for hold VFX', () => {
+  it("feeds hold progress into the interactable and emits world position for hold VFX", () => {
     physicsWorld.castRay.mockReturnValue(null);
-    const manager = new InteractionManager(physicsWorld as any, player as any, eventBus as any);
-    const holdTarget = makeInteractable('hold', 1, 0, 64, { mode: 'hold', holdDuration: 0.5 });
-    holdTarget.setHoldProgress = vi.fn();
+    const manager = new InteractionManager(
+      asPhysicsWorld(physicsWorld),
+      asPlayerController(player),
+      asEventBus(eventBus),
+    );
+    const holdTarget = makeInteractable("hold", 1, 0, 64, { mode: "hold", holdDuration: 0.5 });
+    const setHoldProgress = vi.fn();
+    holdTarget.setHoldProgress = asSetHoldProgress(setHoldProgress);
     manager.register(holdTarget);
-    (player as any).lastInputSnapshot = { interact: true };
+    player.lastInputSnapshot = { interact: true };
 
     manager.refreshFocusFromPosition({ x: 0, y: 0, z: 0 });
     manager.triggerInteraction();
     manager.fixedUpdate(0.25);
-    (player as any).lastInputSnapshot = { interact: false };
+    player.lastInputSnapshot = { interact: false };
     manager.fixedUpdate(0.05);
 
-    expect(holdTarget.setHoldProgress).toHaveBeenCalledWith(0);
-    expect(holdTarget.setHoldProgress).toHaveBeenCalledWith(0.5);
-    expect(holdTarget.setHoldProgress).toHaveBeenLastCalledWith(null);
-    expect(eventBus.emit).toHaveBeenCalledWith('interaction:holdProgress', {
-      id: 'hold',
+    expect(setHoldProgress).toHaveBeenCalledWith(0);
+    expect(setHoldProgress).toHaveBeenCalledWith(0.5);
+    expect(setHoldProgress).toHaveBeenLastCalledWith(null);
+    expect(eventBus.emit).toHaveBeenCalledWith("interaction:holdProgress", {
+      id: "hold",
       progress: 0.5,
       position: holdTarget.position.clone(),
     });
   });
 
-  it('does not treat interactable-owned collider as LOS blocker', () => {
+  it("does not treat interactable-owned collider as LOS blocker", () => {
     const ownSolidHandle = 777;
     physicsWorld.castRay.mockImplementation(
-      (_origin, _direction, _distance, _solid, _exclude, predicate?: (collider: any) => boolean) => {
-        const collider = { isSensor: () => false, handle: ownSolidHandle };
+      (_origin, _direction, _distance, _solid, _exclude, predicate?: (collider: PredicateCollider) => boolean) => {
+        const collider: PredicateCollider = {
+          handle: ownSolidHandle,
+          isSensor: () => false,
+        };
         return predicate?.(collider) ? { timeOfImpact: 0.15 } : null;
       },
     );
-    const manager = new InteractionManager(physicsWorld as any, player as any, eventBus as any);
-    const doorLike = makeInteractable('door', 1, 0, 71, undefined, [ownSolidHandle]);
+
+    const manager = new InteractionManager(
+      asPhysicsWorld(physicsWorld),
+      asPlayerController(player),
+      asEventBus(eventBus),
+    );
+    const doorLike = makeInteractable("door", 1, 0, 71, undefined, [ownSolidHandle]);
     manager.register(doorLike);
 
     manager.refreshFocusFromPosition({ x: 0, y: 0, z: 0 });
 
     expect(doorLike.onFocus).toHaveBeenCalledTimes(1);
-    expect(eventBus.emit).toHaveBeenCalledWith('interaction:focusChanged', {
-      id: 'door',
-      label: 'Press F to label-door',
+    expect(eventBus.emit).toHaveBeenCalledWith("interaction:focusChanged", {
+      id: "door",
+      label: "Press F to label-door",
     });
   });
 });

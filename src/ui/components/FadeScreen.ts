@@ -1,4 +1,4 @@
-import type { Disposable } from '@core/types';
+import type { Disposable } from "@core/types";
 
 /**
  * Full-screen fade overlay for level transitions.
@@ -8,8 +8,8 @@ export class FadeScreen implements Disposable {
   private overlay: HTMLDivElement;
 
   constructor(parent: HTMLElement) {
-    this.overlay = document.createElement('div');
-    this.overlay.id = 'fade-screen';
+    this.overlay = document.createElement("div");
+    this.overlay.id = "fade-screen";
     this.overlay.style.cssText = `
       position: absolute;
       top: 0; left: 0;
@@ -26,17 +26,17 @@ export class FadeScreen implements Disposable {
   /** Fade to black. Returns when transition completes. */
   fadeIn(durationMs = 500): Promise<void> {
     this.overlay.style.transition = `opacity ${durationMs}ms ease`;
-    this.overlay.style.opacity = '1';
-    this.overlay.style.pointerEvents = 'all';
+    this.overlay.style.opacity = "1";
+    this.overlay.style.pointerEvents = "all";
     return this.waitForTransition(durationMs);
   }
 
   /** Fade from black to transparent. Returns when transition completes. */
   fadeOut(durationMs = 500): Promise<void> {
     this.overlay.style.transition = `opacity ${durationMs}ms ease`;
-    this.overlay.style.opacity = '0';
+    this.overlay.style.opacity = "0";
     return this.waitForTransition(durationMs).then(() => {
-      this.overlay.style.pointerEvents = 'none';
+      this.overlay.style.pointerEvents = "none";
     });
   }
 
@@ -46,12 +46,12 @@ export class FadeScreen implements Disposable {
       const done = () => {
         if (settled) return;
         settled = true;
-        this.overlay.removeEventListener('transitionend', handler);
+        this.overlay.removeEventListener("transitionend", handler);
         clearTimeout(timer);
         resolve();
       };
       const handler = () => done();
-      this.overlay.addEventListener('transitionend', handler);
+      this.overlay.addEventListener("transitionend", handler);
       const timer = setTimeout(done, durationMs + 100);
     });
   }

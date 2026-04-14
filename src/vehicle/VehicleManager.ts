@@ -1,10 +1,17 @@
-import type { EventBus } from '@core/EventBus';
-import type { FixedUpdatable, PostPhysicsUpdatable, Updatable, Disposable, InputState, SpawnPointData } from '@core/types';
-import { NULL_INPUT } from '@core/types';
-import type { PlayerController } from '@character/PlayerController';
-import type { OrbitFollowCamera } from '@camera/OrbitFollowCamera';
-import type { InteractionManager } from '@interaction/InteractionManager';
-import type { VehicleController } from './VehicleController';
+import type { OrbitFollowCamera } from "@camera/OrbitFollowCamera";
+import type { PlayerController } from "@character/PlayerController";
+import type { EventBus } from "@core/EventBus";
+import type {
+  Disposable,
+  FixedUpdatable,
+  InputState,
+  PostPhysicsUpdatable,
+  SpawnPointData,
+  Updatable,
+} from "@core/types";
+import { NULL_INPUT } from "@core/types";
+import type { InteractionManager } from "@interaction/InteractionManager";
+import type { VehicleController } from "./VehicleController";
 
 export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Disposable {
   private static readonly VEHICLE_RESET_Y = -8;
@@ -22,7 +29,7 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
     private interactionManager: InteractionManager,
   ) {
     this.unsubs.push(
-      this.eventBus.on('vehicle:enter', ({ vehicle }) => {
+      this.eventBus.on("vehicle:enter", ({ vehicle }) => {
         this.enterVehicle(vehicle);
       }),
     );
@@ -44,8 +51,8 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
     return this.active !== null;
   }
 
-  getCameraLookMode(): 'full' | 'yawOnly' {
-    return this.active?.cameraLookMode ?? 'full';
+  getCameraLookMode(): "full" | "yawOnly" {
+    return this.active?.cameraLookMode ?? "full";
   }
 
   setInput(input: InputState): void {
@@ -79,8 +86,8 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
       const handlingFeel = this.active.getHandlingFeelState?.() ?? null;
       this.camera.setVehicleSpeedRatio(sn);
       this.camera.setVehicleHandlingFeel(handlingFeel);
-      this.eventBus.emit('vehicle:speedUpdate', { speedNorm: sn });
-      this.eventBus.emit('vehicle:handlingUpdate', handlingFeel);
+      this.eventBus.emit("vehicle:speedUpdate", { speedNorm: sn });
+      this.eventBus.emit("vehicle:handlingUpdate", handlingFeel);
       return;
     }
     // Keep parked vehicles simulating (e.g., drone auto-landing).
@@ -121,8 +128,8 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
   clear(): void {
     // If the player is seated, restore ownership before disposing vehicles.
     if (this.active) {
-      this.eventBus.emit('vehicle:engineStop', undefined);
-      this.eventBus.emit('vehicle:handlingUpdate', null);
+      this.eventBus.emit("vehicle:engineStop", undefined);
+      this.eventBus.emit("vehicle:handlingUpdate", null);
       this.camera.setChaseMode(false);
       this.camera.setVehicleSpeedRatio(0);
       this.camera.setVehicleHandlingFeel(null);
@@ -158,7 +165,7 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
     });
     this.camera.setChaseMode(true);
     this.camera.snapToTarget();
-    this.eventBus.emit('vehicle:engineStart', undefined);
+    this.eventBus.emit("vehicle:engineStart", undefined);
   }
 
   private exitVehicle(vehicle: VehicleController): void {
@@ -180,9 +187,9 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
     // Block re-entry for 2 ticks (this tick + next) to prevent same-frame re-entry
     // from the interactPressed that triggered the exit.
     this.exitCooldown = 2;
-    this.eventBus.emit('vehicle:engineStop', undefined);
-    this.eventBus.emit('vehicle:handlingUpdate', null);
-    this.eventBus.emit('vehicle:exit', { position: spawn.position });
+    this.eventBus.emit("vehicle:engineStop", undefined);
+    this.eventBus.emit("vehicle:handlingUpdate", null);
+    this.eventBus.emit("vehicle:exit", { position: spawn.position });
   }
 
   private releaseHeldInteractionBeforeEntry(): void {
@@ -212,12 +219,17 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
   private resetIfOutOfBounds(vehicle: VehicleController): void {
     if (!vehicle.resetToSpawn) return;
     const p = vehicle.body.translation();
-    if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z) || p.y < VehicleManager.VEHICLE_RESET_Y) {
+    if (
+      !Number.isFinite(p.x) ||
+      !Number.isFinite(p.y) ||
+      !Number.isFinite(p.z) ||
+      p.y < VehicleManager.VEHICLE_RESET_Y
+    ) {
       vehicle.resetToSpawn();
       this.camera.setVehicleSpeedRatio(0);
       this.camera.setVehicleHandlingFeel(vehicle.getHandlingFeelState?.() ?? null);
-      this.eventBus.emit('vehicle:speedUpdate', { speedNorm: 0 });
-      this.eventBus.emit('vehicle:handlingUpdate', vehicle.getHandlingFeelState?.() ?? null);
+      this.eventBus.emit("vehicle:speedUpdate", { speedNorm: 0 });
+      this.eventBus.emit("vehicle:handlingUpdate", vehicle.getHandlingFeelState?.() ?? null);
     }
   }
 }

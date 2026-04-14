@@ -1,16 +1,16 @@
-import type { Disposable } from '@core/types';
+import type { Disposable } from "@core/types";
 
 export interface JoystickOptions {
-  size?: number;        // diameter in px (default 140)
-  baseColor?: string;   // outer ring color
-  thumbColor?: string;  // inner thumb color
-  deadzone?: number;    // 0-1 (default 0.1)
-  fixed?: boolean;      // true=fixed position, false=dynamic origin (default false)
+  size?: number; // diameter in px (default 140)
+  baseColor?: string; // outer ring color
+  thumbColor?: string; // inner thumb color
+  deadzone?: number; // 0-1 (default 0.1)
+  fixed?: boolean; // true=fixed position, false=dynamic origin (default false)
 }
 
 export interface JoystickState {
-  x: number;  // -1 to 1
-  y: number;  // -1 to 1
+  x: number; // -1 to 1
+  y: number; // -1 to 1
   active: boolean;
 }
 
@@ -53,26 +53,28 @@ export class VirtualJoystick implements Disposable {
 
     // Use devicePixelRatio for crisp rendering
     const dpr = window.devicePixelRatio || 1;
-    this.canvas = document.createElement('canvas');
+    this.canvas = document.createElement("canvas");
     this.canvas.width = this.size * dpr;
     this.canvas.height = this.size * dpr;
     this.canvas.style.width = `${this.size}px`;
     this.canvas.style.height = `${this.size}px`;
-    this.canvas.style.touchAction = 'none';
-    this.canvas.style.pointerEvents = 'auto';
-    this.canvas.classList.add('touch-joystick');
+    this.canvas.style.position = "absolute";
+    this.canvas.style.touchAction = "none";
+    this.canvas.style.pointerEvents = "none";
+    this.canvas.classList.add("touch-joystick");
 
-    const ctx = this.canvas.getContext('2d');
-    if (!ctx) throw new Error('[VirtualJoystick] Failed to get 2d context');
+    const ctx = this.canvas.getContext("2d");
+    if (!ctx) throw new Error("[VirtualJoystick] Failed to get 2d context");
     this.ctx = ctx;
     this.ctx.scale(dpr, dpr);
 
     this.container.appendChild(this.canvas);
+    this.positionCanvasAtHome();
 
-    this.canvas.addEventListener('touchstart', this._onTouchStart, { passive: false });
-    window.addEventListener('touchmove', this._onTouchMove, { passive: false });
-    window.addEventListener('touchend', this._onTouchEnd);
-    window.addEventListener('touchcancel', this._onTouchEnd);
+    this.container.addEventListener("touchstart", this._onTouchStart, { passive: false });
+    window.addEventListener("touchmove", this._onTouchMove, { passive: false });
+    window.addEventListener("touchend", this._onTouchEnd);
+    window.addEventListener("touchcancel", this._onTouchEnd);
 
     this.draw();
   }
@@ -102,19 +104,19 @@ export class VirtualJoystick implements Disposable {
   }
 
   show(): void {
-    this.canvas.style.display = '';
+    this.canvas.style.display = "";
   }
 
   hide(): void {
-    this.canvas.style.display = 'none';
+    this.canvas.style.display = "none";
     this.resetTouch();
   }
 
   dispose(): void {
-    this.canvas.removeEventListener('touchstart', this._onTouchStart);
-    window.removeEventListener('touchmove', this._onTouchMove);
-    window.removeEventListener('touchend', this._onTouchEnd);
-    window.removeEventListener('touchcancel', this._onTouchEnd);
+    this.container.removeEventListener("touchstart", this._onTouchStart);
+    window.removeEventListener("touchmove", this._onTouchMove);
+    window.removeEventListener("touchend", this._onTouchEnd);
+    window.removeEventListener("touchcancel", this._onTouchEnd);
     this.canvas.remove();
   }
 
@@ -128,20 +130,29 @@ export class VirtualJoystick implements Disposable {
     this.trackingId = touch.identifier;
     this.active = true;
 
-    const rect = this.canvas.getBoundingClientRect();
-    const localX = touch.clientX - rect.left;
-    const localY = touch.clientY - rect.top;
-
     if (this.fixed) {
+      this.positionCanvasAtHome();
+      const rect = this.canvas.getBoundingClientRect();
+      const localX = touch.clientX - rect.left;
+      const localY = touch.clientY - rect.top;
       this.originX = this.radius;
       this.originY = this.radius;
+      this.thumbX = localX;
+      this.thumbY = localY;
     } else {
-      this.originX = localX;
-      this.originY = localY;
+      const zoneRect = this.container.getBoundingClientRect();
+      const maxLeft = Math.max(0, zoneRect.width - this.size);
+      const maxTop = Math.max(0, zoneRect.height - this.size);
+      const canvasLeft = this.clamp(touch.clientX - zoneRect.left - this.radius, 0, maxLeft);
+      const canvasTop = this.clamp(touch.clientY - zoneRect.top - this.radius, 0, maxTop);
+      this.canvas.style.left = `${canvasLeft}px`;
+      this.canvas.style.top = `${canvasTop}px`;
+      this.canvas.style.transform = "none";
+      this.originX = this.radius;
+      this.originY = this.radius;
+      this.thumbX = this.radius;
+      this.thumbY = this.radius;
     }
-
-    this.thumbX = localX;
-    this.thumbY = localY;
     this.draw();
   }
 
@@ -195,7 +206,18 @@ export class VirtualJoystick implements Disposable {
     this.thumbY = this.radius;
     this.originX = this.radius;
     this.originY = this.radius;
+    this.positionCanvasAtHome();
     this.draw();
+  }
+
+  private positionCanvasAtHome(): void {
+    this.canvas.style.left = "50%";
+    this.canvas.style.top = "50%";
+    this.canvas.style.transform = "translate(-50%, -50%)";
+  }
+
+  private clamp(value: number, min: number, max: number): number {
+    return Math.min(max, Math.max(min, value));
   }
 
   private draw(): void {
@@ -207,20 +229,20 @@ export class VirtualJoystick implements Disposable {
     // Outer ring
     ctx.beginPath();
     ctx.arc(this.originX, this.originY, r - 2, 0, Math.PI * 2);
-    ctx.strokeStyle = this.active ? 'rgba(123, 47, 255, 0.5)' : 'rgba(123, 47, 255, 0.27)';
+    ctx.strokeStyle = this.active ? "rgba(123, 47, 255, 0.5)" : "rgba(123, 47, 255, 0.27)";
     ctx.lineWidth = 2;
     if (this.active) {
       ctx.shadowBlur = 12;
-      ctx.shadowColor = 'rgba(123, 47, 255, 0.53)';
+      ctx.shadowColor = "rgba(123, 47, 255, 0.53)";
     }
     ctx.stroke();
     ctx.shadowBlur = 0;
-    ctx.shadowColor = 'transparent';
+    ctx.shadowColor = "transparent";
 
     // Base fill
     ctx.beginPath();
     ctx.arc(this.originX, this.originY, r - 4, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(26, 16, 64, 0.53)';
+    ctx.fillStyle = "rgba(26, 16, 64, 0.53)";
     ctx.fill();
 
     // Thumb — radial gradient: pink center → purple edge
@@ -228,8 +250,8 @@ export class VirtualJoystick implements Disposable {
     const thumbY = this.thumbY;
     const thumbR = this.thumbRadius;
     const grad = ctx.createRadialGradient(thumbX, thumbY, 0, thumbX, thumbY, thumbR);
-    grad.addColorStop(0, '#ff6b9d');
-    grad.addColorStop(1, '#7b2fff');
+    grad.addColorStop(0, "#ff6b9d");
+    grad.addColorStop(1, "#7b2fff");
     ctx.beginPath();
     ctx.arc(thumbX, thumbY, thumbR, 0, Math.PI * 2);
     ctx.fillStyle = grad;

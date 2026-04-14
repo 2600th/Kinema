@@ -1,7 +1,7 @@
-import type { Disposable } from '@core/types';
-import { VirtualJoystick } from './VirtualJoystick';
-import { TouchButton } from './TouchButton';
-import './touch-controls.css';
+import type { Disposable } from "@core/types";
+import { TouchButton } from "./TouchButton";
+import { VirtualJoystick } from "./VirtualJoystick";
+import "./touch-controls.css";
 
 /** Touch input state compatible with InputManager merging. */
 export interface TouchInputState {
@@ -42,13 +42,13 @@ export class TouchControlsManager implements Disposable {
 
   constructor(container: HTMLElement) {
     // Create a fixed overlay container for all touch controls
-    this.root = document.createElement('div');
-    this.root.className = 'touch-controls-container';
+    this.root = document.createElement("div");
+    this.root.className = "touch-controls-container";
     container.appendChild(this.root);
 
     // -- Left side: movement joystick --
-    const leftZone = document.createElement('div');
-    leftZone.className = 'touch-zone touch-zone--left';
+    const leftZone = document.createElement("div");
+    leftZone.className = "touch-zone touch-zone--left";
     this.root.appendChild(leftZone);
 
     this.moveJoystick = new VirtualJoystick(leftZone, {
@@ -58,20 +58,20 @@ export class TouchControlsManager implements Disposable {
     });
 
     // Sprint button near left joystick
-    const sprintZone = document.createElement('div');
-    sprintZone.className = 'touch-zone touch-zone--sprint';
+    const sprintZone = document.createElement("div");
+    sprintZone.className = "touch-zone touch-zone--sprint";
     this.root.appendChild(sprintZone);
 
     this.sprintButton = new TouchButton(sprintZone, {
-      icon: '\u21e7', // ⇧
+      icon: "\u21e7", // ⇧
       size: 48,
-      className: 'touch-btn--sprint',
+      className: "touch-btn--sprint",
       hold: true,
     });
 
     // -- Right side: look joystick --
-    const rightZone = document.createElement('div');
-    rightZone.className = 'touch-zone touch-zone--right';
+    const rightZone = document.createElement("div");
+    rightZone.className = "touch-zone touch-zone--right";
     this.root.appendChild(rightZone);
 
     this.lookJoystick = new VirtualJoystick(rightZone, {
@@ -81,26 +81,26 @@ export class TouchControlsManager implements Disposable {
     });
 
     // -- Right side: action buttons --
-    const btnZone = document.createElement('div');
-    btnZone.className = 'touch-zone touch-zone--buttons';
+    const btnZone = document.createElement("div");
+    btnZone.className = "touch-zone touch-zone--buttons";
     this.root.appendChild(btnZone);
 
     this.jumpButton = new TouchButton(btnZone, {
-      icon: '\u2191', // ↑
+      icon: "\u2191", // ↑
       size: 64,
-      className: 'touch-btn--jump',
+      className: "touch-btn--jump",
     });
 
     this.interactButton = new TouchButton(btnZone, {
-      icon: '\u270B', // ✋
+      icon: "\u270B", // ✋
       size: 48,
-      className: 'touch-btn--interact',
+      className: "touch-btn--interact",
     });
 
     this.crouchButton = new TouchButton(btnZone, {
-      icon: '\u2193', // ↓
+      icon: "\u2193", // ↓
       size: 48,
-      className: 'touch-btn--crouch',
+      className: "touch-btn--crouch",
     });
   }
 
@@ -147,16 +147,16 @@ export class TouchControlsManager implements Disposable {
 
   /** Show all touch controls. */
   show(): void {
-    this.root.style.display = '';
+    this.root.style.display = "";
   }
 
   /** Hide all touch controls. */
   hide(): void {
-    this.root.style.display = 'none';
+    this.root.style.display = "none";
   }
 
   get visible(): boolean {
-    return this.root.style.display !== 'none';
+    return this.root.style.display !== "none";
   }
 
   dispose(): void {

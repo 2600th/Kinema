@@ -1,8 +1,8 @@
-import * as THREE from 'three';
-import type { AssetLoader } from '@level/AssetLoader';
-import type { AnimationProfile } from './AnimationProfile';
-import { CharacterModel } from './CharacterModel';
-import { AnimationController } from './AnimationController';
+import type { AssetLoader } from "@level/AssetLoader";
+import type * as THREE from "three";
+import { AnimationController } from "./AnimationController";
+import type { AnimationProfile } from "./AnimationProfile";
+import { CharacterModel } from "./CharacterModel";
 
 export interface CharacterCreateOptions {
   tint?: THREE.Color;

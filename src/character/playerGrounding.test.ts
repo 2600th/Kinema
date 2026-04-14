@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest';
-import { resolveStableGroundedState } from './playerGrounding';
+import { describe, expect, it } from "vitest";
+import { resolveStableGroundedState } from "./playerGrounding";
 
-describe('playerGrounding helpers', () => {
-  it('resets stable grounded grace when actual ground contact exists', () => {
+describe("playerGrounding helpers", () => {
+  it("resets stable grounded grace when actual ground contact exists", () => {
     const result = resolveStableGroundedState(
       { isGrounded: true, closeToGround: true, standingSlopeAllowed: true },
       0,
@@ -14,7 +14,7 @@ describe('playerGrounding helpers', () => {
     expect(result.graceRemaining).toBeGreaterThan(0.05);
   });
 
-  it('holds stable grounded through a brief ramp probe miss', () => {
+  it("holds stable grounded through a brief ramp probe miss", () => {
     const result = resolveStableGroundedState(
       { isGrounded: false, closeToGround: true, standingSlopeAllowed: true },
       -0.35,
@@ -27,7 +27,7 @@ describe('playerGrounding helpers', () => {
     expect(result.graceRemaining).toBeGreaterThan(0);
   });
 
-  it('drops stable grounded when the player is truly leaving the ground', () => {
+  it("drops stable grounded when the player is truly leaving the ground", () => {
     const farFromGround = resolveStableGroundedState(
       { isGrounded: false, closeToGround: false, standingSlopeAllowed: true },
       -0.2,

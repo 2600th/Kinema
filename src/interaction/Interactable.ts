@@ -1,8 +1,8 @@
-import type * as THREE from 'three';
-import type RAPIER from '@dimforge/rapier3d-compat';
-import type { PlayerController } from '@character/PlayerController';
+import type { PlayerController } from "@character/PlayerController";
+import type RAPIER from "@dimforge/rapier3d-compat";
+import type * as THREE from "three";
 
-export type InteractionMode = 'press' | 'hold';
+export type InteractionMode = "press" | "hold";
 
 export interface InteractionSpec {
   mode: InteractionMode;

@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { NULL_INPUT } from './types';
+import { describe, expect, it } from "vitest";
+import { NULL_INPUT } from "./types";
 
-describe('InputState', () => {
-  it('NULL_INPUT has correct shape', () => {
+describe("InputState", () => {
+  it("NULL_INPUT has correct shape", () => {
     expect(NULL_INPUT.forward).toBe(false);
     expect(NULL_INPUT.backward).toBe(false);
     expect(NULL_INPUT.crouch).toBe(false);

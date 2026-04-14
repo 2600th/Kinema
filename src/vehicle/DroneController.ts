@@ -1,10 +1,10 @@
-import * as THREE from 'three';
-import RAPIER from '@dimforge/rapier3d-compat';
-import type { InputState, SpawnPointData } from '@core/types';
-import type { PhysicsWorld } from '@physics/PhysicsWorld';
-import { toRapierQuat } from '@physics/PhysicsHelpers';
-import { COLLISION_GROUP_VEHICLE, VEHICLE_DOMINANCE_GROUP } from '@core/constants';
-import type { VehicleController } from './VehicleController';
+import { COLLISION_GROUP_VEHICLE, VEHICLE_DOMINANCE_GROUP } from "@core/constants";
+import type { InputState, SpawnPointData } from "@core/types";
+import RAPIER from "@dimforge/rapier3d-compat";
+import { toRapierQuat } from "@physics/PhysicsHelpers";
+import type { PhysicsWorld } from "@physics/PhysicsWorld";
+import * as THREE from "three";
+import type { VehicleController } from "./VehicleController";
 
 const _forward = new THREE.Vector3();
 const _right = new THREE.Vector3();
@@ -13,14 +13,14 @@ const _desiredVel = new THREE.Vector3();
 const _currVel = new THREE.Vector3();
 const _exitProbe = new THREE.Vector3();
 const _droneExitCandidates = [
-  new THREE.Vector3( 1.2, 0, 0),   // right
-  new THREE.Vector3(-1.2, 0, 0),   // left
-  new THREE.Vector3( 0,   0, 1.2), // rear
+  new THREE.Vector3(1.2, 0, 0), // right
+  new THREE.Vector3(-1.2, 0, 0), // left
+  new THREE.Vector3(0, 0, 1.2), // rear
 ];
 const _yawQuat = new THREE.Quaternion();
 const _tiltQuat = new THREE.Quaternion();
-const _tiltEuler = new THREE.Euler(0, 0, 0, 'YXZ');
-const _yawEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+const _tiltEuler = new THREE.Euler(0, 0, 0, "YXZ");
+const _yawEuler = new THREE.Euler(0, 0, 0, "YXZ");
 
 const _drv3A = new RAPIER.Vector3(0, 0, 0);
 const _drv3B = new RAPIER.Vector3(0, 0, 0);
@@ -30,17 +30,19 @@ const _droneGroundBox = new RAPIER.Cuboid(0.5, 0.1, 0.5);
 const _droneGroundQuat = new RAPIER.Quaternion(0, 0, 0, 1);
 
 function _setDRV(v: RAPIER.Vector3, x: number, y: number, z: number): RAPIER.Vector3 {
-  v.x = x; v.y = y; v.z = z;
+  v.x = x;
+  v.y = y;
+  v.z = z;
   return v;
 }
 
 export class DroneController implements VehicleController {
   readonly id: string;
-  readonly type = 'drone' as const;
+  readonly type = "drone" as const;
   readonly body: RAPIER.RigidBody;
   readonly mesh: THREE.Object3D;
   readonly exitOffset = new THREE.Vector3(1.2, 0, 0);
-  readonly cameraLookMode = 'yawOnly' as const;
+  readonly cameraLookMode = "yawOnly" as const;
   readonly cameraConfig = {
     distance: 8,
     heightOffset: 2.4,
@@ -90,10 +92,9 @@ export class DroneController implements VehicleController {
   ) {
     this.id = id;
 
-    const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
-      .setTranslation(position.x, position.y, position.z);
+    const bodyDesc = RAPIER.RigidBodyDesc.dynamic().setTranslation(position.x, position.y, position.z);
     this.body = this.physicsWorld.world.createRigidBody(bodyDesc);
-    this.body.userData = { kind: 'vehicle' };
+    this.body.userData = { kind: "vehicle" };
     this.body.enableCcd(true);
     this.body.setDominanceGroup(VEHICLE_DOMINANCE_GROUP);
     this.body.setLinearDamping(2.8);
@@ -196,7 +197,7 @@ export class DroneController implements VehicleController {
           (c) => !c.isSensor(),
         );
         if (groundHit) {
-          _exitProbe.y = (_exitProbe.y + 2) - groundHit.timeOfImpact + capsuleClearance;
+          _exitProbe.y = _exitProbe.y + 2 - groundHit.timeOfImpact + capsuleClearance;
         }
         return { position: _exitProbe.clone() };
       }
@@ -279,7 +280,9 @@ export class DroneController implements VehicleController {
     this.hoverSpeedIntegral += speedError * _dt;
     // Anti-windup: clamp integral and partially reset on error sign flip
     this.hoverSpeedIntegral = THREE.MathUtils.clamp(
-      this.hoverSpeedIntegral, -this.hoverMaxIntegral, this.hoverMaxIntegral,
+      this.hoverSpeedIntegral,
+      -this.hoverMaxIntegral,
+      this.hoverMaxIntegral,
     );
     if (Math.sign(speedError) !== Math.sign(this.hoverSpeedIntegral) && Math.abs(this.hoverSpeedIntegral) > 0.5) {
       this.hoverSpeedIntegral *= 0.5;
@@ -349,8 +352,11 @@ export class DroneController implements VehicleController {
     this.mesh.traverse((obj) => {
       const m = obj as THREE.Mesh;
       if (m.geometry) m.geometry.dispose();
-      if (Array.isArray(m.material)) m.material.forEach((mat) => mat.dispose());
-      else if (m.material) m.material.dispose();
+      if (Array.isArray(m.material)) {
+        m.material.forEach((mat) => {
+          mat.dispose();
+        });
+      } else if (m.material) m.material.dispose();
     });
     this.physicsWorld.removeBody(this.body);
   }
@@ -373,7 +379,13 @@ export class DroneController implements VehicleController {
 
     // Arms and rotors
     const armMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.7, roughness: 0.4 });
-    const rotorMat = new THREE.MeshStandardMaterial({ color: 0x777777, metalness: 0.5, roughness: 0.3, transparent: true, opacity: 0.7 });
+    const rotorMat = new THREE.MeshStandardMaterial({
+      color: 0x777777,
+      metalness: 0.5,
+      roughness: 0.3,
+      transparent: true,
+      opacity: 0.7,
+    });
 
     const armOffsets = [
       new THREE.Vector3(0.75, 0, 0.75),
@@ -382,7 +394,7 @@ export class DroneController implements VehicleController {
       new THREE.Vector3(-0.75, 0, -0.75),
     ];
 
-    armOffsets.forEach(pos => {
+    armOffsets.forEach((pos) => {
       // connecting arm
       const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, pos.length(), 6), armMat);
       arm.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), pos.clone().normalize());
@@ -406,7 +418,10 @@ export class DroneController implements VehicleController {
     });
 
     // Front indicator light
-    const frontLight = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.05, 0.05), new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 1.5 }));
+    const frontLight = new THREE.Mesh(
+      new THREE.BoxGeometry(0.1, 0.05, 0.05),
+      new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 1.5 }),
+    );
     frontLight.position.set(0, 0, -0.45);
     group.add(frontLight);
 

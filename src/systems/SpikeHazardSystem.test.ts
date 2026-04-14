@@ -1,6 +1,6 @@
+import { getProceduralSpikePlacements } from "@level/SpikeLayout";
 import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
-import { getProceduralSpikePlacements } from "@level/SpikeLayout";
 import { SpikeHazardSystem } from "./SpikeHazardSystem";
 
 function createSystem() {
@@ -39,11 +39,7 @@ describe("SpikeHazardSystem", () => {
     const [firstHazard] = system.listHazards();
     expect(firstHazard).toBeDefined();
 
-    playerController.groundPosition.set(
-      firstHazard.position.x,
-      firstHazard.position.y,
-      firstHazard.position.z,
-    );
+    playerController.groundPosition.set(firstHazard.position.x, firstHazard.position.y, firstHazard.position.z);
     system.fixedUpdate(1 / 60);
     expect(healthSystem.applySpikeDamage).toHaveBeenCalledTimes(1);
 

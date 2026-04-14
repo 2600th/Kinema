@@ -1,12 +1,12 @@
-import * as THREE from 'three';
-import { type BrushDefinition, type BrushParams, computeRectFootprint, MIN_BRUSH_DIMENSION } from './Brush';
+import * as THREE from "three";
+import { type BrushDefinition, type BrushParams, computeRectFootprint, MIN_BRUSH_DIMENSION } from "./Brush";
 
 export const PillarBrush: BrushDefinition = {
-  id: 'pillar',
-  label: 'Pillar',
-  shortcut: '3',
+  id: "pillar",
+  label: "Pillar",
+  shortcut: "3",
   // Cylinder outline icon
-  icon: 'M6 4a6 3 0 0 1 12 0v16a6 3 0 0 1-12 0zM6 4a6 3 0 0 0 12 0',
+  icon: "M6 4a6 3 0 0 1 12 0v16a6 3 0 0 1-12 0zM6 4a6 3 0 0 0 12 0",
   defaultParams: { current: new THREE.Vector3(0.5, 0, 0.5), height: 3 },
 
   buildPreviewGeometry(params: BrushParams): THREE.BufferGeometry {

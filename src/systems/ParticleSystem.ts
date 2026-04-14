@@ -4,7 +4,7 @@ import type { RuntimeSystem } from "@core/RuntimeSystem";
 import type { GameParticles } from "@juice/GameParticles";
 import type { RendererManager } from "@renderer/RendererManager";
 import type { VehicleManager } from "@vehicle/VehicleManager";
-import * as THREE from "three";
+import type * as THREE from "three";
 
 export class ParticleSystem implements RuntimeSystem {
   readonly id = "particles";

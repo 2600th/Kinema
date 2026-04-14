@@ -14,8 +14,11 @@ export abstract class EditorPanel {
   private dragHandle: HTMLElement | null = null;
   private hasDragged = false;
 
-  constructor(protected id: string, protected title: string) {
-    this.container = document.createElement('div');
+  constructor(
+    protected id: string,
+    protected title: string,
+  ) {
+    this.container = document.createElement("div");
     this.container.className = `ke-panel ke-panel-${id} ke-hidden`;
 
     this.onDragMove = (e: MouseEvent) => {
@@ -29,14 +32,14 @@ export abstract class EditorPanel {
       this.container.style.left = `${clampedX}px`;
       this.container.style.top = `${clampedY}px`;
       // Clear right/transform so left/top take full control
-      this.container.style.right = 'auto';
-      this.container.style.transform = 'none';
+      this.container.style.right = "auto";
+      this.container.style.transform = "none";
     };
 
     this.onDragEnd = () => {
       this.dragging = false;
-      document.body.style.cursor = '';
-      this.container.style.transition = '';
+      document.body.style.cursor = "";
+      this.container.style.transition = "";
     };
 
     this.onResize = () => {
@@ -56,32 +59,32 @@ export abstract class EditorPanel {
       e.preventDefault();
       this.dragging = true;
       this.hasDragged = true;
-      this.container.style.transition = 'none';
-      document.body.style.cursor = 'grabbing';
+      this.container.style.transition = "none";
+      document.body.style.cursor = "grabbing";
 
       const rect = this.container.getBoundingClientRect();
       this.dragOffsetX = e.clientX - rect.left;
       this.dragOffsetY = e.clientY - rect.top;
 
-      if (this.container.style.right && this.container.style.right !== 'auto') {
+      if (this.container.style.right && this.container.style.right !== "auto") {
         this.container.style.left = `${rect.left}px`;
-        this.container.style.right = 'auto';
-        this.container.style.transform = 'none';
+        this.container.style.right = "auto";
+        this.container.style.transform = "none";
       }
-      if (this.container.style.transform && this.container.style.transform.includes('translate')) {
+      if (this.container.style.transform?.includes("translate")) {
         this.container.style.left = `${rect.left}px`;
-        this.container.style.transform = 'none';
+        this.container.style.transform = "none";
       }
     };
   }
 
   show(): void {
-    this.container.classList.remove('ke-hidden');
+    this.container.classList.remove("ke-hidden");
     this.visible = true;
   }
 
   hide(): void {
-    this.container.classList.add('ke-hidden');
+    this.container.classList.add("ke-hidden");
     this.visible = false;
   }
 
@@ -91,7 +94,7 @@ export abstract class EditorPanel {
 
   toggleCollapse(): void {
     this.collapsed = !this.collapsed;
-    this.container.classList.toggle('ke-panel-collapsed', this.collapsed);
+    this.container.classList.toggle("ke-panel-collapsed", this.collapsed);
     this.onCollapse(this.collapsed);
   }
 
@@ -109,22 +112,22 @@ export abstract class EditorPanel {
    * Call this in build() after creating the panel header.
    */
   protected enableDrag(handle: HTMLElement): void {
-    handle.style.cursor = 'grab';
+    handle.style.cursor = "grab";
     this.dragHandle = handle;
-    handle.addEventListener('mousedown', this.onDragStart);
+    handle.addEventListener("mousedown", this.onDragStart);
 
-    window.addEventListener('mousemove', this.onDragMove);
-    window.addEventListener('mouseup', this.onDragEnd);
-    window.addEventListener('resize', this.onResize);
+    window.addEventListener("mousemove", this.onDragMove);
+    window.addEventListener("mouseup", this.onDragEnd);
+    window.addEventListener("resize", this.onResize);
   }
 
   dispose(): void {
     if (this.dragHandle) {
-      this.dragHandle.removeEventListener('mousedown', this.onDragStart);
+      this.dragHandle.removeEventListener("mousedown", this.onDragStart);
     }
-    window.removeEventListener('mousemove', this.onDragMove);
-    window.removeEventListener('mouseup', this.onDragEnd);
-    window.removeEventListener('resize', this.onResize);
+    window.removeEventListener("mousemove", this.onDragMove);
+    window.removeEventListener("mouseup", this.onDragEnd);
+    window.removeEventListener("resize", this.onResize);
     this.container.remove();
   }
 }

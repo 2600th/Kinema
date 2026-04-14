@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import type * as THREE from "three";
 
 export type TSLPassNode = {
   setMRT(mrt: unknown): void;
@@ -64,49 +64,49 @@ export type TSLRuntime = {
 };
 
 export async function loadTslRuntime(): Promise<TSLRuntime> {
-  const tsl = await import('three/tsl');
-  const { ao: gtao } = await import('three/addons/tsl/display/GTAONode.js');
-  const { denoise } = await import('three/addons/tsl/display/DenoiseNode.js');
-  const { fxaa } = await import('three/addons/tsl/display/FXAANode.js');
-  const { smaa } = await import('three/addons/tsl/display/SMAANode.js');
-  const { lut3D } = await import('three/addons/tsl/display/Lut3DNode.js');
-  const { bloom } = await import('three/addons/tsl/display/BloomNode.js');
-  const { ssr } = await import('three/addons/tsl/display/SSRNode.js');
+  const tsl = await import("three/tsl");
+  const { ao: gtao } = await import("three/addons/tsl/display/GTAONode.js");
+  const { denoise } = await import("three/addons/tsl/display/DenoiseNode.js");
+  const { fxaa } = await import("three/addons/tsl/display/FXAANode.js");
+  const { smaa } = await import("three/addons/tsl/display/SMAANode.js");
+  const { lut3D } = await import("three/addons/tsl/display/Lut3DNode.js");
+  const { bloom } = await import("three/addons/tsl/display/BloomNode.js");
+  const { ssr } = await import("three/addons/tsl/display/SSRNode.js");
 
   return {
-    pass: tsl.pass as TSLRuntime['pass'],
-    mrt: tsl.mrt as TSLRuntime['mrt'],
+    pass: tsl.pass as TSLRuntime["pass"],
+    mrt: tsl.mrt as TSLRuntime["mrt"],
     output: tsl.output,
     emissive: tsl.emissive,
     normalView: tsl.normalView,
-    directionToColor: tsl.directionToColor as TSLRuntime['directionToColor'],
-    colorToDirection: tsl.colorToDirection as TSLRuntime['colorToDirection'],
-    sample: tsl.sample as TSLRuntime['sample'],
+    directionToColor: tsl.directionToColor as TSLRuntime["directionToColor"],
+    colorToDirection: tsl.colorToDirection as TSLRuntime["colorToDirection"],
+    sample: tsl.sample as TSLRuntime["sample"],
     screenUV: tsl.screenUV,
-    builtinAOContext: tsl.builtinAOContext as TSLRuntime['builtinAOContext'],
-    vec2: tsl.vec2 as TSLRuntime['vec2'],
-    vec3: tsl.vec3 as TSLRuntime['vec3'],
-    vec4: tsl.vec4 as TSLRuntime['vec4'],
-    convertToTexture: tsl.convertToTexture as TSLRuntime['convertToTexture'],
+    builtinAOContext: tsl.builtinAOContext as TSLRuntime["builtinAOContext"],
+    vec2: tsl.vec2 as TSLRuntime["vec2"],
+    vec3: tsl.vec3 as TSLRuntime["vec3"],
+    vec4: tsl.vec4 as TSLRuntime["vec4"],
+    convertToTexture: tsl.convertToTexture as TSLRuntime["convertToTexture"],
     metalness: tsl.metalness,
     roughness: tsl.roughness,
-    renderOutput: tsl.renderOutput as TSLRuntime['renderOutput'],
-    texture3D: tsl.texture3D as TSLRuntime['texture3D'],
-    uniform: tsl.uniform as TSLRuntime['uniform'],
-    add: tsl.add as TSLRuntime['add'],
-    uv: tsl.uv as TSLRuntime['uv'],
-    smoothstep: tsl.smoothstep as TSLRuntime['smoothstep'],
-    float: tsl.float as TSLRuntime['float'],
-    mix: tsl.mix as TSLRuntime['mix'],
-    length: tsl.length as TSLRuntime['length'],
-    max: tsl.max as TSLRuntime['max'],
-    min: tsl.min as TSLRuntime['min'],
-    gtao: gtao as TSLRuntime['gtao'],
-    denoise: denoise as unknown as TSLRuntime['denoise'],
-    fxaa: fxaa as TSLRuntime['fxaa'],
-    smaa: smaa as TSLRuntime['smaa'],
-    lut3D: lut3D as TSLRuntime['lut3D'],
-    bloom: bloom as TSLRuntime['bloom'],
-    ssr: ssr as TSLRuntime['ssr'],
+    renderOutput: tsl.renderOutput as TSLRuntime["renderOutput"],
+    texture3D: tsl.texture3D as TSLRuntime["texture3D"],
+    uniform: tsl.uniform as TSLRuntime["uniform"],
+    add: tsl.add as TSLRuntime["add"],
+    uv: tsl.uv as TSLRuntime["uv"],
+    smoothstep: tsl.smoothstep as TSLRuntime["smoothstep"],
+    float: tsl.float as TSLRuntime["float"],
+    mix: tsl.mix as TSLRuntime["mix"],
+    length: tsl.length as TSLRuntime["length"],
+    max: tsl.max as TSLRuntime["max"],
+    min: tsl.min as TSLRuntime["min"],
+    gtao: gtao as TSLRuntime["gtao"],
+    denoise: denoise as unknown as TSLRuntime["denoise"],
+    fxaa: fxaa as TSLRuntime["fxaa"],
+    smaa: smaa as TSLRuntime["smaa"],
+    lut3D: lut3D as TSLRuntime["lut3D"],
+    bloom: bloom as TSLRuntime["bloom"],
+    ssr: ssr as TSLRuntime["ssr"],
   };
 }

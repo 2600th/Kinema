@@ -1,5 +1,5 @@
-import type { AntiAliasingMode, GraphicsProfile, ShadowQualityTier } from '@core/UserSettings';
-import type { RendererPipelineDescriptor } from './pipelineProfile';
+import type { AntiAliasingMode, GraphicsProfile, ShadowQualityTier } from "@core/UserSettings";
+import type { RendererPipelineDescriptor } from "./pipelineProfile";
 
 export interface RendererProfileDefaults {
   gtaoEnabled: boolean;
@@ -71,7 +71,7 @@ export interface BuildRendererDebugFlagsArgs {
 }
 
 export function getGraphicsProfileDefaults(profile: GraphicsProfile): RendererProfileDefaults {
-  if (profile === 'performance') {
+  if (profile === "performance") {
     return {
       gtaoEnabled: false,
       ssrEnabled: false,
@@ -83,13 +83,13 @@ export function getGraphicsProfileDefaults(profile: GraphicsProfile): RendererPr
       vignetteDarkness: 0.42,
       lutEnabled: true,
       lutStrength: 0.28,
-      antiAliasingMode: 'fxaa',
+      antiAliasingMode: "fxaa",
       ssrOpacity: 0.35,
       ssrResolutionScale: 0.45,
     };
   }
 
-  if (profile === 'balanced') {
+  if (profile === "balanced") {
     return {
       gtaoEnabled: true,
       ssrEnabled: false,
@@ -101,7 +101,7 @@ export function getGraphicsProfileDefaults(profile: GraphicsProfile): RendererPr
       vignetteDarkness: 0.38,
       lutEnabled: true,
       lutStrength: 0.38,
-      antiAliasingMode: 'fxaa',
+      antiAliasingMode: "fxaa",
       ssrOpacity: 0.4,
       ssrResolutionScale: 0.5,
     };
@@ -118,7 +118,7 @@ export function getGraphicsProfileDefaults(profile: GraphicsProfile): RendererPr
     vignetteDarkness: 0.42,
     lutEnabled: true,
     lutStrength: 0.42,
-    antiAliasingMode: 'smaa',
+    antiAliasingMode: "smaa",
     ssrOpacity: 0.5,
     ssrResolutionScale: 1.0,
   };
@@ -126,10 +126,10 @@ export function getGraphicsProfileDefaults(profile: GraphicsProfile): RendererPr
 
 export function buildRendererDebugFlags(args: BuildRendererDebugFlagsArgs): RendererDebugFlags {
   const activeBackend = !args.isWebGPUPipeline
-    ? 'WebGLRenderer'
+    ? "WebGLRenderer"
     : args.backendInfo?.isWebGPUBackend
-      ? 'WebGPU'
-      : 'WebGPU (WebGL2 backend)';
+      ? "WebGPU"
+      : "WebGPU (WebGL2 backend)";
 
   return {
     activeBackend,

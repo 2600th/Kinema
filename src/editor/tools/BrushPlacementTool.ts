@@ -1,9 +1,9 @@
-import * as THREE from 'three';
-import RAPIER from '@dimforge/rapier3d-compat';
-import type { EditorTool, EditorToolContext } from './EditorTool';
-import type { BrushDefinition, BrushParams } from '../brushes/Brush';
-import type { EditorObject } from '../EditorObject';
-import { getBrushById } from '../brushes/index';
+import RAPIER from "@dimforge/rapier3d-compat";
+import * as THREE from "three";
+import type { BrushDefinition, BrushParams } from "../brushes/Brush";
+import { getBrushById } from "../brushes/index";
+import type { EditorObject } from "../EditorObject";
+import type { EditorTool, EditorToolContext } from "./EditorTool";
 
 /** Merge brush-specific defaults with generic fallbacks. */
 function buildDefaultParams(brush: BrushDefinition): BrushParams {
@@ -29,24 +29,24 @@ export function buildColliderDesc(
 ): RAPIER.ColliderDesc {
   mesh.updateMatrixWorld(true);
 
-  if (brushId === 'pillar') {
+  if (brushId === "pillar") {
     // Cylinder collider from bounding box
     geometry.computeBoundingBox();
-    const bb = geometry.boundingBox!;
+    const bb = geometry.boundingBox;
+    if (!bb) {
+      throw new Error("[BrushPlacementTool] Missing bounding box for pillar collider.");
+    }
     const sx = Math.abs(mesh.scale.x);
     const sy = Math.abs(mesh.scale.y);
     const sz = Math.abs(mesh.scale.z);
     const halfH = ((bb.max.y - bb.min.y) / 2) * sy;
-    const radius = Math.max(
-      ((bb.max.x - bb.min.x) / 2) * sx,
-      ((bb.max.z - bb.min.z) / 2) * sz,
-    );
+    const radius = Math.max(((bb.max.x - bb.min.x) / 2) * sx, ((bb.max.z - bb.min.z) / 2) * sz);
     return RAPIER.ColliderDesc.cylinder(Math.max(halfH, 0.01), Math.max(radius, 0.01));
   }
 
-  if (brushId === 'ramp' || brushId === 'stairs' || brushId === 'doorframe') {
+  if (brushId === "ramp" || brushId === "stairs" || brushId === "doorframe") {
     // Trimesh collider for exact triangle-level collision
-    const posAttr = geometry.getAttribute('position');
+    const posAttr = geometry.getAttribute("position");
     const vertices = new Float32Array(posAttr.count * 3);
     const sx = mesh.scale.x;
     const sy = mesh.scale.y;
@@ -70,14 +70,10 @@ export function buildColliderDesc(
   // Default: cuboid from world-space AABB (block, floor, etc.)
   const worldBox = new THREE.Box3().setFromObject(mesh);
   const size = worldBox.getSize(new THREE.Vector3());
-  return RAPIER.ColliderDesc.cuboid(
-    Math.max(size.x / 2, 0.01),
-    Math.max(size.y / 2, 0.01),
-    Math.max(size.z / 2, 0.01),
-  );
+  return RAPIER.ColliderDesc.cuboid(Math.max(size.x / 2, 0.01), Math.max(size.y / 2, 0.01), Math.max(size.z / 2, 0.01));
 }
 
-type PlacementPhase = 'idle' | 'position';
+type PlacementPhase = "idle" | "position";
 
 let brushNameCounter = 0;
 
@@ -86,9 +82,9 @@ let brushNameCounter = 0;
  * pointer and snaps to the grid, then finalises placement on click.
  */
 export class BrushPlacementTool implements EditorTool {
-  readonly id = 'brush-placement';
+  readonly id = "brush-placement";
 
-  private placementPhase: PlacementPhase = 'idle';
+  private placementPhase: PlacementPhase = "idle";
   private activeBrush: BrushDefinition | null = null;
   private previewMesh: THREE.Mesh | null = null;
   private placementPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -122,7 +118,7 @@ export class BrushPlacementTool implements EditorTool {
     if (!brush) return;
 
     this.activeBrush = brush;
-    this.placementPhase = 'position';
+    this.placementPhase = "position";
     this.onBrushChanged(brushId);
 
     // Create preview mesh with brush-specific or generic defaults
@@ -146,7 +142,7 @@ export class BrushPlacementTool implements EditorTool {
 
   onPointerDown(ctx: EditorToolContext, e: MouseEvent): boolean {
     if (e.button !== 0) return false;
-    if (this.placementPhase === 'position' && this.previewMesh) {
+    if (this.placementPhase === "position" && this.previewMesh) {
       this.confirmPlacement(ctx);
       return true;
     }
@@ -158,7 +154,7 @@ export class BrushPlacementTool implements EditorTool {
   }
 
   onKeyDown(ctx: EditorToolContext, e: KeyboardEvent): boolean {
-    if (e.code === 'Escape') {
+    if (e.code === "Escape") {
       this.cancelPlacement(ctx);
       this.activeBrush = null;
       this.onBrushChanged(null);
@@ -171,7 +167,7 @@ export class BrushPlacementTool implements EditorTool {
   /* ---- Internals ---- */
 
   private updatePlacementPreview(ctx: EditorToolContext): void {
-    if (this.placementPhase !== 'position') return;
+    if (this.placementPhase !== "position") return;
     if (!this.previewMesh) return;
 
     ctx.raycaster.setFromCamera(ctx.mouse, ctx.camera);
@@ -217,11 +213,11 @@ export class BrushPlacementTool implements EditorTool {
     mesh.position.copy(position);
 
     // Extract material properties for editor object
-    const matProps: NonNullable<EditorObject['material']> = {
-      color: '#' + material.color.getHexString(),
+    const matProps: NonNullable<EditorObject["material"]> = {
+      color: "#" + material.color.getHexString(),
       roughness: material.roughness,
       metalness: material.metalness,
-      emissive: '#' + material.emissive.getHexString(),
+      emissive: "#" + material.emissive.getHexString(),
       emissiveIntensity: material.emissiveIntensity,
       opacity: material.opacity,
     };
@@ -231,7 +227,7 @@ export class BrushPlacementTool implements EditorTool {
       id: mesh.uuid,
       name: `${brush.label}_${++brushNameCounter}`,
       mesh,
-      source: { type: 'brush', brush: brush.id },
+      source: { type: "brush", brush: brush.id },
       transform: {
         position: [position.x, position.y, position.z],
         rotation: [0, 0, 0],
@@ -247,14 +243,14 @@ export class BrushPlacementTool implements EditorTool {
         height: defaultParams.height ?? 1,
         depth: defaultParams.current.z - defaultParams.anchor.z || 1,
       },
-      physicsType: 'static',
-      spawnTag: brush.id === 'spawn' ? 'player' : undefined,
+      physicsType: "static",
+      spawnTag: brush.id === "spawn" ? "player" : undefined,
     };
 
     mesh.userData.editorSource = editorObj.source;
 
     // Create static physics body/collider for physical brushes (not spawn or trigger)
-    if (brush.id !== 'spawn' && brush.id !== 'trigger') {
+    if (brush.id !== "spawn" && brush.id !== "trigger") {
       const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(position.x, position.y, position.z);
       const body = ctx.physicsWorld.world.createRigidBody(bodyDesc);
       const colliderDesc = buildColliderDesc(brush.id, geometry, mesh);
@@ -268,19 +264,19 @@ export class BrushPlacementTool implements EditorTool {
       execute: () => {
         ctx.addEditorObject(editorObj, ctx.scene);
         ctx.syncHierarchy();
-        ctx.eventBus.emit('editor:objectAdded', { id: editorObj.id });
+        ctx.eventBus.emit("editor:objectAdded", { id: editorObj.id });
       },
       undo: () => {
         ctx.removeEditorObject(editorObj.id);
         ctx.syncHierarchy();
-        ctx.eventBus.emit('editor:objectRemoved', { id: editorObj.id });
+        ctx.eventBus.emit("editor:objectRemoved", { id: editorObj.id });
       },
     });
 
     // Select the new object, switch back to selection tool
     ctx.setSelection(editorObj);
     this.cleanupPreview(ctx);
-    this.placementPhase = 'idle';
+    this.placementPhase = "idle";
     this.activeBrush = null;
     this.onBrushChanged(null);
     this.onFinished();
@@ -288,7 +284,7 @@ export class BrushPlacementTool implements EditorTool {
 
   cancelPlacement(ctx: EditorToolContext): void {
     this.cleanupPreview(ctx);
-    this.placementPhase = 'idle';
+    this.placementPhase = "idle";
   }
 
   private cleanupPreview(ctx: EditorToolContext): void {

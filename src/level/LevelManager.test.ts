@@ -1,20 +1,20 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import * as THREE from 'three';
-import { LevelManager } from './LevelManager';
+import * as THREE from "three";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { LevelManager } from "./LevelManager";
 
-describe('LevelManager spawn handling', () => {
+describe("LevelManager spawn handling", () => {
   const defaultSpawn = new THREE.Vector3(0, 2, 0);
   let logSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
   });
 
   afterEach(() => {
     logSpy.mockRestore();
   });
 
-  it('resets spawn to default before loading GLTF levels', async () => {
+  it("resets spawn to default before loading GLTF levels", async () => {
     const scene = new THREE.Scene();
     const physicsWorld = {
       world: {},
@@ -26,13 +26,13 @@ describe('LevelManager spawn handling', () => {
     const staleSpawn = new THREE.Vector3(9, 9, 9);
     (manager as any).spawnPoint = { position: staleSpawn };
 
-    vi.spyOn(manager as any, 'loadGLTF').mockResolvedValue(undefined);
-    await manager.load('custom-level');
+    vi.spyOn(manager as any, "loadGLTF").mockResolvedValue(undefined);
+    await manager.load("custom-level");
 
     expect(manager.getSpawnPoint().position.equals(defaultSpawn)).toBe(true);
   });
 
-  it('resets spawn to default on unload', () => {
+  it("resets spawn to default on unload", () => {
     const scene = new THREE.Scene();
     const physicsWorld = {
       world: {},
@@ -42,7 +42,7 @@ describe('LevelManager spawn handling', () => {
     const eventBus = { emit: vi.fn() };
     const manager = new LevelManager(scene, physicsWorld as any, eventBus as any);
     (manager as any).spawnPoint = { position: new THREE.Vector3(4, 7, -2) };
-    (manager as any).currentLevelName = 'custom-level';
+    (manager as any).currentLevelName = "custom-level";
 
     manager.unload();
 
@@ -50,17 +50,17 @@ describe('LevelManager spawn handling', () => {
   });
 });
 
-describe('LevelManager rotated body creation', () => {
+describe("LevelManager rotated body creation", () => {
   let logSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
   });
   afterEach(() => {
     logSpy.mockRestore();
   });
 
-  it('applies mesh rotation to rigid body when loading a rotated JSON object', async () => {
+  it("applies mesh rotation to rigid body when loading a rotated JSON object", async () => {
     const scene = new THREE.Scene();
     const setRotation = vi.fn();
     const setTranslation = vi.fn();
@@ -80,32 +80,32 @@ describe('LevelManager rotated body creation', () => {
     };
     const eventBus = { emit: vi.fn() };
     const manager = new LevelManager(scene, physicsWorld as any, eventBus as any);
-    vi.spyOn(manager as any, 'addLighting').mockImplementation(() => {});
+    vi.spyOn(manager as any, "addLighting").mockImplementation(() => {});
 
     // Mock RAPIER module at the instance level
-    const RAPIER = await import('@dimforge/rapier3d-compat');
-    const fixedSpy = vi.spyOn(RAPIER.RigidBodyDesc, 'fixed').mockReturnValue(bodyDesc as any);
-    const cuboidSpy = vi.spyOn(RAPIER.ColliderDesc, 'cuboid').mockReturnValue({
+    const RAPIER = await import("@dimforge/rapier3d-compat");
+    const fixedSpy = vi.spyOn(RAPIER.RigidBodyDesc, "fixed").mockReturnValue(bodyDesc as any);
+    const cuboidSpy = vi.spyOn(RAPIER.ColliderDesc, "cuboid").mockReturnValue({
       setCollisionGroups: vi.fn().mockReturnThis(),
       setTranslation: vi.fn().mockReturnThis(),
     } as any);
 
     const entry = {
-      id: 'test-1',
-      name: 'RotatedBlock',
+      id: "test-1",
+      name: "RotatedBlock",
       parentId: null,
-      source: { type: 'primitive' as const, primitive: 'box' },
+      source: { type: "primitive" as const, primitive: "box" },
       transform: {
         position: [1, 2, 3] as [number, number, number],
         rotation: [0, Math.PI / 4, 0] as [number, number, number],
         scale: [1, 1, 1] as [number, number, number],
       },
-      physics: { type: 'static' as const },
+      physics: { type: "static" as const },
     };
 
     await manager.loadFromJSON({
       version: 2,
-      name: 'rotated',
+      name: "rotated",
       created: new Date().toISOString(),
       modified: new Date().toISOString(),
       spawnPoint: { position: [0, 2, 0] },
@@ -128,7 +128,7 @@ describe('LevelManager rotated body creation', () => {
     cuboidSpy.mockRestore();
   });
 
-  it('rebuilds parent-child hierarchy before tracking runtime objects', async () => {
+  it("rebuilds parent-child hierarchy before tracking runtime objects", async () => {
     const scene = new THREE.Scene();
     const physicsWorld = {
       world: {
@@ -140,54 +140,54 @@ describe('LevelManager rotated body creation', () => {
     };
     const eventBus = { emit: vi.fn() };
     const manager = new LevelManager(scene, physicsWorld as any, eventBus as any);
-    vi.spyOn(manager as any, 'addLighting').mockImplementation(() => {});
+    vi.spyOn(manager as any, "addLighting").mockImplementation(() => {});
 
-    const RAPIER = await import('@dimforge/rapier3d-compat');
-    const fixedSpy = vi.spyOn(RAPIER.RigidBodyDesc, 'fixed').mockReturnValue({
+    const RAPIER = await import("@dimforge/rapier3d-compat");
+    const fixedSpy = vi.spyOn(RAPIER.RigidBodyDesc, "fixed").mockReturnValue({
       setTranslation: vi.fn(),
       setRotation: vi.fn(),
     } as any);
-    const cuboidSpy = vi.spyOn(RAPIER.ColliderDesc, 'cuboid').mockReturnValue({
+    const cuboidSpy = vi.spyOn(RAPIER.ColliderDesc, "cuboid").mockReturnValue({
       setCollisionGroups: vi.fn().mockReturnThis(),
       setTranslation: vi.fn().mockReturnThis(),
     } as any);
 
     await manager.loadFromJSON({
       version: 2,
-      name: 'grouped',
+      name: "grouped",
       created: new Date().toISOString(),
       modified: new Date().toISOString(),
       spawnPoint: { position: [0, 2, 0] },
       objects: [
         {
-          id: 'group-1',
-          name: 'Group',
+          id: "group-1",
+          name: "Group",
           parentId: null,
-          source: { type: 'primitive', primitive: 'group' },
+          source: { type: "primitive", primitive: "group" },
           transform: {
             position: [5, 0, 0],
             rotation: [0, 0, 0],
             scale: [1, 1, 1],
           },
-          physics: { type: 'static' },
+          physics: { type: "static" },
         },
         {
-          id: 'child-1',
-          name: 'Child',
-          parentId: 'group-1',
-          source: { type: 'primitive', primitive: 'box' },
+          id: "child-1",
+          name: "Child",
+          parentId: "group-1",
+          source: { type: "primitive", primitive: "box" },
           transform: {
             position: [1, 0, 0],
             rotation: [0, 0, 0],
             scale: [1, 1, 1],
           },
-          physics: { type: 'static' },
+          physics: { type: "static" },
         },
       ],
     });
 
-    const group = manager.getLevelObjects().find((obj) => obj.name === 'Group');
-    const child = manager.getLevelObjects().find((obj) => obj.name === 'Child');
+    const group = manager.getLevelObjects().find((obj) => obj.name === "Group");
+    const child = manager.getLevelObjects().find((obj) => obj.name === "Child");
     expect(group).toBeInstanceOf(THREE.Group);
     expect(child?.parent).toBe(group);
     expect(scene.children).toContain(group);
@@ -197,7 +197,7 @@ describe('LevelManager rotated body creation', () => {
     cuboidSpy.mockRestore();
   });
 
-  it('centers cuboid colliders on local bounds for off-center imported meshes', async () => {
+  it("centers cuboid colliders on local bounds for off-center imported meshes", async () => {
     const scene = new THREE.Scene();
     const colliderSetTranslation = vi.fn().mockReturnThis();
     const physicsWorld = {
@@ -210,42 +210,41 @@ describe('LevelManager rotated body creation', () => {
     };
     const eventBus = { emit: vi.fn() };
     const manager = new LevelManager(scene, physicsWorld as any, eventBus as any);
-    vi.spyOn(manager as any, 'addLighting').mockImplementation(() => {});
-    vi.spyOn(manager as any, 'loadGLBObject').mockResolvedValue(
-      new THREE.Mesh(
-        new THREE.BoxGeometry(1, 1, 1).translate(1, 0, 0),
-        new THREE.MeshBasicMaterial(),
-      ),
+    vi.spyOn(manager as any, "addLighting").mockImplementation(() => {});
+    vi.spyOn(manager as any, "loadGLBObject").mockResolvedValue(
+      new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1).translate(1, 0, 0), new THREE.MeshBasicMaterial()),
     );
 
-    const RAPIER = await import('@dimforge/rapier3d-compat');
-    const fixedSpy = vi.spyOn(RAPIER.RigidBodyDesc, 'fixed').mockReturnValue({
+    const RAPIER = await import("@dimforge/rapier3d-compat");
+    const fixedSpy = vi.spyOn(RAPIER.RigidBodyDesc, "fixed").mockReturnValue({
       setTranslation: vi.fn(),
       setRotation: vi.fn(),
     } as any);
-    const cuboidSpy = vi.spyOn(RAPIER.ColliderDesc, 'cuboid').mockReturnValue({
+    const cuboidSpy = vi.spyOn(RAPIER.ColliderDesc, "cuboid").mockReturnValue({
       setCollisionGroups: vi.fn().mockReturnThis(),
       setTranslation: colliderSetTranslation,
     } as any);
 
     await manager.loadFromJSON({
       version: 2,
-      name: 'off-center',
+      name: "off-center",
       created: new Date().toISOString(),
       modified: new Date().toISOString(),
       spawnPoint: { position: [0, 2, 0] },
-      objects: [{
-        id: 'glb-1',
-        name: 'OffCenter',
-        parentId: null,
-        source: { type: 'glb', asset: '/test.glb' },
-        transform: {
-          position: [0, 0, 0],
-          rotation: [0, 0, 0],
-          scale: [1, 1, 1],
+      objects: [
+        {
+          id: "glb-1",
+          name: "OffCenter",
+          parentId: null,
+          source: { type: "glb", asset: "/test.glb" },
+          transform: {
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+          },
+          physics: { type: "static" },
         },
-        physics: { type: 'static' },
-      }],
+      ],
     });
 
     expect(colliderSetTranslation).toHaveBeenCalledWith(1, 0, 0);
@@ -255,18 +254,18 @@ describe('LevelManager rotated body creation', () => {
   });
 });
 
-describe('LevelManager VFX timing', () => {
+describe("LevelManager VFX timing", () => {
   let logSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
   });
 
   afterEach(() => {
     logSpy.mockRestore();
   });
 
-  it('advances VFX callbacks from render update, not fixedUpdate', () => {
+  it("advances VFX callbacks from render update, not fixedUpdate", () => {
     const scene = new THREE.Scene();
     const physicsWorld = {
       world: {},
@@ -287,18 +286,18 @@ describe('LevelManager VFX timing', () => {
   });
 });
 
-describe('LevelManager moving platform metadata', () => {
+describe("LevelManager moving platform metadata", () => {
   let logSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
   });
 
   afterEach(() => {
     logSpy.mockRestore();
   });
 
-  it('stores authored linear velocity for kinematic moving platforms', () => {
+  it("stores authored linear velocity for kinematic moving platforms", () => {
     const scene = new THREE.Scene();
     const physicsWorld = {
       world: {},
@@ -315,24 +314,26 @@ describe('LevelManager moving platform metadata', () => {
       setNextKinematicRotation: vi.fn(),
     };
 
-    (manager as any).movingPlatforms = [{
-      mesh,
-      body,
-      base: new THREE.Vector3(0, 0, 0),
-      mode: 'x',
-      speed: 1,
-      amplitude: 2,
-      rotationOffset: new THREE.Euler(),
-      lastPosition: new THREE.Vector3(0, 0, 0),
-      lastRotX: 0,
-      lastRotY: 0,
-      linearVelocity: new THREE.Vector3(),
-      angularVelocity: new THREE.Vector3(),
-    }];
+    (manager as any).movingPlatforms = [
+      {
+        mesh,
+        body,
+        base: new THREE.Vector3(0, 0, 0),
+        mode: "x",
+        speed: 1,
+        amplitude: 2,
+        rotationOffset: new THREE.Euler(),
+        lastPosition: new THREE.Vector3(0, 0, 0),
+        lastRotX: 0,
+        lastRotY: 0,
+        linearVelocity: new THREE.Vector3(),
+        angularVelocity: new THREE.Vector3(),
+      },
+    ];
 
     manager.fixedUpdate(0.25);
 
-    expect((body.userData as any).kind).toBe('moving-platform');
+    expect((body.userData as any).kind).toBe("moving-platform");
     expect(Math.abs((body.userData as any).platformLinearVelocity.x)).toBeGreaterThan(0.01);
   });
 });

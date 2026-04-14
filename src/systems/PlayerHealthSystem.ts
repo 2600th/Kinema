@@ -1,6 +1,6 @@
 import type { EventBus } from "@core/EventBus";
 import type { RuntimeSystem } from "@core/RuntimeSystem";
-import * as THREE from "three";
+import type * as THREE from "three";
 
 export type DamageReason = "spike" | "fall";
 export type DeathResolutionMode = "respawn" | "full-reset";
@@ -151,9 +151,7 @@ export class PlayerHealthSystem implements RuntimeSystem {
     const nextReason = nextRemaining > 0 ? reason : null;
     const prevActive = this.invulnerabilityRemaining > 0;
     const nextActive = nextRemaining > 0;
-    const shouldEmit =
-      prevActive !== nextActive
-      || (nextActive && this.invulnerabilityReason !== nextReason);
+    const shouldEmit = prevActive !== nextActive || (nextActive && this.invulnerabilityReason !== nextReason);
 
     this.invulnerabilityRemaining = nextRemaining;
     this.invulnerabilityReason = nextReason;

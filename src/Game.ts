@@ -27,11 +27,15 @@ import { CoinCollectibleSystem, type CoinDebugEntry } from "@systems/CoinCollect
 import { DebugRuntimeSystem } from "@systems/DebugRuntimeSystem";
 import { InteractableSystem } from "@systems/InteractableSystem";
 import { ParticleSystem } from "@systems/ParticleSystem";
-import { PlayerHealthSystem, type HealthDebugState } from "@systems/PlayerHealthSystem";
-import { SpikeHazardSystem, type HazardDebugEntry } from "@systems/SpikeHazardSystem";
+import { type HealthDebugState, PlayerHealthSystem } from "@systems/PlayerHealthSystem";
+import { type HazardDebugEntry, SpikeHazardSystem } from "@systems/SpikeHazardSystem";
 import type { UIManager } from "@ui/UIManager";
 import type { VehicleManager } from "@vehicle/VehicleManager";
 import * as THREE from "three";
+
+type DeviceLossCapableRenderer = {
+  onDeviceLost?: (payload: { api: string; message: string; reason: unknown }) => void;
+};
 
 // Temp vector for speed calculation
 const _prevPos = new THREE.Vector3();
@@ -116,12 +120,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     this.healthSystem = new PlayerHealthSystem(eventBus);
     this.registerSystem(this.healthSystem);
 
-    this.spikeHazardSystem = new SpikeHazardSystem(
-      renderer.scene,
-      playerController,
-      vehicleManager,
-      this.healthSystem,
-    );
+    this.spikeHazardSystem = new SpikeHazardSystem(renderer.scene, playerController, vehicleManager, this.healthSystem);
     this.registerSystem(this.spikeHazardSystem);
 
     this.coinSystem = new CoinCollectibleSystem(renderer.scene, eventBus, playerController, vehicleManager);
@@ -138,14 +137,14 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
 
     // Respawn at the midpoint of the iris wipe (screen is black)
     this.unsubs.push(
-      this.eventBus.on('player:deathMidpoint', () => {
+      this.eventBus.on("player:deathMidpoint", () => {
         const pendingResolution = this.healthSystem.consumePendingDeathResolution();
-        if (pendingResolution?.mode === 'full-reset') {
-          this.eventBus.emit('run:restartRequested', { reason: 'health-depleted' });
+        if (pendingResolution?.mode === "full-reset") {
+          this.eventBus.emit("run:restartRequested", { reason: "health-depleted" });
           return;
         }
         this.playerController.respawn();
-        this.eventBus.emit('player:respawned', { reason: pendingResolution?.reason ?? 'fall' });
+        this.eventBus.emit("player:respawned", { reason: pendingResolution?.reason ?? "fall" });
         this.isDying = false;
       }),
     );
@@ -724,7 +723,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     // Simulate GPU device loss (debug only)
     if (e.ctrlKey && e.shiftKey && e.code === "KeyL") {
       e.preventDefault();
-      const r = this.renderer.renderer as any;
+      const r = this.renderer.renderer as unknown as DeviceLossCapableRenderer;
       if (typeof r.onDeviceLost === "function") {
         r.onDeviceLost({ api: "WebGPU", message: "Simulated device loss (debug)", reason: null });
         console.warn("[Game] Simulated GPU device loss via Ctrl+Shift+L");

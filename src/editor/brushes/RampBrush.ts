@@ -1,12 +1,12 @@
-import * as THREE from 'three';
-import { type BrushDefinition, type BrushParams, computeRectFootprint, MIN_BRUSH_DIMENSION } from './Brush';
+import * as THREE from "three";
+import { type BrushDefinition, type BrushParams, computeRectFootprint, MIN_BRUSH_DIMENSION } from "./Brush";
 
 export const RampBrush: BrushDefinition = {
-  id: 'ramp',
-  label: 'Ramp',
-  shortcut: '5',
+  id: "ramp",
+  label: "Ramp",
+  shortcut: "5",
   // Wedge/ramp icon — triangle shape
-  icon: 'M2 20L22 20L2 4z',
+  icon: "M2 20L22 20L2 4z",
   defaultParams: { current: new THREE.Vector3(2, 0, 4), height: 2 },
 
   buildPreviewGeometry(params: BrushParams): THREE.BufferGeometry {
@@ -33,26 +33,90 @@ export const RampBrush: BrushDefinition = {
 
     const positions = new Float32Array([
       // Bottom face (y=0) — two triangles
-      -hw, 0, -hd,   +hw, 0, -hd,   +hw, 0, +hd,
-      -hw, 0, -hd,   +hw, 0, +hd,   -hw, 0, +hd,
+      -hw,
+      0,
+      -hd,
+      +hw,
+      0,
+      -hd,
+      +hw,
+      0,
+      +hd,
+      -hw,
+      0,
+      -hd,
+      +hw,
+      0,
+      +hd,
+      -hw,
+      0,
+      +hd,
 
       // Back face (z=+hd) — two triangles
-      -hw, 0, +hd,   +hw, 0, +hd,   +hw, height, +hd,
-      -hw, 0, +hd,   +hw, height, +hd,   -hw, height, +hd,
+      -hw,
+      0,
+      +hd,
+      +hw,
+      0,
+      +hd,
+      +hw,
+      height,
+      +hd,
+      -hw,
+      0,
+      +hd,
+      +hw,
+      height,
+      +hd,
+      -hw,
+      height,
+      +hd,
 
       // Slope face (from front-bottom to back-top) — two triangles
-      -hw, 0, -hd,   -hw, height, +hd,   +hw, height, +hd,
-      -hw, 0, -hd,   +hw, height, +hd,   +hw, 0, -hd,
+      -hw,
+      0,
+      -hd,
+      -hw,
+      height,
+      +hd,
+      +hw,
+      height,
+      +hd,
+      -hw,
+      0,
+      -hd,
+      +hw,
+      height,
+      +hd,
+      +hw,
+      0,
+      -hd,
 
       // Left face — one triangle
-      -hw, 0, -hd,   -hw, 0, +hd,   -hw, height, +hd,
+      -hw,
+      0,
+      -hd,
+      -hw,
+      0,
+      +hd,
+      -hw,
+      height,
+      +hd,
 
       // Right face — one triangle
-      +hw, 0, -hd,   +hw, height, +hd,   +hw, 0, +hd,
+      +hw,
+      0,
+      -hd,
+      +hw,
+      height,
+      +hd,
+      +hw,
+      0,
+      +hd,
     ]);
 
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
     geometry.computeVertexNormals();
 
     // Center vertically so transform positions it correctly

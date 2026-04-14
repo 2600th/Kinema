@@ -1,5 +1,5 @@
-import type { EventBus } from './EventBus';
-import type { Disposable } from './types';
+import type { EventBus } from "./EventBus";
+import type { Disposable } from "./types";
 
 export interface ObjectiveDefinition {
   id: string;
@@ -31,7 +31,7 @@ export class ObjectiveManager implements Disposable {
     const objective = this.objectives.get(id);
     if (!objective || objective.completed) return;
     objective.completed = true;
-    this.eventBus.emit('objective:completed', { id: objective.id, text: objective.text });
+    this.eventBus.emit("objective:completed", { id: objective.id, text: objective.text });
     this.emitCurrentObjective();
   }
 
@@ -48,11 +48,10 @@ export class ObjectiveManager implements Disposable {
     for (const id of this.order) {
       const objective = this.objectives.get(id);
       if (objective && !objective.completed) {
-        this.eventBus.emit('objective:set', { id: objective.id, text: objective.text });
+        this.eventBus.emit("objective:set", { id: objective.id, text: objective.text });
         return;
       }
     }
-    this.eventBus.emit('objective:set', { id: 'none', text: 'All objectives complete' });
+    this.eventBus.emit("objective:set", { id: "none", text: "All objectives complete" });
   }
 }
-

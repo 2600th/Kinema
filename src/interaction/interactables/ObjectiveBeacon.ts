@@ -1,9 +1,9 @@
-import * as THREE from 'three';
-import RAPIER from '@dimforge/rapier3d-compat';
-import { COLLISION_GROUP_INTERACTABLE } from '@core/constants';
-import type { IInteractable, InteractionAccess, InteractionSpec } from '../Interactable';
-import type { PhysicsWorld } from '@physics/PhysicsWorld';
-import type { PlayerController } from '@character/PlayerController';
+import type { PlayerController } from "@character/PlayerController";
+import { COLLISION_GROUP_INTERACTABLE } from "@core/constants";
+import RAPIER from "@dimforge/rapier3d-compat";
+import type { PhysicsWorld } from "@physics/PhysicsWorld";
+import * as THREE from "three";
+import type { IInteractable, InteractionAccess, InteractionSpec } from "../Interactable";
 
 const IDLE_COLOR = new THREE.Color(0x9be8ff);
 const CHARGING_COLOR = new THREE.Color(0xbeffcc);
@@ -17,7 +17,7 @@ const ACTIVE_EMISSIVE = new THREE.Color(0x2c6f2f);
  */
 export class ObjectiveBeacon implements IInteractable {
   readonly id: string;
-  readonly label = 'Activate Beacon';
+  readonly label = "Activate Beacon";
   readonly position: THREE.Vector3;
   readonly collider: RAPIER.Collider;
 
@@ -109,7 +109,7 @@ export class ObjectiveBeacon implements IInteractable {
   }
 
   getInteractionSpec(): InteractionSpec {
-    return { mode: 'hold', holdDuration: 3 };
+    return { mode: "hold", holdDuration: 3 };
   }
 
   update(dt: number): void {
@@ -136,20 +136,14 @@ export class ObjectiveBeacon implements IInteractable {
     const coreScale = 1 + charge * 0.12 + pulse * (0.018 + charge * 0.014);
     this.beaconMesh.scale.setScalar(coreScale);
 
-    this.haloMaterial.opacity = this.activated
-      ? 0.5 + pulse * 0.08
-      : 0.08 + focusBoost * 0.12 + charge * 0.42;
+    this.haloMaterial.opacity = this.activated ? 0.5 + pulse * 0.08 : 0.08 + focusBoost * 0.12 + charge * 0.42;
     this.haloMesh.scale.setScalar(1.02 + charge * 0.5 + pulse * 0.04);
 
-    this.ringMaterial.opacity = this.activated
-      ? 0.72
-      : 0.11 + focusBoost * 0.06 + charge * 0.56;
+    this.ringMaterial.opacity = this.activated ? 0.72 : 0.11 + focusBoost * 0.06 + charge * 0.56;
     this.ringMesh.rotation.z += dt * (0.8 + charge * 2.4);
     this.ringMesh.scale.setScalar(0.92 + charge * 0.38 + pulse * 0.025);
 
-    this.beaconLight.intensity = this.activated
-      ? 3.1 + pulse * 0.35
-      : 0.4 + focusBoost * 0.6 + charge * 2.4;
+    this.beaconLight.intensity = this.activated ? 3.1 + pulse * 0.35 : 0.4 + focusBoost * 0.6 + charge * 2.4;
     this.beaconLight.distance = 4.5 + charge * 3.8 + (this.activated ? 1.6 : 0);
   }
 
@@ -167,9 +161,9 @@ export class ObjectiveBeacon implements IInteractable {
 
   canInteract(player: PlayerController): InteractionAccess {
     if (this.activated) {
-      return { allowed: false, reason: 'Beacon online' };
+      return { allowed: false, reason: "Beacon online" };
     }
-    return player.isGrounded ? { allowed: true } : { allowed: false, reason: 'Must be grounded' };
+    return player.isGrounded ? { allowed: true } : { allowed: false, reason: "Must be grounded" };
   }
 
   setHoldProgress(progress: number | null): void {

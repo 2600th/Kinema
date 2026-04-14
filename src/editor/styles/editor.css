@@ -5,42 +5,48 @@
 
 /* ----- Design Tokens ----- */
 :root {
-  --ke-bg:          rgba(17, 24, 46, 0.84);
-  --ke-bg-solid:    #11192f;
+  --ke-bg: rgba(17, 24, 46, 0.84);
+  --ke-bg-solid: #11192f;
   --ke-bg-elevated: rgba(25, 34, 62, 0.9);
-  --ke-border:      rgba(255, 255, 255, 0.1);
-  --ke-border-hover:rgba(255, 255, 255, 0.2);
-  --ke-text:        #dde8ff;
-  --ke-text-dim:    #91a2c6;
+  --ke-border: rgba(255, 255, 255, 0.1);
+  --ke-border-hover: rgba(255, 255, 255, 0.2);
+  --ke-text: #dde8ff;
+  --ke-text-dim: #91a2c6;
   --ke-text-bright: #ffffff;
-  --ke-accent:      #62e6ff;
-  --ke-accent-2:    #7b6cff;
-  --ke-accent-3:    #ff79ba;
-  --ke-accent-dim:  rgba(98, 230, 255, 0.18);
+  --ke-accent: #62e6ff;
+  --ke-accent-2: #7b6cff;
+  --ke-accent-3: #ff79ba;
+  --ke-accent-dim: rgba(98, 230, 255, 0.18);
   --ke-accent-glow: rgba(98, 230, 255, 0.28);
-  --ke-input-bg:    rgba(255, 255, 255, 0.05);
+  --ke-input-bg: rgba(255, 255, 255, 0.05);
   --ke-input-bg-hover: rgba(255, 255, 255, 0.1);
-  --ke-danger:      #ff79ba;
-  --ke-success:     #82e47f;
-  --ke-warning:     #ffcf67;
-  --ke-radius:      12px;
-  --ke-radius-sm:   6px;
+  --ke-danger: #ff79ba;
+  --ke-success: #82e47f;
+  --ke-warning: #ffcf67;
+  --ke-radius: 12px;
+  --ke-radius-sm: 6px;
   --ke-radius-pill: 100px;
-  --ke-blur:        18px;
-  --ke-shadow:      0 18px 48px rgba(0, 0, 0, 0.36), 0 0 24px rgba(98, 230, 255, 0.08);
-  --ke-transition:  150ms ease;
-  --ke-font:        'Outfit', system-ui, sans-serif;
-  --ke-font-mono:   'JetBrains Mono', 'Fira Code', monospace;
-  --ke-font-size:   13px;
-  --ke-font-size-sm:11px;
-  --ke-line-height:  1.5;
+  --ke-blur: 18px;
+  --ke-shadow: 0 18px 48px rgba(0, 0, 0, 0.36), 0 0 24px rgba(98, 230, 255, 0.08);
+  --ke-transition: 150ms ease;
+  --ke-font: "Outfit", system-ui, sans-serif;
+  --ke-font-mono: "JetBrains Mono", "Fira Code", monospace;
+  --ke-font-size: 13px;
+  --ke-font-size-sm: 11px;
+  --ke-line-height: 1.5;
 }
 
 /* ----- Panel ----- */
 .ke-panel {
   position: absolute;
   background:
-    linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02) 28%, rgba(255,255,255,0.05) 56%, rgba(255,255,255,0.02) 78%),
+    linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.08),
+      rgba(255, 255, 255, 0.02) 28%,
+      rgba(255, 255, 255, 0.05) 56%,
+      rgba(255, 255, 255, 0.02) 78%
+    ),
     linear-gradient(180deg, rgba(16, 23, 43, 0.9), rgba(10, 14, 26, 0.94));
   backdrop-filter: blur(var(--ke-blur));
   -webkit-backdrop-filter: blur(var(--ke-blur));
@@ -57,12 +63,19 @@
 }
 
 .ke-panel::before {
-  content: '';
+  content: "";
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(110deg, rgba(255,255,255,0.08), transparent 18%, transparent 62%, rgba(98,230,255,0.06) 74%, transparent 86%),
-    linear-gradient(180deg, rgba(255,255,255,0.025), transparent 30%);
+    linear-gradient(
+      110deg,
+      rgba(255, 255, 255, 0.08),
+      transparent 18%,
+      transparent 62%,
+      rgba(98, 230, 255, 0.06) 74%,
+      transparent 86%
+    ),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 30%);
   pointer-events: none;
 }
 
@@ -101,7 +114,7 @@
   gap: 4px;
   padding: 5px 8px;
   background:
-    linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02) 32%, rgba(255,255,255,0.04)),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02) 32%, rgba(255, 255, 255, 0.04)),
     linear-gradient(180deg, rgba(16, 23, 43, 0.9), rgba(10, 14, 26, 0.94));
   backdrop-filter: blur(var(--ke-blur));
   -webkit-backdrop-filter: blur(var(--ke-blur));
@@ -197,8 +210,15 @@
 }
 
 @keyframes ke-playtest-pulse {
-  0%, 100% { box-shadow: var(--ke-shadow); }
-  50% { box-shadow: var(--ke-shadow), 0 0 16px rgba(255, 107, 157, 0.2); }
+  0%,
+  100% {
+    box-shadow: var(--ke-shadow);
+  }
+  50% {
+    box-shadow:
+      var(--ke-shadow),
+      0 0 16px rgba(255, 107, 157, 0.2);
+  }
 }
 
 /* Mode buttons */
@@ -284,7 +304,9 @@
   flex-shrink: 0;
   cursor: pointer;
   opacity: 0.5;
-  transition: opacity var(--ke-transition), transform var(--ke-transition);
+  transition:
+    opacity var(--ke-transition),
+    transform var(--ke-transition);
 }
 
 .ke-tree-row-toggle:hover {
@@ -331,7 +353,7 @@
   gap: 4px;
   padding: 6px 10px;
   background:
-    linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02) 32%, rgba(255,255,255,0.04)),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02) 32%, rgba(255, 255, 255, 0.04)),
     linear-gradient(180deg, rgba(16, 23, 43, 0.9), rgba(10, 14, 26, 0.94));
   backdrop-filter: blur(var(--ke-blur));
   -webkit-backdrop-filter: blur(var(--ke-blur));
@@ -470,8 +492,11 @@
   font-family: var(--ke-font);
   font-size: var(--ke-font-size-sm);
   cursor: pointer;
-  transition: background var(--ke-transition), border-color var(--ke-transition),
-              box-shadow var(--ke-transition), color var(--ke-transition);
+  transition:
+    background var(--ke-transition),
+    border-color var(--ke-transition),
+    box-shadow var(--ke-transition),
+    color var(--ke-transition);
   white-space: nowrap;
   user-select: none;
   line-height: 1;
@@ -539,7 +564,9 @@
   font-family: var(--ke-font);
   font-size: var(--ke-font-size);
   outline: none;
-  transition: border-color var(--ke-transition), background var(--ke-transition);
+  transition:
+    border-color var(--ke-transition),
+    background var(--ke-transition);
   box-sizing: border-box;
 }
 
@@ -643,7 +670,7 @@
   position: fixed;
   min-width: 160px;
   background:
-    linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02) 32%, rgba(255,255,255,0.04)),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02) 32%, rgba(255, 255, 255, 0.04)),
     linear-gradient(180deg, rgba(16, 23, 43, 0.94), rgba(10, 14, 26, 0.98));
   backdrop-filter: blur(var(--ke-blur));
   -webkit-backdrop-filter: blur(var(--ke-blur));

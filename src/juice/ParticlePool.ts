@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from "three";
 
 export interface ParticleConfig {
   maxParticles: number;
@@ -33,16 +33,16 @@ let _softCircleTex: THREE.CanvasTexture | null = null;
 function getSoftCircleTexture(): THREE.CanvasTexture {
   if (_softCircleTex) return _softCircleTex;
   const size = 64;
-  const canvas = document.createElement('canvas');
+  const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
-  const ctx = canvas.getContext('2d')!;
+  const ctx = canvas.getContext("2d")!;
   const half = size / 2;
   const gradient = ctx.createRadialGradient(half, half, 0, half, half, half);
-  gradient.addColorStop(0, 'rgba(255,255,255,1)');
-  gradient.addColorStop(0.35, 'rgba(255,255,255,0.8)');
-  gradient.addColorStop(0.7, 'rgba(255,255,255,0.3)');
-  gradient.addColorStop(1, 'rgba(255,255,255,0)');
+  gradient.addColorStop(0, "rgba(255,255,255,1)");
+  gradient.addColorStop(0.35, "rgba(255,255,255,0.8)");
+  gradient.addColorStop(0.7, "rgba(255,255,255,0.3)");
+  gradient.addColorStop(1, "rgba(255,255,255,0)");
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, size, size);
   _softCircleTex = new THREE.CanvasTexture(canvas);
@@ -125,17 +125,35 @@ export class ParticlePool {
   private swapParticle(a: number, b: number): void {
     let tmp: number;
 
-    tmp = this.posX[a]; this.posX[a] = this.posX[b]; this.posX[b] = tmp;
-    tmp = this.posY[a]; this.posY[a] = this.posY[b]; this.posY[b] = tmp;
-    tmp = this.posZ[a]; this.posZ[a] = this.posZ[b]; this.posZ[b] = tmp;
+    tmp = this.posX[a];
+    this.posX[a] = this.posX[b];
+    this.posX[b] = tmp;
+    tmp = this.posY[a];
+    this.posY[a] = this.posY[b];
+    this.posY[b] = tmp;
+    tmp = this.posZ[a];
+    this.posZ[a] = this.posZ[b];
+    this.posZ[b] = tmp;
 
-    tmp = this.velX[a]; this.velX[a] = this.velX[b]; this.velX[b] = tmp;
-    tmp = this.velY[a]; this.velY[a] = this.velY[b]; this.velY[b] = tmp;
-    tmp = this.velZ[a]; this.velZ[a] = this.velZ[b]; this.velZ[b] = tmp;
+    tmp = this.velX[a];
+    this.velX[a] = this.velX[b];
+    this.velX[b] = tmp;
+    tmp = this.velY[a];
+    this.velY[a] = this.velY[b];
+    this.velY[b] = tmp;
+    tmp = this.velZ[a];
+    this.velZ[a] = this.velZ[b];
+    this.velZ[b] = tmp;
 
-    tmp = this.lifetimes[a]; this.lifetimes[a] = this.lifetimes[b]; this.lifetimes[b] = tmp;
-    tmp = this.ages[a]; this.ages[a] = this.ages[b]; this.ages[b] = tmp;
-    tmp = this.scales[a]; this.scales[a] = this.scales[b]; this.scales[b] = tmp;
+    tmp = this.lifetimes[a];
+    this.lifetimes[a] = this.lifetimes[b];
+    this.lifetimes[b] = tmp;
+    tmp = this.ages[a];
+    this.ages[a] = this.ages[b];
+    this.ages[b] = tmp;
+    tmp = this.scales[a];
+    this.scales[a] = this.scales[b];
+    this.scales[b] = tmp;
   }
 
   /**
@@ -152,12 +170,7 @@ export class ParticlePool {
       spread?: number;
     } = {},
   ): void {
-    const {
-      velocityMin,
-      velocityMax,
-      lifetime = 0.5,
-      spread = 0,
-    } = options;
+    const { velocityMin, velocityMax, lifetime = 0.5, spread = 0 } = options;
 
     const vMinX = velocityMin?.x ?? 0;
     const vMinY = velocityMin?.y ?? 0;

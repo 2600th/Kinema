@@ -1,5 +1,5 @@
-import type * as THREE from 'three';
-import type RAPIER from '@dimforge/rapier3d-compat';
+import type RAPIER from "@dimforge/rapier3d-compat";
+import type * as THREE from "three";
 
 export interface EditorObject {
   id: string;
@@ -8,7 +8,7 @@ export interface EditorObject {
   body?: RAPIER.RigidBody;
   collider?: RAPIER.Collider;
   source: {
-    type: 'primitive' | 'glb' | 'sprite' | 'brush';
+    type: "primitive" | "glb" | "sprite" | "brush";
     asset?: string;
     primitive?: string;
     brush?: string;
@@ -31,7 +31,7 @@ export interface EditorObject {
     opacity: number;
   };
   brushParams?: Record<string, number>;
-  physicsType?: 'static' | 'dynamic' | 'kinematic';
+  physicsType?: "static" | "dynamic" | "kinematic";
   /** Spawn point tag — only meaningful for spawn brushes (e.g. 'player', 'ai', 'item'). */
   spawnTag?: string;
 }

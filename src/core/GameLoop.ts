@@ -1,8 +1,8 @@
-import { PHYSICS_TIMESTEP, MAX_FRAME_TIME, MAX_PHYSICS_STEPS } from './constants';
-import type { FixedUpdatable, PostPhysicsUpdatable, Updatable } from './types';
-import type { RendererManager } from '@renderer/RendererManager';
-import type { PhysicsWorld } from '@physics/PhysicsWorld';
-import type { Hitstop } from '@juice/Hitstop';
+import type { Hitstop } from "@juice/Hitstop";
+import type { PhysicsWorld } from "@physics/PhysicsWorld";
+import type { RendererManager } from "@renderer/RendererManager";
+import { MAX_FRAME_TIME, MAX_PHYSICS_STEPS, PHYSICS_TIMESTEP } from "./constants";
+import type { FixedUpdatable, PostPhysicsUpdatable, Updatable } from "./types";
 
 /**
  * Accumulator-pattern game loop.
@@ -118,9 +118,9 @@ export class GameLoop {
 
   private isPostPhysicsUpdatable(obj: unknown): obj is PostPhysicsUpdatable {
     return (
-      typeof obj === 'object' &&
+      typeof obj === "object" &&
       obj !== null &&
-      typeof (obj as { postPhysicsUpdate?: unknown }).postPhysicsUpdate === 'function'
+      typeof (obj as { postPhysicsUpdate?: unknown }).postPhysicsUpdate === "function"
     );
   }
 }
