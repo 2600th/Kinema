@@ -477,6 +477,16 @@ export class InputManager implements Disposable {
     }
   }
 
+  private isMobileUserAgent(): boolean {
+    const userAgentData = navigator as Navigator & { userAgentData?: { mobile?: boolean } };
+    if (userAgentData.userAgentData?.mobile) {
+      return true;
+    }
+
+    const userAgent = navigator?.userAgent ?? "";
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(userAgent);
+  }
+
   private detectTouchSupport(): boolean {
     if (typeof window === "undefined") return false;
     const hasTouchEvents = "ontouchstart" in window;
@@ -489,7 +499,7 @@ export class InputManager implements Disposable {
         hasCoarsePointer = false;
       }
     }
-    return hasTouchEvents || maxTouchPoints > 0 || hasCoarsePointer;
+    return hasTouchEvents || maxTouchPoints > 0 || hasCoarsePointer || this.isMobileUserAgent();
   }
 
   dispose(): void {

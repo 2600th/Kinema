@@ -2,7 +2,7 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests",
-  testMatch: ["visual-check.ts", "vehicle-controllers.ts", "vfx-particles.ts", "jump-mechanics.ts", "station-screenshots.ts", "physics-verification.ts", "procedural-review-screenshots.ts", "procedural-coins.ts", "procedural-hazards.ts", "pause-pointer-lock.ts", "beacon-hold-objective.ts", "mobile-touch-controls.ts"],
+  testMatch: ["visual-check.ts", "vehicle-controllers.ts", "vfx-particles.ts", "jump-mechanics.ts", "station-screenshots.ts", "physics-verification.ts", "procedural-review-screenshots.ts", "procedural-coins.ts", "procedural-hazards.ts", "pause-pointer-lock.ts", "beacon-hold-objective.ts", "mobile-touch-controls.ts", "mobile-orientation.ts"],
   timeout: 120_000,
   workers: 2,
   webServer: {

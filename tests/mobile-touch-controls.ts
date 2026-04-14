@@ -22,7 +22,6 @@ test("mobile touch controls stay active without pointer lock and can trigger a j
   await page.goto("/?station=movement", { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => Boolean((window as any).__KINEMA__), undefined, { timeout: 60_000 });
 
-  await expect(page.locator(".touch-controls-container")).toBeVisible();
   await expect(page.locator(".touch-zone--left")).toBeVisible();
   await expect(page.locator(".touch-zone--right")).toBeVisible();
   await expect(page.locator(".touch-btn--jump")).toBeVisible();

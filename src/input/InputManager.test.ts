@@ -263,4 +263,22 @@ describe("InputManager", () => {
 
     manager.dispose();
   });
+
+  it("treats mobile user agents as touch-capable even when coarse-pointer APIs are unavailable", () => {
+    Object.defineProperty(globalThis, "navigator", {
+      value: {
+        getGamepads: vi.fn(() => []),
+        maxTouchPoints: 0,
+        userAgent:
+          "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36",
+      },
+      configurable: true,
+    });
+
+    const manager = new InputManager(new EventBus(), asCanvas(canvasTarget));
+
+    expect(manager.supportsTouchControls).toBe(true);
+
+    manager.dispose();
+  });
 });

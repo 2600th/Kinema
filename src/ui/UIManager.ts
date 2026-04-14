@@ -1,4 +1,5 @@
 import type { EventBus } from "@core/EventBus";
+import { shouldShowLandscapeHint } from "@core/mobilePlatform";
 import type { Disposable } from "@core/types";
 import { DeathEffect } from "./components/DeathEffect";
 import { DebugPanel } from "./components/DebugPanel";
@@ -20,6 +21,8 @@ export class UIManager implements Disposable {
   private unsubscribers: (() => void)[] = [];
   private overlayEl: HTMLElement | null = null;
   private hintEl: HTMLDivElement | null = null;
+  private orientationHintEl: HTMLDivElement | null = null;
+  private _onViewportMetricsChanged = this.updateOrientationHint.bind(this);
 
   constructor(private eventBus: EventBus) {
     let overlay = document.getElementById("ui-overlay");
@@ -29,7 +32,7 @@ export class UIManager implements Disposable {
       }
       overlay = document.createElement("div");
       overlay.id = "ui-overlay";
-      overlay.style.position = "absolute";
+      overlay.style.position = "fixed";
       overlay.style.inset = "0";
       overlay.style.pointerEvents = "none";
       document.body.appendChild(overlay);
@@ -45,6 +48,7 @@ export class UIManager implements Disposable {
 
     // "Click to start" hint for audio activation
     this.createInteractionHint();
+    this.createOrientationHint();
 
     // Wire events
     this.unsubscribers.push(
@@ -158,12 +162,19 @@ export class UIManager implements Disposable {
     for (const unsub of this.unsubscribers) {
       unsub();
     }
+    if (typeof window !== "undefined") {
+      window.removeEventListener("resize", this._onViewportMetricsChanged);
+      window.removeEventListener("orientationchange", this._onViewportMetricsChanged);
+      window.visualViewport?.removeEventListener("resize", this._onViewportMetricsChanged);
+      window.visualViewport?.removeEventListener("scroll", this._onViewportMetricsChanged);
+    }
     this.hud.dispose();
     this.fadeScreen.dispose();
     this.debugPanel.dispose();
     this.loadingScreen.dispose();
     this.deathEffect.dispose();
     this.hintEl?.remove();
+    this.orientationHintEl?.remove();
     this.overlayEl?.remove();
   }
 
@@ -185,5 +196,50 @@ export class UIManager implements Disposable {
       }, 500);
     };
     document.addEventListener("pointerdown", dismiss);
+  }
+
+  private createOrientationHint(): void {
+    if (!document.body || typeof window === "undefined") return;
+
+    this.orientationHintEl = document.createElement("div");
+    const hint = this.orientationHintEl;
+    hint.className = "kinema-orientation-hint";
+    hint.textContent = "Rotate to landscape for the best view";
+    Object.assign(hint.style, {
+      position: "fixed",
+      left: "50%",
+      top: "max(16px, env(safe-area-inset-top))",
+      transform: "translateX(-50%)",
+      padding: "10px 14px",
+      borderRadius: "999px",
+      border: "1px solid rgba(255,255,255,0.12)",
+      background: "rgba(7, 10, 18, 0.82)",
+      color: "#f5f7ff",
+      fontFamily: "'Outfit', system-ui, sans-serif",
+      fontSize: "12px",
+      fontWeight: "700",
+      letterSpacing: "0.04em",
+      textAlign: "center",
+      pointerEvents: "none",
+      opacity: "0",
+      transition: "opacity 0.2s ease",
+      zIndex: "1250",
+      backdropFilter: "blur(14px)",
+      boxShadow: "0 10px 30px rgba(0, 0, 0, 0.28)",
+    } satisfies Partial<CSSStyleDeclaration>);
+    hint.style.setProperty("-webkit-backdrop-filter", "blur(14px)");
+    document.body.appendChild(hint);
+
+    window.addEventListener("resize", this._onViewportMetricsChanged);
+    window.addEventListener("orientationchange", this._onViewportMetricsChanged);
+    window.visualViewport?.addEventListener("resize", this._onViewportMetricsChanged);
+    window.visualViewport?.addEventListener("scroll", this._onViewportMetricsChanged);
+    this.updateOrientationHint();
+  }
+
+  private updateOrientationHint(): void {
+    if (!this.orientationHintEl || typeof window === "undefined") return;
+    const visible = shouldShowLandscapeHint(window.navigator, window);
+    this.orientationHintEl.style.opacity = visible ? "1" : "0";
   }
 }

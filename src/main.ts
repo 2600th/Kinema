@@ -1,3 +1,4 @@
+import { shouldUseCompatibilityRenderer } from "@core/mobilePlatform";
 import type { InputState } from "@core/types";
 import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
@@ -25,6 +26,7 @@ function showBootstrapError(err: unknown): void {
 async function bootstrap(): Promise<void> {
   const bootstrapParams = new URLSearchParams(window.location.search);
   const forceWebGL = /^(1|true)$/i.test(bootstrapParams.get("forceWebGL") ?? "");
+  const allowExperimentalRenderer = /^(1|true)$/i.test(bootstrapParams.get("experimentalRenderer") ?? "");
 
   // Initialize Rapier WASM
   // `@dimforge/rapier3d-compat@0.19.3` emits this deprecation from inside its bundled
@@ -90,7 +92,10 @@ async function bootstrap(): Promise<void> {
 
   const settings = UserSettingsStore.load();
 
-  const renderer = new RendererManager({ forceWebGL });
+  const renderer = new RendererManager({
+    forceWebGL,
+    preferCompatibilityRenderer: shouldUseCompatibilityRenderer(window.navigator) && !allowExperimentalRenderer,
+  });
   await renderer.init();
   // Wire KTX2 support early so all AssetLoader instances detect compressed texture formats.
   AssetLoader.initRendererSupport(renderer.renderer);

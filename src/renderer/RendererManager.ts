@@ -3,6 +3,7 @@
 // `three/webgpu` provides WebGPU-specific exports (WebGPURenderer, RenderPipeline, PMREMGenerator).
 // No Vite alias is needed — these are distinct entry points by design since r182.
 
+import { resolveViewportMetrics } from "@core/mobilePlatform";
 import type { Disposable } from "@core/types";
 import type { GraphicsProfile, ShadowQualityTier } from "@core/UserSettings";
 import * as THREE from "three";
@@ -120,17 +121,29 @@ export class RendererManager implements Disposable {
   };
 
   private _onResize = this.handleResize.bind(this);
+  private _onOrientationChange = this.handleOrientationChange.bind(this);
+  private _onViewportMetricsChanged = this.queueResize.bind(this);
+  private resizeFrame: number | null = null;
+  private orientationSettleTimer: number | null = null;
+  private readonly preferCompatibilityRenderer: boolean;
 
-  constructor(options: { forceWebGL?: boolean } = {}) {
+  constructor(
+    options: {
+      forceWebGL?: boolean;
+      preferCompatibilityRenderer?: boolean;
+    } = {},
+  ) {
     this.forceWebGL = options.forceWebGL ?? false;
+    this.preferCompatibilityRenderer = options.preferCompatibilityRenderer ?? false;
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0xe8d8c8);
     this.scene.fog = new THREE.Fog(0xe8d8c8, 140, 400);
     applyEnvironmentRotation(this.scene, this.envRotationDegrees);
 
+    const initialViewport = resolveViewportMetrics(window);
     this.camera = new THREE.PerspectiveCamera(
       65,
-      window.innerWidth / window.innerHeight,
+      initialViewport.width / initialViewport.height,
       CAMERA_CLIP_NEAR,
       CAMERA_CLIP_FAR,
     );
@@ -154,65 +167,68 @@ export class RendererManager implements Disposable {
     document.body.style.background = "#d8dce8";
     document.body.style.backgroundAttachment = "fixed";
 
-    try {
-      this.tslRuntime = await loadTslRuntime();
-
-      const bootstrapRenderer = await createWebGpuRenderer({
-        forceWebGL: this.forceWebGL,
-        profile: this.graphicsProfile,
-        shadowsEnabled: this.shadowsEnabled,
-        exposure: this.toneExposure,
-        onDeviceLost: (info) => {
-          console.error("[RendererManager] GPU device lost:", info);
-          showDeviceLostOverlay(info);
-        },
-      });
-
-      const pmrem = new PMREMGenerator(bootstrapRenderer);
-      pmrem.compileEquirectangularShader();
-      this.assetLibrary.setPmremGenerator(pmrem);
-      const bootstrapEnvTarget = this.assetLibrary.getOrCreateRoomEnvironment();
-      if (!bootstrapEnvTarget) {
-        throw new Error("Failed to build room environment during WebGPU bootstrap");
-      }
-      applyEnvironmentTarget(this.scene, bootstrapEnvTarget, this.envRotationDegrees);
-      this.scene.environmentIntensity = 0.68;
-      this.scene.backgroundIntensity = 1.0;
-      this.scene.backgroundBlurriness = 0.15;
-
-      const fallbackRenderer = this.renderer as THREE.WebGLRenderer;
-      fallbackRenderer.dispose();
-
-      (this as { renderer: THREE.WebGLRenderer | WebGPURenderer }).renderer = bootstrapRenderer;
-      this.isWebGPUPipeline = true;
-
-      this.pipelineRebuildNeeded = true;
-      this.applyQualitySettings();
-      console.log("[RendererManager] WebGPU + TSL pipeline initialized");
-    } catch (e) {
-      console.warn("[RendererManager] WebGPU/TSL not available, using WebGL only:", e);
+    if (this.preferCompatibilityRenderer) {
+      console.log("[RendererManager] Compatibility renderer enabled; using WebGL renderer on this device");
       this.isWebGPUPipeline = false;
       this.tslRuntime = null;
       this.currentPipelineDescriptor = null;
-      // Fallback: constructor already created a WebGLRenderer; we keep it and render via render().
-      // When init() succeeds, WebGPURenderer may still use WebGL2 backend internally if WebGPU is unavailable.
       this.resetPipelineResources();
       this.pipelineRebuildNeeded = false;
-      const pmrem = new THREE.PMREMGenerator(this.renderer as THREE.WebGLRenderer);
-      pmrem.compileEquirectangularShader();
-      this.assetLibrary.setPmremGenerator(pmrem);
-      const envTarget = this.assetLibrary.getOrCreateRoomEnvironment();
-      if (!envTarget) {
-        throw new Error("Failed to build room environment during fallback bootstrap");
+      this.initializeFallbackEnvironment();
+    } else {
+      try {
+        this.tslRuntime = await loadTslRuntime();
+
+        const bootstrapRenderer = await createWebGpuRenderer({
+          forceWebGL: this.forceWebGL,
+          profile: this.graphicsProfile,
+          shadowsEnabled: this.shadowsEnabled,
+          exposure: this.toneExposure,
+          onDeviceLost: (info) => {
+            console.error("[RendererManager] GPU device lost:", info);
+            showDeviceLostOverlay(info);
+          },
+        });
+
+        const pmrem = new PMREMGenerator(bootstrapRenderer);
+        pmrem.compileEquirectangularShader();
+        this.assetLibrary.setPmremGenerator(pmrem);
+        const bootstrapEnvTarget = this.assetLibrary.getOrCreateRoomEnvironment();
+        if (!bootstrapEnvTarget) {
+          throw new Error("Failed to build room environment during WebGPU bootstrap");
+        }
+        applyEnvironmentTarget(this.scene, bootstrapEnvTarget, this.envRotationDegrees);
+        this.scene.environmentIntensity = 0.68;
+        this.scene.backgroundIntensity = 1.0;
+        this.scene.backgroundBlurriness = 0.15;
+
+        const fallbackRenderer = this.renderer as THREE.WebGLRenderer;
+        fallbackRenderer.dispose();
+
+        (this as { renderer: THREE.WebGLRenderer | WebGPURenderer }).renderer = bootstrapRenderer;
+        this.isWebGPUPipeline = true;
+
+        this.pipelineRebuildNeeded = true;
+        this.applyQualitySettings();
+        console.log("[RendererManager] WebGPU + TSL pipeline initialized");
+      } catch (e) {
+        console.warn("[RendererManager] WebGPU/TSL not available, using WebGL only:", e);
+        this.isWebGPUPipeline = false;
+        this.tslRuntime = null;
+        this.currentPipelineDescriptor = null;
+        // Fallback: constructor already created a WebGLRenderer; we keep it and render via render().
+        // When init() succeeds, WebGPURenderer may still use WebGL2 backend internally if WebGPU is unavailable.
+        this.resetPipelineResources();
+        this.pipelineRebuildNeeded = false;
+        this.initializeFallbackEnvironment();
       }
-      applyEnvironmentTarget(this.scene, envTarget, this.envRotationDegrees);
-      this.scene.environmentIntensity = 0.68;
-      this.scene.backgroundIntensity = 1.0;
-      this.scene.backgroundBlurriness = 0.15;
     }
 
     attachRendererCanvas(this.renderer);
     window.addEventListener("resize", this._onResize);
+    window.addEventListener("orientationchange", this._onOrientationChange);
+    window.visualViewport?.addEventListener("resize", this._onViewportMetricsChanged);
+    window.visualViewport?.addEventListener("scroll", this._onViewportMetricsChanged);
     this.handleResize();
     console.log("[RendererManager] Initialized");
 
@@ -222,6 +238,20 @@ export class RendererManager implements Disposable {
       this.envName = ""; // Reset to bypass setEnvironment guard
       void this.setEnvironment(defaultEnv);
     }
+  }
+
+  private initializeFallbackEnvironment(): void {
+    const pmrem = new THREE.PMREMGenerator(this.renderer as THREE.WebGLRenderer);
+    pmrem.compileEquirectangularShader();
+    this.assetLibrary.setPmremGenerator(pmrem);
+    const envTarget = this.assetLibrary.getOrCreateRoomEnvironment();
+    if (!envTarget) {
+      throw new Error("Failed to build room environment during fallback bootstrap");
+    }
+    applyEnvironmentTarget(this.scene, envTarget, this.envRotationDegrees);
+    this.scene.environmentIntensity = 0.68;
+    this.scene.backgroundIntensity = 1.0;
+    this.scene.backgroundBlurriness = 0.15;
   }
 
   get canvas(): HTMLCanvasElement {
@@ -703,9 +733,38 @@ export class RendererManager implements Disposable {
     if (r.setAnimationLoop) r.setAnimationLoop(callback);
   }
 
+  private queueResize(): void {
+    if (this.resizeFrame !== null) {
+      cancelAnimationFrame(this.resizeFrame);
+    }
+    this.resizeFrame = window.requestAnimationFrame(() => {
+      this.resizeFrame = null;
+      this.handleResize();
+    });
+  }
+
+  private handleOrientationChange(): void {
+    this.queueResize();
+    if (this.orientationSettleTimer !== null) {
+      window.clearTimeout(this.orientationSettleTimer);
+    }
+    this.orientationSettleTimer = window.setTimeout(() => {
+      this.orientationSettleTimer = null;
+      this.handleResize();
+    }, 250);
+  }
+
+  private syncViewportCss(width: number, height: number): void {
+    const rootStyle = document.documentElement.style;
+    rootStyle.setProperty("--app-width", `${width}px`);
+    rootStyle.setProperty("--app-height", `${height}px`);
+  }
+
   private handleResize(): void {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    const { width, height } = resolveViewportMetrics(window);
+    const w = Math.max(1, Math.round(width));
+    const h = Math.max(1, Math.round(height));
+    this.syncViewportCss(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     // Recalculate pixel ratio with profile-based cap (must be BEFORE setSize)
@@ -717,6 +776,17 @@ export class RendererManager implements Disposable {
 
   dispose(): void {
     window.removeEventListener("resize", this._onResize);
+    window.removeEventListener("orientationchange", this._onOrientationChange);
+    window.visualViewport?.removeEventListener("resize", this._onViewportMetricsChanged);
+    window.visualViewport?.removeEventListener("scroll", this._onViewportMetricsChanged);
+    if (this.resizeFrame !== null) {
+      cancelAnimationFrame(this.resizeFrame);
+      this.resizeFrame = null;
+    }
+    if (this.orientationSettleTimer !== null) {
+      window.clearTimeout(this.orientationSettleTimer);
+      this.orientationSettleTimer = null;
+    }
     this.setAnimationLoop(null);
     this.resetPipelineResources();
     this.pipelineRebuildNeeded = false;
