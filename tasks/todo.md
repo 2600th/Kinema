@@ -2,30 +2,30 @@
 
 ## Goal
 
-Research reliable iOS/Android support patterns for three.js, and identify the root cause of the iOS 16 load that appears to stop after showing only the player/ground/static frame in Chrome on iOS.
+Fix the remaining Safari verification issues: UI elements should adapt cleanly to small/mobile viewports, and the VFX station should remain visibly populated on the Safari compatibility renderer path.
 
 ## Assumptions
 
-- Chrome on iOS still runs on Apple WebKit, so iOS 16 constraints are fundamentally WebKit/WKWebView constraints rather than Chromium desktop behavior.
-- The reported static-frame symptom likely happens after partial world bootstrap, so the key failure may be in asynchronous procedural building, asset loading, render-loop continuity, or another platform-incompatible code path rather than initial app startup.
-- The right answer should combine platform research with repo-specific diagnosis instead of assuming one generic mobile three.js fix.
+- The VFX station issue is not a failed level load; the current Safari/WebGL fallback is simply too sparse to read as a proper station.
+- The UI sizing complaint is most likely in the in-game HUD/touch layout rather than the main menu shell, because the menu layout already scales acceptably in Safari-like viewport probes.
+- The right fix is a surgical improvement to Safari/mobile fallback behavior, not a redesign of the overall renderer or UI system.
 
 ## Success Criteria
 
-- [x] Research captures current, platform-specific guidance for supporting three.js on iOS and Android, with emphasis on browser/runtime constraints relevant to this repo.
-- [x] The iOS 16 loader/static-frame failure is traced to a concrete likely cause in this codebase or runtime behavior.
-- [x] Findings distinguish between platform limits, probable repo bugs, and next-step fixes.
-- [x] `tasks/todo.md` reflects the final state of this investigation.
+- [x] Safari compatibility rendering shows a visibly populated VFX station instead of a nearly empty bay.
+- [x] Small-screen/mobile UI surfaces adapt more predictably to viewport size changes.
+- [x] Relevant verification passes run successfully.
+- [x] `tasks/todo.md` reflects the final state of the work.
 
 ## Execution Plan
 
-- [x] Step 1 -> verify: Researched mobile support constraints: iOS Chrome still follows WebKit/WKWebView limits, orientation lock remains limited, `visualViewport` is the correct visible-viewport source, and the repo should stay on compatibility WebGL plus capability-gated scene features for Apple mobile browsers.
-- [x] Step 2 -> verify: Inspected the renderer/load path, procedural builder, asset loaders, and audio bootstrap; reproduced an iOS-like WebKit failure locally with Playwright WebKit using an iOS 16-style Chrome UA.
-- [x] Step 3 -> verify: Traced the blocking failure to Tone/Tone.js audio initialization aborting bootstrap in a WebKit-like environment; once audio init was allowed to degrade to a silent controller, the menu loaded and the procedural level completed with late-stage objects (`NavPlatform`, `VFX_Scanner`, `FutureA_barrier_0`) visible.
-- [x] Step 4 -> verify: Added safe audio fallbacks plus silent-controller bootstrap recovery, then verified with `npm run test`, `npm run build`, `npx playwright test tests/mobile-compat-procedural.ts --reporter=line`, and a Playwright WebKit iOS-16-style local probe.
+- [x] Step 1 -> verify: Inspected the Safari/WebGL VFX fallback plus viewport-sensitive UI layers, then reproduced the concrete touch-layout issue in a Safari/WebKit iPhone-sized probe where joystick zones overflowed off-screen.
+- [x] Step 2 -> verify: Expanded the compatibility VFX fallback with visible tornado, fire, lightning, laser, and scanner props, and tightened viewport/safe-area anchoring for touch controls plus other Safari-sensitive UI sizing rules.
+- [x] Step 3 -> verify: Verified with `npm run test`, `npm run build`, Safari/WebKit mobile emulation, screenshots, and runtime object-state probes showing touch controls inside the viewport and fallback VFX objects present on the compatibility path.
 
 ## Review
 
-- Root cause identified: audio bootstrap compatibility was aborting app startup on a WebKit-like mobile path, which matches the user-observed partial/static scene better than a pure procedural geometry failure.
-- Repo now degrades audio safely instead of failing bootstrap when Tone dynamics or downstream nodes are not supported.
-- Local WebKit is still only a close proxy for iOS Chrome, not a physical iOS 16 device, so the next strongest confirmation is a real-device pass on Chrome/Safari iOS 16+.
+- Safari compatibility path now renders a materially fuller VFX station instead of only a few sparse fallback primitives.
+- Touch controls no longer hang off-screen on iPhone-sized Safari emulation; the earlier repro had joystick zones extending past both screen edges, and the updated layout now keeps them fully inside the viewport.
+- Additional viewport-sensitive UI pieces were moved toward `dvh`/`dvw` and safe-area-aware sizing so Safari responds more predictably to mobile screen dimensions.
+- Remaining risk: real-device Safari can still differ from Playwright WebKit in subtle ways, so the next strongest confirmation is your manual Safari/iPhone check against this updated dev or deployed build.

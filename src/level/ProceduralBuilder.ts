@@ -3739,12 +3739,93 @@ export class ProceduralBuilder {
   /** Legacy sprite-based VFX bay (WebGL fallback). */
   private createVfxBayFallback(base: THREE.Vector3, bayWidth: number): void {
     const halfW = bayWidth * 0.5;
+    const tornadoX = -Math.min(16, halfW * 0.6);
     const fireX = Math.min(10, halfW * 0.37);
     const laserX = Math.min(16, halfW * 0.6);
     const lightningX = 0;
     const scannerX = -Math.min(8, halfW * 0.3);
     const backRowZ = base.z - 3;
     const frontRowZ = base.z + 3;
+
+    const additiveCyan = new THREE.MeshBasicMaterial({
+      color: 0x66f2ff,
+      transparent: true,
+      opacity: 0.72,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const additiveOrange = new THREE.MeshBasicMaterial({
+      color: 0xff8a3d,
+      transparent: true,
+      opacity: 0.74,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const additiveRed = new THREE.MeshBasicMaterial({
+      color: 0xff5a52,
+      transparent: true,
+      opacity: 0.78,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+
+    const tornadoGroup = new THREE.Group();
+    tornadoGroup.name = "VFX_Tornado";
+    tornadoGroup.position.set(tornadoX, base.y + 0.1, backRowZ);
+
+    const tornadoInner = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 0.45, 5.8, 20, 1, true), additiveOrange);
+    tornadoInner.name = "VFX_TornadoInner";
+    tornadoInner.position.y = 2.9;
+    tornadoInner.scale.x = 1.05;
+    tornadoInner.scale.z = 1.18;
+    tornadoInner.castShadow = false;
+    tornadoInner.receiveShadow = false;
+    tornadoGroup.add(tornadoInner);
+
+    const tornadoOuter = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.55, 0.72, 6.4, 20, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: 0x1b0d07,
+        transparent: true,
+        opacity: 0.38,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+    );
+    tornadoOuter.name = "VFX_TornadoOuter";
+    tornadoOuter.position.y = 3.1;
+    tornadoOuter.castShadow = false;
+    tornadoOuter.receiveShadow = false;
+    tornadoGroup.add(tornadoOuter);
+
+    const tornadoFloor = new THREE.Mesh(
+      new THREE.RingGeometry(1.8, 3.1, 32),
+      new THREE.MeshBasicMaterial({
+        color: 0xff934d,
+        transparent: true,
+        opacity: 0.55,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    tornadoFloor.name = "VFX_TornadoFloor";
+    tornadoFloor.rotation.x = -Math.PI / 2;
+    tornadoFloor.position.y = 0.02;
+    tornadoGroup.add(tornadoFloor);
+
+    this.scene.add(tornadoGroup);
+    this.meshes.push(tornadoGroup);
+
+    const tornadoLight = new THREE.PointLight(0xff6b2d, 12, 16, 2);
+    tornadoLight.position.set(tornadoX, base.y + 3.0, backRowZ);
+    tornadoLight.castShadow = false;
+    tornadoLight.name = "VFX_TornadoLight";
+    this.scene.add(tornadoLight);
+    this.meshes.push(tornadoLight);
 
     // Ground glow plane under fire.
     const glowMat = new THREE.MeshStandardMaterial({
@@ -3764,6 +3845,34 @@ export class ProceduralBuilder {
     this.scene.add(glowPlane);
     this.meshes.push(glowPlane);
 
+    const fireCore = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.45, 0.22, 3.5, 14, 1, true),
+      additiveOrange.clone(),
+    );
+    fireCore.position.set(fireX, base.y + 1.75, frontRowZ);
+    fireCore.name = "VFX_FireInner";
+    fireCore.castShadow = false;
+    fireCore.receiveShadow = false;
+    this.scene.add(fireCore);
+    this.meshes.push(fireCore);
+
+    const fireShell = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.72, 0.34, 4.1, 14, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: 0x4e1d06,
+        transparent: true,
+        opacity: 0.42,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+    );
+    fireShell.position.set(fireX, base.y + 2.05, frontRowZ);
+    fireShell.name = "VFX_FireOuter";
+    fireShell.castShadow = false;
+    fireShell.receiveShadow = false;
+    this.scene.add(fireShell);
+    this.meshes.push(fireShell);
+
     // Fire point light.
     const fireLight = new THREE.PointLight(0xff6622, 15, 14, 2);
     fireLight.position.set(fireX, base.y + 2.0, frontRowZ);
@@ -3780,14 +3889,41 @@ export class ProceduralBuilder {
       emissive: 0xff2a2a,
       emissiveIntensity: 2.6,
     });
-    const laser = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 10, 10), laserMat);
-    laser.position.set(laserX, base.y + 1.8, backRowZ);
-    laser.rotation.z = Math.PI * 0.35;
-    laser.castShadow = false;
-    laser.receiveShadow = false;
-    laser.name = "VFX_Laser";
-    this.scene.add(laser);
-    this.meshes.push(laser);
+    const laserGlowMat = additiveRed.clone();
+    laserGlowMat.opacity = 0.34;
+    const laserA = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 10, 10), laserMat);
+    laserA.position.set(laserX, base.y + 1.8, backRowZ);
+    laserA.rotation.z = Math.PI * 0.35;
+    laserA.castShadow = false;
+    laserA.receiveShadow = false;
+    laserA.name = "VFX_LaserA";
+    this.scene.add(laserA);
+    this.meshes.push(laserA);
+
+    const laserB = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 10, 10), laserMat);
+    laserB.position.set(laserX, base.y + 1.8, backRowZ);
+    laserB.rotation.z = -Math.PI * 0.35;
+    laserB.castShadow = false;
+    laserB.receiveShadow = false;
+    laserB.name = "VFX_LaserB";
+    this.scene.add(laserB);
+    this.meshes.push(laserB);
+
+    const laserGlowA = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 10.2, 10), laserGlowMat);
+    laserGlowA.position.copy(laserA.position);
+    laserGlowA.rotation.copy(laserA.rotation);
+    laserGlowA.castShadow = false;
+    laserGlowA.receiveShadow = false;
+    this.scene.add(laserGlowA);
+    this.meshes.push(laserGlowA);
+
+    const laserGlowB = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 10.2, 10), laserGlowMat);
+    laserGlowB.position.copy(laserB.position);
+    laserGlowB.rotation.copy(laserB.rotation);
+    laserGlowB.castShadow = false;
+    laserGlowB.receiveShadow = false;
+    this.scene.add(laserGlowB);
+    this.meshes.push(laserGlowB);
 
     const laserLight = new THREE.PointLight(0xff3a3a, 12, 14, 2);
     laserLight.position.set(laserX, base.y + 2.0, backRowZ);
@@ -3796,6 +3932,42 @@ export class ProceduralBuilder {
     this.scene.add(laserLight);
     this.meshes.push(laserLight);
 
+    const lightningRibbon = new THREE.Mesh(
+      new THREE.PlaneGeometry(8, 0.38, 1, 1),
+      new THREE.MeshBasicMaterial({
+        color: 0xa6d8ff,
+        transparent: true,
+        opacity: 0.9,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    lightningRibbon.position.set(lightningX, base.y + 2.4, backRowZ);
+    lightningRibbon.name = "VFX_Lightning";
+    lightningRibbon.castShadow = false;
+    lightningRibbon.receiveShadow = false;
+    this.scene.add(lightningRibbon);
+    this.meshes.push(lightningRibbon);
+
+    const lightningRibbon2 = new THREE.Mesh(
+      new THREE.PlaneGeometry(6.2, 0.26, 1, 1),
+      new THREE.MeshBasicMaterial({
+        color: 0xd6f2ff,
+        transparent: true,
+        opacity: 0.68,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    lightningRibbon2.position.set(lightningX, base.y + 1.8, backRowZ + 0.3);
+    lightningRibbon2.name = "VFX_Lightning2";
+    lightningRibbon2.castShadow = false;
+    lightningRibbon2.receiveShadow = false;
+    this.scene.add(lightningRibbon2);
+    this.meshes.push(lightningRibbon2);
+
     // Lightning point light (static fallback).
     const lightningLight = new THREE.PointLight(0x88ccff, 10, 14, 2);
     lightningLight.position.set(lightningX, base.y + 2.5, backRowZ);
@@ -3803,25 +3975,87 @@ export class ProceduralBuilder {
     lightningLight.name = "VFX_LightningLight";
     this.scene.add(lightningLight);
     this.meshes.push(lightningLight);
+    this.vfxLightningLightRef = lightningLight;
 
     // Scanner ring (static fallback).
-    const scanMat = new THREE.MeshStandardMaterial({
-      color: 0x00ffff,
-      emissive: 0x00ffff,
-      emissiveIntensity: 1.5,
-      transparent: true,
-      opacity: 0.8,
-      side: THREE.DoubleSide,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      forceSinglePass: true,
+    const scanner = new THREE.Group();
+    scanner.name = "VFX_Scanner";
+    scanner.position.set(scannerX, base.y, frontRowZ);
+
+    const scanOuter = new THREE.Mesh(new THREE.RingGeometry(1.6, 1.85, 48), additiveCyan.clone());
+    scanOuter.rotation.x = -Math.PI / 2;
+    scanOuter.position.y = 0.5;
+    scanOuter.name = "VFX_ScannerOuter";
+    scanner.add(scanOuter);
+
+    const scanInner = new THREE.Mesh(
+      new THREE.RingGeometry(0.8, 1.0, 36),
+      new THREE.MeshBasicMaterial({
+        color: 0x90f8ff,
+        transparent: true,
+        opacity: 0.58,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    scanInner.rotation.x = -Math.PI / 2;
+    scanInner.position.y = 0.5;
+    scanInner.name = "VFX_ScannerInner";
+    scanner.add(scanInner);
+
+    const scanBeam = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.65, 5.2),
+      new THREE.MeshBasicMaterial({
+        color: 0x56f1ff,
+        transparent: true,
+        opacity: 0.28,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    scanBeam.position.y = 2.6;
+    scanBeam.name = "VFX_ScanBeam";
+    scanner.add(scanBeam);
+
+    this.scene.add(scanner);
+    this.meshes.push(scanner);
+
+    const scannerLight = new THREE.PointLight(0x4ce7ff, 8, 12, 2);
+    scannerLight.position.set(scannerX, base.y + 2.2, frontRowZ);
+    scannerLight.castShadow = false;
+    scannerLight.name = "VFX_ScannerLight";
+    this.scene.add(scannerLight);
+    this.meshes.push(scannerLight);
+
+    const animateBillboard = (mesh: THREE.Object3D) => {
+      this.vfxUpdateCallbacks.push(() => {
+        mesh.lookAt(this.scene.position.x, mesh.getWorldPosition(new THREE.Vector3()).y, this.scene.position.z);
+      });
+    };
+
+    animateBillboard(lightningRibbon);
+    animateBillboard(lightningRibbon2);
+    animateBillboard(scanBeam);
+
+    this.vfxUpdateCallbacks.push((dt) => {
+      const pulse = (Math.sin(performance.now() * 0.0032) + 1) * 0.5;
+      tornadoGroup.rotation.y += dt * 0.35;
+      fireCore.rotation.y += dt * 0.55;
+      fireShell.rotation.y -= dt * 0.28;
+      scanOuter.rotation.z += dt * 0.45;
+      scanInner.rotation.z -= dt * 0.55;
+      scanOuter.material.opacity = 0.55 + pulse * 0.18;
+      scanBeam.material.opacity = 0.2 + pulse * 0.2;
+      laserGlowA.material.opacity = 0.26 + pulse * 0.1;
+      laserGlowB.material.opacity = 0.26 + pulse * 0.1;
+      lightningRibbon.material.opacity = 0.72 + pulse * 0.18;
+      lightningRibbon2.material.opacity = 0.5 + pulse * 0.16;
+      fireLight.intensity = 12 + pulse * 4;
+      lightningLight.intensity = 8 + pulse * 2.5;
+      scannerLight.intensity = 6 + pulse * 2;
     });
-    const scanRing = new THREE.Mesh(new THREE.RingGeometry(1.6, 1.85, 48), scanMat);
-    scanRing.rotation.x = -Math.PI / 2;
-    scanRing.position.set(scannerX, base.y + 0.5, frontRowZ);
-    scanRing.name = "VFX_Scanner";
-    this.scene.add(scanRing);
-    this.meshes.push(scanRing);
 
     // Backdrop removed — open-air design.
   }

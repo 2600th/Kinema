@@ -5,8 +5,12 @@
   z-index: 1000;
   user-select: none;
   -webkit-user-select: none;
-  --touch-joystick-zone-width: clamp(180px, 34vw, 320px);
-  --touch-joystick-zone-height: clamp(180px, 34vh, 320px);
+  --touch-safe-left: max(12px, env(safe-area-inset-left));
+  --touch-safe-right: max(12px, env(safe-area-inset-right));
+  --touch-safe-bottom: max(12px, env(safe-area-inset-bottom));
+  --touch-safe-top: max(12px, env(safe-area-inset-top));
+  --touch-joystick-zone-width: clamp(180px, 34dvw, 320px);
+  --touch-joystick-zone-height: clamp(180px, 34dvh, 320px);
 }
 
 .touch-joystick {
@@ -29,23 +33,23 @@
 .touch-zone--left {
   width: var(--touch-joystick-zone-width);
   height: var(--touch-joystick-zone-height);
-  bottom: 15vh;
-  left: 20vw;
-  transform: translate(-50%, 50%);
+  bottom: max(var(--touch-safe-bottom), 15dvh);
+  left: max(var(--touch-safe-left), 3dvw);
+  transform: translateY(50%);
 }
 
 .touch-zone--right {
   width: var(--touch-joystick-zone-width);
   height: var(--touch-joystick-zone-height);
-  bottom: 15vh;
-  right: 20vw;
-  transform: translate(50%, 50%);
+  bottom: max(var(--touch-safe-bottom), 15dvh);
+  right: max(var(--touch-safe-right), 3dvw);
+  transform: translateY(50%);
 }
 
 .touch-zone--buttons {
   position: absolute;
-  right: 4vw;
-  bottom: 28vh;
+  right: max(var(--touch-safe-right), 4dvw);
+  bottom: max(var(--touch-safe-bottom), 28dvh);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -54,8 +58,8 @@
 
 .touch-zone--sprint {
   position: absolute;
-  left: 4vw;
-  bottom: 32vh;
+  left: max(var(--touch-safe-left), 4dvw);
+  bottom: max(var(--touch-safe-bottom), 32dvh);
 }
 
 .touch-btn {
@@ -113,59 +117,61 @@
 
 @media (orientation: landscape) and (max-height: 500px) {
   .touch-controls-container {
-    --touch-joystick-zone-width: clamp(148px, 20vw, 188px);
-    --touch-joystick-zone-height: clamp(148px, 52vh, 210px);
+    --touch-joystick-zone-width: clamp(148px, 20dvw, 188px);
+    --touch-joystick-zone-height: clamp(148px, 52dvh, 210px);
   }
 
   .touch-zone--left {
-    bottom: 12px;
-    left: 12px;
+    bottom: var(--touch-safe-bottom);
+    left: var(--touch-safe-left);
     transform: none;
   }
 
   .touch-zone--right {
-    bottom: 12px;
-    right: 88px;
+    bottom: var(--touch-safe-bottom);
+    right: calc(var(--touch-safe-right) + 76px);
     transform: none;
   }
 
   .touch-zone--buttons {
-    top: 12px;
-    right: 12px;
+    top: var(--touch-safe-top);
+    right: var(--touch-safe-right);
     bottom: auto;
     gap: 8px;
   }
 
   .touch-zone--sprint {
-    top: 12px;
-    left: 12px;
+    top: var(--touch-safe-top);
+    left: var(--touch-safe-left);
     bottom: auto;
   }
 }
 
 @media (orientation: portrait) {
   .touch-controls-container {
-    --touch-joystick-zone-width: clamp(180px, 42vw, 320px);
-    --touch-joystick-zone-height: clamp(180px, 30vh, 280px);
+    --touch-joystick-zone-width: clamp(180px, 42dvw, 320px);
+    --touch-joystick-zone-height: clamp(180px, 30dvh, 280px);
   }
 
   .touch-zone--left {
-    bottom: 12vh;
-    left: 15vw;
+    bottom: max(var(--touch-safe-bottom), 12dvh);
+    left: max(var(--touch-safe-left), 3dvw);
+    transform: none;
   }
 
   .touch-zone--right {
-    bottom: 12vh;
-    right: 15vw;
+    bottom: max(var(--touch-safe-bottom), 12dvh);
+    right: max(var(--touch-safe-right), 3dvw);
+    transform: none;
   }
 
   .touch-zone--buttons {
-    right: 3vw;
-    bottom: 22vh;
+    right: max(var(--touch-safe-right), 3dvw);
+    bottom: max(var(--touch-safe-bottom), 22dvh);
   }
 
   .touch-zone--sprint {
-    left: 3vw;
-    bottom: 26vh;
+    left: max(var(--touch-safe-left), 3dvw);
+    bottom: max(var(--touch-safe-bottom), 26dvh);
   }
 }

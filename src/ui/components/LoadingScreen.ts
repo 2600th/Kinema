@@ -122,8 +122,8 @@ export class LoadingScreen implements Disposable {
       position: "absolute",
       left: "50%",
       top: "50%",
-      width: "min(1380px, 92vw)",
-      height: "min(820px, 84vh)",
+      width: "min(1380px, calc(100dvw - 32px))",
+      height: "min(820px, calc(100dvh - 32px))",
       transform: "translate(-50%, -50%)",
       borderRadius: "54px",
       overflow: "hidden",
@@ -224,7 +224,7 @@ export class LoadingScreen implements Disposable {
     Object.assign(title.style, {
       fontFamily: "'Outfit', sans-serif",
       fontWeight: "800",
-      fontSize: "clamp(30px, 5vw, 44px)",
+      fontSize: "clamp(30px, 5dvw, 44px)",
       color: "#ffffff",
       letterSpacing: "5px",
       textTransform: "uppercase",
@@ -250,7 +250,7 @@ export class LoadingScreen implements Disposable {
 
     const track = document.createElement("div");
     Object.assign(track.style, {
-      width: "clamp(220px, 28vw, 320px)",
+      width: "clamp(220px, 28dvw, 320px)",
       height: "10px",
       background: "rgba(255,255,255,0.09)",
       borderRadius: "999px",

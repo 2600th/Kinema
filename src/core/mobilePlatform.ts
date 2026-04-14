@@ -2,6 +2,7 @@ export interface PlatformNavigatorLike {
   userAgent?: string;
   platform?: string;
   maxTouchPoints?: number;
+  vendor?: string;
 }
 
 export interface ViewportMetricsLike {
@@ -40,8 +41,23 @@ export function isAppleMobileBrowser(navigatorLike: PlatformNavigatorLike): bool
   return platform === "MacIntel" && maxTouchPoints > 1;
 }
 
+export function isSafariBrowser(navigatorLike: PlatformNavigatorLike): boolean {
+  const userAgent = navigatorLike.userAgent ?? "";
+  const vendor = navigatorLike.vendor ?? "";
+
+  if (!/Safari\//i.test(userAgent)) {
+    return false;
+  }
+
+  if (/(Chrome|Chromium|CriOS|Edg|OPR|FxiOS|Firefox|DuckDuckGo|Vivaldi)/i.test(userAgent)) {
+    return false;
+  }
+
+  return /Apple/i.test(vendor) || /Version\/[\d.]+.*Safari\//i.test(userAgent);
+}
+
 export function shouldUseCompatibilityRenderer(navigatorLike: PlatformNavigatorLike): boolean {
-  return isAppleMobileBrowser(navigatorLike);
+  return isAppleMobileBrowser(navigatorLike) || isSafariBrowser(navigatorLike);
 }
 
 export function resolveViewportMetrics(viewportLike: ViewportMetricsLike): ResolvedViewportMetrics {

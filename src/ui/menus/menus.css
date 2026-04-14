@@ -8,7 +8,7 @@
   --menu-line: rgba(255, 255, 255, 0.08);
   --font-body: "Outfit", system-ui, sans-serif;
   --font-heading: "Outfit", system-ui, sans-serif;
-  --menu-overlay-padding: clamp(16px, 3vw, 32px);
+  --menu-overlay-padding: clamp(16px, 3dvw, 32px);
 }
 
 @keyframes menuPaneGlow {
@@ -130,8 +130,8 @@
   position: absolute;
   left: 50%;
   top: 50%;
-  width: min(1440px, 92vw);
-  height: min(880px, 86vh);
+  width: min(1440px, calc(100dvw - var(--menu-overlay-padding) * 2));
+  height: min(880px, calc(100dvh - var(--menu-overlay-padding) * 2));
   transform: translate(-50%, -50%);
   border-radius: 54px;
   overflow: hidden;
@@ -327,7 +327,7 @@
 .menu-screen {
   min-width: 360px;
   max-width: 520px;
-  width: min(520px, calc(100vw - var(--menu-overlay-padding) * 2));
+  width: min(520px, calc(100dvw - var(--menu-overlay-padding) * 2));
   max-height: calc(100dvh - var(--menu-overlay-padding) * 2);
   overflow-x: hidden;
   overflow-y: auto;
@@ -538,7 +538,7 @@
 .menu-section.active {
   display: block;
   position: relative;
-  max-height: 55vh;
+  max-height: min(55dvh, calc(100dvh - 220px));
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
@@ -833,7 +833,7 @@
 }
 
 .help-content {
-  max-height: 55vh;
+  max-height: min(55dvh, calc(100dvh - 240px));
   overflow-y: auto;
   padding-right: 6px;
   margin-bottom: 8px;
@@ -904,7 +904,7 @@
   .menu-screen {
     min-width: 300px;
     max-width: 440px;
-    width: min(440px, calc(100vw - var(--menu-overlay-padding) * 2));
+    width: min(440px, calc(100dvw - var(--menu-overlay-padding) * 2));
     padding: 24px 28px;
   }
 
@@ -928,15 +928,15 @@
   }
 
   .menu-backdrop-pane {
-    width: 92vw;
-    height: min(72vh, calc(100dvh - var(--menu-overlay-padding) * 2));
+    width: calc(100dvw - var(--menu-overlay-padding) * 2);
+    height: min(72dvh, calc(100dvh - var(--menu-overlay-padding) * 2));
   }
 }
 
 @media (max-width: 480px) {
   .menu-screen {
     min-width: 0;
-    width: calc(100vw - var(--menu-overlay-padding) * 2);
+    width: calc(100dvw - var(--menu-overlay-padding) * 2);
     max-width: 100%;
     padding: 20px 18px;
     border-radius: 16px;
@@ -1035,7 +1035,7 @@
   }
 
   .menu-backdrop-pane {
-    height: min(78vh, calc(100dvh - var(--menu-overlay-padding) * 2));
+    height: min(78dvh, calc(100dvh - var(--menu-overlay-padding) * 2));
   }
 }
 

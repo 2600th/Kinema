@@ -180,9 +180,9 @@
 
 .hud-objective-region {
   position: absolute;
-  top: clamp(62px, 9vh, 96px);
-  right: clamp(12px, 2vw, 20px);
-  width: min(360px, calc(100vw - 24px));
+  top: max(env(safe-area-inset-top), clamp(62px, 9dvh, 96px));
+  right: max(env(safe-area-inset-right), clamp(12px, 2dvw, 20px));
+  width: min(360px, calc(100dvw - max(env(safe-area-inset-left), 12px) - max(env(safe-area-inset-right), 12px) - 24px));
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -387,8 +387,8 @@
 }
 
 .hud-collectible-chip {
-  top: clamp(12px, 2vh, 20px);
-  left: clamp(12px, 2vw, 20px);
+  top: max(env(safe-area-inset-top), clamp(12px, 2dvh, 20px));
+  left: max(env(safe-area-inset-left), clamp(12px, 2dvw, 20px));
 }
 
 .hud-collectible-chip.is-boosted {
@@ -400,8 +400,8 @@
 }
 
 .hud-health-chip {
-  top: clamp(12px, 2vh, 20px);
-  right: clamp(12px, 2vw, 20px);
+  top: max(env(safe-area-inset-top), clamp(12px, 2dvh, 20px));
+  right: max(env(safe-area-inset-right), clamp(12px, 2dvw, 20px));
   gap: 6px;
 }
 
@@ -828,9 +828,9 @@
 
 @media (max-width: 640px) {
   .hud-objective-region {
-    top: clamp(70px, 11vh, 104px);
-    right: 12px;
-    width: min(320px, calc(100vw - 24px));
+    top: max(env(safe-area-inset-top), clamp(70px, 11dvh, 104px));
+    right: max(env(safe-area-inset-right), 12px);
+    width: min(320px, calc(100dvw - max(env(safe-area-inset-left), 12px) - max(env(safe-area-inset-right), 12px) - 24px));
   }
 
   .hud-prompt {

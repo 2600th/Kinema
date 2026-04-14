@@ -20,6 +20,7 @@ import {
   createWebGpuRenderer,
   showDeviceLostOverlay,
 } from "./rendererBootstrap";
+import { sanitizeSceneForCompatibility } from "./compatibilityMaterialSanitizer";
 import { clampFiniteNumber, resolveCasStrengthMutation } from "./rendererMutations";
 import {
   buildRendererPipeline,
@@ -126,6 +127,7 @@ export class RendererManager implements Disposable {
   private resizeFrame: number | null = null;
   private orientationSettleTimer: number | null = null;
   private readonly preferCompatibilityRenderer: boolean;
+  private lastCompatibilitySceneChildCount = -1;
 
   constructor(
     options: {
@@ -265,6 +267,16 @@ export class RendererManager implements Disposable {
 
   /** Render one frame. */
   render(): void {
+    if (!this.isWebGPUPipeline && this.scene.children.length !== this.lastCompatibilitySceneChildCount) {
+      const sanitization = sanitizeSceneForCompatibility(this.scene);
+      this.lastCompatibilitySceneChildCount = this.scene.children.length;
+      if (sanitization.replaced > 0) {
+        console.warn(
+          `[RendererManager] Replaced ${sanitization.replaced} incompatible material(s) for WebGL compatibility: ${sanitization.replacedTypes.join(", ")}`,
+        );
+      }
+    }
+
     if (this.postProcessingEnabled && this.isWebGPUPipeline && this.postProcessing) {
       this.postProcessing.render();
     } else {

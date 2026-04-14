@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   isAppleMobileBrowser,
+  isSafariBrowser,
   resolveViewportMetrics,
   shouldShowLandscapeHint,
   shouldUseCompatibilityRenderer,
@@ -38,6 +39,32 @@ describe("mobilePlatform", () => {
         maxTouchPoints: 5,
       }),
     ).toBe(false);
+  });
+
+  it("prefers the compatibility renderer for desktop Safari", () => {
+    const safariDesktop = {
+      userAgent:
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
+      platform: "MacIntel",
+      maxTouchPoints: 0,
+      vendor: "Apple Computer, Inc.",
+    };
+
+    expect(isSafariBrowser(safariDesktop)).toBe(true);
+    expect(shouldUseCompatibilityRenderer(safariDesktop)).toBe(true);
+  });
+
+  it("does not treat desktop Chrome on macOS as Safari", () => {
+    const chromeDesktop = {
+      userAgent:
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+      platform: "MacIntel",
+      maxTouchPoints: 0,
+      vendor: "Google Inc.",
+    };
+
+    expect(isSafariBrowser(chromeDesktop)).toBe(false);
+    expect(shouldUseCompatibilityRenderer(chromeDesktop)).toBe(false);
   });
 
   it("prefers visualViewport dimensions when available", () => {
