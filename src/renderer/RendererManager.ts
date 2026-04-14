@@ -727,6 +727,10 @@ export class RendererManager implements Disposable {
     return this.graphicsProfile;
   }
 
+  supportsAdvancedGpuEffects(): boolean {
+    return this.isWebGPUPipeline;
+  }
+
   /** Set the animation loop callback. */
   setAnimationLoop(callback: ((time: DOMHighResTimeStamp) => void) | null): void {
     const r = this.renderer as THREE.WebGLRenderer & { setAnimationLoop?(cb: ((t: number) => void) | null): void };

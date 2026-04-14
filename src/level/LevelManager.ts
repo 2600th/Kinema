@@ -118,6 +118,7 @@ export class LevelManager implements Disposable {
     private physicsWorld: PhysicsWorld,
     private eventBus: EventBus,
     maxAnisotropy?: number,
+    private supportsAdvancedGpuEffects = true,
   ) {
     this.colliderFactory = new ColliderFactory(physicsWorld);
     this.lighting = new LightingSystem(scene);
@@ -920,6 +921,7 @@ export class LevelManager implements Disposable {
       this._loadGeneration,
       stationFilter,
       this.assetLoader,
+      this.supportsAdvancedGpuEffects,
     );
     await builder.build((progress) => {
       this.eventBus.emit("loading:progress", { progress });

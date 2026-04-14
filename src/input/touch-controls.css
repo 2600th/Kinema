@@ -113,29 +113,33 @@
 
 @media (orientation: landscape) and (max-height: 500px) {
   .touch-controls-container {
-    --touch-joystick-zone-width: clamp(170px, 28vw, 260px);
-    --touch-joystick-zone-height: clamp(170px, 40vh, 260px);
+    --touch-joystick-zone-width: clamp(148px, 20vw, 188px);
+    --touch-joystick-zone-height: clamp(148px, 52vh, 210px);
   }
 
   .touch-zone--left {
-    bottom: 10vh;
-    left: 12vw;
+    bottom: 12px;
+    left: 12px;
+    transform: none;
   }
 
   .touch-zone--right {
-    bottom: 10vh;
-    right: 12vw;
+    bottom: 12px;
+    right: 88px;
+    transform: none;
   }
 
   .touch-zone--buttons {
-    bottom: 18vh;
-    right: 2vw;
+    top: 12px;
+    right: 12px;
+    bottom: auto;
     gap: 8px;
   }
 
   .touch-zone--sprint {
-    bottom: 22vh;
-    left: 2vw;
+    top: 12px;
+    left: 12px;
+    bottom: auto;
   }
 }
 

@@ -139,6 +139,7 @@ export class ProceduralBuilder {
     private loadGenerationRef: { value: number },
     private stationFilterKey: ShowcaseStationKey | null,
     private assetLoader?: AssetLoader,
+    private supportsAdvancedGpuEffects = true,
   ) {
     this.colliderFactory = new ColliderFactory(physicsWorld);
   }
@@ -209,6 +210,15 @@ export class ProceduralBuilder {
       clearcoat: 0.8,
       clearcoatRoughness: 0.1,
     });
+    const fallbackGrassMat = this.supportsAdvancedGpuEffects
+      ? null
+      : new THREE.MeshStandardMaterial({
+          color: 0x3f9651,
+          roughness: 0.92,
+          metalness: 0.0,
+          emissive: 0x112411,
+          emissiveIntensity: 0.1,
+        });
 
     // Station filter: when set, only build the target station + a minimal floor.
     const buildAll = this.stationFilterKey === null;
@@ -432,18 +442,33 @@ export class ProceduralBuilder {
         // Grass only on outer edges — two side strips, not full center.
         const edgeDepth = 3;
         for (const side of [-1, 1]) {
-          const grass = new GrassEffect({
-            width: bayWidth - 6,
-            depth: edgeDepth,
-            bladeCount: 400,
-            bladeHeight: 0.35,
-            bladeWidth: 0.06,
-            position: new THREE.Vector3(0, bayTopY + 0.01, z + side * (bayLength / 2 - edgeDepth / 2 - 0.5)),
-            windSpeed: 1.2,
-            windStrength: 0.2,
-          });
-          this.scene.add(grass.mesh);
-          this.meshes.push(grass.mesh);
+          const stripPosition = new THREE.Vector3(0, bayTopY + 0.01, z + side * (bayLength / 2 - edgeDepth / 2 - 0.5));
+          if (this.supportsAdvancedGpuEffects) {
+            const grass = new GrassEffect({
+              width: bayWidth - 6,
+              depth: edgeDepth,
+              bladeCount: 400,
+              bladeHeight: 0.35,
+              bladeWidth: 0.06,
+              position: stripPosition,
+              windSpeed: 1.2,
+              windStrength: 0.2,
+            });
+            this.scene.add(grass.mesh);
+            this.meshes.push(grass.mesh);
+          } else {
+            const grassStrip = new THREE.Mesh(
+              new THREE.BoxGeometry(bayWidth - 6, 0.08, edgeDepth),
+              fallbackGrassMat ?? undefined,
+            );
+            grassStrip.position.copy(stripPosition);
+            grassStrip.position.y = bayTopY + 0.04;
+            grassStrip.castShadow = false;
+            grassStrip.receiveShadow = true;
+            grassStrip.name = side < 0 ? "ShowcaseGrassStrip_Back" : "ShowcaseGrassStrip_Front";
+            this.scene.add(grassStrip);
+            this.meshes.push(grassStrip);
+          }
         }
 
         // Bushes along the LEFT and RIGHT edges only (high |X|), avoiding center obstacles.
@@ -3084,6 +3109,10 @@ export class ProceduralBuilder {
 
   /** New VFX showcase with 4 demos: dissolve, fire+smoke, lightning+rain, glowing ring. */
   private async createVfxBayV2(base: THREE.Vector3, bayWidth: number): Promise<void> {
+    if (!this.supportsAdvancedGpuEffects) {
+      this.createVfxBayFallback(base, bayWidth);
+      return;
+    }
     const gen = this.loadGenerationRef.value;
     try {
       const { createVfxShowcase } = await import("@level/VfxShowcase");
@@ -3105,6 +3134,10 @@ export class ProceduralBuilder {
 
   /** @deprecated Legacy VFX bay — kept as fallback if TSL imports fail. */
   private async createVfxBay(base: THREE.Vector3, bayWidth: number): Promise<void> {
+    if (!this.supportsAdvancedGpuEffects) {
+      this.createVfxBayFallback(base, bayWidth);
+      return;
+    }
     const gen = this.loadGenerationRef.value;
     // Try TSL GPU-driven path; fall back to legacy sprites if unavailable.
     try {

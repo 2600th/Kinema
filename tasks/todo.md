@@ -2,34 +2,32 @@
 
 ## Goal
 
-Fix the iOS Chrome landscape/resizing and partial-world rendering issues without regressing desktop or existing mobile touch behavior.
+Fix the remaining iOS-browser regressions: landscape touch controls must fit without overlap, and the procedural level must load completely instead of stopping after the static ground/ramp subset.
 
 ## Assumptions
 
-- The "doesn't run in landscape mode automatically" report is about the web app not resizing/recovering correctly when the device rotates, not about forcing system-level orientation lock from the browser.
-- Chrome on iOS uses a WebKit-based engine, so iOS-specific viewport and GPU compatibility handling should be scoped to iPhone/iPad browsers rather than desktop Chrome.
-- The safest rendering fix is to prefer the existing stable WebGL renderer path on iOS unless the user explicitly opts into newer rendering behavior.
+- The Vercel deployment at `https://kinema-play.vercel.com` is the best live repro target for the reported iOS browser behavior.
+- Chrome on iOS shares WebKit engine constraints with Safari, so the solution should target Apple mobile browser behavior rather than Chrome-desktop-specific behavior.
+- The procedural loader issue is more likely a runtime/asset-loading failure than a content bug, because the player ground and a few early-built meshes still appear.
 
 ## Success Criteria
 
-- [x] The app resizes correctly when an iOS device rotates, including landscape gameplay and overlay alignment.
-- [x] Portrait mode gives a clear, non-blocking hint when the game is better experienced in landscape.
-- [x] iOS uses a compatibility renderer path that avoids the reported "only some meshes are visible" behavior.
-- [x] Verification includes targeted tests plus build/lint coverage.
+- [x] Landscape touch controls remain fully visible on mobile-sized viewports without joystick/button overlap.
+- [x] The procedural level fully loads on Apple mobile browser conditions instead of exiting early.
+- [x] The fix matches current iOS/WebKit browser constraints where possible and degrades gracefully where not.
+- [x] Verification includes relevant automated tests/build/lint.
 - [x] `tasks/todo.md` reflects the final state of this task.
 
 ## Execution Plan
 
-- [x] Step 1 -> verify: Add iOS/mobile viewport handling and a landscape guidance UI, then verify with targeted unit/test coverage.
-- [x] Step 2 -> verify: Default iOS browsers to the compatibility WebGL renderer path and verify the bootstrap/renderer behavior stays valid.
-- [x] Step 3 -> verify: Run the strongest relevant checks (`npm run test`, targeted Playwright/ Vitest coverage if available, `npm run build`, `npm run lint`) and update the review.
+- [x] Step 1 -> verify: Reproduce the landscape layout break and compatibility-renderer procedural failure under iPhone-like browser conditions, capture runtime evidence, and identify the failing code path.
+- [x] Step 2 -> verify: Research current iOS/WebKit browser limits for orientation handling and WebGL/WebGPU behavior, then map those findings to the repo implementation.
+- [x] Step 3 -> verify: Implement the smallest code changes that fix the touch-control layout and procedural load reliability issues.
+- [x] Step 4 -> verify: Run focused Playwright coverage plus `npm run test`, `npm run build`, and `npm run lint`, then push the final commit to GitHub.
 
 ## Review
 
-- Added viewport resolution helpers that prefer `visualViewport`, update CSS viewport variables, and trigger resizes on `resize`, `orientationchange`, and `visualViewport` changes.
-- Added a non-blocking portrait hint for Apple mobile browsers and switched iOS-family browsers to the compatibility WebGL renderer path by default, with `?experimentalRenderer=1` as an escape hatch.
-- Verification completed:
-- `npm run test`
-- `npx playwright test tests/mobile-touch-controls.ts tests/mobile-orientation.ts`
-- `npm run build`
-- `npm run lint` (passes with the repo's existing non-blocking warnings/infos)
+- Verified with `npx playwright test tests/mobile-touch-controls.ts tests/mobile-orientation.ts tests/mobile-landscape-layout.ts tests/mobile-compat-procedural.ts`.
+- Verified with `npm run test`.
+- Verified with `npm run build`.
+- Verified with `npm run lint` (existing repo-wide warnings/infos remain unchanged and non-blocking).

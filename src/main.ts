@@ -115,7 +115,13 @@ async function bootstrap(): Promise<void> {
   inputManager.setRawMouseInput(settings.value.rawMouseInput);
   inputManager.setGamepadTuning(settings.value.gamepadDeadzone, settings.value.gamepadCurve);
   inputManager.initTouchControls();
-  const levelManager = new LevelManager(renderer.scene, physicsWorld, eventBus, renderer.maxAnisotropy);
+  const levelManager = new LevelManager(
+    renderer.scene,
+    physicsWorld,
+    eventBus,
+    renderer.maxAnisotropy,
+    renderer.supportsAdvancedGpuEffects(),
+  );
   levelManager.setGraphicsProfile(settings.value.graphicsProfile);
   levelManager.setShadowsEnabled(settings.value.shadowsEnabled);
   levelManager.setShadowQualityTier(settings.value.shadowQuality);
@@ -577,6 +583,9 @@ async function bootstrap(): Promise<void> {
       },
       getGraphicsProfile() {
         return renderer.getDebugFlags().graphicsProfile;
+      },
+      getRendererDebugFlags() {
+        return renderer.getDebugFlags();
       },
       setGraphicsProfile(profile: "performance" | "balanced" | "cinematic") {
         eventBus.emit("debug:graphicsProfile", { profile });
