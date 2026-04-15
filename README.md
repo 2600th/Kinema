@@ -13,6 +13,13 @@ Kinema is a browser-native third-person gameplay lab built with TypeScript, Thre
 
 ![Kinema use cases](docs/readme/use-cases.png)
 
+## In-Game Snapshots
+
+| Target Arena | VFX Showcase |
+|---|---|
+| ![Kinema target arena station](docs/readme/station-target-arena.png) | ![Kinema VFX showcase station](docs/readme/station-vfx-showcase.png) |
+| Color-coded challenge bay with collectible routing, target stacks, and arena-style readability. | Showcase bay highlighting the project's stylized effects language and feature-station presentation. |
+
 ## Use Kinema when you want to...
 
 | Goal | Kinema gives you |

@@ -2,32 +2,31 @@
 
 ## Goal
 
-Fix the README use-case visual so it renders reliably on GitHub, then update the existing docs commit with the corrected asset and README reference.
+Add a couple of impactful station screenshots to `README.md` so GitHub visitors can see real in-game content in addition to the menu and README summary graphics.
 
 ## Assumptions
 
-- GitHub's SVG rendering is not trustworthy enough for this text-heavy asset because font metrics and layout are causing copy to overlap.
-- A raster asset is the safest fix for a README hero/supporting graphic that must look identical across GitHub clients.
-- The rest of the README structure is fine; only the problematic visual and its reference need to change.
+- The best README screenshots are real captures supplied by the user, not auto-generated captures from the current shell environment.
+- Two screenshots are enough to add visual proof without making the README heavy or repetitive.
+- The strongest pair should show distinct capabilities rather than two similar corridor views.
 
 ## Success Criteria
 
-- [x] The README no longer references the broken SVG asset.
-- [x] A stable replacement visual is added under `docs/readme/`.
-- [x] The new image is visually verified locally before commit.
-- [x] The fix is committed and pushed to GitHub.
-- [x] `tasks/todo.md` reflects the final state of the work.
+- [x] Two strong station screenshots are added under `docs/readme/`.
+- [x] The README references the new screenshots in a GitHub-friendly layout.
+- [x] The chosen screenshots are reviewed locally before commit.
+- [x] The updated README still reads cleanly and remains developer-focused.
+- [x] Verification is completed and `tasks/todo.md` reflects the final state of the work.
 
 ## Execution Plan
 
-- [x] Step 1 -> verify: Confirmed the current README reference and the GitHub-specific failure mode of the SVG visual, where text layout overflowed across cards.
-- [x] Step 2 -> verify: Generated a raster replacement at `docs/readme/use-cases.png` from a controlled browser-rendered layout.
-- [x] Step 3 -> verify: Updated the README to reference the PNG asset and removed the fragile SVG from the active docs path.
-- [x] Step 4 -> verify: Previewed the replacement image locally, committed the fix, and pushed it to GitHub.
+- [x] Step 1 -> verify: Reviewed the user-provided images from `C:\Users\User\Downloads\Pictures` and selected the strongest two based on readability, contrast, and feature coverage.
+- [x] Step 2 -> verify: Copied the chosen screenshots into `docs/readme/` with stable filenames: `station-target-arena.png` and `station-vfx-showcase.png`.
+- [x] Step 3 -> verify: Updated `README.md` with a compact screenshot gallery section that strengthens the repo pitch without overwhelming the page.
+- [x] Step 4 -> verify: Re-read the README, confirmed the images exist locally, ran `npm run build`, and recorded the final review here.
 
 ## Review
 
-- The GitHub rendering issue came from the text-heavy SVG relying on live font metrics and layout behavior that did not hold up in GitHub's renderer.
-- Replacing it with a PNG locks the layout and makes the README visual deterministic across GitHub surfaces.
-- Verification completed locally by previewing the generated PNG and running `npm run build`.
-- The PNG-based fix has been committed and pushed.
+- The README now shows real in-game content near the top, which makes the project feel more tangible and more trustworthy on GitHub.
+- The chosen pair works well because the target arena image shows readable gameplay composition while the VFX image highlights the project's visual style and effects vocabulary.
+- Verification completed with a successful `npm run build`.
