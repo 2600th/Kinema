@@ -1,0 +1,81 @@
+<svg width="1200" height="640" viewBox="0 0 1200 640" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Kinema developer use cases</title>
+  <desc id="desc">A visual summary of Kinema as a browser-native gameplay lab for prototyping mechanics, building editor workflows, and validating rendering and compatibility paths.</desc>
+  <defs>
+    <linearGradient id="bg" x1="72" y1="48" x2="1110" y2="612" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#07111F"/>
+      <stop offset="0.55" stop-color="#12182B"/>
+      <stop offset="1" stop-color="#241938"/>
+    </linearGradient>
+    <linearGradient id="stroke" x1="145" y1="132" x2="1024" y2="530" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4EE1FF"/>
+      <stop offset="0.5" stop-color="#7A87FF"/>
+      <stop offset="1" stop-color="#FF76C8"/>
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="1200" height="640" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dy="14"/>
+      <feGaussianBlur stdDeviation="22"/>
+      <feComposite in2="hardAlpha" operator="out"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.0117647 0 0 0 0 0.0235294 0 0 0 0 0.0705882 0 0 0 0.45 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_1_1"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_1_1" result="shape"/>
+    </filter>
+  </defs>
+
+  <rect x="24" y="24" width="1152" height="592" rx="36" fill="url(#bg)"/>
+  <rect x="24.75" y="24.75" width="1150.5" height="590.5" rx="35.25" stroke="url(#stroke)" stroke-opacity="0.26" stroke-width="1.5"/>
+
+  <circle cx="161" cy="146" r="118" fill="#0D1830" fill-opacity="0.55"/>
+  <circle cx="1032" cy="118" r="158" fill="#1E1632" fill-opacity="0.38"/>
+  <circle cx="952" cy="546" r="146" fill="#0D1630" fill-opacity="0.42"/>
+
+  <g opacity="0.22">
+    <path d="M84 92C154 60 272 59 348 90" stroke="#7A87FF" stroke-width="1.5"/>
+    <path d="M857 98C940 66 1042 66 1118 103" stroke="#FF76C8" stroke-width="1.5"/>
+    <path d="M910 542C978 502 1062 498 1124 526" stroke="#4EE1FF" stroke-width="1.5"/>
+  </g>
+
+  <text x="92" y="96" fill="#EEF2FF" font-family="Segoe UI, Arial, sans-serif" font-size="19" font-weight="700" letter-spacing="3">KINEMA</text>
+  <text x="92" y="150" fill="#FFFFFF" font-family="Segoe UI, Arial, sans-serif" font-size="40" font-weight="700">Browser-native gameplay lab</text>
+  <text x="92" y="190" fill="#B9C2E3" font-family="Segoe UI, Arial, sans-serif" font-size="22">Prototype mechanics, build editor workflows, and validate rendering paths in one TypeScript codebase.</text>
+
+  <g filter="url(#shadow)">
+    <rect x="84" y="252" width="320" height="278" rx="28" fill="#121A2D" fill-opacity="0.94"/>
+    <rect x="440" y="252" width="320" height="278" rx="28" fill="#131A2E" fill-opacity="0.94"/>
+    <rect x="796" y="252" width="320" height="278" rx="28" fill="#161A30" fill-opacity="0.94"/>
+  </g>
+
+  <rect x="84.75" y="252.75" width="318.5" height="276.5" rx="27.25" stroke="#4EE1FF" stroke-opacity="0.28" stroke-width="1.5"/>
+  <rect x="440.75" y="252.75" width="318.5" height="276.5" rx="27.25" stroke="#7A87FF" stroke-opacity="0.28" stroke-width="1.5"/>
+  <rect x="796.75" y="252.75" width="318.5" height="276.5" rx="27.25" stroke="#FF76C8" stroke-opacity="0.28" stroke-width="1.5"/>
+
+  <circle cx="126" cy="296" r="15" fill="#4EE1FF" fill-opacity="0.18"/>
+  <circle cx="482" cy="296" r="15" fill="#7A87FF" fill-opacity="0.18"/>
+  <circle cx="838" cy="296" r="15" fill="#FF76C8" fill-opacity="0.18"/>
+
+  <text x="152" y="303" fill="#FFFFFF" font-family="Segoe UI, Arial, sans-serif" font-size="26" font-weight="700">Prototype gameplay</text>
+  <text x="508" y="303" fill="#FFFFFF" font-family="Segoe UI, Arial, sans-serif" font-size="26" font-weight="700">Build tooling faster</text>
+  <text x="864" y="303" fill="#FFFFFF" font-family="Segoe UI, Arial, sans-serif" font-size="26" font-weight="700">Validate the real app</text>
+
+  <text x="110" y="352" fill="#B9C2E3" font-family="Segoe UI, Arial, sans-serif" font-size="19">• Tune a third-person controller with physics and interaction.</text>
+  <text x="110" y="392" fill="#B9C2E3" font-family="Segoe UI, Arial, sans-serif" font-size="19">• Add hazards, collectibles, doors, ropes, and vehicles.</text>
+  <text x="110" y="432" fill="#B9C2E3" font-family="Segoe UI, Arial, sans-serif" font-size="19">• Iterate in the browser without leaving the gameplay loop.</text>
+
+  <text x="466" y="352" fill="#B9C2E3" font-family="Segoe UI, Arial, sans-serif" font-size="19">• Use the built-in editor, brushes, gizmos, and play-test flow.</text>
+  <text x="466" y="392" fill="#B9C2E3" font-family="Segoe UI, Arial, sans-serif" font-size="19">• Import GLBs and save custom levels while you iterate.</text>
+  <text x="466" y="432" fill="#B9C2E3" font-family="Segoe UI, Arial, sans-serif" font-size="19">• Extend modular systems instead of rewriting core scaffolding.</text>
+
+  <text x="822" y="352" fill="#B9C2E3" font-family="Segoe UI, Arial, sans-serif" font-size="19">• Test WebGPU-first rendering with WebGL fallback coverage.</text>
+  <text x="822" y="392" fill="#B9C2E3" font-family="Segoe UI, Arial, sans-serif" font-size="19">• Verify desktop, mobile, and Safari compatibility paths.</text>
+  <text x="822" y="432" fill="#B9C2E3" font-family="Segoe UI, Arial, sans-serif" font-size="19">• Back changes with Vitest, Playwright, linting, and builds.</text>
+
+  <rect x="110" y="470" width="182" height="36" rx="18" fill="#4EE1FF" fill-opacity="0.14"/>
+  <rect x="466" y="470" width="170" height="36" rx="18" fill="#7A87FF" fill-opacity="0.14"/>
+  <rect x="822" y="470" width="170" height="36" rx="18" fill="#FF76C8" fill-opacity="0.14"/>
+
+  <text x="132" y="494" fill="#DDFBFF" font-family="Segoe UI, Arial, sans-serif" font-size="17" font-weight="600">Movement + systems</text>
+  <text x="488" y="494" fill="#E4E7FF" font-family="Segoe UI, Arial, sans-serif" font-size="17" font-weight="600">Editor + workflows</text>
+  <text x="844" y="494" fill="#FFE4F5" font-family="Segoe UI, Arial, sans-serif" font-size="17" font-weight="600">Rendering + QA</text>
+</svg>

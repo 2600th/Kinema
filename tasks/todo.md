@@ -2,30 +2,33 @@
 
 ## Goal
 
-Fix the remaining Safari verification issues: UI elements should adapt cleanly to small/mobile viewports, and the VFX station should remain visibly populated on the Safari compatibility renderer path.
+Raise `README.md` from "accurate onboarding doc" to "GitHub-ready project page" by improving the value proposition, developer use cases, and visual storytelling while keeping the content grounded in the current repo.
 
 ## Assumptions
 
-- The VFX station issue is not a failed level load; the current Safari/WebGL fallback is simply too sparse to read as a proper station.
-- The UI sizing complaint is most likely in the in-game HUD/touch layout rather than the main menu shell, because the menu layout already scales acceptably in Safari-like viewport probes.
-- The right fix is a surgical improvement to Safari/mobile fallback behavior, not a redesign of the overall renderer or UI system.
+- The current README is technically correct but still undersells why a new developer should care about Kinema.
+- The highest-value improvements are early-message improvements: stronger positioning, concrete use cases, and one additional repo-owned visual.
+- The rewrite should stay truthful to the current codebase and avoid marketing claims that the repo cannot support.
 
 ## Success Criteria
 
-- [x] Safari compatibility rendering shows a visibly populated VFX station instead of a nearly empty bay.
-- [x] Small-screen/mobile UI surfaces adapt more predictably to viewport size changes.
-- [x] Relevant verification passes run successfully.
-- [x] `tasks/todo.md` reflects the final state of the work.
+- [x] `README.md` makes the repo's unique value clearer within the first screenful on GitHub.
+- [x] The README includes explicit developer use cases, not just features and setup instructions.
+- [x] The README includes an additional visual or visual aid that renders cleanly on GitHub.
+- [x] The updated README still matches the current scripts, workflows, and architecture.
+- [x] Verification is completed and this file reflects the final state of the work.
 
 ## Execution Plan
 
-- [x] Step 1 -> verify: Inspected the Safari/WebGL VFX fallback plus viewport-sensitive UI layers, then reproduced the concrete touch-layout issue in a Safari/WebKit iPhone-sized probe where joystick zones overflowed off-screen.
-- [x] Step 2 -> verify: Expanded the compatibility VFX fallback with visible tornado, fire, lightning, laser, and scanner props, and tightened viewport/safe-area anchoring for touch controls plus other Safari-sensitive UI sizing rules.
-- [x] Step 3 -> verify: Verified with `npm run test`, `npm run build`, Safari/WebKit mobile emulation, screenshots, and runtime object-state probes showing touch controls inside the viewport and fallback VFX objects present on the compatibility path.
+- [x] Step 1 -> verify: Reviewed the README as a GitHub landing page and identified the missing value proposition, use-case framing, and first-screen orientation for new developers.
+- [x] Step 2 -> verify: Added a second repo-owned visual at `docs/readme/use-cases.svg` to communicate Kinema's developer scenarios without relying on external assets.
+- [x] Step 3 -> verify: Updated `README.md` with stronger positioning, explicit use cases, a faster exploration path, and more contributor-focused entry points.
+- [x] Step 4 -> verify: Re-read the final README, confirmed the docs assets exist, and ran `npm run build` successfully.
 
 ## Review
 
-- Safari compatibility path now renders a materially fuller VFX station instead of only a few sparse fallback primitives.
-- Touch controls no longer hang off-screen on iPhone-sized Safari emulation; the earlier repro had joystick zones extending past both screen edges, and the updated layout now keeps them fully inside the viewport.
-- Additional viewport-sensitive UI pieces were moved toward `dvh`/`dvw` and safe-area-aware sizing so Safari responds more predictably to mobile screen dimensions.
-- Remaining risk: real-device Safari can still differ from Playwright WebKit in subtle ways, so the next strongest confirmation is your manual Safari/iPhone check against this updated dev or deployed build.
+- The README is now much closer to GitHub-ready because it sells the repo before it explains it: visitors see the pitch, core value, and use cases before the deeper implementation detail.
+- The new use-case table makes it easier for different developer personas to self-identify quickly, which should help attraction more than a features-only README.
+- The added SVG visual gives the page more shape and better scannability without depending on external image hosting.
+- Verification completed with a successful `npm run build`.
+- Residual risk: GitHub's markdown renderer should display local SVG and Mermaid content, but that rendering cannot be fully validated from the local shell alone.
