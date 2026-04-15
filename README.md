@@ -11,7 +11,7 @@ Kinema is a browser-native third-person gameplay lab built with TypeScript, Thre
 
 ![Kinema main menu](docs/readme/main-menu.png)
 
-![Kinema use cases](docs/readme/use-cases.svg)
+![Kinema use cases](docs/readme/use-cases.png)
 
 ## Use Kinema when you want to...
 

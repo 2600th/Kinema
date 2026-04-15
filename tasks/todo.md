@@ -2,33 +2,32 @@
 
 ## Goal
 
-Raise `README.md` from "accurate onboarding doc" to "GitHub-ready project page" by improving the value proposition, developer use cases, and visual storytelling while keeping the content grounded in the current repo.
+Fix the README use-case visual so it renders reliably on GitHub, then update the existing docs commit with the corrected asset and README reference.
 
 ## Assumptions
 
-- The current README is technically correct but still undersells why a new developer should care about Kinema.
-- The highest-value improvements are early-message improvements: stronger positioning, concrete use cases, and one additional repo-owned visual.
-- The rewrite should stay truthful to the current codebase and avoid marketing claims that the repo cannot support.
+- GitHub's SVG rendering is not trustworthy enough for this text-heavy asset because font metrics and layout are causing copy to overlap.
+- A raster asset is the safest fix for a README hero/supporting graphic that must look identical across GitHub clients.
+- The rest of the README structure is fine; only the problematic visual and its reference need to change.
 
 ## Success Criteria
 
-- [x] `README.md` makes the repo's unique value clearer within the first screenful on GitHub.
-- [x] The README includes explicit developer use cases, not just features and setup instructions.
-- [x] The README includes an additional visual or visual aid that renders cleanly on GitHub.
-- [x] The updated README still matches the current scripts, workflows, and architecture.
-- [x] Verification is completed and this file reflects the final state of the work.
+- [x] The README no longer references the broken SVG asset.
+- [x] A stable replacement visual is added under `docs/readme/`.
+- [x] The new image is visually verified locally before commit.
+- [ ] The fix is committed and pushed to GitHub.
+- [x] `tasks/todo.md` reflects the final state of the work.
 
 ## Execution Plan
 
-- [x] Step 1 -> verify: Reviewed the README as a GitHub landing page and identified the missing value proposition, use-case framing, and first-screen orientation for new developers.
-- [x] Step 2 -> verify: Added a second repo-owned visual at `docs/readme/use-cases.svg` to communicate Kinema's developer scenarios without relying on external assets.
-- [x] Step 3 -> verify: Updated `README.md` with stronger positioning, explicit use cases, a faster exploration path, and more contributor-focused entry points.
-- [x] Step 4 -> verify: Re-read the final README, confirmed the docs assets exist, and ran `npm run build` successfully.
+- [x] Step 1 -> verify: Confirmed the current README reference and the GitHub-specific failure mode of the SVG visual, where text layout overflowed across cards.
+- [x] Step 2 -> verify: Generated a raster replacement at `docs/readme/use-cases.png` from a controlled browser-rendered layout.
+- [x] Step 3 -> verify: Updated the README to reference the PNG asset and removed the fragile SVG from the active docs path.
+- [ ] Step 4 -> verify: Preview the replacement image locally, then commit and push the fix.
 
 ## Review
 
-- The README is now much closer to GitHub-ready because it sells the repo before it explains it: visitors see the pitch, core value, and use cases before the deeper implementation detail.
-- The new use-case table makes it easier for different developer personas to self-identify quickly, which should help attraction more than a features-only README.
-- The added SVG visual gives the page more shape and better scannability without depending on external image hosting.
-- Verification completed with a successful `npm run build`.
-- Residual risk: GitHub's markdown renderer should display local SVG and Mermaid content, but that rendering cannot be fully validated from the local shell alone.
+- The GitHub rendering issue came from the text-heavy SVG relying on live font metrics and layout behavior that did not hold up in GitHub's renderer.
+- Replacing it with a PNG locks the layout and makes the README visual deterministic across GitHub surfaces.
+- Verification completed locally by previewing the generated PNG and running `npm run build`.
+- Pending: commit and push the fix.
