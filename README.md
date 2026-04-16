@@ -213,6 +213,7 @@ Use the in-app `Help` menu for the full control reference, including rope, vehic
 
 ## Credits
 
+- Universal Animation Library and Universal Animation Library 2 animation packs by @Quaternius (CC0 1.0), downloaded from itch.io
 - Cloud lightning model by Kyyy_24 (CC BY 4.0)
 - Smoke particle textures by Kenney (CC0)
 - Fire shader inspiration from Shadertoy "Night Campfire" by Maurogik

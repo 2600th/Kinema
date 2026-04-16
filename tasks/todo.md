@@ -2,31 +2,28 @@
 
 ## Goal
 
-Add a couple of impactful station screenshots to `README.md` so GitHub visitors can see real in-game content in addition to the menu and README summary graphics.
+Add README credits for the two bundled Universal Animation Library model packs that were downloaded from itch.io.
 
 ## Assumptions
 
-- The best README screenshots are real captures supplied by the user, not auto-generated captures from the current shell environment.
-- Two screenshots are enough to add visual proof without making the README heavy or repetitive.
-- The strongest pair should show distinct capabilities rather than two similar corridor views.
+- The relevant attribution details should come from the license files shipped inside each model pack.
+- A README credit entry is sufficient; no other code or asset metadata needs updating for this request.
+- The most helpful wording is to name both packs, note itch.io as the download source, and preserve the local license information.
 
 ## Success Criteria
 
-- [x] Two strong station screenshots are added under `docs/readme/`.
-- [x] The README references the new screenshots in a GitHub-friendly layout.
-- [x] The chosen screenshots are reviewed locally before commit.
-- [x] The updated README still reads cleanly and remains developer-focused.
+- [x] `tasks/todo.md` reflects this README credit task before the first edit.
+- [x] `README.md` includes credits for `Universal Animation Library[Standard]` and `Universal Animation Library 2[Standard]`.
+- [x] The credit wording matches the bundled license details for author and license.
 - [x] Verification is completed and `tasks/todo.md` reflects the final state of the work.
 
 ## Execution Plan
 
-- [x] Step 1 -> verify: Reviewed the user-provided images from `C:\Users\User\Downloads\Pictures` and selected the strongest two based on readability, contrast, and feature coverage.
-- [x] Step 2 -> verify: Copied the chosen screenshots into `docs/readme/` with stable filenames: `station-target-arena.png` and `station-vfx-showcase.png`.
-- [x] Step 3 -> verify: Updated `README.md` with a compact screenshot gallery section that strengthens the repo pitch without overwhelming the page.
-- [x] Step 4 -> verify: Re-read the README, confirmed the images exist locally, ran `npm run build`, and recorded the final review here.
+- [x] Step 1 -> verify: Read `License.txt` in both model-pack folders and confirmed both packs are credited to `@Quaternius` under `CC0 1.0`.
+- [x] Step 2 -> verify: Updated the README credits section to name both Universal Animation Library packs and note that they were downloaded from itch.io.
+- [x] Step 3 -> verify: Re-read the README credits section and confirmed the task tracker reflects the finished state.
 
 ## Review
 
-- The README now shows real in-game content near the top, which makes the project feel more tangible and more trustworthy on GitHub.
-- The chosen pair works well because the target arena image shows readable gameplay composition while the VFX image highlights the project's visual style and effects vocabulary.
-- Verification completed with a successful `npm run build`.
+- The README now gives explicit attribution for both bundled Universal Animation Library packs while preserving the existing credits list.
+- Verification completed by checking the bundled license text in both model-pack folders and reviewing the final README wording.
