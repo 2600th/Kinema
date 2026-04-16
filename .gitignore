@@ -6,7 +6,8 @@ dist
 Thumbs.db
 CLAUDE.md
 /.claude
-/tasks
+# Keep agent planning and lessons local to each workspace clone.
+/tasks/
 /.agents
 skills-lock.json
 .env
