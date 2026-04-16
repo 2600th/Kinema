@@ -217,3 +217,7 @@ Use the in-app `Help` menu for the full control reference, including rope, vehic
 - Cloud lightning model by Kyyy_24 (CC BY 4.0)
 - Smoke particle textures by Kenney (CC0)
 - Fire shader inspiration from Shadertoy "Night Campfire" by Maurogik
+
+## License
+
+Released under the [MIT License](LICENSE). Copyright (c) 2026 Pranshul Chandhok.
