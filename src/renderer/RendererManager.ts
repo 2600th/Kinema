@@ -128,6 +128,8 @@ export class RendererManager implements Disposable {
   private orientationSettleTimer: number | null = null;
   private readonly preferCompatibilityRenderer: boolean;
   private lastCompatibilitySceneChildCount = -1;
+  private compatibilitySanitizeRequested = false;
+  private compatibilityFrameCounter = 0;
 
   constructor(
     options: {
@@ -265,15 +267,33 @@ export class RendererManager implements Disposable {
     return (this.renderer as unknown as { getMaxAnisotropy(): number }).getMaxAnisotropy?.() ?? 1;
   }
 
+  /**
+   * Ask the compat path to re-sanitize NodeMaterials on the next frame.
+   * The top-level child-count heuristic in render() misses same-count
+   * mutations and deep-subtree additions; callers that know the scene
+   * changed (level loads, editor spawns) should request explicitly.
+   */
+  requestCompatibilitySanitize(): void {
+    this.compatibilitySanitizeRequested = true;
+  }
+
   /** Render one frame. */
   render(): void {
-    if (!this.isWebGPUPipeline && this.scene.children.length !== this.lastCompatibilitySceneChildCount) {
-      const sanitization = sanitizeSceneForCompatibility(this.scene);
-      this.lastCompatibilitySceneChildCount = this.scene.children.length;
-      if (sanitization.replaced > 0) {
-        console.warn(
-          `[RendererManager] Replaced ${sanitization.replaced} incompatible material(s) for WebGL compatibility: ${sanitization.replacedTypes.join(", ")}`,
-        );
+    if (!this.isWebGPUPipeline) {
+      // Sanitize when the top-level child count changes (fast heuristic), when
+      // explicitly requested, or on a periodic sweep (~2s at 60fps) as a final
+      // safety net — a stray NodeMaterial on the WebGL path is a shader crash.
+      this.compatibilityFrameCounter++;
+      const childCountChanged = this.scene.children.length !== this.lastCompatibilitySceneChildCount;
+      if (childCountChanged || this.compatibilitySanitizeRequested || this.compatibilityFrameCounter % 120 === 0) {
+        this.compatibilitySanitizeRequested = false;
+        const sanitization = sanitizeSceneForCompatibility(this.scene);
+        this.lastCompatibilitySceneChildCount = this.scene.children.length;
+        if (sanitization.replaced > 0) {
+          console.warn(
+            `[RendererManager] Replaced ${sanitization.replaced} incompatible material(s) for WebGL compatibility: ${sanitization.replacedTypes.join(", ")}`,
+          );
+        }
       }
     }
 

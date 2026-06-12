@@ -384,6 +384,13 @@ async function bootstrap(): Promise<void> {
     void restartCurrentRun();
   });
 
+  // The compat renderer's child-count sanitize heuristic can miss deep
+  // subtree additions; a fresh level is the highest-risk moment for stray
+  // NodeMaterials on the WebGL path, so request an explicit pass.
+  eventBus.on("level:loaded", () => {
+    renderer.requestCompatibilitySanitize();
+  });
+
   // Expose debug API for automated testing (Playwright, etc.)
   // Gated behind DEV to tree-shake new Function() evaluator from production builds.
   if (import.meta.env.DEV) {

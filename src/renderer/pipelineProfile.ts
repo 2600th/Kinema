@@ -10,7 +10,6 @@ export interface RendererPipelineDescriptor {
   outputColorTransform: boolean;
   aaMode: AntiAliasingMode;
   maxPixelRatio: number;
-  shadowMapSize: number;
   usePrePassNormals: boolean;
   useAo: boolean;
   useAoDenoise: boolean;
@@ -91,7 +90,6 @@ export function buildRendererPipelineDescriptor(options: RendererPipelineOptions
     outputColorTransform: !manualRenderOutput,
     aaMode,
     maxPixelRatio: getRendererMaxPixelRatio(profile),
-    shadowMapSize: getShadowMapSizeForProfile(profile),
     usePrePassNormals,
     useAo,
     useAoDenoise,
