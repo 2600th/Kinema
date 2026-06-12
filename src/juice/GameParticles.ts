@@ -316,6 +316,17 @@ export class GameParticles {
     this.beaconGlowPool.update(dt, camera);
   }
 
+  /** Kill all live particles immediately (level teardown). */
+  clear(): void {
+    this.dustPool.clear();
+    this.sparkPool.clear();
+    this.coinGlowPool.clear();
+    this.hurtSparkPool.clear();
+    this.hurtGlowPool.clear();
+    this.beaconSparkPool.clear();
+    this.beaconGlowPool.clear();
+  }
+
   dispose(): void {
     this.dustPool.dispose();
     this.sparkPool.dispose();

@@ -195,6 +195,7 @@ async function bootstrap(): Promise<void> {
     | { kind: "editor-blank" };
   let currentRun: RunDescriptor | null = null;
   let restartInFlight = false;
+  let menuManagerRef: import("@ui/menus/MenuManager").MenuManager | null = null;
 
   /** Yield to browser so CSS animations and paint can run */
   const yieldToRenderer = () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
@@ -249,6 +250,9 @@ async function bootstrap(): Promise<void> {
   };
 
   const finishSceneLoad = async (): Promise<void> => {
+    // Input pressed while the loading screen was up must not fire on the
+    // first live tick (beginFrame OR-merges edges until fixedUpdate consumes).
+    game.clearBufferedInput();
     gameLoop.setSimulationEnabled(true);
     await uiManager.loadingScreen.hide();
     levelLoaded = true;
@@ -287,6 +291,13 @@ async function bootstrap(): Promise<void> {
     const data = LevelSaveStore.load(key);
     if (!data) {
       console.error(`[Kinema] Failed to load saved level "${key}"`);
+      // Restart of a run whose save was deleted/corrupted: silently failing
+      // would leave the player stuck retrying forever. Bail to the menu.
+      if (levelLoaded) {
+        currentRun = null;
+        await returnToMainMenu();
+        menuManagerRef?.showMainMenu();
+      }
       return;
     }
     await prepareSceneLoad();
@@ -731,13 +742,13 @@ async function bootstrap(): Promise<void> {
     stationParam &&
     SHOWCASE_STATION_ORDER.includes(stationParam as import("@level/ShowcaseLayout").ShowcaseStationKey)
   ) {
+    // prepareSceneLoad (inside startStation/startGame) already started the
+    // loop; a second start() here would reset loop timing mid-frame.
     await startStation(stationParam);
-    gameLoop.start();
     registerUnload(null);
     console.log(`[Kinema] Station "${stationParam}" started directly`);
   } else if (reviewSpawnParam) {
     await startGame(getProceduralRunFromLocation());
-    gameLoop.start();
     registerUnload(null);
     console.log(`[Kinema] Procedural level started at review spawn "${reviewSpawnParam}"`);
   } else {
@@ -754,6 +765,7 @@ async function bootstrap(): Promise<void> {
       returnToMainMenu,
       startBlankLevelForEditor,
     );
+    menuManagerRef = menuManager;
     menuManager.showMainMenu();
     registerUnload(menuManager);
 

@@ -140,6 +140,14 @@ export class ParticleSystem implements RuntimeSystem {
     );
   }
 
+  teardownLevel(): void {
+    // Flush in-flight particles so effects from the previous run don't
+    // render into the next level while they fade out.
+    this.gameParticles?.clear();
+    this.beaconChargeState = null;
+    this.beaconChargeTimer = 0;
+  }
+
   fixedUpdate(_dt: number): void {
     // Footsteps now driven by animation:footstep events
   }

@@ -47,6 +47,12 @@ export class CheckpointObjectiveSystem implements RuntimeSystem {
     ]);
   }
 
+  teardownLevel(): void {
+    // Without this, every level restart adds another checkpoint mesh and
+    // re-fires checkpoint:activated for already-passed checkpoints.
+    this.checkpointManager.dispose();
+  }
+
   fixedUpdate(dt: number): void {
     this.checkpointManager.fixedUpdate(dt);
   }

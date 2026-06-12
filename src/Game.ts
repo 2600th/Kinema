@@ -143,6 +143,12 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
           this.eventBus.emit("run:restartRequested", { reason: "health-depleted" });
           return;
         }
+        // Dying while seated (e.g. driving into spikes) must release the
+        // vehicle first, or the interaction system stays disabled and the
+        // camera stays in chase mode after respawn.
+        if (this.vehicleManager.isActive()) {
+          this.vehicleManager.forceExit();
+        }
         this.playerController.respawn();
         this.eventBus.emit("player:respawned", { reason: pendingResolution?.reason ?? "fall" });
         this.isDying = false;
@@ -382,6 +388,14 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       }
     }
     this.frameLook = this.inputManager.pollLook(dt);
+  }
+
+  /** Drop edge-trigger input merged while the simulation was paused
+   *  (loading screens), so a press made during loading doesn't fire on the
+   *  first live physics tick. beginFrame keeps OR-merging frameInput while
+   *  fixedUpdate (its consumer) is not running. */
+  clearBufferedInput(): void {
+    this.frameInput = null;
   }
 
   /** Fixed 60Hz tick. */

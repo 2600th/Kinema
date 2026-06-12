@@ -265,9 +265,19 @@ export class ParticlePool {
     }
   }
 
+  /** Kill all live particles immediately. */
+  clear(): void {
+    this.activeCount = 0;
+    this.mesh.count = 0;
+    this.mesh.instanceMatrix.needsUpdate = true;
+  }
+
   dispose(): void {
     this.mesh.geometry.dispose();
     this.material.dispose();
+    // InstancedMesh.dispose() releases the instanceMatrix GPU buffer,
+    // which geometry/material disposal alone does not cover.
+    this.mesh.dispose();
     this.mesh.parent?.remove(this.mesh);
   }
 }
