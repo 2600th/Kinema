@@ -59,9 +59,11 @@ for (const station of ALL_STATIONS) {
     const kinemaAvailable = await page.evaluate(() => !!(window as any).__KINEMA__);
     expect(kinemaAvailable).toBe(true);
 
-    // Wait for player to be grounded (max 5s after initial wait)
+    // Wait for player to be grounded. __KINEMA__ appears early in bootstrap
+    // (before the station finishes loading), so this poll carries the level
+    // load + spawn + settle budget — keep it generous.
     const grounded = await page.evaluate(async () => {
-      const deadline = Date.now() + 5000;
+      const deadline = Date.now() + 15_000;
       while (Date.now() < deadline) {
         const k = (window as any).__KINEMA__;
         if (k?.player?.isGrounded) return true;
