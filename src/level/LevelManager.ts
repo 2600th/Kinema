@@ -198,8 +198,27 @@ export class LevelManager implements Disposable {
     this.lighting.setShadowsEnabled(enabled);
   }
 
+  /**
+   * Serialize level loads. Two overlapping loads would each add meshes and
+   * physics bodies to the shared scene/world while only the last writer's
+   * objects stay tracked — orphaning the other build until page reload.
+   */
+  private loadQueue: Promise<void> = Promise.resolve();
+
+  private enqueueLoad(task: () => Promise<void>): Promise<void> {
+    const run = this.loadQueue.then(task);
+    // Keep the queue alive even if this load rejects; the caller still
+    // observes the rejection through the returned promise.
+    this.loadQueue = run.catch(() => {});
+    return run;
+  }
+
   /** Load a level by name. 'procedural' generates a test level. */
-  async load(name: string): Promise<void> {
+  load(name: string): Promise<void> {
+    return this.enqueueLoad(() => this.loadInternal(name));
+  }
+
+  private async loadInternal(name: string): Promise<void> {
     // Unload current level first
     if (this.currentLevelName) {
       this.unload();
@@ -223,7 +242,11 @@ export class LevelManager implements Disposable {
   }
 
   /** Load a single showcase station in isolation for debugging. */
-  async loadStation(key: ShowcaseStationKey): Promise<void> {
+  loadStation(key: ShowcaseStationKey): Promise<void> {
+    return this.enqueueLoad(() => this.loadStationInternal(key));
+  }
+
+  private async loadStationInternal(key: ShowcaseStationKey): Promise<void> {
     if (this.currentLevelName) {
       this.unload();
     }
@@ -246,7 +269,11 @@ export class LevelManager implements Disposable {
    * Load a level from editor JSON (LevelDataV2).
    * Spawns all objects, creates physics, adds lighting.
    */
-  async loadFromJSON(data: LevelDataV2): Promise<void> {
+  loadFromJSON(data: LevelDataV2): Promise<void> {
+    return this.enqueueLoad(() => this.loadFromJSONInternal(data));
+  }
+
+  private async loadFromJSONInternal(data: LevelDataV2): Promise<void> {
     if (this.currentLevelName) {
       this.unload();
     }
@@ -543,6 +570,11 @@ export class LevelManager implements Disposable {
       this.scene.remove(obj);
       obj.traverse((child) => {
         if (child instanceof THREE.Mesh) {
+          // InstancedMesh.dispose() also releases the instanceMatrix/instanceColor
+          // GPU buffers, which geometry/material disposal does not cover.
+          if (child instanceof THREE.InstancedMesh) {
+            child.dispose();
+          }
           child.geometry.dispose();
           if (Array.isArray(child.material)) {
             child.material.forEach((m) => {
@@ -960,5 +992,6 @@ export class LevelManager implements Disposable {
   dispose(): void {
     this.unload();
     this.assetLoader.clearAll();
+    ProceduralBuilder.clearStaticCaches();
   }
 }

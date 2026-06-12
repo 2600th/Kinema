@@ -56,16 +56,39 @@ export class LevelSaveStore {
     } else {
       index.push(meta);
     }
-    localStorage.setItem(INDEX_KEY, JSON.stringify(index));
+    try {
+      localStorage.setItem(INDEX_KEY, JSON.stringify(index));
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "QuotaExceededError") {
+        console.error("[LevelSaveStore] Storage quota exceeded — level index not updated.", err);
+        if (!existingEntry) {
+          // A new level whose index entry failed to write would be invisible
+          // to the UI and re-saved under a fresh UUID each time, stranding
+          // storage. Remove the orphaned data blob instead.
+          localStorage.removeItem(key);
+        }
+        return;
+      }
+      throw err;
+    }
   }
 
   /** Load full level data by key. Returns null if missing or corrupt. */
   static load(key: string): LevelDataV2 | null {
+    let raw: string | null = null;
     try {
-      const raw = localStorage.getItem(key);
-      if (!raw) return null;
-      return JSON.parse(raw) as LevelDataV2;
+      raw = localStorage.getItem(key);
     } catch {
+      return null;
+    }
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as LevelDataV2;
+    } catch (err) {
+      // Corrupt blob (distinct from missing): prune it and its index entry so
+      // the level list doesn't keep offering a level that can never load.
+      console.error(`[LevelSaveStore] Corrupt level data for "${key}" — removing entry.`, err);
+      LevelSaveStore.delete(key);
       return null;
     }
   }

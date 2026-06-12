@@ -13,6 +13,13 @@ export class SparkleParticles {
   private readonly velocities: Float32Array;
   private readonly phases: Float32Array;
   private readonly baseSizes: Float32Array;
+  // Precomputed sin/cos of each particle's phase (and 1.3x phase) so the
+  // per-tick wobble/twinkle reduces to angle-addition multiply-adds instead
+  // of 3 trig calls per particle per tick (~1200/tick at 400 particles).
+  private readonly phaseSin: Float32Array;
+  private readonly phaseCos: Float32Array;
+  private readonly phaseSin13: Float32Array;
+  private readonly phaseCos13: Float32Array;
 
   private readonly boundsMin: THREE.Vector3;
   private readonly boundsMax: THREE.Vector3;
@@ -54,6 +61,10 @@ export class SparkleParticles {
     this.velocities = new Float32Array(count * 3);
     this.phases = new Float32Array(count);
     this.baseSizes = new Float32Array(count);
+    this.phaseSin = new Float32Array(count);
+    this.phaseCos = new Float32Array(count);
+    this.phaseSin13 = new Float32Array(count);
+    this.phaseCos13 = new Float32Array(count);
 
     const tmpColor = new THREE.Color();
 
@@ -71,7 +82,12 @@ export class SparkleParticles {
       this.velocities[i3 + 2] = (Math.random() - 0.5) * 0.05; // z drift
 
       // Phase offset for twinkle and wobble
-      this.phases[i] = Math.random() * Math.PI * 2;
+      const phase = Math.random() * Math.PI * 2;
+      this.phases[i] = phase;
+      this.phaseSin[i] = Math.sin(phase);
+      this.phaseCos[i] = Math.cos(phase);
+      this.phaseSin13[i] = Math.sin(phase * 1.3);
+      this.phaseCos13[i] = Math.cos(phase * 1.3);
 
       // Size
       const size = minSize + Math.random() * (maxSize - minSize);
@@ -127,9 +143,19 @@ export class SparkleParticles {
     const bWidth = bMax.x - bMin.x;
     const bDepth = bMax.z - bMin.z;
 
+    // Shared per-tick angles; combined with per-particle phase via
+    // sin(a+p) = sin(a)cos(p) + cos(a)sin(p) (and the cos analogue).
+    const sinWobX = Math.sin(this.elapsed * 1.2);
+    const cosWobX = Math.cos(this.elapsed * 1.2);
+    const sinWobZ = Math.sin(this.elapsed * 0.9);
+    const cosWobZ = Math.cos(this.elapsed * 0.9);
+    const sinTwk = Math.sin(this.elapsed * 3.0);
+    const cosTwk = Math.cos(this.elapsed * 3.0);
+
     for (let i = 0; i < count; i++) {
       const i3 = i * 3;
-      const phase = this.phases[i];
+      const sinP = this.phaseSin[i];
+      const cosP = this.phaseCos[i];
 
       // Drift upward + base velocity
       positions[i3] += this.velocities[i3] * dt;
@@ -138,8 +164,8 @@ export class SparkleParticles {
 
       // Gentle X/Z wobble via sine
       const wobbleAmount = 0.15;
-      positions[i3] += Math.sin(this.elapsed * 1.2 + phase) * wobbleAmount * dt;
-      positions[i3 + 2] += Math.cos(this.elapsed * 0.9 + phase * 1.3) * wobbleAmount * dt;
+      positions[i3] += (sinWobX * cosP + cosWobX * sinP) * wobbleAmount * dt;
+      positions[i3 + 2] += (cosWobZ * this.phaseCos13[i] - sinWobZ * this.phaseSin13[i]) * wobbleAmount * dt;
 
       // Wrap around bounds
       if (positions[i3 + 1] > bMax.y) {
@@ -153,7 +179,7 @@ export class SparkleParticles {
       else if (positions[i3 + 2] < bMin.z) positions[i3 + 2] = bMax.z;
 
       // Twinkle: sine-based size oscillation
-      const twinkle = 0.5 + 0.5 * Math.sin(this.elapsed * 3.0 + phase);
+      const twinkle = 0.5 + 0.5 * (sinTwk * cosP + cosTwk * sinP);
       sizes[i] = this.baseSizes[i] * (0.4 + 0.6 * twinkle);
     }
 

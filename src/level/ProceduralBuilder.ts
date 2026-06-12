@@ -111,6 +111,24 @@ export class ProceduralBuilder {
   private static vfxNoiseTextureTemplate: THREE.CanvasTexture | null = null;
   private static sectionLabelTextureTemplates = new Map<string, THREE.CanvasTexture>();
 
+  /**
+   * Dispose the module-lifetime texture templates (GPU memory).
+   * Builds use clones, so live levels are unaffected; templates are lazily
+   * recreated on the next build.
+   */
+  static clearStaticCaches(): void {
+    ProceduralBuilder.groundGridTextureTemplate?.dispose();
+    ProceduralBuilder.groundGridTextureTemplate = null;
+    ProceduralBuilder.floorRoughnessTextureTemplate?.dispose();
+    ProceduralBuilder.floorRoughnessTextureTemplate = null;
+    ProceduralBuilder.vfxNoiseTextureTemplate?.dispose();
+    ProceduralBuilder.vfxNoiseTextureTemplate = null;
+    for (const tex of ProceduralBuilder.sectionLabelTextureTemplates.values()) {
+      tex.dispose();
+    }
+    ProceduralBuilder.sectionLabelTextureTemplates.clear();
+  }
+
   // Accumulator arrays populated during build and returned as ProceduralBuildResult.
   private meshes: THREE.Object3D[] = [];
   private colliders: RAPIER.Collider[] = [];
@@ -2501,6 +2519,7 @@ export class ProceduralBuilder {
    * and spawns patrol agents constrained to the navigation station area.
    */
   private async createNavcatBay(zStation: number, bayTopY: number): Promise<void> {
+    const gen = this.loadGenerationRef.value;
     // Dedicated navigation platform — agents are confined to this area only.
     const platformWidth = 24;
     const platformDepth = 12; // fits within bay pedestal (bayLength = 14)
@@ -2611,6 +2630,15 @@ export class ProceduralBuilder {
     this.navMeshManagerRef = new NavMeshManager();
     await this.navMeshManagerRef.generateAsync([navInputMesh, ...obstacles], seedPoint);
     navInputGeo.dispose();
+
+    // Guard: unload() during the async navmesh generation increments the load
+    // generation. Bail out so ghost patrol agents aren't added to the scene
+    // of the next level (same pattern as the VFX bays).
+    if (this.loadGenerationRef.value !== gen) {
+      this.navMeshManagerRef.dispose(this.scene);
+      this.navMeshManagerRef = null;
+      return;
+    }
 
     const navMesh = this.navMeshManagerRef.getNavMesh();
     if (!navMesh) {

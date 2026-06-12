@@ -126,6 +126,8 @@ export class GrassEffect {
   }
 
   dispose(): void {
+    // Release the instanceMatrix GPU buffer in addition to geometry/material.
+    this.mesh.dispose();
     this.geometry.dispose();
     this.material.dispose();
   }
