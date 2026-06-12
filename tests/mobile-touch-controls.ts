@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 test.use({
   viewport: { width: 390, height: 844 },
@@ -32,7 +32,9 @@ test("mobile touch controls stay active without pointer lock and can trigger a j
 
   await page.locator(".touch-btn--jump").tap();
 
-  const jumped = await page.evaluate(() => (window as any).__KINEMA__.waitFor("p.vy > 0.5 && p.state !== 'idle'", 4_000));
+  const jumped = await page.evaluate(() =>
+    (window as any).__KINEMA__.waitFor("p.vy > 0.5 && p.state !== 'idle'", 4_000),
+  );
   expect(jumped).toBe(true);
   await expect.poll(async () => page.evaluate(() => document.pointerLockElement === null)).toBe(true);
   expect(runtimeErrors).toEqual([]);

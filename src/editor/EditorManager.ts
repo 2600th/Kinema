@@ -1394,9 +1394,7 @@ export class EditorManager {
         // param-editing feature would silently lose its edits on load.
         const saved = entry.brushParams;
         if (saved) {
-          params.current = params.anchor
-            .clone()
-            .add(new THREE.Vector3(saved.width ?? 1, 0, saved.depth ?? 1));
+          params.current = params.anchor.clone().add(new THREE.Vector3(saved.width ?? 1, 0, saved.depth ?? 1));
           params.height = saved.height ?? params.height;
         }
         const geometry = brush.buildPreviewGeometry(params);
@@ -1482,7 +1480,9 @@ export class EditorManager {
       // and ignored rotation entirely.
       obj.updateMatrixWorld(true);
       bodyDesc.setTranslation(obj.position.x, obj.position.y, obj.position.z);
-      bodyDesc.setRotation(new RAPIER.Quaternion(obj.quaternion.x, obj.quaternion.y, obj.quaternion.z, obj.quaternion.w));
+      bodyDesc.setRotation(
+        new RAPIER.Quaternion(obj.quaternion.x, obj.quaternion.y, obj.quaternion.z, obj.quaternion.w),
+      );
       const body = this.physicsWorld.world.createRigidBody(bodyDesc);
 
       // Use shape-appropriate collider for brushes, AABB cuboid for others

@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 test("pause overlay click returns focus to gameplay and restores pointer lock", async ({ page }) => {
   test.setTimeout(120_000);
@@ -22,11 +22,13 @@ test("pause overlay click returns focus to gameplay and restores pointer lock", 
       try {
         const result = original(...args);
         if (result && typeof (result as Promise<void>).then === "function") {
-          (result as Promise<void>).then(() => {
-            (window as any).__POINTER_LOCK_DEBUG__.push({ type: "resolved" });
-          }).catch((error: unknown) => {
-            (window as any).__POINTER_LOCK_DEBUG__.push({ type: "rejected", message: String(error) });
-          });
+          (result as Promise<void>)
+            .then(() => {
+              (window as any).__POINTER_LOCK_DEBUG__.push({ type: "resolved" });
+            })
+            .catch((error: unknown) => {
+              (window as any).__POINTER_LOCK_DEBUG__.push({ type: "rejected", message: String(error) });
+            });
         }
         return result;
       } catch (error) {
@@ -51,11 +53,9 @@ test("pause overlay click returns focus to gameplay and restores pointer lock", 
   await page.evaluate(() => {
     document.querySelector(".menu-overlay.active")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   });
-  await page.waitForFunction(
-    () => !document.querySelector(".menu-overlay")?.classList.contains("active"),
-    undefined,
-    { timeout: 15_000 },
-  );
+  await page.waitForFunction(() => !document.querySelector(".menu-overlay")?.classList.contains("active"), undefined, {
+    timeout: 15_000,
+  });
   await page.waitForTimeout(1_000);
   pointerLockDebug = await page.evaluate(() => (window as any).__POINTER_LOCK_DEBUG__ ?? []);
   const requestCountAfterResume = pointerLockDebug.filter((entry: { type: string }) => entry.type === "request").length;

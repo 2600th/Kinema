@@ -8,13 +8,17 @@
  *   1. Start the dev server:  npm run dev
  *   2. Run this script:       npx playwright test tests/visual-check.ts
  */
-import { test, expect } from "@playwright/test";
+
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { expect, test } from "@playwright/test";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirnameSelf = path.dirname(__filename);
 const SCREENSHOT_DIR = path.resolve(__dirnameSelf, "screenshots");
+// page.screenshot() throws if the target directory does not exist (clean checkout).
+fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
 
 test("main menu renders correctly with no bootstrap errors", async ({ page }) => {
   const consoleErrors: string[] = [];
@@ -22,10 +26,10 @@ test("main menu renders correctly with no bootstrap errors", async ({ page }) =>
     if (msg.type() === "error") consoleErrors.push(msg.text());
   });
 
-  const response = await page.goto('/', { waitUntil: "domcontentloaded" });
+  const response = await page.goto("/", { waitUntil: "domcontentloaded" });
   expect(response?.status()).toBe(200);
 
-  await page.locator('canvas').waitFor({ state: 'visible', timeout: 15_000 });
+  await page.locator("canvas").waitFor({ state: "visible", timeout: 15_000 });
   // Wait for the game to finish bootstrapping (assets, shaders, initial render)
   await page.waitForTimeout(3_000);
 
@@ -46,21 +50,19 @@ test("main menu renders correctly with no bootstrap errors", async ({ page }) =>
   expect(viteError).toBe(0);
 
   // No fatal bootstrap errors
-  const fatalErrors = consoleErrors.filter(
-    (e) => e.includes("Fatal") || e.includes("Uncaught"),
-  );
+  const fatalErrors = consoleErrors.filter((e) => e.includes("Fatal") || e.includes("Uncaught"));
   expect(fatalErrors).toHaveLength(0);
 });
 
 test("settings menu tabs are accessible", async ({ page }) => {
-  await page.goto('/', { waitUntil: "domcontentloaded" });
-  await page.locator('canvas').waitFor({ state: 'visible', timeout: 15_000 });
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.locator("canvas").waitFor({ state: "visible", timeout: 15_000 });
   // Wait for the game to finish bootstrapping (assets, shaders, initial render)
   await page.waitForTimeout(2_000);
 
   await page.locator("text=Settings").click();
   // Wait for settings panel to render
-  await page.getByRole("button", { name: "Controls" }).waitFor({ state: 'visible' });
+  await page.getByRole("button", { name: "Controls" }).waitFor({ state: "visible" });
 
   // Verify settings tabs exist (no screenshot due to WebGPU canvas limitation)
   // Use role locators to avoid strict-mode violations from duplicate text

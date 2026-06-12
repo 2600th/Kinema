@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
 import type { LevelDataV2 } from "@editor/LevelSerializer";
+import { beforeEach, describe, expect, it } from "vitest";
 import { LevelSaveStore } from "./LevelSaveStore";
 
 const INDEX_KEY = "kinema_level_index";

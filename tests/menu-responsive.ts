@@ -21,7 +21,9 @@ for (const viewport of VIEWPORTS) {
       const layout = await page.evaluate(() => {
         const screen = document.querySelector(".menu-screen.active") as HTMLElement | null;
         const title = document.querySelector(".menu-title") as HTMLElement | null;
-        const lastButton = document.querySelector(".menu-screen.active .menu-button:last-of-type") as HTMLElement | null;
+        const lastButton = document.querySelector(
+          ".menu-screen.active .menu-button:last-of-type",
+        ) as HTMLElement | null;
         const version = document.querySelector(".menu-version") as HTMLElement | null;
 
         const rect = (element: Element | null) => {

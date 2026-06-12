@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 
 type CoinDebugEntry = {
   id: string;
@@ -29,7 +29,9 @@ async function collectCoin(page: Page, id?: string): Promise<void> {
 }
 
 test.describe("Procedural Coins", () => {
-  test("collecting coins increments the runtime collectible count and removes them from the debug list", async ({ page }) => {
+  test("collecting coins increments the runtime collectible count and removes them from the debug list", async ({
+    page,
+  }) => {
     await waitForRuntimeReady(page, "/?spawn=entrance");
 
     expect(await getCoinCount(page)).toBe(0);
@@ -42,13 +44,17 @@ test.describe("Procedural Coins", () => {
     expect(secondCoin).toBeDefined();
 
     await collectCoin(page, firstCoin.id);
-    await page.waitForFunction(() => (window as any).__KINEMA__.getCollectibleCount() === 1, undefined, { timeout: 10_000 });
+    await page.waitForFunction(() => (window as any).__KINEMA__.getCollectibleCount() === 1, undefined, {
+      timeout: 10_000,
+    });
 
     let remaining = await listCoins(page);
     expect(remaining.some((coin) => coin.id === firstCoin.id)).toBe(false);
 
     await collectCoin(page, secondCoin.id);
-    await page.waitForFunction(() => (window as any).__KINEMA__.getCollectibleCount() === 2, undefined, { timeout: 10_000 });
+    await page.waitForFunction(() => (window as any).__KINEMA__.getCollectibleCount() === 2, undefined, {
+      timeout: 10_000,
+    });
 
     remaining = await listCoins(page);
     expect(remaining.some((coin) => coin.id === secondCoin.id)).toBe(false);

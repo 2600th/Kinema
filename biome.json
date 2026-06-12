@@ -20,6 +20,18 @@
     }
   },
   "files": {
-    "includes": ["src/**"]
-  }
+    "includes": ["src/**", "tests/**"]
+  },
+  "overrides": [
+    {
+      "includes": ["tests/**"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          }
+        }
+      }
+    }
+  ]
 }

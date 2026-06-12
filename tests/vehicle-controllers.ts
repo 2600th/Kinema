@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 
 type VehicleState = {
   id: string;
@@ -170,10 +170,7 @@ test.describe("Vehicle Controllers", () => {
     );
 
     const after = await getVehicleState(page, "car-1");
-    const moved = Math.hypot(
-      after.position.x - before.position.x,
-      after.position.z - before.position.z,
-    );
+    const moved = Math.hypot(after.position.x - before.position.x, after.position.z - before.position.z);
     const speed = Math.hypot(after.velocity.x, after.velocity.z);
     expect(after.active).toBe(true);
     expect(speed).toBeGreaterThan(0.05);
@@ -200,12 +197,13 @@ test.describe("Vehicle Controllers", () => {
     expect(trace.enabled).toBe(true);
     expect(trace.label).toBe("playwright-forward-turn");
     expect(trace.sampleCount).toBeGreaterThanOrEqual(3);
-    const activeForwardTurnSamples = trace.samples.filter((sample) =>
-      sample.derived.driveMode === "forward"
-      && sample.input.moveX < -0.9
-      && sample.input.moveY > 0.7
-      && Math.abs(sample.command.physicsSteerAngle) > 0.01
-      && sample.state.groundedWheelCount >= 2,
+    const activeForwardTurnSamples = trace.samples.filter(
+      (sample) =>
+        sample.derived.driveMode === "forward" &&
+        sample.input.moveX < -0.9 &&
+        sample.input.moveY > 0.7 &&
+        Math.abs(sample.command.physicsSteerAngle) > 0.01 &&
+        sample.state.groundedWheelCount >= 2,
     );
 
     expect(activeForwardTurnSamples.length).toBeGreaterThan(0);
@@ -215,11 +213,14 @@ test.describe("Vehicle Controllers", () => {
         .filter((sample) => sample.derived.actualYawSign !== 0)
         .every((sample) => sample.derived.yawAgreement),
     ).toBe(true);
-    expect(activeForwardTurnSamples.some((sample) =>
-      sample.derived.suspectedForwardSteerLoss
-      && sample.state.frontGroundedWheelCount > 0
-      && sample.state.rearGroundedWheelCount === 0,
-    )).toBe(false);
+    expect(
+      activeForwardTurnSamples.some(
+        (sample) =>
+          sample.derived.suspectedForwardSteerLoss &&
+          sample.state.frontGroundedWheelCount > 0 &&
+          sample.state.rearGroundedWheelCount === 0,
+      ),
+    ).toBe(false);
 
     await page.evaluate(() => (window as any).__KINEMA__.simulateVehicleInput({ moveX: 0, moveY: 0 }, 240));
     await page.waitForTimeout(2200);
@@ -300,13 +301,16 @@ test.describe("Vehicle Controllers", () => {
     const target = await getDynamicBodyState(page, targetName);
     const currentCar = await getVehicleState(page, "car-1");
 
-    const movedVehicle = await page.evaluate(({ x, y, z }) => {
-      return (window as any).__KINEMA__.forceVehicleTransform("car-1", { x, y, z }, 0);
-    }, {
-      x: target.position.x,
-      y: currentCar.position.y,
-      z: target.position.z + 5.8,
-    });
+    const movedVehicle = await page.evaluate(
+      ({ x, y, z }) => {
+        return (window as any).__KINEMA__.forceVehicleTransform("car-1", { x, y, z }, 0);
+      },
+      {
+        x: target.position.x,
+        y: currentCar.position.y,
+        z: target.position.z + 5.8,
+      },
+    );
     expect(movedVehicle).toBe(true);
     await page.waitForTimeout(180);
 
@@ -368,10 +372,7 @@ test.describe("Vehicle Controllers", () => {
         const verticalVelocity = Math.abs(car.debug?.verticalVelocity ?? car.velocity.y ?? 0);
         const settledSpeed = Math.hypot(car.velocity.x, car.velocity.z);
         const traction = car.debug?.groundedTraction ?? 0;
-        return grounded >= 2
-          && traction > 0.35
-          && verticalVelocity < 1.2
-          && settledSpeed > 0.05;
+        return grounded >= 2 && traction > 0.35 && verticalVelocity < 1.2 && settledSpeed > 0.05;
       },
       undefined,
       { timeout: 10_000 },
@@ -402,13 +403,16 @@ test.describe("Vehicle Controllers", () => {
     const secondTargetName = "CrashCubeB_dyn";
     const secondTarget = await getDynamicBodyState(page, secondTargetName);
     const beforeSecondImpactCar = await getVehicleState(page, "car-1");
-    const movedVehicleAgain = await page.evaluate(({ x, y, z }) => {
-      return (window as any).__KINEMA__.forceVehicleTransform("car-1", { x, y, z }, 0);
-    }, {
-      x: secondTarget.position.x,
-      y: beforeSecondImpactCar.position.y,
-      z: secondTarget.position.z + 5.4,
-    });
+    const movedVehicleAgain = await page.evaluate(
+      ({ x, y, z }) => {
+        return (window as any).__KINEMA__.forceVehicleTransform("car-1", { x, y, z }, 0);
+      },
+      {
+        x: secondTarget.position.x,
+        y: beforeSecondImpactCar.position.y,
+        z: secondTarget.position.z + 5.4,
+      },
+    );
     expect(movedVehicleAgain).toBe(true);
     await page.waitForTimeout(180);
 
@@ -467,9 +471,9 @@ test.describe("Vehicle Controllers", () => {
 
     const endLeft = await getVehicleState(page, "car-1");
     expect(
-      Math.abs(endLeft.position.x - startLeft.position.x) > 0.12
-      || Math.abs(endLeft.debug?.lateralSpeed ?? 0) > 0.55
-      || shortestAngleDelta(startLeft.debug?.headingYaw ?? 0, endLeft.debug?.headingYaw ?? 0) < -0.08,
+      Math.abs(endLeft.position.x - startLeft.position.x) > 0.12 ||
+        Math.abs(endLeft.debug?.lateralSpeed ?? 0) > 0.55 ||
+        shortestAngleDelta(startLeft.debug?.headingYaw ?? 0, endLeft.debug?.headingYaw ?? 0) < -0.08,
     ).toBe(true);
 
     await page.evaluate(() => (window as any).__KINEMA__.resetVehicle("car-1"));
@@ -499,9 +503,9 @@ test.describe("Vehicle Controllers", () => {
 
     const endRight = await getVehicleState(page, "car-1");
     expect(
-      Math.abs(endRight.position.x - startRight.position.x) > 0.12
-      || Math.abs(endRight.debug?.lateralSpeed ?? 0) > 0.55
-      || shortestAngleDelta(startRight.debug?.headingYaw ?? 0, endRight.debug?.headingYaw ?? 0) > 0.08,
+      Math.abs(endRight.position.x - startRight.position.x) > 0.12 ||
+        Math.abs(endRight.debug?.lateralSpeed ?? 0) > 0.55 ||
+        shortestAngleDelta(startRight.debug?.headingYaw ?? 0, endRight.debug?.headingYaw ?? 0) > 0.08,
     ).toBe(true);
   });
 

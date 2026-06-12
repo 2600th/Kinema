@@ -52,22 +52,18 @@ test("landscape touch controls stay within the viewport and avoid button overlap
         };
 
         const intersects = (
-          a:
-            | {
-                left: number;
-                top: number;
-                right: number;
-                bottom: number;
-              }
-            | null,
-          b:
-            | {
-                left: number;
-                top: number;
-                right: number;
-                bottom: number;
-              }
-            | null,
+          a: {
+            left: number;
+            top: number;
+            right: number;
+            bottom: number;
+          } | null,
+          b: {
+            left: number;
+            top: number;
+            right: number;
+            bottom: number;
+          } | null,
         ) => {
           if (!a || !b) return false;
           return !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top);

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 
 const STATION_URL = "/?station=doubleJump";
 
@@ -65,7 +65,9 @@ test.describe("Jump Mechanics", () => {
   test("air jump adds new vertical impulse after the first jump", async ({ page }) => {
     await simulateJump(page);
     await waitForAirborne(page);
-    const apexReady = await page.evaluate(() => (window as any).__KINEMA__.waitFor("p.vy < 2 && !p.isGrounded", 10_000));
+    const apexReady = await page.evaluate(() =>
+      (window as any).__KINEMA__.waitFor("p.vy < 2 && !p.isGrounded", 10_000),
+    );
     expect(apexReady).toBe(true);
 
     const beforeAirJump = await getPlayer(page);
@@ -82,18 +84,22 @@ test.describe("Jump Mechanics", () => {
     const inAir = await page.evaluate(() => (window as any).__KINEMA__.waitFor("p.state === 'air'", 10_000));
     expect(inAir).toBe(true);
 
-    const apexReady = await page.evaluate(() => (window as any).__KINEMA__.waitFor("p.vy < 2 && !p.isGrounded", 10_000));
+    const apexReady = await page.evaluate(() =>
+      (window as any).__KINEMA__.waitFor("p.vy < 2 && !p.isGrounded", 10_000),
+    );
     expect(apexReady).toBe(true);
 
     await simulateJump(page);
     const sawAirJump = await page.evaluate(() => (window as any).__KINEMA__.waitFor("p.state === 'airJump'", 5_000));
     expect(sawAirJump).toBe(true);
 
-    const backToAir = await page.evaluate(() => (window as any).__KINEMA__.waitFor("p.state === 'air' && !p.isGrounded", 10_000));
+    const backToAir = await page.evaluate(() =>
+      (window as any).__KINEMA__.waitFor("p.state === 'air' && !p.isGrounded", 10_000),
+    );
     expect(backToAir).toBe(true);
 
-    const landedInValidState = await page.evaluate(
-      () => (window as any).__KINEMA__.waitFor("p.isGrounded && (p.state === 'idle' || p.state === 'move')", 15_000),
+    const landedInValidState = await page.evaluate(() =>
+      (window as any).__KINEMA__.waitFor("p.isGrounded && (p.state === 'idle' || p.state === 'move')", 15_000),
     );
     expect(landedInValidState).toBe(true);
   });

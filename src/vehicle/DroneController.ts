@@ -241,10 +241,7 @@ export class DroneController implements VehicleController {
     _yawEuler.set(0, this.yaw, 0);
     _quat.setFromEuler(_yawEuler);
     this.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
-    this.body.setTranslation(
-      _setDRV(_drv3A, this.spawnPosition.x, this.spawnPosition.y, this.spawnPosition.z),
-      true,
-    );
+    this.body.setTranslation(_setDRV(_drv3A, this.spawnPosition.x, this.spawnPosition.y, this.spawnPosition.z), true);
     this.body.setRotation(toRapierQuat(_quat), true);
     this.body.setLinvel(_setDRV(_drv3A, 0, 0, 0), true);
     this.body.setAngvel(_setDRV(_drv3B, 0, 0, 0), true);

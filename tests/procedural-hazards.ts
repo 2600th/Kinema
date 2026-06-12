@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 
 type HealthState = {
   current: number;
@@ -44,7 +44,9 @@ async function moveToSafeStationSpawn(page: Page): Promise<void> {
 }
 
 test.describe("Procedural Hazards", () => {
-  test("spike hazards remove hearts once per contact window and full-reset the station on the last hit", async ({ page }) => {
+  test("spike hazards remove hearts once per contact window and full-reset the station on the last hit", async ({
+    page,
+  }) => {
     await waitForRuntimeReady(page, "/?station=platformsPhysics");
 
     const initialHazards = await listHazards(page);
@@ -52,11 +54,17 @@ test.describe("Procedural Hazards", () => {
     expect((await getHealth(page)).current).toBe(3);
 
     await page.evaluate((hazardId) => (window as any).__KINEMA__.teleportToHazard(hazardId), initialHazards[0].id);
-    await page.waitForFunction(() => (window as any).__KINEMA__.getHealth().current === 2, undefined, { timeout: 10_000 });
-    await page.waitForFunction(() => {
-      const health = (window as any).__KINEMA__.getHealth();
-      return health.current === 2 && health.invulnerable === true && health.invulnerabilityRemaining < 0.6;
-    }, undefined, { timeout: 10_000 });
+    await page.waitForFunction(() => (window as any).__KINEMA__.getHealth().current === 2, undefined, {
+      timeout: 10_000,
+    });
+    await page.waitForFunction(
+      () => {
+        const health = (window as any).__KINEMA__.getHealth();
+        return health.current === 2 && health.invulnerable === true && health.invulnerabilityRemaining < 0.6;
+      },
+      undefined,
+      { timeout: 10_000 },
+    );
     expect((await getHealth(page)).current).toBe(2);
 
     await moveToSafeStationSpawn(page);
@@ -65,7 +73,9 @@ test.describe("Procedural Hazards", () => {
     });
 
     await page.evaluate((hazardId) => (window as any).__KINEMA__.teleportToHazard(hazardId), initialHazards[1].id);
-    await page.waitForFunction(() => (window as any).__KINEMA__.getHealth().current === 1, undefined, { timeout: 10_000 });
+    await page.waitForFunction(() => (window as any).__KINEMA__.getHealth().current === 1, undefined, {
+      timeout: 10_000,
+    });
 
     await moveToSafeStationSpawn(page);
     await page.waitForFunction(() => (window as any).__KINEMA__.getHealth().invulnerable === false, undefined, {

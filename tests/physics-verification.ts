@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 
 const SLOPES_URL = "/?station=slopes";
 
@@ -73,9 +73,7 @@ test.describe("Bootstrap Verification", () => {
     const kinemaAvailable = await page.evaluate(() => Boolean((window as any).__KINEMA__));
     expect(kinemaAvailable).toBe(true);
 
-    const realErrors = consoleErrors.filter(
-      (e) => !e.includes("favicon") && !e.includes("404"),
-    );
+    const realErrors = consoleErrors.filter((e) => !e.includes("favicon") && !e.includes("404"));
     expect(realErrors).toHaveLength(0);
   });
 });

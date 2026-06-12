@@ -3873,10 +3873,7 @@ export class ProceduralBuilder {
     this.scene.add(glowPlane);
     this.meshes.push(glowPlane);
 
-    const fireCore = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.45, 0.22, 3.5, 14, 1, true),
-      additiveOrange.clone(),
-    );
+    const fireCore = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.22, 3.5, 14, 1, true), additiveOrange.clone());
     fireCore.position.set(fireX, base.y + 1.75, frontRowZ);
     fireCore.name = "VFX_FireInner";
     fireCore.castShadow = false;

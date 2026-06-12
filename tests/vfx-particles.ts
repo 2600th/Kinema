@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 
 async function waitForGameReady(page: Page, station = "vehicles"): Promise<void> {
   await page.goto(`/?station=${station}`, { waitUntil: "domcontentloaded" });
@@ -34,7 +34,9 @@ test.describe("VFX Particle System", () => {
     );
     await page.evaluate(() => (window as any).__KINEMA__.simulateJump());
 
-    const airborne = await page.evaluate(() => (window as any).__KINEMA__.waitFor("p.vy > 0.5 && !p.isGrounded", 10_000));
+    const airborne = await page.evaluate(() =>
+      (window as any).__KINEMA__.waitFor("p.vy > 0.5 && !p.isGrounded", 10_000),
+    );
     expect(airborne).toBe(true);
     const landed = await page.evaluate(() => (window as any).__KINEMA__.waitFor("p.isGrounded === true", 15_000));
     expect(landed).toBe(true);
@@ -42,9 +44,7 @@ test.describe("VFX Particle System", () => {
     const afterLoad = await hasParticleRuntimeLoaded(page);
     expect(afterLoad).toBe(true);
 
-    const fatalErrors = errors.filter(
-      (e) => e.includes("Fatal") || e.includes("Uncaught") || e.includes("WebGL"),
-    );
+    const fatalErrors = errors.filter((e) => e.includes("Fatal") || e.includes("Uncaught") || e.includes("WebGL"));
     expect(fatalErrors).toHaveLength(0);
   });
 
@@ -59,8 +59,8 @@ test.describe("VFX Particle System", () => {
     const before = await page.evaluate(() => (window as any).__KINEMA__.player.position);
     await page.evaluate(() => (window as any).__KINEMA__.simulateMove(0, 1, 120));
 
-    const movedFastEnough = await page.evaluate(
-      () => (window as any).__KINEMA__.waitFor("Math.hypot(p.vx, p.vz) > 0.35 && p.isGrounded", 10_000),
+    const movedFastEnough = await page.evaluate(() =>
+      (window as any).__KINEMA__.waitFor("Math.hypot(p.vx, p.vz) > 0.35 && p.isGrounded", 10_000),
     );
     expect(movedFastEnough).toBe(true);
 
@@ -68,9 +68,7 @@ test.describe("VFX Particle System", () => {
     const delta = Math.hypot(after.x - before.x, after.z - before.z);
     expect(delta).toBeGreaterThan(0.05);
 
-    const fatalErrors = errors.filter(
-      (e) => e.includes("Fatal") || e.includes("Uncaught") || e.includes("WebGL"),
-    );
+    const fatalErrors = errors.filter((e) => e.includes("Fatal") || e.includes("Uncaught") || e.includes("WebGL"));
     expect(fatalErrors).toHaveLength(0);
   });
 
@@ -84,7 +82,9 @@ test.describe("VFX Particle System", () => {
 
     for (let i = 0; i < 4; i++) {
       await page.evaluate(() => (window as any).__KINEMA__.simulateJump());
-      const airborne = await page.evaluate(() => (window as any).__KINEMA__.waitFor("p.vy > 0.5 && !p.isGrounded", 10_000));
+      const airborne = await page.evaluate(() =>
+        (window as any).__KINEMA__.waitFor("p.vy > 0.5 && !p.isGrounded", 10_000),
+      );
       expect(airborne).toBe(true);
       const landed = await page.evaluate(() => (window as any).__KINEMA__.waitFor("p.isGrounded === true", 15_000));
       expect(landed).toBe(true);
@@ -93,9 +93,7 @@ test.describe("VFX Particle System", () => {
     const runtimeLoaded = await hasParticleRuntimeLoaded(page);
     expect(runtimeLoaded).toBe(true);
 
-    const fatalErrors = errors.filter(
-      (e) => e.includes("Fatal") || e.includes("Uncaught") || e.includes("WebGL"),
-    );
+    const fatalErrors = errors.filter((e) => e.includes("Fatal") || e.includes("Uncaught") || e.includes("WebGL"));
     expect(fatalErrors).toHaveLength(0);
   });
 
@@ -122,9 +120,15 @@ test.describe("VFX Particle System", () => {
     expect(fireCore.material.opacity).toBeGreaterThan(0);
 
     const bolt = await page.evaluate(() => (window as any).__KINEMA__.getLevelObjectState("VFX_LightningBolt1"));
-    const flashLight = await page.evaluate(() => (window as any).__KINEMA__.getLevelObjectState("VFX_LightningFlashLight"));
-    const strikeGlow = await page.evaluate(() => (window as any).__KINEMA__.getLevelObjectState("VFX_LightningStrikeGlow"));
-    const strikeColumn = await page.evaluate(() => (window as any).__KINEMA__.getLevelObjectState("VFX_LightningStrikeColumn"));
+    const flashLight = await page.evaluate(() =>
+      (window as any).__KINEMA__.getLevelObjectState("VFX_LightningFlashLight"),
+    );
+    const strikeGlow = await page.evaluate(() =>
+      (window as any).__KINEMA__.getLevelObjectState("VFX_LightningStrikeGlow"),
+    );
+    const strikeColumn = await page.evaluate(() =>
+      (window as any).__KINEMA__.getLevelObjectState("VFX_LightningStrikeColumn"),
+    );
     expect(bolt).not.toBeNull();
     expect(bolt.material).not.toBeNull();
     expect(bolt.material.emissive).not.toBeNull();
@@ -133,14 +137,10 @@ test.describe("VFX Particle System", () => {
     expect(strikeGlow).toBeNull();
     expect(strikeColumn).toBeNull();
 
-    const fatalErrors = errors.filter(
-      (e) => e.includes("Fatal") || e.includes("Uncaught") || e.includes("WebGL"),
-    );
+    const fatalErrors = errors.filter((e) => e.includes("Fatal") || e.includes("Uncaught") || e.includes("WebGL"));
     expect(fatalErrors).toHaveLength(0);
 
-    const webGpuShaderErrors = errors.filter(
-      (e) => e.includes("WGSL") || e.includes("Invalid ShaderModule"),
-    );
+    const webGpuShaderErrors = errors.filter((e) => e.includes("WGSL") || e.includes("Invalid ShaderModule"));
     expect(webGpuShaderErrors).toHaveLength(0);
   });
 });

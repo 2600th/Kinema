@@ -42,16 +42,17 @@ test("iPhone-like compatibility renderer loads the full procedural level without
   await page.getByRole("button", { name: /^play$/i }).click();
 
   await expect
-    .poll(async () =>
-      page.evaluate(() => {
-        const api = (window as any).__KINEMA__;
-        return {
-          backend: api.getRendererDebugFlags().activeBackend,
-          vfxScanner: api.getLevelObjectState("VFX_Scanner"),
-          navPlatform: api.getLevelObjectState("NavPlatform"),
-          futureBarrier: api.getLevelObjectState("FutureA_barrier_0"),
-        };
-      }),
+    .poll(
+      async () =>
+        page.evaluate(() => {
+          const api = (window as any).__KINEMA__;
+          return {
+            backend: api.getRendererDebugFlags().activeBackend,
+            vfxScanner: api.getLevelObjectState("VFX_Scanner"),
+            navPlatform: api.getLevelObjectState("NavPlatform"),
+            futureBarrier: api.getLevelObjectState("FutureA_barrier_0"),
+          };
+        }),
       { timeout: 60_000 },
     )
     .toMatchObject({

@@ -13,5 +13,7 @@ skills-lock.json
 .env
 /.playwright-mcp
 /screenshots
+# Playwright screenshot specs write here; the root-anchored /screenshots does not cover it.
+tests/screenshots/
 test-results/
 .superpowers/

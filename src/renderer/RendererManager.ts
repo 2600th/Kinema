@@ -8,6 +8,7 @@ import type { Disposable } from "@core/types";
 import type { GraphicsProfile, ShadowQualityTier } from "@core/UserSettings";
 import * as THREE from "three";
 import { PMREMGenerator, type RenderPipeline, WebGPURenderer } from "three/webgpu";
+import { sanitizeSceneForCompatibility } from "./compatibilityMaterialSanitizer";
 import {
   buildRendererPipelineDescriptor,
   getRendererMaxPixelRatio,
@@ -20,7 +21,6 @@ import {
   createWebGpuRenderer,
   showDeviceLostOverlay,
 } from "./rendererBootstrap";
-import { sanitizeSceneForCompatibility } from "./compatibilityMaterialSanitizer";
 import { clampFiniteNumber, resolveCasStrengthMutation } from "./rendererMutations";
 import {
   buildRendererPipeline,
