@@ -17,3 +17,11 @@ skills-lock.json
 tests/screenshots/
 test-results/
 .superpowers/
+
+# Agent operating manual: recommended local-only files
+
+# Private Claude Code notes for this repo/worktree.
+CLAUDE.local.md
+
+# Personal Codex overrides, read before AGENTS.md at each level.
+AGENTS.override.md
