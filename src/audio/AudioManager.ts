@@ -48,6 +48,7 @@ export class AudioManager implements AudioController {
   private masterCompressor: Tone.Compressor | Tone.Gain;
   private masterLimiter: Tone.Limiter | Tone.Gain;
   private unsubscribers: Array<() => void> = [];
+  private pendingUnducks = new Set<ReturnType<typeof setTimeout>>();
   private toneStarted = false;
   private pendingMusicFadeIn: number | null = null;
   private lastLandedImpact = 0;
@@ -175,8 +176,10 @@ export class AudioManager implements AudioController {
   }
 
   setMusicVolume(value: number): void {
-    // Scale on top of the -6dB base offset
-    this.musicGain.gain.rampTo(clamp(value, 0, 1) * 0.5, 0.05);
+    // Route through MusicEngine so duck()/unduck() restores to the user's
+    // volume (targetVolume * duckedVolume) instead of ramping back to full.
+    // The musicGain bus keeps only the fixed -6dB base offset.
+    this.musicEngine.setVolume(clamp(value, 0, 1));
   }
 
   setSfxVolume(value: number): void {
@@ -223,7 +226,22 @@ export class AudioManager implements AudioController {
     this.sfxEngine.updateEngine(this.vehicleSpeedNorm, this.vehicleDriftAmount, this.vehicleHandbrake);
   }
 
+  /** Duck-then-restore with a timer that is cancelled on dispose, so the
+   *  deferred unduck can't poke disposed Tone nodes after a level teardown. */
+  private duckFor(amount: number, durationMs: number): void {
+    this.musicEngine.duck(amount);
+    const id = setTimeout(() => {
+      this.pendingUnducks.delete(id);
+      this.musicEngine.unduck();
+    }, durationMs);
+    this.pendingUnducks.add(id);
+  }
+
   dispose(): void {
+    for (const id of this.pendingUnducks) {
+      clearTimeout(id);
+    }
+    this.pendingUnducks.clear();
     this.stopEngine();
     this.sfxEngine.slopeSlideStop();
     this.slopeSlideActive = false;
@@ -274,6 +292,7 @@ export class AudioManager implements AudioController {
 
     this.unsubscribers.push(
       this.eventBus.on("animation:event", ({ event }) => {
+        if (!this.toneStarted) return;
         if (event === "slopeSlideStart") {
           if (this.inVehicle) return;
           this.slopeSlideActive = true;
@@ -290,6 +309,7 @@ export class AudioManager implements AudioController {
     // ── Player Movement ────────────────────────────────
     this.unsubscribers.push(
       this.eventBus.on("player:stateChanged", ({ previous, current }) => {
+        if (!this.toneStarted) return;
         if (current === STATE.jump) {
           this.sfxEngine.jump();
         }
@@ -308,6 +328,7 @@ export class AudioManager implements AudioController {
 
     this.unsubscribers.push(
       this.eventBus.on("player:grounded", (grounded) => {
+        if (!this.toneStarted) return;
         if (grounded) {
           // Defer: if player:landed fires on the same frame with a hard impact,
           // skip landSoft to avoid doubling with landHard.
@@ -324,7 +345,7 @@ export class AudioManager implements AudioController {
       this.eventBus.on("player:landed", ({ impactSpeed }) => {
         this.lastLandedImpact = impactSpeed;
         this.lastLandedFrame = this.frameCounter;
-        if (impactSpeed < 3) return;
+        if (!this.toneStarted || impactSpeed < 3) return;
         this.sfxEngine.landHard(impactSpeed);
       }),
     );
@@ -332,24 +353,28 @@ export class AudioManager implements AudioController {
     // ── Interaction ────────────────────────────────────
     this.unsubscribers.push(
       this.eventBus.on("interaction:triggered", () => {
+        if (!this.toneStarted) return;
         this.sfxEngine.interact();
       }),
     );
 
     this.unsubscribers.push(
       this.eventBus.on("interaction:grabStart", () => {
+        if (!this.toneStarted) return;
         this.sfxEngine.grab();
       }),
     );
 
     this.unsubscribers.push(
       this.eventBus.on("interaction:pickUp", () => {
+        if (!this.toneStarted) return;
         this.sfxEngine.interact();
       }),
     );
 
     this.unsubscribers.push(
       this.eventBus.on("interaction:throw", () => {
+        if (!this.toneStarted) return;
         this.sfxEngine.throw();
       }),
     );
@@ -357,6 +382,7 @@ export class AudioManager implements AudioController {
     // New interaction SFX
     this.unsubscribers.push(
       this.eventBus.on("interaction:focusChanged", ({ id }) => {
+        if (!this.toneStarted) return;
         if (id != null) {
           this.sfxEngine.focusTick();
         }
@@ -369,6 +395,7 @@ export class AudioManager implements AudioController {
           this.holdLastThreshold = -1;
           return;
         }
+        if (!this.toneStarted) return;
         // Fire on 10% thresholds
         const threshold = Math.floor(payload.progress * 10);
         if (threshold > this.holdLastThreshold) {
@@ -380,18 +407,21 @@ export class AudioManager implements AudioController {
 
     this.unsubscribers.push(
       this.eventBus.on("interaction:blocked", () => {
+        if (!this.toneStarted) return;
         this.sfxEngine.interactBlocked();
       }),
     );
 
     this.unsubscribers.push(
       this.eventBus.on("interaction:drop", () => {
+        if (!this.toneStarted) return;
         this.sfxEngine.drop();
       }),
     );
 
     this.unsubscribers.push(
       this.eventBus.on("interaction:grabEnd", () => {
+        if (!this.toneStarted) return;
         this.sfxEngine.grabRelease();
       }),
     );
@@ -399,30 +429,32 @@ export class AudioManager implements AudioController {
     // ── Progression ────────────────────────────────────
     this.unsubscribers.push(
       this.eventBus.on("checkpoint:activated", () => {
+        if (!this.toneStarted) return;
         this.sfxEngine.checkpoint();
         // Brief music duck to let chime shine
-        this.musicEngine.duck(0.6);
-        setTimeout(() => this.musicEngine.unduck(), 500);
+        this.duckFor(0.6, 500);
       }),
     );
 
     this.unsubscribers.push(
       this.eventBus.on("objective:completed", () => {
+        if (!this.toneStarted) return;
         this.sfxEngine.objectiveComplete();
         // Brief music duck
-        this.musicEngine.duck(0.6);
-        setTimeout(() => this.musicEngine.unduck(), 500);
+        this.duckFor(0.6, 500);
       }),
     );
 
     this.unsubscribers.push(
       this.eventBus.on("collectible:collected", () => {
+        if (!this.toneStarted) return;
         this.sfxEngine.coinCollect();
       }),
     );
 
     this.unsubscribers.push(
       this.eventBus.on("player:damaged", ({ reason }) => {
+        if (!this.toneStarted) return;
         if (reason === "spike") {
           this.sfxEngine.damageHit();
         }
@@ -432,21 +464,23 @@ export class AudioManager implements AudioController {
     // ── Death / Respawn ────────────────────────────────
     this.unsubscribers.push(
       this.eventBus.on("player:dying", () => {
+        if (!this.toneStarted) return;
         this.sfxEngine.deathDescend();
         // Duck music for death sequence
-        this.musicEngine.duck(0.5);
-        setTimeout(() => this.musicEngine.unduck(), 1500);
+        this.duckFor(0.5, 1500);
       }),
     );
 
     this.unsubscribers.push(
       this.eventBus.on("player:deathMidpoint", () => {
+        if (!this.toneStarted) return;
         this.sfxEngine.deathMidpoint();
       }),
     );
 
     this.unsubscribers.push(
       this.eventBus.on("player:respawned", () => {
+        if (!this.toneStarted) return;
         this.sfxEngine.respawnChime();
       }),
     );
@@ -463,13 +497,13 @@ export class AudioManager implements AudioController {
           this.sfxEngine.slopeSlideStop();
           this.slopeSlideActive = false;
         }
-        this.sfxEngine.vehicleEnter();
+        if (this.toneStarted) this.sfxEngine.vehicleEnter();
       }),
     );
 
     this.unsubscribers.push(
       this.eventBus.on("vehicle:exit", () => {
-        this.sfxEngine.vehicleExit();
+        if (this.toneStarted) this.sfxEngine.vehicleExit();
         this.inVehicle = false;
         this.vehicleType = null;
         this.vehicleSpeedNorm = 0;
@@ -488,6 +522,7 @@ export class AudioManager implements AudioController {
     // ── Menu / UI ──────────────────────────────────────
     this.unsubscribers.push(
       this.eventBus.on("menu:opened", ({ screen }) => {
+        if (!this.toneStarted) return;
         if (screen === "pause") {
           this.sfxEngine.menuOpen();
           this.musicEngine.duck(0.3);
@@ -497,6 +532,7 @@ export class AudioManager implements AudioController {
 
     this.unsubscribers.push(
       this.eventBus.on("menu:closed", () => {
+        if (!this.toneStarted) return;
         this.sfxEngine.menuClose();
         this.musicEngine.unduck();
       }),
@@ -504,12 +540,14 @@ export class AudioManager implements AudioController {
 
     this.unsubscribers.push(
       this.eventBus.on("ui:click", () => {
+        if (!this.toneStarted) return;
         this.sfxEngine.uiClick();
       }),
     );
 
     this.unsubscribers.push(
       this.eventBus.on("ui:hover", () => {
+        if (!this.toneStarted) return;
         this.sfxEngine.uiHover();
       }),
     );
@@ -538,6 +576,7 @@ export class AudioManager implements AudioController {
 
     this.unsubscribers.push(
       this.eventBus.on("loading:progress", ({ progress }) => {
+        if (!this.toneStarted) return;
         if (progress <= 0.15) {
           this.sfxEngine.loadingAmbientStart();
           lastTickThreshold = 0;
@@ -552,6 +591,7 @@ export class AudioManager implements AudioController {
 
     this.unsubscribers.push(
       this.eventBus.on("level:loaded", () => {
+        if (!this.toneStarted) return;
         this.sfxEngine.loadingAmbientStop();
         this.sfxEngine.loadingWhoosh();
       }),
