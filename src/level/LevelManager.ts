@@ -155,6 +155,14 @@ export class LevelManager implements Disposable {
     this.dynamicBodies = this.dynamicBodies.filter((d) => (d as { mesh: THREE.Object3D }).mesh !== mesh);
   }
 
+  /** Inverse of removeLevelObject for editor undo: restore tracking so the
+   *  object isn't dropped by the next editor rebuild or unload sweep. */
+  addLevelObject(mesh: THREE.Object3D): void {
+    if (!this.levelObjects.includes(mesh)) {
+      this.levelObjects.push(mesh);
+    }
+  }
+
   /** Navigation patrol system (for game loop wiring). */
   getNavPatrolSystem(): NavPatrolSystem | null {
     return this.navPatrolSystem;

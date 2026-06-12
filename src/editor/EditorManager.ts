@@ -373,6 +373,12 @@ export class EditorManager {
   private startPlayTest(): void {
     if (this.playTestActive) return;
 
+    // Undo entries capture mesh/parent references that the play-test
+    // restore (applyLoadedLevel) tears down and rebuilds; running them
+    // afterwards re-parents meshes onto detached nodes. The play-test
+    // boundary intentionally clears history.
+    this.history.clear();
+
     // Sync all EditorObject transforms from live mesh state before serializing,
     // so the snapshot captures the actual current transforms (not stale data).
     for (const obj of this.document.objects) {
@@ -576,7 +582,12 @@ export class EditorManager {
     if (this.activeTool.onKeyDown?.(ctx, e)) return;
 
     if (e.code === "KeyW" && !cmd && this.document.selected) this.setTransformMode("translate");
-    if (e.code === "KeyE" && !cmd && this.document.selected) this.setTransformMode("rotate");
+    if (e.code === "KeyE" && !cmd && this.document.selected) {
+      this.setTransformMode("rotate");
+      // KeyE is also FreeCamera "move down"; mark consumed so switching to
+      // rotate mode doesn't simultaneously sink the camera.
+      e.preventDefault();
+    }
     if (e.code === "KeyR" && !cmd && this.document.selected) this.setTransformMode("scale");
     if (e.code === "KeyG" && !cmd) {
       this.grid.toggleGrid();
@@ -931,23 +942,35 @@ export class EditorManager {
     opacity: number;
   }): void {
     if (!this.document.selected) return;
-    const meshObj = this.document.selected.mesh as THREE.Mesh;
-    if (!meshObj.isMesh || !meshObj.material) return;
+    const root = this.document.selected.mesh;
 
-    const mat = meshObj.material as THREE.MeshStandardMaterial;
-    mat.color.set(material.color);
-    mat.roughness = material.roughness;
-    mat.metalness = material.metalness;
-    mat.emissive.set(material.emissive);
-    mat.emissiveIntensity = material.emissiveIntensity;
-    mat.opacity = material.opacity;
-    // Only trigger shader recompile when transparent flag actually changes
-    // (uniform-only changes like color/roughness auto-sync without needsUpdate)
-    const needsTransparent = material.opacity < 1;
-    if (mat.transparent !== needsTransparent) {
-      mat.transparent = needsTransparent;
-      mat.needsUpdate = true;
-    }
+    const applyToMaterial = (mat: THREE.MeshStandardMaterial): void => {
+      mat.color.set(material.color);
+      mat.roughness = material.roughness;
+      mat.metalness = material.metalness;
+      mat.emissive.set(material.emissive);
+      mat.emissiveIntensity = material.emissiveIntensity;
+      mat.opacity = material.opacity;
+      // Only trigger shader recompile when transparent flag actually changes
+      // (uniform-only changes like color/roughness auto-sync without needsUpdate)
+      const needsTransparent = material.opacity < 1;
+      if (mat.transparent !== needsTransparent) {
+        mat.transparent = needsTransparent;
+        mat.needsUpdate = true;
+      }
+    };
+
+    // GLB objects are Groups: the inspector shows material controls for them
+    // (sourced from the first child material), so apply must traverse too —
+    // otherwise the controls are silent no-ops for GLBs.
+    let applied = false;
+    root.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshStandardMaterial) {
+        applyToMaterial(child.material);
+        applied = true;
+      }
+    });
+    if (!applied) return;
 
     // Update editor object material record
     this.document.selected.material = { ...material };
@@ -1193,6 +1216,10 @@ export class EditorManager {
       },
       undo: () => {
         this.document.addObject(target, parent);
+        // Keep LevelManager tracking in sync with the document, or the
+        // restored object is invisible to level operations (saves, rebuilds,
+        // unload sweeps) while still rendering in the scene.
+        this.levelManager.addLevelObject(target.mesh);
         this.syncHierarchy();
         this.eventBus.emit("editor:objectAdded", { id: target.id });
       },
@@ -1362,6 +1389,16 @@ export class EditorManager {
           normal: bp?.normal?.clone() ?? new THREE.Vector3(0, 1, 0),
           height: bp?.height ?? 1,
         };
+        // Rebuild geometry from the serialized footprint when present —
+        // otherwise saved brushParams are write-only and any future
+        // param-editing feature would silently lose its edits on load.
+        const saved = entry.brushParams;
+        if (saved) {
+          params.current = params.anchor
+            .clone()
+            .add(new THREE.Vector3(saved.width ?? 1, 0, saved.depth ?? 1));
+          params.height = saved.height ?? params.height;
+        }
         const geometry = brush.buildPreviewGeometry(params);
         const material = brush.getDefaultMaterial();
         obj = new THREE.Mesh(geometry, material);
@@ -1439,10 +1476,13 @@ export class EditorManager {
       } else {
         bodyDesc = RAPIER.RigidBodyDesc.dynamic();
       }
+      // Body sits at the mesh pivot with the saved rotation — the same
+      // convention as BrushPlacementTool and applyPhysicsTypeChange. The old
+      // AABB-center placement misaligned colliders for offset-pivot models
+      // and ignored rotation entirely.
       obj.updateMatrixWorld(true);
-      const box = new THREE.Box3().setFromObject(obj);
-      const center = box.getCenter(new THREE.Vector3());
-      bodyDesc.setTranslation(center.x, center.y, center.z);
+      bodyDesc.setTranslation(obj.position.x, obj.position.y, obj.position.z);
+      bodyDesc.setRotation(new RAPIER.Quaternion(obj.quaternion.x, obj.quaternion.y, obj.quaternion.z, obj.quaternion.w));
       const body = this.physicsWorld.world.createRigidBody(bodyDesc);
 
       // Use shape-appropriate collider for brushes, AABB cuboid for others
@@ -1450,13 +1490,35 @@ export class EditorManager {
       const meshObj = obj as THREE.Mesh;
       if (entry.source.type === "brush" && entry.source.brush && meshObj.isMesh && meshObj.geometry) {
         colliderDesc = buildColliderDesc(entry.source.brush, meshObj.geometry, meshObj);
+      } else if (meshObj.isMesh && meshObj.geometry) {
+        // Local-space bounding box scaled, offset to its center so the
+        // collider covers the visual even when the pivot is off-center.
+        meshObj.geometry.computeBoundingBox();
+        const bb = meshObj.geometry.boundingBox ?? new THREE.Box3();
+        const s = obj.scale;
+        colliderDesc = RAPIER.ColliderDesc.cuboid(
+          Math.max(((bb.max.x - bb.min.x) / 2) * s.x, 0.01),
+          Math.max(((bb.max.y - bb.min.y) / 2) * s.y, 0.01),
+          Math.max(((bb.max.z - bb.min.z) / 2) * s.z, 0.01),
+        ).setTranslation(
+          ((bb.max.x + bb.min.x) / 2) * s.x,
+          ((bb.max.y + bb.min.y) / 2) * s.y,
+          ((bb.max.z + bb.min.z) / 2) * s.z,
+        );
       } else {
+        // Group (GLB): approximate with the world AABB expressed in the
+        // body's local frame so rotation doesn't displace the collider.
+        const box = new THREE.Box3().setFromObject(obj);
         const size = box.getSize(new THREE.Vector3());
+        const localOffset = box
+          .getCenter(new THREE.Vector3())
+          .sub(obj.position)
+          .applyQuaternion(obj.quaternion.clone().invert());
         colliderDesc = RAPIER.ColliderDesc.cuboid(
           Math.max(size.x / 2, 0.01),
           Math.max(size.y / 2, 0.01),
           Math.max(size.z / 2, 0.01),
-        );
+        ).setTranslation(localOffset.x, localOffset.y, localOffset.z);
       }
 
       const collider = this.physicsWorld.world.createCollider(colliderDesc, body);

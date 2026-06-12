@@ -292,6 +292,7 @@ export class HierarchyPanel extends EditorPanel {
 
     const row = document.createElement("div");
     row.className = "ke-tree-row" + (isSelected ? " ke-tree-row-selected" : "");
+    row.dataset.objectId = obj.id;
     row.draggable = true;
 
     /* indent */
@@ -486,11 +487,12 @@ export class HierarchyPanel extends EditorPanel {
   /* --- inline rename ---------------------------------------------- */
 
   private startInlineRename(obj: EditorObject): void {
-    // Find the label span for this object in the tree container
+    // Match rows by object id, not label text — duplicate names would put
+    // the rename input on the wrong row.
     const rows = this.treeContainer.querySelectorAll<HTMLDivElement>(".ke-tree-row");
     for (const row of rows) {
       const label = row.querySelector<HTMLSpanElement>(".ke-tree-row-label");
-      if (label && label.textContent === obj.name) {
+      if (label && row.dataset.objectId === obj.id) {
         const input = document.createElement("input");
         input.type = "text";
         input.className = "ke-input";

@@ -23,6 +23,9 @@ export class FreeCamera {
   private readonly panSpeed = 0.004;
 
   private onKeyDown = (e: KeyboardEvent): void => {
+    // The editor's capture-phase handler preventDefault()s keys it consumes
+    // (e.g. KeyE for gizmo rotate mode); don't also treat them as movement.
+    if (e.defaultPrevented) return;
     this.keys.add(e.code);
   };
 

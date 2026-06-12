@@ -513,17 +513,24 @@ export class InspectorPanel extends EditorPanel {
     return svg;
   }
 
+  /** Parse an input as a finite number; `|| 0` alone lets Infinity through
+   *  (e.g. "1e999"), which corrupts transforms downstream. */
+  private parseFinite(input: HTMLInputElement): number {
+    const v = parseFloat(input.value);
+    return Number.isFinite(v) ? v : 0;
+  }
+
   /** Reads 3 number inputs as a tuple. */
   private readVec3(inputs: HTMLInputElement[]): [number, number, number] {
-    return [parseFloat(inputs[0].value) || 0, parseFloat(inputs[1].value) || 0, parseFloat(inputs[2].value) || 0];
+    return [this.parseFinite(inputs[0]), this.parseFinite(inputs[1]), this.parseFinite(inputs[2])];
   }
 
   /** Reads 3 degree inputs and converts to radians. */
   private readVec3Rad(inputs: HTMLInputElement[]): [number, number, number] {
     return [
-      (parseFloat(inputs[0].value) || 0) * DEG2RAD,
-      (parseFloat(inputs[1].value) || 0) * DEG2RAD,
-      (parseFloat(inputs[2].value) || 0) * DEG2RAD,
+      this.parseFinite(inputs[0]) * DEG2RAD,
+      this.parseFinite(inputs[1]) * DEG2RAD,
+      this.parseFinite(inputs[2]) * DEG2RAD,
     ];
   }
 
