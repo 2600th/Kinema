@@ -136,6 +136,7 @@ export class CharacterMotor {
         config.floatingRayLength,
         undefined,
         body,
+        notSensorOrVehicle,
       );
       if (standingNormal) {
         const standAngle = new THREE.Vector3(
@@ -164,6 +165,7 @@ export class CharacterMotor {
           config.slopeRayLength,
           undefined,
           body,
+          notSensorOrVehicle,
         );
         if (n) {
           _actualSlopeNormal.set(n.normal.x, n.normal.y, n.normal.z).normalize();

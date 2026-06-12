@@ -46,6 +46,7 @@ const _throwAimPoint = new THREE.Vector3();
 const _throwDirection = new THREE.Vector3();
 const _carryTargetRot = new THREE.Quaternion();
 const _carryHandRot = new THREE.Quaternion();
+const _carrySocketOffset = new THREE.Vector3();
 const _capsuleBaseColor = new THREE.Color(0x3388ff);
 const _capsuleDamageColor = new THREE.Color(0xff6ea8);
 const _capsuleWorkColor = new THREE.Color();
@@ -96,6 +97,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   private remainingAirJumps = this.config.maxAirJumps;
   private isOnMovingObject = false;
   private floatingDistance = this.config.capsuleRadius + this.config.floatHeight;
+  private unsubs: (() => void)[] = [];
   private standingCapsuleHalfHeight = this.config.capsuleHalfHeight;
   private crouchedCapsuleHalfHeight = Math.max(0.16, this.config.capsuleHalfHeight - this.config.crouchHeightOffset);
   private currentCapsuleHalfHeight = this.config.capsuleHalfHeight;
@@ -211,30 +213,32 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
 
     void this.initCharacter();
 
-    this.eventBus.on("player:dying", () => {
-      if (this.animator) {
-        this.animator.playOneShot(PLAYER_PROFILE.deathClip ?? "Death01");
-      }
-    });
-    this.eventBus.on("player:damaged", ({ reason }) => {
-      this.damagePulse = 1;
-      if (reason === "spike" && this.spikeDamageClipName && this.animator) {
-        this.animator.playOneShot(this.spikeDamageClipName, 0.08);
-      }
-    });
-    this.eventBus.on("player:invulnerabilityChanged", ({ active, reason }) => {
-      this.damageBlinkActive = active && reason === "spike";
-      this.damageBlinkTime = 0;
-      if (!this.damageBlinkActive) {
-        this.applyDamageVisual(this.damagePulse);
-      }
-    });
-    this.eventBus.on("player:respawned", () => {
-      this.damagePulse = 0;
-      this.damageBlinkActive = false;
-      this.damageBlinkTime = 0;
-      this.applyDamageVisual(0);
-    });
+    this.unsubs.push(
+      this.eventBus.on("player:dying", () => {
+        if (this.animator) {
+          this.animator.playOneShot(PLAYER_PROFILE.deathClip ?? "Death01");
+        }
+      }),
+      this.eventBus.on("player:damaged", ({ reason }) => {
+        this.damagePulse = 1;
+        if (reason === "spike" && this.spikeDamageClipName && this.animator) {
+          this.animator.playOneShot(this.spikeDamageClipName, 0.08);
+        }
+      }),
+      this.eventBus.on("player:invulnerabilityChanged", ({ active, reason }) => {
+        this.damageBlinkActive = active && reason === "spike";
+        this.damageBlinkTime = 0;
+        if (!this.damageBlinkActive) {
+          this.applyDamageVisual(this.damagePulse);
+        }
+      }),
+      this.eventBus.on("player:respawned", () => {
+        this.damagePulse = 0;
+        this.damageBlinkActive = false;
+        this.damageBlinkTime = 0;
+        this.applyDamageVisual(0);
+      }),
+    );
 
     const pos = this.body.translation();
     this.currPosition.set(pos.x, pos.y, pos.z);
@@ -793,7 +797,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     // Offset from wrist bone into the palm center and slightly forward of the fingers.
     this.cachedCarrySocketPos
       .copy(_carryHandPos)
-      .add(new THREE.Vector3(0, 0.075, 0.018).applyQuaternion(_carryHandRot));
+      .add(_carrySocketOffset.set(0, 0.075, 0.018).applyQuaternion(_carryHandRot));
     this.cachedCarrySocketRot.copy(_carryHandRot);
     this.hasCarrySocket = true;
   }
@@ -915,6 +919,8 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   }
 
   dispose(): void {
+    for (const unsub of this.unsubs) unsub();
+    this.unsubs.length = 0;
     this.scene.remove(this.mesh);
     this.capsuleMesh.geometry.dispose();
     (this.capsuleMesh.material as THREE.Material).dispose();

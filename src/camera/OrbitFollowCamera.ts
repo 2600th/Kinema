@@ -18,6 +18,7 @@ const _velDir = new THREE.Vector3();
 const _camRight = new THREE.Vector3();
 const _worldUp = new THREE.Vector3(0, 1, 0);
 const _zeroVec = new THREE.Vector3();
+const _notSensor = (c: RAPIER.Collider): boolean => !c.isSensor();
 
 /**
  * Orbit-follow camera with spring arm collision.
@@ -300,6 +301,7 @@ export class OrbitFollowCamera implements Updatable, Disposable {
         heightOffset + 1,
         undefined,
         this.player.body,
+        _notSensor, // trigger volumes above the player are not ceilings
       );
       if (ceilingHit) {
         const ceilingY = targetPos.y + 0.2 + ceilingHit.timeOfImpact;

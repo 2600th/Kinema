@@ -1,5 +1,5 @@
 import { type InputState, STATE } from "@core/types";
-import type { CharacterMode, PlayerContext } from "./CharacterMode";
+import { type CharacterMode, type PlayerContext, restoreStandingCapsule } from "./CharacterMode";
 
 /**
  * Rope locomotion mode — manages state while attached to a rope.
@@ -13,10 +13,8 @@ export class RopeMode implements CharacterMode {
   enter(ctx: PlayerContext): void {
     ctx.jumpBufferRemaining = 0;
     ctx.onLadder = false;
-    // Uncrouch
-    ctx.isCrouched = false;
-    ctx.crouchReleaseGraceRemaining = 0;
-    ctx.floatingDistance = ctx.config.capsuleRadius + ctx.config.floatHeight;
+    // Uncrouch (also restores the standing capsule geometry)
+    restoreStandingCapsule(ctx);
     // Reset air jumps so player can jump off rope
     ctx.remainingAirJumps = ctx.config.maxAirJumps;
     // Ensure rope dynamics are not amplified by carry-over fall gravity

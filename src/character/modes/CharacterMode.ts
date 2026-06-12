@@ -1,6 +1,6 @@
 import type { EventBus } from "@core/EventBus";
 import type { InputState, PlayerConfig } from "@core/types";
-import type * as RAPIER from "@dimforge/rapier3d-compat";
+import RAPIER from "@dimforge/rapier3d-compat";
 import type { PhysicsWorld } from "@physics/PhysicsWorld";
 import type * as THREE from "three";
 import type { CharacterFSM } from "../CharacterFSM";
@@ -67,6 +67,33 @@ export interface PlayerContext {
   computeMovementDirection(input: InputState): THREE.Vector3;
   /** Get last input snapshot (for canStandUp). */
   readonly lastInput: InputState | null;
+}
+
+const _standRV = new RAPIER.Vector3(0, 0, 0);
+
+/**
+ * Force-clear crouch AND restore the standing capsule geometry.
+ * Modes that uncrouch on entry (ladder, rope) must use this instead of just
+ * setting isCrouched = false; otherwise the physics capsule stays at the
+ * crouched half-height while the rest of the game treats the player as
+ * standing (clipping through ledges, corrupt stand-up probes later).
+ */
+export function restoreStandingCapsule(ctx: PlayerContext): void {
+  ctx.isCrouched = false;
+  ctx.crouchReleaseGraceRemaining = 0;
+  ctx.floatingDistance = ctx.config.capsuleRadius + ctx.config.floatHeight;
+  const deltaHalf = ctx.currentCapsuleHalfHeight - ctx.standingCapsuleHalfHeight;
+  if (Math.abs(deltaHalf) <= 0.0001) return;
+  const pos = ctx.body.translation();
+  ctx.currentCapsuleHalfHeight = ctx.standingCapsuleHalfHeight;
+  ctx.collider.setHalfHeight(ctx.standingCapsuleHalfHeight);
+  _standRV.x = pos.x;
+  _standRV.y = pos.y - deltaHalf;
+  _standRV.z = pos.z;
+  ctx.body.setTranslation(_standRV, true);
+  ctx.body.wakeUp();
+  ctx.currPosition.set(pos.x, pos.y - deltaHalf, pos.z);
+  ctx.prevPosition.set(pos.x, pos.y - deltaHalf, pos.z);
 }
 
 /** Interface for pluggable locomotion modes. */

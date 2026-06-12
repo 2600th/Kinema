@@ -1,7 +1,7 @@
 import { type InputState, STATE } from "@core/types";
 import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
-import type { CharacterMode, PlayerContext } from "./CharacterMode";
+import { type CharacterMode, type PlayerContext, restoreStandingCapsule } from "./CharacterMode";
 
 const _ladderProbePoint = new THREE.Vector3();
 const _rv3A = new RAPIER.Vector3(0, 0, 0);
@@ -23,10 +23,8 @@ export class LadderMode implements CharacterMode {
   enter(ctx: PlayerContext): void {
     ctx.fsm.requestState(STATE.climb);
     ctx.onLadder = true;
-    // Uncrouch on ladder
-    ctx.isCrouched = false;
-    ctx.crouchReleaseGraceRemaining = 0;
-    ctx.floatingDistance = ctx.config.capsuleRadius + ctx.config.floatHeight;
+    // Uncrouch on ladder (also restores the standing capsule geometry)
+    restoreStandingCapsule(ctx);
     // Consider grounded for FSM purposes while on ladder
     const wasGrounded = ctx.isGrounded;
     ctx.isGrounded = true;
