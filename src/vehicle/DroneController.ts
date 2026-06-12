@@ -84,6 +84,8 @@ export class DroneController implements VehicleController {
   private readonly rollCooldownDuration = 0.45;
   private rollCooldown = 0;
 
+  private readonly spawnPosition = new THREE.Vector3();
+
   constructor(
     id: string,
     position: THREE.Vector3,
@@ -91,6 +93,7 @@ export class DroneController implements VehicleController {
     private scene: THREE.Scene,
   ) {
     this.id = id;
+    this.spawnPosition.copy(position);
 
     const bodyDesc = RAPIER.RigidBodyDesc.dynamic().setTranslation(position.x, position.y, position.z);
     this.body = this.physicsWorld.world.createRigidBody(bodyDesc);
@@ -202,10 +205,68 @@ export class DroneController implements VehicleController {
         return { position: _exitProbe.clone() };
       }
     }
-    // Fallback
+    // Fallback: all lateral candidates blocked. Probe straight down for
+    // ground so the player isn't dropped from hover altitude (the drone can
+    // hover ~20m up; spawning there means fall damage or death).
     _exitProbe.copy(_droneExitCandidates[0]).applyQuaternion(_quat).add(basePos);
-    _exitProbe.y = basePos.y + capsuleClearance;
+    const fallbackGround = this.physicsWorld.castRay(
+      _setDRV(_drv3A, _exitProbe.x, _exitProbe.y + 2, _exitProbe.z),
+      _setDRV(_drv3B, 0, -1, 0),
+      this.groundRayMax,
+      undefined,
+      this.body,
+      (c) => !c.isSensor(),
+    );
+    _exitProbe.y = fallbackGround
+      ? _exitProbe.y + 2 - fallbackGround.timeOfImpact + capsuleClearance
+      : basePos.y + capsuleClearance;
     return { position: _exitProbe.clone() };
+  }
+
+  /** Restore the drone to its authored spawn if it leaves the playable space.
+   *  Without this, VehicleManager's out-of-bounds recovery silently no-ops
+   *  and a fallen drone (with or without the player) descends forever. */
+  resetToSpawn(): void {
+    const piloted = this.input !== null;
+    this.hoverSpeedIntegral = 0;
+    this.verticalSuppressSeconds = 0;
+    this.rollTimeRemaining = 0;
+    this.rollCooldown = 0;
+    this.actionRoll = 0;
+    this.visualPitch = 0;
+    this.visualRoll = 0;
+    this.hasPose = false;
+
+    this.yaw = piloted && this.controlYaw != null ? this.controlYaw : 0;
+    _yawEuler.set(0, this.yaw, 0);
+    _quat.setFromEuler(_yawEuler);
+    this.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
+    this.body.setTranslation(
+      _setDRV(_drv3A, this.spawnPosition.x, this.spawnPosition.y, this.spawnPosition.z),
+      true,
+    );
+    this.body.setRotation(toRapierQuat(_quat), true);
+    this.body.setLinvel(_setDRV(_drv3A, 0, 0, 0), true);
+    this.body.setAngvel(_setDRV(_drv3B, 0, 0, 0), true);
+    this.body.resetForces(true);
+    this.body.resetTorques(true);
+    this.body.wakeUp();
+
+    if (piloted) {
+      // Re-apply flight configuration (mirrors enter()) so the seated player
+      // keeps control after the teleport.
+      this.body.setGravityScale(0, true);
+      this.setBodyCanSleep(false);
+      const p = this.body.translation();
+      this.hoverTargetY = this.computeDefaultHoverY(p.x, p.y, p.z, true);
+    } else {
+      this.body.setGravityScale(1, true);
+      this.setBodyCanSleep(true);
+      this.hoverTargetY = null;
+    }
+
+    this.mesh.position.copy(this.spawnPosition);
+    this.mesh.quaternion.copy(_quat);
   }
 
   setInput(input: InputState): void {

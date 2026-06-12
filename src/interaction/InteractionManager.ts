@@ -5,6 +5,7 @@ import type { Disposable, FixedUpdatable } from "@core/types";
 import type RAPIER from "@dimforge/rapier3d-compat";
 import { ColliderFactory } from "@physics/ColliderFactory";
 import type { PhysicsWorld } from "@physics/PhysicsWorld";
+import * as THREE from "three";
 import type { IInteractable } from "./Interactable";
 
 /** Key displayed in interaction prompts. Change here to rebind the interact key label. */
@@ -12,6 +13,9 @@ const INTERACT_KEY_LABEL = "F";
 
 const _losOrigin = { x: 0, y: 0, z: 0 } as RAPIER.Vector3;
 const _losDir = { x: 0, y: 0, z: 0 } as RAPIER.Vector3;
+// Reused for the 60Hz holdProgress payload; listeners that retain the
+// position clone it (the payload position is only valid during dispatch).
+const _holdProgressPos = new THREE.Vector3();
 
 interface HoldInteraction {
   id: string;
@@ -56,6 +60,9 @@ export class InteractionManager implements FixedUpdatable, Disposable {
     const interactable = this.interactables.get(id);
     if (interactable) {
       this.interactables.delete(id);
+      // Drop pooled candidate slots so they can't pin the removed
+      // interactable (rare event; the pool rebuilds next tick).
+      this._candidateBuffer.length = 0;
 
       if (this.focusedId === id) {
         interactable.onBlur();
@@ -87,12 +94,14 @@ export class InteractionManager implements FixedUpdatable, Disposable {
     this.updateFocus(this.getClosestVisibleInteractableId(position));
   }
 
-  private _candidateBuffer: Array<{ id: string; interactable: IInteractable; distance: number }> = [];
+  // Pooled candidate slots reused across ticks (this runs at 60Hz); entries
+  // beyond the current tick's count are stale and must not be read.
+  private _candidateBuffer: Array<{ id: string; interactable: IInteractable | null; distance: number }> = [];
 
   private getClosestVisibleInteractableId(position: { x: number; y: number; z: number }): string | null {
     const maxRange = INTERACTION_SENSOR_RADIUS + 0.1;
     const buf = this._candidateBuffer;
-    buf.length = 0;
+    let count = 0;
 
     for (const [id, ia] of this.interactables) {
       const dx = position.x - ia.position.x;
@@ -100,14 +109,33 @@ export class InteractionManager implements FixedUpdatable, Disposable {
       const dz = position.z - ia.position.z;
       const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
       if (distance <= maxRange) {
-        buf.push({ id, interactable: ia, distance });
+        let entry = buf[count];
+        if (!entry) {
+          entry = { id: "", interactable: null, distance: 0 };
+          buf[count] = entry;
+        }
+        entry.id = id;
+        entry.interactable = ia;
+        entry.distance = distance;
+        count++;
       }
     }
 
-    buf.sort((a, b) => a.distance - b.distance);
+    // In-place insertion sort over the live range (count is small) — avoids
+    // Array.prototype.sort over stale pooled slots.
+    for (let i = 1; i < count; i++) {
+      const entry = buf[i];
+      let j = i - 1;
+      while (j >= 0 && buf[j].distance > entry.distance) {
+        buf[j + 1] = buf[j];
+        j--;
+      }
+      buf[j + 1] = entry;
+    }
 
-    for (let i = 0; i < buf.length; i++) {
-      if (this.isLineOfSightClear(position, buf[i].interactable)) {
+    for (let i = 0; i < count; i++) {
+      const ia = buf[i].interactable;
+      if (ia && this.isLineOfSightClear(position, ia)) {
         return buf[i].id;
       }
     }
@@ -238,7 +266,7 @@ export class InteractionManager implements FixedUpdatable, Disposable {
     this.eventBus.emit("interaction:holdProgress", {
       id: this.holdInteraction.id,
       progress,
-      position: target.position.clone(),
+      position: _holdProgressPos.copy(target.position),
     });
     if (this.holdInteraction.elapsed >= this.holdInteraction.duration) {
       this.executeInteraction(target);

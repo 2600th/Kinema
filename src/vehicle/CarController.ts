@@ -1971,6 +1971,10 @@ export class CarController implements VehicleController {
       (collider) => {
         if (collider.isSensor()) return false;
         const parent = collider.parent();
+        // The car's own chassis is not an obstacle; without this exclusion,
+        // candidates overlapping the tilted chassis all read as blocked and
+        // the fallback can place the player inside the car.
+        if (parent && parent.handle === this.body.handle) return false;
         return !(parent && this.wheelQueryExcludedBody && parent.handle === this.wheelQueryExcludedBody.handle);
       },
     );
