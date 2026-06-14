@@ -22,6 +22,8 @@ export class AssetLoader {
   private dracoLoader: DRACOLoader;
   private ktx2Loader: KTX2Loader;
   private cache = new Map<string, GLTF>();
+  private pending = new Map<string, Promise<GLTF>>();
+  private generation = 0;
 
   constructor(renderer?: THREE.WebGLRenderer | WebGPURenderer) {
     this.loader = new GLTFLoader();
@@ -44,10 +46,24 @@ export class AssetLoader {
     const cached = this.cache.get(url);
     if (cached) return { ...cached, scene: skeletonClone(cached.scene) as THREE.Group };
 
-    const gltf = await this.loader.loadAsync(url);
-    this.cache.set(url, gltf);
-    // Return a clone even on first load to protect the cache from mutation
-    return { ...gltf, scene: skeletonClone(gltf.scene) as THREE.Group };
+    let pending = this.pending.get(url);
+    if (!pending) {
+      pending = this.loader.loadAsync(url);
+      this.pending.set(url, pending);
+    }
+    const pendingGeneration = this.generation;
+    try {
+      const gltf = await pending;
+      if (this.generation === pendingGeneration && this.pending.get(url) === pending && !this.cache.has(url)) {
+        this.cache.set(url, gltf);
+      }
+      // Return a clone even on first load to protect the cache from mutation
+      return { ...gltf, scene: skeletonClone(gltf.scene) as THREE.Group };
+    } finally {
+      if (this.pending.get(url) === pending) {
+        this.pending.delete(url);
+      }
+    }
   }
 
   /** Register a pre-loaded GLTF under a canonical path so it can be retrieved by load(). */
@@ -57,6 +73,8 @@ export class AssetLoader {
 
   /** Clear a specific entry from the cache, disposing GPU resources. */
   evict(url: string): void {
+    this.generation++;
+    this.pending.delete(url);
     const gltf = this.cache.get(url);
     if (gltf) {
       gltf.scene.traverse((child) => {
@@ -80,6 +98,7 @@ export class AssetLoader {
 
   /** Clear all cached assets, disposing GPU resources. */
   clearAll(): void {
+    this.generation++;
     for (const gltf of this.cache.values()) {
       gltf.scene.traverse((child) => {
         if (child instanceof THREE.Mesh) {
@@ -98,6 +117,7 @@ export class AssetLoader {
       });
     }
     this.cache.clear();
+    this.pending.clear();
   }
 
   /** Configure KTX2 transcoder with the active renderer for optimal format selection. */

@@ -180,10 +180,12 @@ export class RendererManager implements Disposable {
       this.pipelineRebuildNeeded = false;
       this.initializeFallbackEnvironment();
     } else {
+      const fallbackRenderer = this.renderer as THREE.WebGLRenderer;
+      let bootstrapRenderer: WebGPURenderer | null = null;
       try {
         this.tslRuntime = await loadTslRuntime();
 
-        const bootstrapRenderer = await createWebGpuRenderer({
+        bootstrapRenderer = await createWebGpuRenderer({
           forceWebGL: this.forceWebGL,
           profile: this.graphicsProfile,
           shadowsEnabled: this.shadowsEnabled,
@@ -206,17 +208,21 @@ export class RendererManager implements Disposable {
         this.scene.backgroundIntensity = 1.0;
         this.scene.backgroundBlurriness = 0.15;
 
-        const fallbackRenderer = this.renderer as THREE.WebGLRenderer;
-        fallbackRenderer.dispose();
-
         (this as { renderer: THREE.WebGLRenderer | WebGPURenderer }).renderer = bootstrapRenderer;
         this.isWebGPUPipeline = true;
 
         this.pipelineRebuildNeeded = true;
         this.applyQualitySettings();
+        fallbackRenderer.dispose();
         console.log("[RendererManager] WebGPU + TSL pipeline initialized");
       } catch (e) {
         console.warn("[RendererManager] WebGPU/TSL not available, using WebGL only:", e);
+        if (bootstrapRenderer) {
+          if (this.renderer === bootstrapRenderer) {
+            (this as { renderer: THREE.WebGLRenderer | WebGPURenderer }).renderer = fallbackRenderer;
+          }
+          bootstrapRenderer.dispose();
+        }
         this.isWebGPUPipeline = false;
         this.tslRuntime = null;
         this.currentPipelineDescriptor = null;

@@ -6,9 +6,6 @@ test("pause overlay click returns focus to gameplay and restores pointer lock", 
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.locator("canvas").waitFor({ state: "visible", timeout: 15_000 });
   await page.waitForFunction(() => Boolean((window as any).__KINEMA__), undefined, { timeout: 60_000 });
-  await page.getByRole("button", { name: "Play" }).click();
-  await page.waitForFunction(() => !document.querySelector(".loading-screen"), undefined, { timeout: 120_000 });
-  await page.waitForTimeout(2_000);
   await page.evaluate(() => {
     const canvas = document.querySelector("canvas");
     if (!canvas) return;
@@ -20,7 +17,7 @@ test("pause overlay click returns focus to gameplay and restores pointer lock", 
         options: args[0] ?? null,
       });
       try {
-        const result = original(...args);
+        const result = original(args[0] as PointerLockOptions | undefined);
         if (result && typeof (result as Promise<void>).then === "function") {
           (result as Promise<void>)
             .then(() => {
@@ -37,6 +34,9 @@ test("pause overlay click returns focus to gameplay and restores pointer lock", 
       }
     }) as typeof canvas.requestPointerLock;
   });
+  await page.getByRole("button", { name: "Play" }).click();
+  await page.waitForFunction(() => !document.querySelector(".loading-screen"), undefined, { timeout: 120_000 });
+  await page.waitForTimeout(2_000);
 
   await page.mouse.click(960, 540);
   await page.waitForTimeout(1_000);

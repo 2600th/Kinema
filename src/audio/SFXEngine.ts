@@ -41,6 +41,8 @@ export class SFXEngine {
   // Loading ambient sound
   private loadingOsc: Tone.Oscillator | null = null;
   private loadingLfo: Tone.LFO | null = null;
+  private pendingTimeouts = new Map<ReturnType<typeof setTimeout>, () => void>();
+  private disposed = false;
 
   // Engine sustained sound (car)
   private engineOsc: Tone.Oscillator | null = null;
@@ -157,6 +159,31 @@ export class SFXEngine {
   }
 
   // ── Gameplay SFX ────────────────────────────────────────────
+
+  private defer(callback: () => void, delayMs: number): void {
+    if (this.disposed) {
+      callback();
+      return;
+    }
+    const id = setTimeout(() => {
+      const deferred = this.pendingTimeouts.get(id);
+      if (!deferred) return;
+      this.pendingTimeouts.delete(id);
+      deferred();
+    }, delayMs);
+    this.pendingTimeouts.set(id, callback);
+  }
+
+  private flushDeferredTimeouts(): void {
+    const callbacks = [...this.pendingTimeouts.values()];
+    for (const id of this.pendingTimeouts.keys()) {
+      clearTimeout(id);
+    }
+    this.pendingTimeouts.clear();
+    for (const callback of callbacks) {
+      callback();
+    }
+  }
 
   jump(): void {
     // Triangle sweep 300 -> 900Hz over 100ms + noise pop (brighter, bouncier)
@@ -281,7 +308,7 @@ export class SFXEngine {
     this.polySynth.triggerAttackRelease("C5", 0.08, now);
     this.polySynth.triggerAttackRelease("E5", 0.08, now + 0.06);
     this.polySynth.triggerAttackRelease("G5", 0.08, now + 0.12);
-    setTimeout(() => {
+    this.defer(() => {
       this.delay.wet.value = 0;
       this.polySynth.set({ detune: 0 });
     }, 600);
@@ -306,7 +333,7 @@ export class SFXEngine {
     fm.triggerAttackRelease("E5", 0.1, now + 0.08);
     fm.triggerAttackRelease("G5", 0.1, now + 0.16);
     fm.triggerAttackRelease("C6", 0.15, now + 0.24);
-    setTimeout(() => {
+    this.defer(() => {
       fm.dispose();
       chorus.dispose();
       this.delay.wet.value = 0;
@@ -333,7 +360,7 @@ export class SFXEngine {
 
     this.sparkleSynth.volume.value = -12;
     this.sparkleSynth.triggerAttackRelease(baseFreq * 2.4, 0.16, sparkleNow + 0.02);
-    setTimeout(() => {
+    this.defer(() => {
       this.delay.wet.value = 0;
     }, 250);
   }
@@ -382,7 +409,7 @@ export class SFXEngine {
       volume: -16,
     }).connect(this.output);
     shimmer.triggerAttackRelease("C7", 0.5, now + 0.1);
-    setTimeout(() => {
+    this.defer(() => {
       shimmer.dispose();
       this.delay.wet.value = 0;
       this.polySynth.set({
@@ -404,7 +431,7 @@ export class SFXEngine {
     this.polySynth.triggerAttackRelease("E5", 0.12, now + 0.08);
     this.polySynth.triggerAttackRelease("G5", 0.12, now + 0.16);
     this.polySynth.triggerAttackRelease("C6", 0.18, now + 0.24);
-    setTimeout(() => {
+    this.defer(() => {
       this.delay.wet.value = 0;
     }, 800);
   }
@@ -487,7 +514,7 @@ export class SFXEngine {
     }).connect(this.effectsBus);
     s.triggerAttackRelease("E4", 0.06, now);
     s.triggerAttackRelease("C4", 0.06, now + 0.06);
-    setTimeout(() => s.dispose(), 300);
+    this.defer(() => s.dispose(), 300);
   }
 
   /** Percussive thud for dropping objects */
@@ -502,7 +529,7 @@ export class SFXEngine {
       volume: -14,
     }).connect(this.output);
     mem.triggerAttackRelease("C2", 0.06, now);
-    setTimeout(() => mem.dispose(), 200);
+    this.defer(() => mem.dispose(), 200);
   }
 
   /** Descending sine for releasing a grab (A5→F5) */
@@ -543,7 +570,7 @@ export class SFXEngine {
       volume: -14,
     }).connect(this.output);
     chime.triggerAttackRelease("C6", 0.05, now + 0.12);
-    setTimeout(() => {
+    this.defer(() => {
       noise.dispose();
       filter.dispose();
       chime.dispose();
@@ -573,7 +600,7 @@ export class SFXEngine {
       volume: -14,
     }).connect(this.output);
     thud.triggerAttackRelease("G3", 0.08, now + 0.15);
-    setTimeout(() => {
+    this.defer(() => {
       noise.dispose();
       filter.dispose();
       thud.dispose();
@@ -618,7 +645,7 @@ export class SFXEngine {
     this.droneNoiseGain = null;
     this.droneNoiseFilter = null;
     this.droneGain = null;
-    setTimeout(() => {
+    this.defer(() => {
       osc?.stop();
       osc?.dispose();
       noise?.stop();
@@ -642,7 +669,7 @@ export class SFXEngine {
       volume: -22,
     }).connect(filter);
     noise.triggerAttackRelease("64n", now);
-    setTimeout(() => {
+    this.defer(() => {
       noise.dispose();
       filter.dispose();
     }, 150);
@@ -659,7 +686,7 @@ export class SFXEngine {
       volume: -22,
     }).connect(filter);
     noise.triggerAttackRelease("64n", now);
-    setTimeout(() => {
+    this.defer(() => {
       noise.dispose();
       filter.dispose();
     }, 150);
@@ -692,7 +719,7 @@ export class SFXEngine {
     this.slideNoise = null;
     this.slideFilter = null;
     this.slideGain = null;
-    setTimeout(() => {
+    this.defer(() => {
       noise?.stop();
       noise?.dispose();
       filter?.dispose();
@@ -715,7 +742,7 @@ export class SFXEngine {
     filter.frequency.setValueAtTime(200, now);
     filter.frequency.exponentialRampToValueAtTime(2000, now + 0.2);
     noise.triggerAttackRelease("8n", now);
-    setTimeout(() => {
+    this.defer(() => {
       noise.dispose();
       filter.dispose();
     }, 500);
@@ -734,7 +761,7 @@ export class SFXEngine {
     filter.frequency.setValueAtTime(2000, now);
     filter.frequency.exponentialRampToValueAtTime(200, now + 0.2);
     noise.triggerAttackRelease("8n", now);
-    setTimeout(() => {
+    this.defer(() => {
       noise.dispose();
       filter.dispose();
     }, 500);
@@ -750,7 +777,7 @@ export class SFXEngine {
       volume: -18,
     }).connect(this.output);
     s.triggerAttackRelease(1000, 0.02, now);
-    setTimeout(() => s.dispose(), 150);
+    this.defer(() => s.dispose(), 150);
   }
 
   uiHover(): void {
@@ -763,7 +790,7 @@ export class SFXEngine {
       volume: -26,
     }).connect(this.output);
     s.triggerAttackRelease(3000, 0.01, now);
-    setTimeout(() => s.dispose(), 100);
+    this.defer(() => s.dispose(), 100);
   }
 
   // ── Death / Respawn SFX ──────────────────────────────────
@@ -807,7 +834,7 @@ export class SFXEngine {
       const idx = Math.floor(i / 2);
       s.triggerAttackRelease(notes[i], step * 0.8, now + idx * step);
     }
-    setTimeout(() => s.dispose(), 800);
+    this.defer(() => s.dispose(), 800);
   }
 
   /** Filtered noise burst with long reverb tail for death midpoint */
@@ -821,7 +848,7 @@ export class SFXEngine {
       volume: -16,
     }).connect(rev);
     noise.triggerAttackRelease("16n", now);
-    setTimeout(() => {
+    this.defer(() => {
       noise.dispose();
       rev.dispose();
     }, 1500);
@@ -841,7 +868,7 @@ export class SFXEngine {
     this.polySynth.triggerAttackRelease("E5", 0.1, now + 0.06);
     this.polySynth.triggerAttackRelease("G5", 0.1, now + 0.12);
     this.polySynth.triggerAttackRelease("C6", 0.15, now + 0.18);
-    setTimeout(() => {
+    this.defer(() => {
       this.delay.wet.value = 0;
     }, 600);
   }
@@ -877,7 +904,7 @@ export class SFXEngine {
     const lfo = this.loadingLfo;
     this.loadingOsc = null;
     this.loadingLfo = null;
-    setTimeout(() => {
+    this.defer(() => {
       osc.stop();
       osc.dispose();
       lfo?.stop();
@@ -962,7 +989,7 @@ export class SFXEngine {
     this.engineSkidNoise = null;
     this.engineSkidFilter = null;
     this.engineSkidGain = null;
-    setTimeout(() => {
+    this.defer(() => {
       osc?.stop();
       osc?.dispose();
       sub?.stop();
@@ -983,10 +1010,12 @@ export class SFXEngine {
   // ── Lifecycle ─────────────────────────────────────────────
 
   dispose(): void {
+    this.disposed = true;
     this.loadingAmbientStop();
     this.stopEngine();
     this.droneRotorStop();
     this.slopeSlideStop();
+    this.flushDeferredTimeouts();
     this.toneSynth.dispose();
     this.noiseSynth.dispose();
     this.polySynth.dispose();

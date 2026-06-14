@@ -492,14 +492,21 @@ export class InputManager implements Disposable {
     const hasTouchEvents = "ontouchstart" in window;
     const maxTouchPoints = typeof navigator?.maxTouchPoints === "number" ? navigator.maxTouchPoints : 0;
     let hasCoarsePointer = false;
+    let hasFinePointer = false;
     if (typeof matchMedia === "function") {
       try {
         hasCoarsePointer = matchMedia("(any-pointer: coarse)").matches;
       } catch {
         hasCoarsePointer = false;
       }
+      try {
+        hasFinePointer = matchMedia("(any-pointer: fine)").matches;
+      } catch {
+        hasFinePointer = false;
+      }
     }
-    return hasTouchEvents || maxTouchPoints > 0 || hasCoarsePointer || this.isMobileUserAgent();
+    if (maxTouchPoints > 0 || hasCoarsePointer || this.isMobileUserAgent()) return true;
+    return hasTouchEvents && !hasFinePointer;
   }
 
   dispose(): void {

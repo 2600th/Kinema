@@ -49,6 +49,11 @@ export class NavAgent {
       const { model, animator } = await createAnimatedCharacter(NPC_PROFILE, this.mesh, loader, {
         tint: this.tintColor,
       });
+      if (this.disposed) {
+        animator.dispose();
+        model.dispose();
+        return;
+      }
       this.characterModel = model;
       this.animator = animator;
       this.capsuleMesh.visible = false;

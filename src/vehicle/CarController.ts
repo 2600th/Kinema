@@ -1319,8 +1319,13 @@ export class CarController implements VehicleController {
       totalSuspensionForce += this.wheelSuspensionForces[i];
 
       const contactNormal = this.vehicleController.wheelContactNormal(i);
-      this.wheelContactNormalY[i] = contactNormal?.y ?? 0;
-      if (isCarWheelSupportingContact(contact, contactNormal?.y ?? 0, this.wheelSuspensionForces[i])) {
+      const contactNormalY = contactNormal?.y ?? 0;
+      this.wheelContactNormalY[i] = contactNormalY;
+      const compressedSupport =
+        contact &&
+        contactNormalY >= CAR_TUNING.supportMinNormalY &&
+        resolvedLength < this.rideGeometry.suspensionRestLength - 0.002;
+      if (isCarWheelSupportingContact(contact, contactNormalY, this.wheelSuspensionForces[i]) || compressedSupport) {
         groundedCount++;
         if (i < 2) {
           frontGroundedCount++;
@@ -1346,8 +1351,11 @@ export class CarController implements VehicleController {
     const avgWheelCompression = avgCompression / this.wheelVisualBaseCenters.length;
     this.averageSuspensionCompression = avgWheelCompression;
     this.averageSuspensionForce = totalSuspensionForce / this.wheelVisualBaseCenters.length;
-    this.groundedTraction =
+    const forceTraction =
       groundedCount > 0 ? THREE.MathUtils.clamp(totalSuspensionForce / Math.max(1, this.body.mass() * 9.81), 0, 1) : 0;
+    const supportTraction = groundedCount >= 3 ? 1 : groundedCount >= 2 ? 0.5 : groundedCount > 0 ? 0.25 : 0;
+    this.groundedTraction =
+      groundedCount > 0 ? THREE.MathUtils.clamp(Math.max(forceTraction, supportTraction), 0, 1) : 0;
     this.suspensionOffset = THREE.MathUtils.damp(this.suspensionOffset, avgWheelCompression * 0.06, 12, dt);
     this.updateArcadeMotionState();
   }
@@ -1596,6 +1604,8 @@ export class CarController implements VehicleController {
       Math.abs(moveX) > 0.35 &&
       this.forwardSpeed > 2 &&
       this.groundedWheelCount >= 2 &&
+      this.frontGroundedWheelCount > 0 &&
+      this.rearGroundedWheelCount > 0 &&
       (!yawAgreement || (Math.abs(yawRate) < 0.18 && Math.abs(this.lateralSpeed) < 0.3));
 
     const sample: CarSteeringDebugSample = {
@@ -1921,6 +1931,10 @@ export class CarController implements VehicleController {
       this.averageGroundNormal.set(0, 1, 0);
       this.suspensionOffset = 0;
     }
+    const avgWheelCompression = avgCompression / this.wheelVisuals.length;
+    this.averageSuspensionCompression = avgWheelCompression;
+    this.averageSuspensionForce = groundedCount > 0 ? (this.body.mass() * 9.81 * groundedCount) / 4 : 0;
+    this.groundedTraction = groundedCount > 0 ? THREE.MathUtils.clamp(groundedCount / 4, 0, 1) : 0;
     this.updateArcadeMotionState();
     this.syncVisualPoseImmediate();
   }

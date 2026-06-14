@@ -281,4 +281,24 @@ describe("InputManager", () => {
 
     manager.dispose();
   });
+
+  it("does not enable touch controls on fine-pointer desktops that expose touch event properties", () => {
+    Object.defineProperty(windowTarget, "ontouchstart", {
+      value: null,
+      configurable: true,
+    });
+    Object.defineProperty(globalThis, "matchMedia", {
+      value: vi.fn((query: string) => ({
+        matches: query === "(any-pointer: fine)",
+      })),
+      configurable: true,
+      writable: true,
+    });
+
+    const manager = new InputManager(new EventBus(), asCanvas(canvasTarget));
+
+    expect(manager.supportsTouchControls).toBe(false);
+
+    manager.dispose();
+  });
 });

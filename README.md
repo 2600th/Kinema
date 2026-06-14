@@ -118,6 +118,7 @@ Append these to your local dev URL when you want a faster repro:
 | `/?station=vfx` | Isolate rendering and particle-heavy content |
 | `/?spawn=overviewMid` | Load the procedural showcase from a review spawn |
 | `/?forceWebGL=1` | Force the compatibility renderer |
+| `/?forceWebGPUWebGL=1` | Force the WebGPURenderer WebGL backend |
 | `/?experimentalRenderer=1` | Opt Safari into the experimental renderer for debugging |
 
 ### Dev-only debug surface

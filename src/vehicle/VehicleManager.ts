@@ -128,17 +128,8 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
   clear(): void {
     // If the player is seated, restore ownership before disposing vehicles.
     if (this.active) {
-      this.eventBus.emit("vehicle:engineStop", undefined);
-      this.eventBus.emit("vehicle:handlingUpdate", null);
-      this.camera.setChaseMode(false);
-      this.camera.setVehicleSpeedRatio(0);
-      this.camera.setVehicleHandlingFeel(null);
-      this.camera.resetTarget();
-      this.camera.resetCameraConfig();
-      this.player.setEnabled(true);
-      this.player.setActive(true);
-      this.interactionManager.setEnabled(true);
-      this.active = null;
+      this.exitVehicle(this.active);
+      this.exitCooldown = 0;
     }
     for (const vehicle of this.vehicles.values()) {
       vehicle.dispose();

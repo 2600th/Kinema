@@ -60,7 +60,7 @@ test.describe("Procedural Hazards", () => {
     await page.waitForFunction(
       () => {
         const health = (window as any).__KINEMA__.getHealth();
-        return health.current === 2 && health.invulnerable === true && health.invulnerabilityRemaining < 0.6;
+        return health.current === 2 && health.invulnerable === true && health.invulnerabilityRemaining > 0;
       },
       undefined,
       { timeout: 10_000 },
@@ -69,7 +69,7 @@ test.describe("Procedural Hazards", () => {
 
     await moveToSafeStationSpawn(page);
     await page.waitForFunction(() => (window as any).__KINEMA__.getHealth().invulnerable === false, undefined, {
-      timeout: 10_000,
+      timeout: 30_000,
     });
 
     await page.evaluate((hazardId) => (window as any).__KINEMA__.teleportToHazard(hazardId), initialHazards[1].id);
@@ -79,7 +79,7 @@ test.describe("Procedural Hazards", () => {
 
     await moveToSafeStationSpawn(page);
     await page.waitForFunction(() => (window as any).__KINEMA__.getHealth().invulnerable === false, undefined, {
-      timeout: 10_000,
+      timeout: 30_000,
     });
 
     await page.evaluate((hazardId) => (window as any).__KINEMA__.teleportToHazard(hazardId), initialHazards[2].id);

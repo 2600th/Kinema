@@ -160,6 +160,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   private damageBlinkActive = false;
   private damageBlinkTime = 0;
   private spikeDamageClipName: string | null = null;
+  private disposed = false;
 
   constructor(
     private physicsWorld: PhysicsWorld,
@@ -250,6 +251,11 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       const { model, animator } = await createAnimatedCharacter(PLAYER_PROFILE, this.mesh, this.assetLoader, {
         heroFinish: true,
       });
+      if (this.disposed) {
+        animator.dispose();
+        model.dispose();
+        return;
+      }
       this.characterModel = model;
       this.animator = animator;
       this.spikeDamageClipName =
@@ -919,6 +925,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   }
 
   dispose(): void {
+    this.disposed = true;
     for (const unsub of this.unsubs) unsub();
     this.unsubs.length = 0;
     this.scene.remove(this.mesh);

@@ -4,7 +4,7 @@ import type { GameLoop } from "@core/GameLoop";
 import RAPIER from "@dimforge/rapier3d-compat";
 import { exitPointerLockIfSupported } from "@input/pointerLock";
 import type { InteractionManager } from "@interaction/InteractionManager";
-import type { LevelManager } from "@level/LevelManager";
+import type { AddLevelObjectOptions, LevelManager, RemovedLevelObjectTracking } from "@level/LevelManager";
 import { LevelSaveStore } from "@level/LevelSaveStore";
 import type { PhysicsWorld } from "@physics/PhysicsWorld";
 import type { RendererManager } from "@renderer/RendererManager";
@@ -138,13 +138,16 @@ export class EditorManager {
       onGroup: (ids) => {
         const groupObj = this.document.groupObjects(ids);
         if (groupObj) {
+          this.levelManager.addLevelObject(groupObj.mesh, this.createLevelObjectTracking(groupObj));
           this.syncHierarchy();
           this.setSelection(groupObj);
         }
       },
       onUngroup: (groupId) => {
         const wasSelected = this.document.selected;
-        if (this.document.ungroupObject(groupId)) {
+        const groupObj = this.document.findById(groupId);
+        if (groupObj && this.document.ungroupObject(groupId)) {
+          this.levelManager.removeLevelObject(groupObj.mesh);
           if (wasSelected && wasSelected.id === groupId) this.setSelection(null);
           this.syncHierarchy();
         }
@@ -292,16 +295,53 @@ export class EditorManager {
       editorObjects: this.document.objects,
       selected: this.document.selected,
       setSelection: (obj) => this.setSelection(obj),
-      addEditorObject: (obj, parent) => this.document.addObject(obj, parent),
+      addEditorObject: (obj, parent) => this.addTrackedEditorObject(obj, parent),
       removeEditorObject: (id) => {
         const obj = this.document.findById(id);
-        if (obj) this.document.removeObject(obj);
+        if (obj) this.removeTrackedEditorObject(obj);
       },
       syncHierarchy: () => this.syncHierarchy(),
       syncInspector: () => {
         if (this.document.selected) this.inspectorPanel.setSelection(this.document.selected);
       },
     };
+  }
+
+  private createLevelObjectTracking(obj: EditorObject): AddLevelObjectOptions {
+    const tracking: AddLevelObjectOptions = {};
+    if (obj.body || obj.collider) {
+      tracking.physics = { body: obj.body, collider: obj.collider };
+    } else {
+      tracking.physics = this.levelManager.getLevelObjectTracking(obj.mesh).physics;
+    }
+    if (obj.physicsType === "dynamic" && obj.body) {
+      obj.mesh.updateWorldMatrix(true, false);
+      const worldPos = obj.mesh.getWorldPosition(new THREE.Vector3());
+      const worldQuat = obj.mesh.getWorldQuaternion(new THREE.Quaternion());
+      tracking.dynamicBody = {
+        mesh: obj.mesh,
+        body: obj.body,
+        prevPos: worldPos.clone(),
+        currPos: worldPos.clone(),
+        prevQuat: worldQuat.clone(),
+        currQuat: worldQuat.clone(),
+        hasPose: false,
+      };
+    }
+    return tracking;
+  }
+
+  private addTrackedEditorObject(obj: EditorObject, parent?: THREE.Object3D): void {
+    this.document.addObject(obj, parent);
+    this.levelManager.addLevelObject(obj.mesh, this.createLevelObjectTracking(obj));
+  }
+
+  private removeTrackedEditorObject(obj: EditorObject): RemovedLevelObjectTracking {
+    const tracking = this.levelManager.removeLevelObject(obj.mesh);
+    tracking.physics?.body?.setEnabled(false);
+    tracking.physics?.collider?.setEnabled(false);
+    this.document.removeObject(obj);
+    return tracking;
   }
 
   private switchTool(toolId: string): void {
@@ -780,6 +820,10 @@ export class EditorManager {
 
   private buildEditorObject(mesh: THREE.Object3D): EditorObject {
     const source = this.detectSource(mesh);
+    const tracking = this.levelManager.getLevelObjectTracking(mesh);
+    const body = tracking.physics?.body;
+    const collider = tracking.physics?.collider;
+    const physicsType = body?.isDynamic() ? "dynamic" : body?.isKinematic() ? "kinematic" : "static";
     const transform = {
       position: [mesh.position.x, mesh.position.y, mesh.position.z] as [number, number, number],
       rotation: [mesh.rotation.x, mesh.rotation.y, mesh.rotation.z] as [number, number, number],
@@ -826,7 +870,9 @@ export class EditorManager {
       visible: mesh.visible,
       locked: false,
       material,
-      physicsType: "static",
+      physicsType,
+      body,
+      collider,
     };
   }
 
@@ -916,12 +962,12 @@ export class EditorManager {
 
     this.history.push({
       execute: () => {
-        this.document.addObject(newObj, this.renderer.scene);
+        this.addTrackedEditorObject(newObj, this.renderer.scene);
         this.syncHierarchy();
         this.eventBus.emit("editor:objectAdded", { id: newObj.id });
       },
       undo: () => {
-        this.document.removeObject(newObj);
+        this.removeTrackedEditorObject(newObj);
         this.syncHierarchy();
         this.eventBus.emit("editor:objectRemoved", { id: newObj.id });
       },
@@ -985,7 +1031,12 @@ export class EditorManager {
     if (!obj) return;
 
     // Remove old body/collider
-    if (obj.body) {
+    const wasLevelTracked = this.levelManager.getLevelObjects().includes(obj.mesh);
+    if (wasLevelTracked) {
+      this.levelManager.removeLevelObject(obj.mesh, { removePhysics: true });
+      obj.body = undefined;
+      obj.collider = undefined;
+    } else if (obj.body) {
       this.physicsWorld.removeBody(obj.body);
       obj.body = undefined;
       obj.collider = undefined;
@@ -1029,6 +1080,9 @@ export class EditorManager {
     obj.body = body;
     obj.collider = collider;
     obj.physicsType = type;
+    if (wasLevelTracked) {
+      this.levelManager.addLevelObject(obj.mesh, this.createLevelObjectTracking(obj));
+    }
   }
 
   /* ==================================================================
@@ -1182,6 +1236,9 @@ export class EditorManager {
           );
         }
         obj.collider = this.physicsWorld.world.createCollider(colliderDesc, obj.body);
+        if (this.levelManager.getLevelObjects().includes(obj.mesh)) {
+          this.levelManager.updateLevelObjectPhysics(obj.mesh, { body: obj.body, collider: obj.collider });
+        }
       }
     }
   }
@@ -1206,10 +1263,10 @@ export class EditorManager {
     if (!this.document.selected) return;
     const target = this.document.selected;
     const parent = target.mesh.parent ?? this.renderer.scene;
+    let removedTracking: RemovedLevelObjectTracking | undefined;
     this.history.push({
       execute: () => {
-        this.document.removeObject(target);
-        this.levelManager.removeLevelObject(target.mesh);
+        removedTracking = this.removeTrackedEditorObject(target);
         this.setSelection(null);
         this.syncHierarchy();
         this.eventBus.emit("editor:objectRemoved", { id: target.id });
@@ -1219,7 +1276,7 @@ export class EditorManager {
         // Keep LevelManager tracking in sync with the document, or the
         // restored object is invisible to level operations (saves, rebuilds,
         // unload sweeps) while still rendering in the scene.
-        this.levelManager.addLevelObject(target.mesh);
+        this.levelManager.addLevelObject(target.mesh, removedTracking);
         this.syncHierarchy();
         this.eventBus.emit("editor:objectAdded", { id: target.id });
       },
@@ -1294,32 +1351,39 @@ export class EditorManager {
   }
 
   private async applyLoadedLevel(data: LevelData): Promise<void> {
-    // ── Phase 1: Remove ALL tracked editor objects ──
+    const levelTrackedMeshes = new Set(this.levelManager.getLevelObjects());
+    this.levelManager.unload();
+
+    // Phase 1: remove editor document objects not already owned by LevelManager.
     for (const obj of this.document.objects) {
       if (obj.mesh.parent) {
         obj.mesh.parent.remove(obj.mesh);
       }
-      if (obj.body) {
+      if (!levelTrackedMeshes.has(obj.mesh) && obj.body) {
         this.physicsWorld.removeBody(obj.body);
         obj.body = undefined;
         obj.collider = undefined;
-      } else if (obj.collider) {
+      } else if (!levelTrackedMeshes.has(obj.mesh) && obj.collider) {
         this.physicsWorld.removeCollider(obj.collider);
+        obj.collider = undefined;
+      }
+      if (levelTrackedMeshes.has(obj.mesh)) {
+        obj.body = undefined;
         obj.collider = undefined;
       }
     }
     this.document.objects = [];
 
-    // ── Phase 2: Remove any remaining level-loaded objects from the scene ──
+    // Phase 2: remove any remaining level-loaded objects from the scene.
     // These are meshes that were loaded by LevelManager.loadFromJSON but are
     // NOT tracked in document.objects (e.g., after levelManager arrays were
     // already cleared by a previous restore).
     for (const mesh of [...this.levelManager.getLevelObjects()]) {
       this.renderer.scene.remove(mesh);
-      this.levelManager.removeLevelObject(mesh);
+      this.levelManager.removeLevelObject(mesh, { removePhysics: true });
     }
 
-    // ── Phase 3: Remove any orphaned editor objects from scene ──
+    // Phase 3: remove any orphaned editor objects from scene.
     // Safety sweep: catches GLB Groups, Meshes, or any Object3D tagged with
     // editorSource that survived previous restores. Only collect roots (objects
     // whose parent is NOT also tagged) to avoid removing children twice.
@@ -1527,6 +1591,6 @@ export class EditorManager {
       editorObj.physicsType = entry.physics.type as "static" | "dynamic" | "kinematic";
     }
 
-    this.document.addObject(editorObj, this.renderer.scene);
+    this.addTrackedEditorObject(editorObj, this.renderer.scene);
   }
 }

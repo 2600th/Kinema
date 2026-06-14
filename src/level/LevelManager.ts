@@ -78,6 +78,28 @@ type SpawnedJsonObject = {
   isEditorGizmo: boolean;
 };
 
+type LevelObjectPhysics = {
+  body?: RAPIER.RigidBody;
+  collider?: RAPIER.Collider;
+};
+
+const LEVEL_OBJECT_PHYSICS_USER_DATA = "__kinemaLevelObjectPhysics";
+
+type LevelObjectPhysicsUserData = THREE.Object3D["userData"] & {
+  [LEVEL_OBJECT_PHYSICS_USER_DATA]?: LevelObjectPhysics;
+};
+
+export type RemovedLevelObjectTracking = {
+  dynamicBody?: DynamicBodyEntry;
+  physics?: LevelObjectPhysics;
+};
+
+export type AddLevelObjectOptions = RemovedLevelObjectTracking;
+
+export type RemoveLevelObjectOptions = {
+  removePhysics?: boolean;
+};
+
 /**
  * Manages level loading, scene traversal, collider creation, and cleanup.
  */
@@ -93,6 +115,7 @@ export class LevelManager implements Disposable {
   private vfxUpdateCallbacks: Array<(dt: number) => void> = [];
   private levelColliders: RAPIER.Collider[] = [];
   private levelBodies: RAPIER.RigidBody[] = [];
+  private objectPhysics = new Map<THREE.Object3D, LevelObjectPhysics>();
   /** Per-object imported GLB asset paths loaded during JSON import. */
   private importedAssetPaths = new Set<string>();
   private spawnPoint: SpawnPointData = createDefaultSpawnPoint();
@@ -148,18 +171,99 @@ export class LevelManager implements Disposable {
     return this.levelObjects;
   }
 
-  /** Remove a single level object from tracking arrays.
-   *  Physics body/collider should be cleaned up by the caller (EditorDocument). */
-  removeLevelObject(mesh: THREE.Object3D): void {
+  /** Remove a single level object from tracking arrays. */
+  removeLevelObject(mesh: THREE.Object3D, options: RemoveLevelObjectOptions = {}): RemovedLevelObjectTracking {
+    const { dynamicBody, physics } = this.getLevelObjectTracking(mesh);
     this.levelObjects = this.levelObjects.filter((o) => o !== mesh);
     this.dynamicBodies = this.dynamicBodies.filter((d) => (d as { mesh: THREE.Object3D }).mesh !== mesh);
+
+    if (options.removePhysics && physics) {
+      if (physics.collider) {
+        this.physicsWorld.removeCollider(physics.collider);
+        this.levelColliders = this.levelColliders.filter((collider) => collider !== physics.collider);
+      }
+      if (physics.body) {
+        this.physicsWorld.removeBody(physics.body);
+        this.levelBodies = this.levelBodies.filter((body) => body !== physics.body);
+      }
+      this.objectPhysics.delete(mesh);
+      this.setLevelObjectPhysicsMetadata(mesh, undefined);
+      return { dynamicBody };
+    }
+
+    return { dynamicBody, physics };
+  }
+
+  getLevelObjectTracking(mesh: THREE.Object3D): RemovedLevelObjectTracking {
+    const dynamicBody = this.dynamicBodies.find((d) => (d as { mesh: THREE.Object3D }).mesh === mesh);
+    const physics =
+      this.objectPhysics.get(mesh) ??
+      this.getLevelObjectPhysicsMetadata(mesh) ??
+      (dynamicBody
+        ? {
+            body: dynamicBody.body,
+            collider:
+              typeof dynamicBody.body.collider === "function" ? (dynamicBody.body.collider(0) ?? undefined) : undefined,
+          }
+        : undefined);
+    return { dynamicBody, physics };
   }
 
   /** Inverse of removeLevelObject for editor undo: restore tracking so the
    *  object isn't dropped by the next editor rebuild or unload sweep. */
-  addLevelObject(mesh: THREE.Object3D): void {
+  addLevelObject(mesh: THREE.Object3D, options: AddLevelObjectOptions = {}): void {
     if (!this.levelObjects.includes(mesh)) {
       this.levelObjects.push(mesh);
+    }
+    if (options.dynamicBody && !this.dynamicBodies.some((d) => (d as { mesh: THREE.Object3D }).mesh === mesh)) {
+      this.dynamicBodies.push(options.dynamicBody);
+    }
+    if (options.physics) {
+      this.objectPhysics.set(mesh, options.physics);
+      this.setLevelObjectPhysicsMetadata(mesh, options.physics);
+      if (typeof options.physics.body?.setEnabled === "function") {
+        options.physics.body.setEnabled(true);
+      }
+      if (typeof options.physics.collider?.setEnabled === "function") {
+        options.physics.collider.setEnabled(true);
+      }
+      if (options.physics.collider && !this.levelColliders.includes(options.physics.collider)) {
+        this.levelColliders.push(options.physics.collider);
+      }
+      if (options.physics.body && !this.levelBodies.includes(options.physics.body)) {
+        this.levelBodies.push(options.physics.body);
+      }
+    }
+  }
+
+  updateLevelObjectPhysics(mesh: THREE.Object3D, physics: LevelObjectPhysics): void {
+    const previous = this.objectPhysics.get(mesh) ?? this.getLevelObjectPhysicsMetadata(mesh);
+    if (previous?.collider && previous.collider !== physics.collider) {
+      this.levelColliders = this.levelColliders.filter((collider) => collider !== previous.collider);
+    }
+    if (previous?.body && previous.body !== physics.body) {
+      this.levelBodies = this.levelBodies.filter((body) => body !== previous.body);
+    }
+    this.objectPhysics.set(mesh, physics);
+    this.setLevelObjectPhysicsMetadata(mesh, physics);
+    if (physics.collider && !this.levelColliders.includes(physics.collider)) {
+      this.levelColliders.push(physics.collider);
+    }
+    if (physics.body && !this.levelBodies.includes(physics.body)) {
+      this.levelBodies.push(physics.body);
+    }
+  }
+
+  private getLevelObjectPhysicsMetadata(mesh: THREE.Object3D): LevelObjectPhysics | undefined {
+    return (mesh.userData as LevelObjectPhysicsUserData)[LEVEL_OBJECT_PHYSICS_USER_DATA];
+  }
+
+  private setLevelObjectPhysicsMetadata(mesh: THREE.Object3D, physics: LevelObjectPhysics | undefined): void {
+    const userData = mesh.userData as LevelObjectPhysicsUserData;
+    if (physics) {
+      userData[LEVEL_OBJECT_PHYSICS_USER_DATA] = physics;
+    } else {
+      delete userData[LEVEL_OBJECT_PHYSICS_USER_DATA];
     }
   }
 
@@ -397,10 +501,14 @@ export class LevelManager implements Disposable {
 
   private finalizeSpawnedJSONObject({ entry, obj, isEditorGizmo }: SpawnedJsonObject): void {
     this.levelObjects.push(obj);
+    obj.visible = entry.visible ?? true;
+
+    const isTransformOnlyGroup = entry.source.type === "primitive" && entry.source.primitive === "group";
     if (isEditorGizmo) {
       obj.visible = false;
       return;
     }
+    if (isTransformOnlyGroup || !obj.visible) return;
 
     // Create physics body
     const physType = entry.physics?.type ?? "static";
@@ -430,6 +538,8 @@ export class LevelManager implements Disposable {
 
     this.levelBodies.push(body);
     this.levelColliders.push(collider);
+    this.objectPhysics.set(obj, { body, collider });
+    this.setLevelObjectPhysicsMetadata(obj, { body, collider });
 
     // Track dynamic bodies for interpolation
     if (physType === "dynamic") {
@@ -597,6 +707,17 @@ export class LevelManager implements Disposable {
           const mat = child.material as THREE.SpriteMaterial;
           disposeAllTextures(mat);
           mat.dispose();
+        } else if (child instanceof THREE.Points) {
+          child.geometry.dispose();
+          if (Array.isArray(child.material)) {
+            child.material.forEach((mat) => {
+              disposeAllTextures(mat);
+              mat.dispose();
+            });
+          } else {
+            disposeAllTextures(child.material);
+            child.material.dispose();
+          }
         }
       });
     }
@@ -604,6 +725,7 @@ export class LevelManager implements Disposable {
     this.levelObjects = [];
     this.levelColliders = [];
     this.levelBodies = [];
+    this.objectPhysics.clear();
     this.movingPlatforms = [];
     this.floatingPlatforms = [];
     this.dynamicBodies = [];

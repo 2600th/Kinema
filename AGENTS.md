@@ -70,10 +70,10 @@ One line per observed failure, with a date or commit reference.
 - New Playwright spec files silently never run unless added to the explicit `testMatch` allowlist in `playwright.config.ts` (2026-06, config inspection).
 - Vite 8 runs on Rolldown: use `rolldownOptions` / `codeSplitting.groups`, not the deprecated `rollupOptions` / `manualChunks` (vite.config.ts comments).
 - Vitest needs the Rapier alias in `vite.config.ts` (points to the ESM entry resolved from package metadata); removing it breaks unit tests because Rapier's CJS entry cannot load (vite.config.ts comments).
-- Safari and Apple mobile browsers always take the WebGL compatibility renderer; reproduce that path on desktop with `?forceWebGL=1` (README Compatibility Notes).
+- Safari and Apple mobile browsers always take the WebGL compatibility renderer; reproduce the plain WebGLRenderer path on desktop with `?forceWebGL=1` or `?forceCompat=1`. Use `?forceWebGPUWebGL=1` only when testing the WebGPURenderer WebGL backend and TSL path (verified 2026-06-14).
 - Imported GLBs are session-local unless placed under `public/assets/models/` (README Compatibility Notes).
 - `tasks/` and `CLAUDE.md` are deliberately gitignored, workspace-local files — do not try to commit them (commit 07774aa).
-- `npm run lint` does not exit clean on the current baseline (8 errors, 125 warnings as of 2026-06-12, measured after lint scope was extended to `tests/`); fix only findings your change introduced, do not repo-wide cleanup.
+- `npm run lint` does not exit clean on the current baseline (184 errors, 168 warnings, 13 infos as of 2026-06-14, mostly Biome formatting/line-ending findings after formatting the audit-fix touch set); fix only findings your change introduced, do not repo-wide cleanup.
 
 ### Repo Etiquette
 

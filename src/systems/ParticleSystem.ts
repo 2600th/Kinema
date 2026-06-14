@@ -10,9 +10,12 @@ export class ParticleSystem implements RuntimeSystem {
   readonly id = "particles";
 
   private gameParticles: GameParticles | null = null;
+  private gameParticlesPromise: Promise<GameParticles | null> | null = null;
   private unsubs: (() => void)[] = [];
   private beaconChargeState: { position: THREE.Vector3; progress: number } | null = null;
   private beaconChargeTimer = 0;
+  private disposed = false;
+  private generation = 0;
 
   constructor(
     private renderer: RendererManager,
@@ -28,27 +31,15 @@ export class ParticleSystem implements RuntimeSystem {
     this.unsubs.push(
       this.eventBus.on("player:jumped", ({ airJump, groundPosition, position }) => {
         if (airJump) {
-          if (this.gameParticles) {
-            this.gameParticles.airJumpBurst(position);
-          } else {
-            void this.ensureGameParticles().then((p) => p.airJumpBurst(position));
-          }
+          this.withGameParticles((particles) => particles.airJumpBurst(position));
         } else {
-          if (this.gameParticles) {
-            this.gameParticles.jumpPuff(groundPosition);
-          } else {
-            void this.ensureGameParticles().then((p) => p.jumpPuff(groundPosition));
-          }
+          this.withGameParticles((particles) => particles.jumpPuff(groundPosition));
         }
       }),
       this.eventBus.on("player:landed", ({ impactSpeed }) => {
-        if (this.gameParticles) {
-          this.gameParticles.landingImpact(this.playerController.groundPosition, impactSpeed);
-        } else {
-          void this.ensureGameParticles().then((p) =>
-            p.landingImpact(this.playerController.groundPosition, impactSpeed),
-          );
-        }
+        this.withGameParticles((particles) =>
+          particles.landingImpact(this.playerController.groundPosition, impactSpeed),
+        );
       }),
     );
     this.unsubs.push(
@@ -66,28 +57,15 @@ export class ParticleSystem implements RuntimeSystem {
         const vel = this.playerController.body.linvel();
         const planarSpeed = Math.hypot(vel.x, vel.z);
         if (planarSpeed <= 0.8) return;
-        if (this.gameParticles) {
-          this.gameParticles.footstepDust(this.playerController.groundPosition, planarSpeed);
-        } else {
-          void this.ensureGameParticles().then((p) =>
-            p.footstepDust(this.playerController.groundPosition, planarSpeed),
-          );
-        }
+        this.withGameParticles((particles) =>
+          particles.footstepDust(this.playerController.groundPosition, planarSpeed),
+        );
       }),
     );
 
     this.unsubs.push(
       this.eventBus.on("collectible:collected", ({ position }) => {
-        const emitBurst = (particles: GameParticles): void => {
-          particles.coinBurst(position);
-        };
-        if (this.gameParticles) {
-          emitBurst(this.gameParticles);
-        } else {
-          void this.ensureGameParticles().then((p) => {
-            emitBurst(p);
-          });
-        }
+        this.withGameParticles((particles) => particles.coinBurst(position));
       }),
     );
     this.unsubs.push(
@@ -95,16 +73,7 @@ export class ParticleSystem implements RuntimeSystem {
         if (reason !== "spike") {
           return;
         }
-        const emitBurst = (particles: GameParticles): void => {
-          particles.damageBurst(position);
-        };
-        if (this.gameParticles) {
-          emitBurst(this.gameParticles);
-        } else {
-          void this.ensureGameParticles().then((p) => {
-            emitBurst(p);
-          });
-        }
+        this.withGameParticles((particles) => particles.damageBurst(position));
       }),
     );
     this.unsubs.push(
@@ -124,16 +93,7 @@ export class ParticleSystem implements RuntimeSystem {
           return;
         }
         const position = this.beaconChargeState.position.clone();
-        const emitComplete = (particles: GameParticles): void => {
-          particles.beaconComplete(position);
-        };
-        if (this.gameParticles) {
-          emitComplete(this.gameParticles);
-        } else {
-          void this.ensureGameParticles().then((p) => {
-            emitComplete(p);
-          });
-        }
+        this.withGameParticles((particles) => particles.beaconComplete(position));
         this.beaconChargeState = null;
         this.beaconChargeTimer = 0;
       }),
@@ -143,6 +103,7 @@ export class ParticleSystem implements RuntimeSystem {
   teardownLevel(): void {
     // Flush in-flight particles so effects from the previous run don't
     // render into the next level while they fade out.
+    this.generation++;
     this.gameParticles?.clear();
     this.beaconChargeState = null;
     this.beaconChargeTimer = 0;
@@ -160,32 +121,50 @@ export class ParticleSystem implements RuntimeSystem {
         this.beaconChargeTimer -= interval;
         const position = this.beaconChargeState.position.clone();
         const progress = this.beaconChargeState.progress;
-        const emitCharge = (particles: GameParticles): void => {
-          particles.beaconChargePulse(position, progress);
-        };
-        if (this.gameParticles) {
-          emitCharge(this.gameParticles);
-        } else {
-          void this.ensureGameParticles().then((p) => {
-            emitCharge(p);
-          });
-        }
+        this.withGameParticles((particles) => particles.beaconChargePulse(position, progress));
       }
     }
     this.gameParticles?.update(dt, this.renderer.camera);
   }
 
-  private async ensureGameParticles(): Promise<GameParticles> {
-    if (!this.gameParticles) {
-      const { GameParticles } = await import("@juice/GameParticles");
-      this.gameParticles = new GameParticles(this.renderer.scene);
+  private withGameParticles(emit: (particles: GameParticles) => void): void {
+    if (this.gameParticles) {
+      emit(this.gameParticles);
+      return;
     }
-    return this.gameParticles;
+    void this.ensureGameParticles().then((particles) => {
+      if (particles) emit(particles);
+    });
+  }
+
+  private async ensureGameParticles(): Promise<GameParticles | null> {
+    if (this.disposed) return null;
+    if (this.gameParticles) return this.gameParticles;
+    if (this.gameParticlesPromise) return this.gameParticlesPromise;
+
+    const generation = this.generation;
+    this.gameParticlesPromise = import("@juice/GameParticles")
+      .then(({ GameParticles }) => {
+        const particles = new GameParticles(this.renderer.scene);
+        if (this.disposed || generation !== this.generation) {
+          particles.dispose();
+          return null;
+        }
+        this.gameParticles = particles;
+        return particles;
+      })
+      .finally(() => {
+        this.gameParticlesPromise = null;
+      });
+    return this.gameParticlesPromise;
   }
 
   dispose(): void {
+    this.disposed = true;
+    this.generation++;
     for (const unsub of this.unsubs) unsub();
     this.unsubs.length = 0;
     this.gameParticles?.dispose();
+    this.gameParticles = null;
   }
 }

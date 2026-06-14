@@ -1,4 +1,11 @@
 import { expect, test } from "@playwright/test";
+import { getShowcaseBayTopY, getShowcaseStationZ } from "../src/level/ShowcaseLayout";
+
+const DOOR_BEACON_PLAYER_POSITION = {
+  x: 4,
+  y: getShowcaseBayTopY() + 0.325,
+  z: getShowcaseStationZ("door"),
+};
 
 test("objective beacon requires a full hold and shows charge feedback", async ({ page }, testInfo) => {
   test.setTimeout(120_000);
@@ -8,10 +15,10 @@ test("objective beacon requires a full hold and shows charge feedback", async ({
   await page.waitForFunction(() => Boolean((window as any).__KINEMA__), undefined, { timeout: 60_000 });
   await page.evaluate(() => (window as any).__KINEMA__.waitFor("p.isGrounded === true", 60_000));
 
-  await page.evaluate(() => {
-    (window as any).__KINEMA__.teleportPlayer({ x: 4, y: 0.325, z: -8.4 });
+  await page.evaluate((position) => {
+    (window as any).__KINEMA__.teleportPlayer(position);
     (window as any).__KINEMA__.setCameraLook(-0.08, 0);
-  });
+  }, DOOR_BEACON_PLAYER_POSITION);
 
   const prompt = page.locator("#hud-prompt");
   await expect(prompt).toContainText("Activate Beacon");

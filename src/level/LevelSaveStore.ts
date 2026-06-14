@@ -88,7 +88,16 @@ export class LevelSaveStore {
       // Corrupt blob (distinct from missing): prune it and its index entry so
       // the level list doesn't keep offering a level that can never load.
       console.error(`[LevelSaveStore] Corrupt level data for "${key}" — removing entry.`, err);
-      LevelSaveStore.delete(key);
+      try {
+        LevelSaveStore.delete(key);
+      } catch (deleteErr) {
+        console.error(`[LevelSaveStore] Failed to prune corrupt level entry for "${key}".`, deleteErr);
+        try {
+          localStorage.removeItem(key);
+        } catch {
+          // Best-effort cleanup only; callers still receive null for corrupt data.
+        }
+      }
       return null;
     }
   }

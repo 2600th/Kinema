@@ -89,6 +89,16 @@ describe("LevelSaveStore", () => {
     expect(storage.getItem(key)).toBeNull();
   });
 
+  it("still returns null for corrupt data if pruning the index hits quota", () => {
+    LevelSaveStore.save(makeLevel("Alpha"));
+    const key = LevelSaveStore.list()[0].key;
+    storage.setItem(key, "{not json");
+    storage.failKeys.add(INDEX_KEY);
+
+    expect(LevelSaveStore.load(key)).toBeNull();
+    expect(storage.getItem(key)).toBeNull();
+  });
+
   it("removes the orphaned data blob when the index write hits quota for a new level", () => {
     storage.failKeys.add(INDEX_KEY);
     LevelSaveStore.save(makeLevel("Alpha"));

@@ -5,7 +5,7 @@
   "license": "MIT",
   "type": "module",
   "engines": {
-    "node": ">=20",
+    "node": "^20.19.0 || >=22.12.0",
     "npm": ">=10"
   },
   "scripts": {
@@ -14,6 +14,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "typecheck:tests": "tsc -p tests/tsconfig.json --noEmit",
     "lint": "biome check src/ tests/",
     "lint:fix": "biome check --fix src/ tests/"
   },

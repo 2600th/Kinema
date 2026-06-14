@@ -192,6 +192,180 @@ describe("LevelManager rotated body creation", () => {
     expect(child?.parent).toBe(group);
     expect(scene.children).toContain(group);
     expect(scene.children).not.toContain(child);
+    expect(physicsWorld.world.createRigidBody).toHaveBeenCalledTimes(1);
+    expect(physicsWorld.world.createCollider).toHaveBeenCalledTimes(1);
+
+    fixedSpy.mockRestore();
+    cuboidSpy.mockRestore();
+  });
+
+  it("returns enough physics tracking state to restore a dynamic object after undo", () => {
+    const scene = new THREE.Scene();
+    const physicsWorld = {
+      world: {},
+      removeCollider: vi.fn(),
+      removeBody: vi.fn(),
+    };
+    const eventBus = { emit: vi.fn() };
+    const manager = new LevelManager(scene, physicsWorld as any, eventBus as any);
+    const mesh = new THREE.Group();
+    const body = {};
+    const dynamicEntry = {
+      mesh,
+      body,
+      prevPos: new THREE.Vector3(),
+      currPos: new THREE.Vector3(),
+      prevQuat: new THREE.Quaternion(),
+      currQuat: new THREE.Quaternion(),
+      hasPose: false,
+    };
+    (manager as any).levelObjects = [mesh];
+    (manager as any).dynamicBodies = [dynamicEntry];
+
+    const removed = manager.removeLevelObject(mesh);
+    expect(manager.getLevelObjects()).not.toContain(mesh);
+    expect(manager.getDynamicBodies()).toHaveLength(0);
+
+    manager.addLevelObject(mesh, removed);
+
+    expect(manager.getLevelObjects()).toContain(mesh);
+    expect(manager.getDynamicBodies()).toHaveLength(1);
+    expect(manager.getDynamicBodies()[0]?.body).toBe(body);
+  });
+
+  it("falls back to dynamic body physics when object physics was not explicitly mapped", () => {
+    const scene = new THREE.Scene();
+    const collider = {};
+    const body = { collider: vi.fn(() => collider) };
+    const physicsWorld = {
+      world: {},
+      removeCollider: vi.fn(),
+      removeBody: vi.fn(),
+    };
+    const eventBus = { emit: vi.fn() };
+    const manager = new LevelManager(scene, physicsWorld as any, eventBus as any);
+    const mesh = new THREE.Group();
+    (manager as any).levelObjects = [mesh];
+    (manager as any).dynamicBodies = [
+      {
+        mesh,
+        body,
+        prevPos: new THREE.Vector3(),
+        currPos: new THREE.Vector3(),
+        prevQuat: new THREE.Quaternion(),
+        currQuat: new THREE.Quaternion(),
+        hasPose: false,
+      },
+    ];
+
+    manager.removeLevelObject(mesh, { removePhysics: true });
+
+    expect(physicsWorld.removeCollider).toHaveBeenCalledWith(collider);
+    expect(physicsWorld.removeBody).toHaveBeenCalledWith(body);
+  });
+
+  it("re-enables tracked static physics when an editor undo restores the object", () => {
+    const scene = new THREE.Scene();
+    const collider = { setEnabled: vi.fn() };
+    const body = { setEnabled: vi.fn() };
+    const physicsWorld = {
+      world: {},
+      removeCollider: vi.fn(),
+      removeBody: vi.fn(),
+    };
+    const eventBus = { emit: vi.fn() };
+    const manager = new LevelManager(scene, physicsWorld as any, eventBus as any);
+    const mesh = new THREE.Group();
+
+    manager.addLevelObject(mesh, { physics: { body: body as any, collider: collider as any } });
+    const removed = manager.removeLevelObject(mesh);
+    removed.physics?.body?.setEnabled(false);
+    removed.physics?.collider?.setEnabled(false);
+
+    manager.addLevelObject(mesh, removed);
+
+    expect(body.setEnabled).toHaveBeenLastCalledWith(true);
+    expect(collider.setEnabled).toHaveBeenLastCalledWith(true);
+  });
+
+  it("tracks replacement colliders so later cleanup removes the current collider", () => {
+    const scene = new THREE.Scene();
+    const oldCollider = { id: "old" };
+    const newCollider = { id: "new" };
+    const body = { setEnabled: vi.fn() };
+    const physicsWorld = {
+      world: {},
+      removeCollider: vi.fn(),
+      removeBody: vi.fn(),
+    };
+    const eventBus = { emit: vi.fn() };
+    const manager = new LevelManager(scene, physicsWorld as any, eventBus as any);
+    const mesh = new THREE.Group();
+
+    manager.addLevelObject(mesh, { physics: { body: body as any, collider: oldCollider as any } });
+    manager.updateLevelObjectPhysics(mesh, { body: body as any, collider: newCollider as any });
+    manager.removeLevelObject(mesh, { removePhysics: true });
+
+    expect(physicsWorld.removeCollider).toHaveBeenCalledWith(newCollider);
+    expect(physicsWorld.removeCollider).not.toHaveBeenCalledWith(oldCollider);
+    expect(physicsWorld.removeBody).toHaveBeenCalledWith(body);
+  });
+
+  it("can remove owned physics when a tracked runtime object is discarded", async () => {
+    const scene = new THREE.Scene();
+    const body = {};
+    const collider = {};
+    const physicsWorld = {
+      world: {
+        createRigidBody: vi.fn(() => body),
+        createCollider: vi.fn(() => collider),
+      },
+      removeCollider: vi.fn(),
+      removeBody: vi.fn(),
+    };
+    const eventBus = { emit: vi.fn() };
+    const manager = new LevelManager(scene, physicsWorld as any, eventBus as any);
+    vi.spyOn(manager as any, "addLighting").mockImplementation(() => {});
+
+    const RAPIER = await import("@dimforge/rapier3d-compat");
+    const fixedSpy = vi.spyOn(RAPIER.RigidBodyDesc, "fixed").mockReturnValue({
+      setTranslation: vi.fn(),
+      setRotation: vi.fn(),
+    } as any);
+    const cuboidSpy = vi.spyOn(RAPIER.ColliderDesc, "cuboid").mockReturnValue({
+      setCollisionGroups: vi.fn().mockReturnThis(),
+      setTranslation: vi.fn().mockReturnThis(),
+    } as any);
+
+    await manager.loadFromJSON({
+      version: 2,
+      name: "owned-physics",
+      created: new Date().toISOString(),
+      modified: new Date().toISOString(),
+      spawnPoint: { position: [0, 2, 0] },
+      objects: [
+        {
+          id: "box-1",
+          name: "Box",
+          parentId: null,
+          source: { type: "primitive", primitive: "box" },
+          transform: {
+            position: [0, 0, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1],
+          },
+          physics: { type: "static" },
+        },
+      ],
+    });
+
+    const mesh = manager.getLevelObjects().find((obj) => obj.name === "Box");
+    expect(mesh).toBeDefined();
+
+    manager.removeLevelObject(mesh!, { removePhysics: true });
+
+    expect(physicsWorld.removeCollider).toHaveBeenCalledWith(collider);
+    expect(physicsWorld.removeBody).toHaveBeenCalledWith(body);
 
     fixedSpy.mockRestore();
     cuboidSpy.mockRestore();
@@ -283,6 +457,31 @@ describe("LevelManager VFX timing", () => {
     manager.update(1 / 30, 0.5);
     expect(vfxCallback).toHaveBeenCalledTimes(1);
     expect(vfxCallback).toHaveBeenCalledWith(1 / 30);
+  });
+
+  it("disposes point-cloud geometry and material during unload", () => {
+    const scene = new THREE.Scene();
+    const physicsWorld = {
+      world: {},
+      removeCollider: vi.fn(),
+      removeBody: vi.fn(),
+    };
+    const eventBus = { emit: vi.fn() };
+    const manager = new LevelManager(scene, physicsWorld as any, eventBus as any);
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array([0, 0, 0]), 3));
+    const material = new THREE.PointsMaterial();
+    const geometryDispose = vi.spyOn(geometry, "dispose");
+    const materialDispose = vi.spyOn(material, "dispose");
+    const points = new THREE.Points(geometry, material);
+    scene.add(points);
+    (manager as any).levelObjects = [points];
+    (manager as any).currentLevelName = "vfx";
+
+    manager.unload();
+
+    expect(geometryDispose).toHaveBeenCalledTimes(1);
+    expect(materialDispose).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -25,7 +25,10 @@ function showBootstrapError(err: unknown): void {
 
 async function bootstrap(): Promise<void> {
   const bootstrapParams = new URLSearchParams(window.location.search);
-  const forceWebGL = /^(1|true)$/i.test(bootstrapParams.get("forceWebGL") ?? "");
+  const forceCompatibilityRenderer = /^(1|true)$/i.test(
+    bootstrapParams.get("forceWebGL") ?? bootstrapParams.get("forceCompat") ?? "",
+  );
+  const forceWebGPUWebGL = /^(1|true)$/i.test(bootstrapParams.get("forceWebGPUWebGL") ?? "");
   const allowExperimentalRenderer = /^(1|true)$/i.test(bootstrapParams.get("experimentalRenderer") ?? "");
 
   // Initialize Rapier WASM
@@ -93,8 +96,9 @@ async function bootstrap(): Promise<void> {
   const settings = UserSettingsStore.load();
 
   const renderer = new RendererManager({
-    forceWebGL,
-    preferCompatibilityRenderer: shouldUseCompatibilityRenderer(window.navigator) && !allowExperimentalRenderer,
+    forceWebGL: forceWebGPUWebGL,
+    preferCompatibilityRenderer:
+      forceCompatibilityRenderer || (shouldUseCompatibilityRenderer(window.navigator) && !allowExperimentalRenderer),
   });
   await renderer.init();
   // Wire KTX2 support early so all AssetLoader instances detect compressed texture formats.
@@ -407,10 +411,10 @@ async function bootstrap(): Promise<void> {
         };
       },
       simulateJump() {
-        // Set testInputOverride on Game so beginFrame() uses it for several
-        // frames instead of polling InputManager (which requires pointer lock).
-        // At ~4 FPS (SwiftShader), we need several frames to ensure the input
-        // is seen by at least one fixedUpdate physics tick.
+        // Set testInputOverride on Game so beginFrame() uses it instead of
+        // polling InputManager (which requires pointer lock). Keep jumpPressed
+        // to a single edge; repeating it can consume the air-jump charge during
+        // the initial ground-jump sequence.
         const jumpInput = {
           forward: false,
           backward: false,
@@ -435,7 +439,7 @@ async function bootstrap(): Promise<void> {
           mouseWheelDelta: 0,
         };
         game.testInputOverride = jumpInput;
-        game.testInputFrames = 10; // Active for 10 render frames
+        game.testInputFrames = 1;
       },
       /** Set camera look angles for headless screenshot capture. */
       setCameraLook(pitch: number, yaw: number) {
