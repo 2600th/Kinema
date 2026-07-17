@@ -167,6 +167,7 @@ describe("GameLoop", () => {
 
     expect(physics.step).toHaveBeenCalledTimes(MAX_PHYSICS_STEPS);
     expect(getRenderedAlpha(game)).toBeGreaterThanOrEqual(0);
+    expect(loop.getFrameStats().max).toBe(200);
     nowSpy.mockRestore();
   });
 
@@ -196,6 +197,88 @@ describe("GameLoop", () => {
     getAnimationLoopCallback(renderer)(100 as DOMHighResTimeStamp);
 
     expect(getRenderedAlpha(game)).toBeLessThanOrEqual(1);
+    nowSpy.mockRestore();
+  });
+
+  it("reports rolling frame-time percentiles and long frames", () => {
+    const game: TestGame = {
+      fixedUpdate: vi.fn(),
+      update: vi.fn(),
+    };
+    const renderer: TestRenderer = {
+      setAnimationLoop: vi.fn(),
+      render: vi.fn(),
+    };
+    const physics: TestPhysics = {
+      step: vi.fn(),
+    };
+
+    const nowSpy = vi.spyOn(performance, "now").mockReturnValue(0);
+    const loop = new GameLoop(asRuntimeGame(game), asRendererManager(renderer), asPhysicsWorld(physics));
+    loop.start();
+    const tick = getAnimationLoopCallback(renderer);
+
+    for (const timestamp of [5, 15, 35, 75, 125]) {
+      tick(timestamp as DOMHighResTimeStamp);
+    }
+
+    expect(loop.getFrameStats()).toEqual({
+      p50: 20,
+      p95: 50,
+      max: 50,
+      longFrames: 2,
+      samples: 5,
+    });
+    nowSpy.mockRestore();
+  });
+
+  it("clears all recorded frame samples when reset", () => {
+    const game: TestGame = {
+      fixedUpdate: vi.fn(),
+      update: vi.fn(),
+    };
+    const renderer: TestRenderer = {
+      setAnimationLoop: vi.fn(),
+      render: vi.fn(),
+    };
+    const physics: TestPhysics = {
+      step: vi.fn(),
+    };
+
+    const nowSpy = vi.spyOn(performance, "now").mockReturnValue(0);
+    const loop = new GameLoop(asRuntimeGame(game), asRendererManager(renderer), asPhysicsWorld(physics));
+    loop.start();
+    getAnimationLoopCallback(renderer)(17 as DOMHighResTimeStamp);
+
+    loop.resetFrameStats();
+
+    expect(loop.getFrameStats()).toEqual({ p50: 0, p95: 0, max: 0, longFrames: 0, samples: 0 });
+    nowSpy.mockRestore();
+  });
+
+  it("keeps only the latest 600 frame samples", () => {
+    const game: TestGame = {
+      fixedUpdate: vi.fn(),
+      update: vi.fn(),
+    };
+    const renderer: TestRenderer = {
+      setAnimationLoop: vi.fn(),
+      render: vi.fn(),
+    };
+    const physics: TestPhysics = {
+      step: vi.fn(),
+    };
+
+    const nowSpy = vi.spyOn(performance, "now").mockReturnValue(0);
+    const loop = new GameLoop(asRuntimeGame(game), asRendererManager(renderer), asPhysicsWorld(physics));
+    loop.start();
+    const tick = getAnimationLoopCallback(renderer);
+    tick(100 as DOMHighResTimeStamp);
+    for (let timestamp = 101; timestamp <= 700; timestamp++) {
+      tick(timestamp as DOMHighResTimeStamp);
+    }
+
+    expect(loop.getFrameStats()).toEqual({ p50: 1, p95: 1, max: 1, longFrames: 0, samples: 600 });
     nowSpy.mockRestore();
   });
 });

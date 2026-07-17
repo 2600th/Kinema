@@ -1,3 +1,4 @@
+import type { EventBus } from "@core/EventBus";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DebugPanel } from "./DebugPanel";
 
@@ -112,5 +113,28 @@ describe("DebugPanel", () => {
     expect(panel.checkboxControls.get("cameraCollision").checked).toBe(false);
     expect(panel.checkboxControls.get("shadowFrustums").checked).toBe(true);
     expect(panel.metricBackend.textContent).toBe("WebGPU");
+  });
+
+  it("shows rolling p50 and p95 frame times while visible", () => {
+    const parent = new FakeElement("div") as unknown as HTMLElement;
+    const eventBus = { emit: vi.fn(), on: vi.fn(() => () => {}) };
+    const panel = new DebugPanel(parent, eventBus as unknown as EventBus);
+    const harness = panel as unknown as {
+      visible: boolean;
+      metricFramePercentiles: HTMLSpanElement;
+    };
+    harness.visible = true;
+
+    panel.tick(0, "idle", true, {
+      frameMs: 16.7,
+      frameStats: { p50: 8.25, p95: 17.5, max: 21, longFrames: 0, samples: 120 },
+      physicsMs: 0.5,
+      drawCalls: 12,
+      triangles: 34,
+      lines: 0,
+      points: 0,
+    });
+
+    expect(harness.metricFramePercentiles.textContent).toBe("8.25 / 17.50 ms");
   });
 });

@@ -65,6 +65,7 @@ export class DebugPanel implements Disposable {
   private readonly metricSpeed: HTMLSpanElement;
   private readonly metricFps: HTMLSpanElement;
   private readonly metricFrame: HTMLSpanElement;
+  private readonly metricFramePercentiles: HTMLSpanElement;
   private readonly metricPhysics: HTMLSpanElement;
   private readonly metricDraw: HTMLSpanElement;
   private readonly metricTris: HTMLSpanElement;
@@ -183,6 +184,7 @@ export class DebugPanel implements Disposable {
     this.metricSpeed = this.addMetricRow("Speed");
     this.metricFps = this.addMetricRow("FPS");
     this.metricFrame = this.addMetricRow("Frame");
+    this.metricFramePercentiles = this.addMetricRow("Frame p50 / p95");
     this.metricPhysics = this.addMetricRow("Physics");
     this.metricDraw = this.addMetricRow("Draw Calls");
     this.metricTris = this.addMetricRow("Triangles");
@@ -687,6 +689,7 @@ export class DebugPanel implements Disposable {
     grounded: boolean,
     perf: {
       frameMs: number;
+      frameStats: { p50: number; p95: number; max: number; longFrames: number; samples: number };
       physicsMs: number;
       drawCalls: number;
       triangles: number;
@@ -701,6 +704,7 @@ export class DebugPanel implements Disposable {
     this.metricSpeed.textContent = speed.toFixed(2);
     this.metricFps.textContent = fps.toFixed(1);
     this.metricFrame.textContent = `${perf.frameMs.toFixed(2)} ms`;
+    this.metricFramePercentiles.textContent = `${perf.frameStats.p50.toFixed(2)} / ${perf.frameStats.p95.toFixed(2)} ms`;
     this.metricPhysics.textContent = `${perf.physicsMs.toFixed(2)} ms`;
     this.metricDraw.textContent = String(perf.drawCalls);
     this.metricTris.textContent = String(perf.triangles);

@@ -1,3 +1,5 @@
+import type { EventBus } from "@core/EventBus";
+import type { PhysicsWorld } from "@physics/PhysicsWorld";
 import * as THREE from "three";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LevelManager } from "./LevelManager";
@@ -47,6 +49,51 @@ describe("LevelManager spawn handling", () => {
     manager.unload();
 
     expect(manager.getSpawnPoint().position.equals(defaultSpawn)).toBe(true);
+  });
+});
+
+describe("LevelManager load timing", () => {
+  it.each([
+    {
+      label: "level",
+      expectedName: "procedural",
+      invoke: (manager: LevelManager) => manager.load("procedural"),
+      internal: "loadInternal",
+    },
+    {
+      label: "station",
+      expectedName: "station:vfx",
+      invoke: (manager: LevelManager) => manager.loadStation("vfx"),
+      internal: "loadStationInternal",
+    },
+    {
+      label: "JSON level",
+      expectedName: "saved-level",
+      invoke: (manager: LevelManager) =>
+        manager.loadFromJSON({
+          version: 2,
+          name: "saved-level",
+          created: "2026-07-17T00:00:00.000Z",
+          modified: "2026-07-17T00:00:00.000Z",
+          spawnPoint: { position: [0, 2, 0] },
+          objects: [],
+        }),
+      internal: "loadFromJSONInternal",
+    },
+  ])("records the most recent $label duration", async ({ expectedName, invoke, internal }) => {
+    const manager = new LevelManager(
+      new THREE.Scene(),
+      { world: {}, removeCollider: vi.fn(), removeBody: vi.fn() } as unknown as PhysicsWorld,
+      { emit: vi.fn() } as unknown as EventBus,
+    );
+    const internals = manager as unknown as Record<string, (...args: unknown[]) => Promise<void>>;
+    vi.spyOn(internals, internal).mockResolvedValue(undefined);
+    const nowSpy = vi.spyOn(performance, "now").mockReturnValueOnce(100).mockReturnValueOnce(142.5);
+
+    await invoke(manager);
+
+    expect(manager.getLastLoadStats()).toEqual({ name: expectedName, durationMs: 42.5 });
+    nowSpy.mockRestore();
   });
 });
 

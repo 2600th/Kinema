@@ -100,6 +100,11 @@ export type RemoveLevelObjectOptions = {
   removePhysics?: boolean;
 };
 
+export type LoadStats = {
+  name: string;
+  durationMs: number;
+};
+
 /**
  * Manages level loading, scene traversal, collider creation, and cleanup.
  */
@@ -135,6 +140,7 @@ export class LevelManager implements Disposable {
   private navDebugOverlay: NavDebugOverlay | null = null;
   private textureAnisotropy = 8;
   private _loadGeneration = { value: 0 };
+  private lastLoadStats: LoadStats | null = null;
 
   constructor(
     private scene: THREE.Scene,
@@ -327,7 +333,11 @@ export class LevelManager implements Disposable {
 
   /** Load a level by name. 'procedural' generates a test level. */
   load(name: string): Promise<void> {
-    return this.enqueueLoad(() => this.loadInternal(name));
+    return this.enqueueLoad(async () => {
+      const start = performance.now();
+      await this.loadInternal(name);
+      this.lastLoadStats = { name, durationMs: performance.now() - start };
+    });
   }
 
   private async loadInternal(name: string): Promise<void> {
@@ -355,7 +365,11 @@ export class LevelManager implements Disposable {
 
   /** Load a single showcase station in isolation for debugging. */
   loadStation(key: ShowcaseStationKey): Promise<void> {
-    return this.enqueueLoad(() => this.loadStationInternal(key));
+    return this.enqueueLoad(async () => {
+      const start = performance.now();
+      await this.loadStationInternal(key);
+      this.lastLoadStats = { name: `station:${key}`, durationMs: performance.now() - start };
+    });
   }
 
   private async loadStationInternal(key: ShowcaseStationKey): Promise<void> {
@@ -382,7 +396,15 @@ export class LevelManager implements Disposable {
    * Spawns all objects, creates physics, adds lighting.
    */
   loadFromJSON(data: LevelDataV2): Promise<void> {
-    return this.enqueueLoad(() => this.loadFromJSONInternal(data));
+    return this.enqueueLoad(async () => {
+      const start = performance.now();
+      await this.loadFromJSONInternal(data);
+      this.lastLoadStats = { name: data.name || "custom", durationMs: performance.now() - start };
+    });
+  }
+
+  getLastLoadStats(): LoadStats | null {
+    return this.lastLoadStats;
   }
 
   private async loadFromJSONInternal(data: LevelDataV2): Promise<void> {

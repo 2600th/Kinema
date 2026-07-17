@@ -163,6 +163,7 @@ async function bootstrap(): Promise<void> {
   );
 
   const gameLoop = new GameLoop(game, renderer, physicsWorld);
+  game.setGameLoop(gameLoop);
   gameLoop.setHitstop(game.hitstop);
   let editorManager: import("@editor/EditorManager").EditorManager | null = null;
   const unsubEditorBootstrap = eventBus.on("editor:toggle", () => {
@@ -392,6 +393,7 @@ async function bootstrap(): Promise<void> {
   // subtree additions; a fresh level is the highest-risk moment for stray
   // NodeMaterials on the WebGL path, so request an explicit pass.
   eventBus.on("level:loaded", () => {
+    gameLoop.resetFrameStats();
     renderer.requestCompatibilitySanitize();
   });
 
@@ -399,6 +401,8 @@ async function bootstrap(): Promise<void> {
   // Gated behind DEV to tree-shake new Function() evaluator from production builds.
   if (import.meta.env.DEV) {
     (window as unknown as Record<string, unknown>).__KINEMA__ = {
+      getFrameStats: () => gameLoop.getFrameStats(),
+      getLastLoadStats: () => levelManager.getLastLoadStats(),
       get player() {
         const pos = playerController.position;
         const vel = playerController.body.linvel();

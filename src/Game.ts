@@ -2,6 +2,7 @@ import type { AudioController } from "@audio/AudioManager";
 import type { OrbitFollowCamera } from "@camera/OrbitFollowCamera";
 import type { PlayerController } from "@character/PlayerController";
 import type { EventBus } from "@core/EventBus";
+import type { FrameStats, GameLoop } from "@core/GameLoop";
 import type { RuntimeSystem } from "@core/RuntimeSystem";
 import {
   type Disposable,
@@ -70,7 +71,15 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
 
   // Debug stats throttle (4 Hz)
   private debugSampleTimer = 0;
-  private cachedDebugStats = { physicsMs: 0, drawCalls: 0, triangles: 0, lines: 0, points: 0 };
+  private cachedDebugStats = {
+    frameStats: { p50: 0, p95: 0, max: 0, longFrames: 0, samples: 0 } as FrameStats,
+    physicsMs: 0,
+    drawCalls: 0,
+    triangles: 0,
+    lines: 0,
+    points: 0,
+  };
+  private gameLoop: GameLoop | null = null;
 
   // Juice systems
   readonly feedbackPlayer = new FeedbackPlayer();
@@ -344,6 +353,10 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     window.addEventListener("keydown", this._onDebugKeyDown);
   }
 
+  setGameLoop(gameLoop: GameLoop): void {
+    this.gameLoop = gameLoop;
+  }
+
   registerSystem(system: RuntimeSystem): void {
     this.systems.push(system);
   }
@@ -517,6 +530,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     this.debugSampleTimer -= dt;
     if (this.debugSampleTimer <= 0) {
       const renderStats = this.renderer.getRenderStats();
+      if (this.gameLoop) this.cachedDebugStats.frameStats = this.gameLoop.getFrameStats();
       this.cachedDebugStats.physicsMs = this.physicsWorld.getLastStepMs();
       this.cachedDebugStats.drawCalls = renderStats.drawCalls;
       this.cachedDebugStats.triangles = renderStats.triangles;
@@ -530,6 +544,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     const grounded = this.vehicleManager.isActive() ? false : this.playerController.isGrounded;
     this.uiManager.debugPanel.tick(this.speed, stateId, grounded, {
       frameMs: dt * 1000,
+      frameStats: this.cachedDebugStats.frameStats,
       physicsMs: this.cachedDebugStats.physicsMs,
       drawCalls: this.cachedDebugStats.drawCalls,
       triangles: this.cachedDebugStats.triangles,

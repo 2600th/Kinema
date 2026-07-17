@@ -4,6 +4,17 @@ import type { RendererManager } from "@renderer/RendererManager";
 import { MAX_FRAME_TIME, MAX_PHYSICS_STEPS, PHYSICS_TIMESTEP } from "./constants";
 import type { FixedUpdatable, PostPhysicsUpdatable, Updatable } from "./types";
 
+const FRAME_STATS_CAPACITY = 600;
+const LONG_FRAME_MS = 33.4;
+
+export type FrameStats = {
+  p50: number;
+  p95: number;
+  max: number;
+  longFrames: number;
+  samples: number;
+};
+
 /**
  * Accumulator-pattern game loop.
  * Fixed 60Hz physics, unlocked render with interpolation alpha.
@@ -17,6 +28,9 @@ export class GameLoop {
   private running = false;
   private simulationEnabled = true;
   private hitstop: Hitstop | null = null;
+  private readonly frameTimes = new Float32Array(FRAME_STATS_CAPACITY);
+  private frameTimeCursor = 0;
+  private frameTimeSamples = 0;
 
   constructor(
     game: FixedUpdatable & Updatable,
@@ -56,10 +70,40 @@ export class GameLoop {
     this.hitstop = hitstop;
   }
 
+  getFrameStats(): FrameStats {
+    if (this.frameTimeSamples === 0) {
+      return { p50: 0, p95: 0, max: 0, longFrames: 0, samples: 0 };
+    }
+
+    const sorted = this.frameTimes.slice(0, this.frameTimeSamples);
+    sorted.sort();
+    let longFrames = 0;
+    for (let i = 0; i < sorted.length; i++) {
+      if (sorted[i] > LONG_FRAME_MS) longFrames++;
+    }
+
+    return {
+      p50: sorted[Math.ceil(sorted.length * 0.5) - 1],
+      p95: sorted[Math.ceil(sorted.length * 0.95) - 1],
+      max: sorted[sorted.length - 1],
+      longFrames,
+      samples: this.frameTimeSamples,
+    };
+  }
+
+  resetFrameStats(): void {
+    this.frameTimeCursor = 0;
+    this.frameTimeSamples = 0;
+  }
+
   private tick(timestamp: DOMHighResTimeStamp): void {
     const now = timestamp / 1000;
     let dt = now - this.lastTime;
     this.lastTime = now;
+
+    this.frameTimes[this.frameTimeCursor] = dt * 1000;
+    this.frameTimeCursor = (this.frameTimeCursor + 1) % FRAME_STATS_CAPACITY;
+    this.frameTimeSamples = Math.min(this.frameTimeSamples + 1, FRAME_STATS_CAPACITY);
 
     // Spiral-of-death clamp
     if (dt > MAX_FRAME_TIME) {
