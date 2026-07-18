@@ -52,6 +52,7 @@ export class OrbitFollowCamera implements Updatable, Disposable {
   private lateralDriftCurrent = 0;
   private screenShake = new ScreenShake();
   private fovPunch: FOVPunch | null = null;
+  private captureFrozen = false;
   private unsubs: (() => void)[] = [];
 
   // Chase mode: auto-rotates yaw to face behind a vehicle's forward direction
@@ -180,6 +181,14 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     this.pitch = pitch;
   }
 
+  /** Pin the current target and orbit pose for deterministic DEV captures. */
+  freezeForCapture(): void {
+    this.snapToTarget();
+    this.camera.fov = this.baseFov;
+    this.camera.updateProjectionMatrix();
+    this.captureFrozen = true;
+  }
+
   resetTarget(): void {
     this.target = null;
     this.targetBody = null;
@@ -258,6 +267,7 @@ export class OrbitFollowCamera implements Updatable, Disposable {
 
   /** Render-frame update — position camera with collision. */
   update(dt: number, _alpha: number): void {
+    if (this.captureFrozen) return;
     // Smooth camera rotation for a less abrupt orbit response.
     const rotationDamp = 1 - Math.exp(-this.config.rotationDamping * dt);
     this.yaw += (this.targetYaw - this.yaw) * rotationDamp;

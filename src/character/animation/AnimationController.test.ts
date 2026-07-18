@@ -74,6 +74,20 @@ const ALL_CLIPS = [
 ];
 
 describe("AnimationController", () => {
+  it("resets and stops actions at a deterministic capture pose", () => {
+    const ctrl = new AnimationController(makeModel(ALL_CLIPS), makeProfile());
+    ctrl.setState("idle");
+    ctrl.update(0.25);
+    const action = getInternals(ctrl).currentAction;
+    expect(action).not.toBeNull();
+    expect(action?.time).toBeGreaterThan(0);
+    ctrl.freezeForCapture();
+    ctrl.update(0.5);
+
+    expect(action?.time).toBe(0);
+    ctrl.dispose();
+  });
+
   it("resolves all profile clip names from model", () => {
     const model = makeModel(ALL_CLIPS);
     const profile = makeProfile();

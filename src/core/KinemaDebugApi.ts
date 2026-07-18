@@ -63,6 +63,7 @@ export interface KinemaDebugApi {
   readonly config: Readonly<PlayerController["config"]>;
   simulateJump(): void;
   setCameraLook(pitch: number, yaw: number): void;
+  freezeForCapture(): Promise<void>;
   listReviewSpawns(): string[];
   teleportToReviewSpawn(key: string): boolean;
   simulateMove(moveX: number, moveY: number, frames?: number): void;

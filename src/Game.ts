@@ -93,6 +93,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
   private readonly spikeHazardSystem: SpikeHazardSystem;
   private readonly coinSystem: CoinCollectibleSystem;
   private readonly debugSystem: DebugRuntimeSystem;
+  private readonly particleSystem: ParticleSystem;
 
   constructor(
     private renderer: RendererManager,
@@ -135,8 +136,8 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     this.coinSystem = new CoinCollectibleSystem(renderer.scene, eventBus, playerController, vehicleManager);
     this.registerSystem(this.coinSystem);
 
-    const particleSystem = new ParticleSystem(renderer, eventBus, playerController, vehicleManager);
-    this.registerSystem(particleSystem);
+    this.particleSystem = new ParticleSystem(renderer, eventBus, playerController, vehicleManager);
+    this.registerSystem(this.particleSystem);
 
     this.debugSystem = new DebugRuntimeSystem(renderer, physicsWorld, eventBus, levelManager);
     this.registerSystem(this.debugSystem);
@@ -627,6 +628,15 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
   setEditorManager(manager: EditorManager): void {
     this.editorManager = manager;
     this.debugSystem.setEditorManager(manager);
+  }
+
+  async freezeForCapture(): Promise<void> {
+    this.testInputOverride = null;
+    this.testInputFrames = 0;
+    this.playerController.freezeAnimationForCapture();
+    this.camera.freezeForCapture();
+    this.levelManager.freezeForCapture();
+    await this.particleSystem.freezeForCapture();
   }
 
   getCollectibleCount(): number {

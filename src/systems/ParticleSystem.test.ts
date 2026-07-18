@@ -74,4 +74,23 @@ describe("ParticleSystem", () => {
     expect(renderer.scene.children).toHaveLength(0);
     expect((system as any).gameParticles).toBeNull();
   });
+
+  it("clears and hides its particle roots for deterministic captures", async () => {
+    const { eventBus, renderer, system } = createSystem();
+    eventBus.emit("level:loaded", { name: "test" });
+    eventBus.emit("player:jumped", {
+      airJump: false,
+      groundPosition: new THREE.Vector3(1, 2, 3),
+      jumpVel: 0,
+      position: new THREE.Vector3(1, 3, 3),
+      run: false,
+    });
+    await vi.dynamicImportSettled();
+
+    await system.freezeForCapture();
+
+    expect(renderer.scene.children).toHaveLength(7);
+    expect(renderer.scene.children.every((child) => !child.visible)).toBe(true);
+    expect(renderer.scene.children.every((child) => (child as THREE.InstancedMesh).count === 0)).toBe(true);
+  });
 });

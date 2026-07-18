@@ -272,6 +272,10 @@ export class ParticlePool {
     this.mesh.instanceMatrix.needsUpdate = true;
   }
 
+  setVisible(visible: boolean): void {
+    this.mesh.visible = visible;
+  }
+
   dispose(): void {
     this.mesh.geometry.dispose();
     this.material.dispose();

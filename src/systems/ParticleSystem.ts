@@ -16,6 +16,7 @@ export class ParticleSystem implements RuntimeSystem {
   private beaconChargeTimer = 0;
   private disposed = false;
   private generation = 0;
+  private captureFrozen = false;
 
   constructor(
     private renderer: RendererManager,
@@ -114,6 +115,7 @@ export class ParticleSystem implements RuntimeSystem {
   }
 
   update(dt: number, _alpha: number): void {
+    if (this.captureFrozen) return;
     if (this.beaconChargeState) {
       const interval = 0.2 - this.beaconChargeState.progress * 0.13;
       this.beaconChargeTimer += dt;
@@ -128,6 +130,7 @@ export class ParticleSystem implements RuntimeSystem {
   }
 
   private withGameParticles(emit: (particles: GameParticles) => void): void {
+    if (this.captureFrozen) return;
     if (this.gameParticles) {
       emit(this.gameParticles);
       return;
@@ -151,12 +154,25 @@ export class ParticleSystem implements RuntimeSystem {
           return null;
         }
         this.gameParticles = particles;
+        if (this.captureFrozen) {
+          particles.clear();
+          particles.setVisible(false);
+        }
         return particles;
       })
       .finally(() => {
         this.gameParticlesPromise = null;
       });
     return this.gameParticlesPromise;
+  }
+
+  async freezeForCapture(): Promise<void> {
+    this.captureFrozen = true;
+    this.beaconChargeState = null;
+    this.beaconChargeTimer = 0;
+    const particles = this.gameParticles ?? (this.gameParticlesPromise ? await this.gameParticlesPromise : null);
+    particles?.clear();
+    particles?.setVisible(false);
   }
 
   dispose(): void {

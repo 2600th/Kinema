@@ -133,7 +133,11 @@ export class LevelManager implements Disposable {
   private vfxNoiseTexture: THREE.CanvasTexture | null = null;
   private vfxLightningLight: THREE.PointLight | null = null;
   private dustMotes: DustMoteEntry[] = [];
-  private sparkleParticles: { update(dt: number): void; dispose(): void } | null = null;
+  private sparkleParticles: {
+    update(dt: number): void;
+    setVisible(visible: boolean): void;
+    dispose(): void;
+  } | null = null;
   private lighting: LightingSystem;
   private navMeshManager: NavMeshManager | null = null;
   private navPatrolSystem: NavPatrolSystem | null = null;
@@ -389,6 +393,17 @@ export class LevelManager implements Disposable {
   /** Public accessor for the asset loader (used by editor for GLB import). */
   getAssetLoader(): AssetLoader {
     return this.assetLoader;
+  }
+
+  freezeForCapture(): void {
+    this.simTime = 0;
+    for (const entry of this.animatedMaterials) {
+      entry.mat.emissiveIntensity = entry.baseIntensity;
+    }
+    for (const mote of this.dustMotes) {
+      mote.sprite.visible = false;
+    }
+    this.sparkleParticles?.setVisible(false);
   }
 
   /**

@@ -467,6 +467,14 @@ async function bootstrap(): Promise<void> {
       setCameraLook(pitch: number, yaw: number) {
         camera.snapToAngle(yaw, pitch);
       },
+      async freezeForCapture() {
+        renderer.setGraphicsProfile("performance");
+        levelManager.setGraphicsProfile("performance");
+        renderer.setResolutionScale(1);
+        gameLoop.setSimulationEnabled(false);
+        await game.freezeForCapture();
+        await yieldToRenderer();
+      },
       listReviewSpawns() {
         return [...PROCEDURAL_REVIEW_SPAWN_ORDER];
       },

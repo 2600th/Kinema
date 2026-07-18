@@ -327,6 +327,16 @@ export class GameParticles {
     this.beaconGlowPool.clear();
   }
 
+  setVisible(visible: boolean): void {
+    this.dustPool.setVisible(visible);
+    this.sparkPool.setVisible(visible);
+    this.coinGlowPool.setVisible(visible);
+    this.hurtSparkPool.setVisible(visible);
+    this.hurtGlowPool.setVisible(visible);
+    this.beaconSparkPool.setVisible(visible);
+    this.beaconGlowPool.setVisible(visible);
+  }
+
   dispose(): void {
     this.dustPool.dispose();
     this.sparkPool.dispose();

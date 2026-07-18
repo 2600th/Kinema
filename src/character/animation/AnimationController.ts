@@ -77,6 +77,11 @@ export class AnimationController implements Disposable {
     }
   };
 
+  freezeForCapture(): void {
+    this.mixer.setTime(0);
+    this.mixer.timeScale = 0;
+  }
+
   private onMixerLoop: MixerLoopListener = (e) => {
     const a = e.action;
 

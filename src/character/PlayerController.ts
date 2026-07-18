@@ -151,6 +151,11 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     return this.animator?.isClipFinished() ?? false;
   }
 
+  freezeAnimationForCapture(): void {
+    this.captureFrozen = true;
+    this.animator?.freezeForCapture();
+  }
+
   private colliderFactory: ColliderFactory;
   private characterModel: CharacterModel | null = null;
   private animator: AnimationController | null = null;
@@ -160,6 +165,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   private damageBlinkActive = false;
   private damageBlinkTime = 0;
   private spikeDamageClipName: string | null = null;
+  private captureFrozen = false;
   private disposed = false;
 
   constructor(
@@ -258,6 +264,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       }
       this.characterModel = model;
       this.animator = animator;
+      if (this.captureFrozen) this.animator.freezeForCapture();
       this.spikeDamageClipName =
         PLAYER_PROFILE.spikeDamageClipCandidates?.find((clipName) => model.clips.has(clipName)) ?? null;
       this.animator.setEventListener({

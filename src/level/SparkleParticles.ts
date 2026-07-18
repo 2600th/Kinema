@@ -187,6 +187,10 @@ export class SparkleParticles {
     sizeAttr.needsUpdate = true;
   }
 
+  setVisible(visible: boolean): void {
+    this.points.visible = visible;
+  }
+
   dispose(): void {
     this.geometry.dispose();
     this.material.dispose();
