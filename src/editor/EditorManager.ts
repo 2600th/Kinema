@@ -89,8 +89,8 @@ export class EditorManager {
       onSave: () => this.saveLevel(),
       onLoad: () => this.loadLevel(),
       onImportGLB: () => this.onImportGLB(),
-      onUndo: () => this.history.undo(),
-      onRedo: () => this.history.redo(),
+      onUndo: () => this.undo(),
+      onRedo: () => this.redo(),
       onToggleSnap: () => this.toggleSnap(),
       onToggleGrid: () => {
         this.grid.toggleGrid();
@@ -235,6 +235,24 @@ export class EditorManager {
 
   isActive(): boolean {
     return this.active;
+  }
+
+  isPlayTesting(): boolean {
+    return this.playTestActive;
+  }
+
+  getObjectCount(): number {
+    return this.document.objects.length;
+  }
+
+  undo(): void {
+    if (!this.active || this.playTestActive) return;
+    this.history.undo();
+  }
+
+  redo(): void {
+    if (!this.active || this.playTestActive) return;
+    this.history.redo();
   }
 
   update(dt: number): void {
@@ -410,8 +428,8 @@ export class EditorManager {
    *  Play-test mode
    * ================================================================== */
 
-  private startPlayTest(): void {
-    if (this.playTestActive) return;
+  startPlayTest(): void {
+    if (!this.active || this.playTestActive) return;
 
     // Undo entries capture mesh/parent references that the play-test
     // restore (applyLoadedLevel) tears down and rebuilds; running them
@@ -503,7 +521,7 @@ export class EditorManager {
     this.playTestStopButton = stopBar;
   }
 
-  private async stopPlayTest(): Promise<void> {
+  async stopPlayTest(): Promise<void> {
     if (!this.playTestActive) return;
 
     // Remove stop button
@@ -634,11 +652,11 @@ export class EditorManager {
       this.toolbarPanel.setGridActive(this.grid.isVisible());
     }
     if (e.code === "KeyZ" && cmd) {
-      this.history.undo();
+      this.undo();
       e.preventDefault();
     }
     if ((e.code === "KeyY" && cmd) || (e.code === "KeyZ" && cmd && e.shiftKey)) {
-      this.history.redo();
+      this.redo();
       e.preventDefault();
     }
     if (e.code === "Delete" || e.code === "Backspace") {

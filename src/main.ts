@@ -172,25 +172,36 @@ async function bootstrap(): Promise<void> {
   const gameLoop = new GameLoop(game, renderer, physicsWorld);
   game.setGameLoop(gameLoop);
   gameLoop.setHitstop(game.hitstop);
-  let editorManager: import("@editor/EditorManager").EditorManager | null = null;
-  const unsubEditorBootstrap = eventBus.on("editor:toggle", () => {
-    // First toggle: lazy-load the editor module, then let EditorManager own future toggles.
-    void (async () => {
-      if (editorManager) return;
+  type EditorManagerInstance = import("@editor/EditorManager").EditorManager;
+  let editorManager: EditorManagerInstance | null = null;
+  let editorManagerPromise: Promise<EditorManagerInstance> | null = null;
+  let unsubEditorBootstrap = () => {};
+  const ensureEditorManager = (): Promise<EditorManagerInstance> => {
+    if (editorManager) return Promise.resolve(editorManager);
+    if (!editorManagerPromise) {
       unsubEditorBootstrap();
-      const { EditorManager } = await import("@editor/EditorManager");
-      editorManager = new EditorManager(
-        renderer,
-        physicsWorld,
-        eventBus,
-        gameLoop,
-        levelManager,
-        playerController,
-        interactionManager,
-      );
-      game.setEditorManager(editorManager);
-      editorManager.toggle();
-    })();
+      editorManagerPromise = import("@editor/EditorManager").then(({ EditorManager }) => {
+        const manager = new EditorManager(
+          renderer,
+          physicsWorld,
+          eventBus,
+          gameLoop,
+          levelManager,
+          playerController,
+          interactionManager,
+        );
+        editorManager = manager;
+        game.setEditorManager(manager);
+        return manager;
+      });
+    }
+    return editorManagerPromise;
+  };
+  unsubEditorBootstrap = eventBus.on("editor:toggle", () => {
+    // First toggle: lazy-load the editor module, then let EditorManager own future toggles.
+    void ensureEditorManager().then((manager) => {
+      if (!manager.isActive() && !manager.isPlayTesting()) manager.toggle();
+    });
   });
 
   let levelLoaded = false;
@@ -715,6 +726,34 @@ async function bootstrap(): Promise<void> {
         playerController.body.setLinvel(new RAPIER.Vector3(0, 0, 0), true);
         playerController.body.setAngvel(new RAPIER.Vector3(0, 0, 0), true);
         return true;
+      },
+      async openEditor() {
+        const manager = await ensureEditorManager();
+        if (!manager.isActive() && !manager.isPlayTesting()) manager.toggle();
+      },
+      closeEditor() {
+        if (editorManager?.isActive()) editorManager.toggle();
+      },
+      isEditorActive() {
+        return editorManager?.isActive() ?? false;
+      },
+      isPlayTesting() {
+        return editorManager?.isPlayTesting() ?? false;
+      },
+      getEditorObjectCount() {
+        return editorManager?.getObjectCount() ?? 0;
+      },
+      editorUndo() {
+        editorManager?.undo();
+      },
+      editorRedo() {
+        editorManager?.redo();
+      },
+      startPlayTest() {
+        editorManager?.startPlayTest();
+      },
+      async stopPlayTest() {
+        await editorManager?.stopPlayTest();
       },
       /** Wait for a condition on player state, polling at physics rate. */
       waitFor(predicate: string, timeoutMs = 5000): Promise<boolean> {

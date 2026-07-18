@@ -96,5 +96,14 @@ export interface KinemaDebugApi {
   teleportToHazard(id?: string): boolean;
   teleportPlayer(position: KinemaVector3): boolean;
   forcePlayerPosition(position: KinemaVector3): boolean;
+  openEditor(): Promise<void>;
+  closeEditor(): void;
+  isEditorActive(): boolean;
+  isPlayTesting(): boolean;
+  getEditorObjectCount(): number;
+  editorUndo(): void;
+  editorRedo(): void;
+  startPlayTest(): void;
+  stopPlayTest(): Promise<void>;
   waitFor(predicate: string, timeoutMs?: number): Promise<boolean>;
 }
