@@ -857,13 +857,28 @@ async function bootstrap(): Promise<void> {
   const params = new URLSearchParams(window.location.search);
   const stationParam = params.get("station");
   const reviewSpawnParam = params.get("spawn");
-  const registerUnload = (menuManager: import("@ui/menus/MenuManager").MenuManager | null): void => {
+  const menuManager = new MenuManager(
+    eventBus,
+    gameLoop,
+    renderer,
+    settings,
+    inputManager,
+    camera,
+    audioManager,
+    startGame,
+    startSavedLevel,
+    returnToMainMenu,
+    startBlankLevelForEditor,
+  );
+  menuManagerRef = menuManager;
+  const registerUnload = (): void => {
     window.addEventListener("beforeunload", () => {
       gameLoop.stop();
       game.dispose();
-      menuManager?.dispose();
+      menuManager.dispose();
     });
   };
+  registerUnload();
   if (
     stationParam &&
     SHOWCASE_STATION_ORDER.includes(stationParam as import("@level/ShowcaseLayout").ShowcaseStationKey)
@@ -871,29 +886,12 @@ async function bootstrap(): Promise<void> {
     // prepareSceneLoad (inside startStation/startGame) already started the
     // loop; a second start() here would reset loop timing mid-frame.
     await startStation(stationParam);
-    registerUnload(null);
     console.log(`[Kinema] Station "${stationParam}" started directly`);
   } else if (reviewSpawnParam) {
     await startGame(getProceduralRunFromLocation());
-    registerUnload(null);
     console.log(`[Kinema] Procedural level started at review spawn "${reviewSpawnParam}"`);
   } else {
-    const menuManager = new MenuManager(
-      eventBus,
-      gameLoop,
-      renderer,
-      settings,
-      inputManager,
-      camera,
-      audioManager,
-      startGame,
-      startSavedLevel,
-      returnToMainMenu,
-      startBlankLevelForEditor,
-    );
-    menuManagerRef = menuManager;
     menuManager.showMainMenu();
-    registerUnload(menuManager);
 
     console.log("[Kinema] Game started");
   }
