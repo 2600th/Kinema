@@ -54,6 +54,7 @@ const THROWABLE_REFILL_DELAY = 1.6;
 const THROWABLE_RECYCLE_RADIUS = 13.5;
 const THROWABLE_REFILL_DROP_HEIGHT = 0.42;
 const THROWABLE_REFILL_DROP_SPEED = -0.9;
+const IMPACT_TOAST_GRACE_MS = 1_500;
 
 const _throwableZero = new RAPIER.Vector3(0, 0, 0);
 const _throwableTmp = new RAPIER.Vector3(0, 0, 0);
@@ -87,6 +88,8 @@ export class InteractableSystem implements RuntimeSystem {
   private throwableRecycleFloorY = -10;
   private rope: PhysicsRope | null = null;
   private unsubs: (() => void)[] = [];
+  private impactToastGraceUntil = 0;
+  private impactToastArmed = new Set<string>();
 
   // Shared throwable geometries (reused across all throwable objects)
   private readonly throwableGeometries = {
@@ -104,6 +107,7 @@ export class InteractableSystem implements RuntimeSystem {
     private vehicleManager: VehicleManager,
     private levelManager: LevelManager,
     private uiManager: UIManager,
+    private now: () => number = () => performance.now(),
   ) {
     this.unsubs.push(
       this.eventBus.on("interaction:grabStart", ({ body, offset, grabWeight }) => {
@@ -113,15 +117,18 @@ export class InteractableSystem implements RuntimeSystem {
         this.handleThrowablePickup(object);
       }),
       this.eventBus.on("interaction:throw", () => {
+        if (this.carriedThrowable) this.impactToastArmed.add(this.carriedThrowable.id);
         this.restoreThrownObject();
       }),
       this.eventBus.on("interaction:drop", () => {
+        if (this.carriedThrowable) this.impactToastArmed.delete(this.carriedThrowable.id);
         this.restoreThrownObject();
       }),
     );
   }
 
   setupLevel(): void {
+    this.startImpactToastGrace();
     this.clearRuntimeInteractables();
     this.vehicleManager.clear();
     this.spawnInteractables();
@@ -135,6 +142,7 @@ export class InteractableSystem implements RuntimeSystem {
 
   /** Setup only the interactables for a single showcase station (debug/test). */
   setupStation(key: ShowcaseStationKey): void {
+    this.startImpactToastGrace();
     this.clearRuntimeInteractables();
     this.vehicleManager.clear();
 
@@ -199,16 +207,24 @@ export class InteractableSystem implements RuntimeSystem {
     }
 
     if (this.throwableObjects.size > 0) {
+      const impactToastsAllowed = this.now() >= this.impactToastGraceUntil;
       this.physicsWorld.eventQueue.drainContactForceEvents((event) => {
         const h1 = event.collider1();
         const h2 = event.collider2();
-        const obj = this.throwableObjects.get(h1) ?? this.throwableObjects.get(h2);
-        if (!obj) return;
-        if (event.totalForceMagnitude() > 12) {
-          this.uiManager.hud.showStatus("Impact!", 700);
-        }
+        const firstObject = this.throwableObjects.get(h1);
+        const secondObject = this.throwableObjects.get(h2);
+        if (event.totalForceMagnitude() <= 12) return;
+        const firstWasArmed = firstObject ? this.impactToastArmed.delete(firstObject.id) : false;
+        const secondWasArmed =
+          secondObject && secondObject !== firstObject ? this.impactToastArmed.delete(secondObject.id) : false;
+        if (!firstWasArmed && !secondWasArmed) return;
+        if (impactToastsAllowed) this.uiManager.hud.showStatus("Impact!", 700);
       });
     }
+  }
+
+  private startImpactToastGrace(): void {
+    this.impactToastGraceUntil = this.now() + IMPACT_TOAST_GRACE_MS;
   }
 
   update(_dt: number, alpha: number): void {
@@ -488,6 +504,7 @@ export class InteractableSystem implements RuntimeSystem {
   }
 
   private handleThrowablePickup(object: ThrowableObject): void {
+    this.impactToastArmed.delete(object.id);
     this.carriedThrowable = object;
     this.playerController.startCarry(object);
     this.interactionManager.unregister(object.id);
@@ -596,6 +613,7 @@ export class InteractableSystem implements RuntimeSystem {
 
   private deactivateThrowable(poolEntry: ThrowablePoolEntry): void {
     const { body, collider, mesh } = poolEntry.object;
+    this.impactToastArmed.delete(poolEntry.object.id);
     body.setLinvel(_throwableZero, true);
     body.setAngvel(_throwableZero, true);
     body.setTranslation(setThrowableVector(_throwableTmp, poolEntry.hiddenPosition), false);
@@ -627,6 +645,7 @@ export class InteractableSystem implements RuntimeSystem {
     this.runtimeInteractables = [];
     this.throwableObjects.clear();
     this.throwablePoolEntries.clear();
+    this.impactToastArmed.clear();
     this.throwableSlotStates = [];
     this.carriedThrowable = null;
     if (this.throwableMaterials.length > 0) {

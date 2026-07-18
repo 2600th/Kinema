@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { getPlayer, waitForGrounded } from "./helpers/kinema";
+import { getPlayer, waitForGrounded, waitForLoadingGone } from "./helpers/kinema";
 
 const SLOPES_URL = "/?station=slopes";
 
@@ -22,6 +22,36 @@ async function monitorPlayerAboveY(page: Page, minY: number, durationMs: number)
     },
     { threshold: minY, duration: durationMs },
   );
+}
+
+function installImpactToastObserver(): void {
+  const stateWindow = window as unknown as Window & { __KINEMA_IMPACT_TOASTS__: string[] };
+  stateWindow.__KINEMA_IMPACT_TOASTS__ = [];
+  const recordImpactToasts = (root: ParentNode): void => {
+    const candidates = [
+      ...(root instanceof Element && root.matches(".hud-status-card") ? [root] : []),
+      ...root.querySelectorAll(".hud-status-card"),
+    ];
+    for (const candidate of candidates) {
+      if (candidate.textContent?.trim() === "Impact!") {
+        stateWindow.__KINEMA_IMPACT_TOASTS__.push("Impact!");
+      }
+    }
+  };
+  const beginObserving = (): void => {
+    if (!document.documentElement) {
+      requestAnimationFrame(beginObserving);
+      return;
+    }
+    new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (node instanceof Element) recordImpactToasts(node);
+        }
+      }
+    }).observe(document.documentElement, { childList: true, subtree: true });
+  };
+  beginObserving();
 }
 
 test.describe("Physics Verification", () => {
@@ -61,5 +91,75 @@ test.describe("Bootstrap Verification", () => {
 
     const realErrors = consoleErrors.filter((e) => !e.includes("favicon") && !e.includes("404"));
     expect(realErrors).toHaveLength(0);
+  });
+
+  test("ten fresh throw stations suppress physics-settle impact toasts", async ({ browser }, testInfo) => {
+    test.setTimeout(420_000);
+
+    for (let load = 0; load < 10; load += 1) {
+      const context = await browser.newContext();
+      await context.addInitScript(installImpactToastObserver);
+
+      try {
+        const page = await context.newPage();
+        await page.goto("/?station=throw", { waitUntil: "domcontentloaded" });
+        await page.locator("canvas").waitFor({ state: "visible", timeout: 60_000 });
+        await waitForLoadingGone(page);
+        await waitForGrounded(page);
+        await page.waitForTimeout(1_700);
+
+        const impactToastHistory = await page.evaluate(() => {
+          const stateWindow = window as unknown as Window & { __KINEMA_IMPACT_TOASTS__: string[] };
+          return stateWindow.__KINEMA_IMPACT_TOASTS__;
+        });
+        expect(impactToastHistory, `fresh load ${load + 1}`).toEqual([]);
+        await expect(page.locator("#hud-status-lane .hud-status-card", { hasText: "Impact!" })).toHaveCount(0);
+        if (load === 9) {
+          await page.screenshot({ path: testInfo.outputPath("throw-station-clean-impact-lane.png") });
+        }
+      } finally {
+        await context.close();
+      }
+    }
+  });
+
+  test("a real post-grace prop throw emits one impact toast without a support-force flood", async ({ page }) => {
+    await page.addInitScript(installImpactToastObserver);
+    await page.goto("/?station=throw", { waitUntil: "domcontentloaded" });
+    const canvas = page.locator("canvas");
+    await canvas.waitFor({ state: "visible", timeout: 60_000 });
+    await waitForLoadingGone(page);
+    await waitForGrounded(page);
+    await page.waitForTimeout(1_700);
+    await canvas.click({ force: true, position: { x: 640, y: 360 } });
+
+    await page.evaluate(() => {
+      window.__KINEMA__.teleportPlayer({ x: -6.65, y: -0.25, z: 73.7 });
+      window.__KINEMA__.setCameraLook(-0.08, 0);
+    });
+    await waitForGrounded(page);
+    await page.keyboard.press("f");
+    await expect.poll(() => page.evaluate(() => window.__KINEMA__.player.state)).toBe("carry");
+
+    await page.evaluate(() => window.__KINEMA__.setCameraLook(0.05, -0.26));
+    await canvas.dispatchEvent("mousedown", { button: 0 });
+    await expect.poll(() => page.evaluate(() => window.__KINEMA__.player.state)).not.toBe("carry");
+    await page.evaluate(() => window.dispatchEvent(new MouseEvent("mouseup", { button: 0 })));
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const stateWindow = window as unknown as Window & { __KINEMA_IMPACT_TOASTS__: string[] };
+          return stateWindow.__KINEMA_IMPACT_TOASTS__.length;
+        }),
+        { timeout: 10_000 },
+      )
+      .toBe(1);
+    await page.waitForTimeout(1_500);
+    expect(
+      await page.evaluate(() => {
+        const stateWindow = window as unknown as Window & { __KINEMA_IMPACT_TOASTS__: string[] };
+        return stateWindow.__KINEMA_IMPACT_TOASTS__;
+      }),
+    ).toEqual(["Impact!"]);
   });
 });
