@@ -9,6 +9,8 @@ vi.mock("./components/HUD", () => ({
   HUD: class {
     showPrompt = vi.fn();
     hidePrompt = vi.fn();
+    setPrompt = vi.fn();
+    setInteractionGlyph = vi.fn();
     setHoldProgress = vi.fn();
     showStatus = vi.fn();
     setObjective = vi.fn();
@@ -117,6 +119,25 @@ describe("UIManager", () => {
     expect(hud.flashObjectiveComplete).toHaveBeenCalledWith("Reach the beacon");
     expect(hud.showStatus).toHaveBeenCalledWith("Objective complete: Reach the beacon");
     expect(hud.showStatus).toHaveBeenCalledWith("All objectives complete");
+    ui.dispose();
+  });
+
+  it("clears prompt content and updates the hold glyph from input-source events", () => {
+    const listeners = new Map<string, (payload: any) => void>();
+    const on = vi.fn((event: string, handler: (payload: any) => void) => {
+      listeners.set(event, handler);
+      return () => {};
+    });
+    const ui = new UIManager({ on } as any);
+    const hud = hudInstances[0];
+
+    listeners.get("interaction:focusChanged")?.({ id: "door", label: "Press F to Open Door" });
+    listeners.get("interaction:focusChanged")?.({ id: null, label: null });
+    listeners.get("input:sourceChanged")?.({ source: "touch" });
+
+    expect(hud.setPrompt).toHaveBeenNthCalledWith(1, "Press F to Open Door");
+    expect(hud.setPrompt).toHaveBeenNthCalledWith(2, "");
+    expect(hud.setInteractionGlyph).toHaveBeenCalledWith("✋");
     ui.dispose();
   });
 

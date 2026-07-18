@@ -11,6 +11,18 @@ type InputManagerInternals = {
   touchControls: Pick<TouchControlsManager, "dispose" | "getInputState"> | null;
 };
 
+function gamepadSnapshot(axes: number[], pressedButtons: number[] = []): Gamepad {
+  return {
+    connected: true,
+    axes,
+    buttons: Array.from({ length: 12 }, (_, index) => ({
+      pressed: pressedButtons.includes(index),
+      touched: pressedButtons.includes(index),
+      value: pressedButtons.includes(index) ? 1 : 0,
+    })),
+  } as unknown as Gamepad;
+}
+
 class FakeTarget {
   private listeners = new Map<string, Set<Listener>>();
 
@@ -31,6 +43,10 @@ class FakeTarget {
     this.listeners.get(type)?.forEach((listener) => {
       listener(event);
     });
+  }
+
+  listenerCount(type: string): number {
+    return this.listeners.get(type)?.size ?? 0;
   }
 }
 
@@ -187,6 +203,65 @@ describe("InputManager", () => {
     expect(look.lookDX).not.toBe(0);
     expect(look.lookDY).not.toBe(0);
     manager.dispose();
+  });
+
+  it("tracks active input sources while ignoring gamepad stick noise", () => {
+    let pads: Gamepad[] = [gamepadSnapshot([0.13, 0, 0, 0])];
+    Object.defineProperty(globalThis, "navigator", {
+      value: { getGamepads: vi.fn(() => pads), maxTouchPoints: 0 },
+      configurable: true,
+    });
+    const eventBus = new EventBus();
+    const sources: string[] = [];
+    eventBus.on("input:sourceChanged", ({ source }) => sources.push(source));
+    const manager = new InputManager(eventBus, asCanvas(canvasTarget));
+
+    expect(manager.lastInputSource).toBe("keyboard");
+    manager.poll();
+    expect(sources).toEqual([]);
+
+    pads = [gamepadSnapshot([0.65, 0, 0, 0])];
+    manager.poll();
+    manager.poll();
+    expect(manager.lastInputSource).toBe("gamepad");
+    expect(sources).toEqual(["gamepad"]);
+
+    windowTarget.dispatch("keydown", { code: "KeyW", preventDefault: vi.fn() });
+    expect(manager.lastInputSource).toBe("keyboard");
+    expect(sources).toEqual(["gamepad", "keyboard"]);
+
+    manager.poll();
+    expect(manager.lastInputSource).toBe("keyboard");
+
+    pads = [gamepadSnapshot([0.1, 0, 0, 0])];
+    manager.poll();
+    pads = [gamepadSnapshot([0.65, 0, 0, 0])];
+    manager.pollInputSource();
+    expect(manager.lastInputSource).toBe("gamepad");
+    expect(sources).toEqual(["gamepad", "keyboard", "gamepad"]);
+    manager.dispose();
+  });
+
+  it("switches to touch from a touchstart and deduplicates repeated events", () => {
+    const eventBus = new EventBus();
+    const sources: string[] = [];
+    eventBus.on("input:sourceChanged", ({ source }) => sources.push(source));
+    const manager = new InputManager(eventBus, asCanvas(canvasTarget));
+
+    documentTarget.dispatch("touchstart");
+    documentTarget.dispatch("touchstart");
+
+    expect(manager.lastInputSource).toBe("touch");
+    expect(sources).toEqual(["touch"]);
+    manager.dispose();
+  });
+
+  it("removes its touch source listener when disposed", () => {
+    const manager = new InputManager(new EventBus(), asCanvas(canvasTarget));
+
+    expect(documentTarget.listenerCount("touchstart")).toBe(1);
+    manager.dispose();
+    expect(documentTarget.listenerCount("touchstart")).toBe(0);
   });
 
   it("merges active touch-control state into movement, actions, and look deltas", () => {

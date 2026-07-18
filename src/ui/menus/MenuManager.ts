@@ -56,6 +56,9 @@ export class MenuManager {
     this.addCosmicBackground();
 
     this.helpMenu = new HelpMenu({
+      eventBus: this.eventBus,
+      getInputSource: () => this.inputManager.lastInputSource,
+      pollInputSource: () => this.inputManager.pollInputSource(),
       onBack: () => this.pop(),
     });
     this.mainMenu = new MainMenu({

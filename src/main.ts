@@ -2,6 +2,7 @@ import type { KinemaDebugApi, KinemaInteractionEvent } from "@core/KinemaDebugAp
 import { shouldUseCompatibilityRenderer } from "@core/mobilePlatform";
 import type { InputState } from "@core/types";
 import RAPIER from "@dimforge/rapier3d-compat";
+import { getInputGlyph } from "@input/InputGlyphs";
 import type { CarController } from "@vehicle/CarController";
 import type { VehicleController } from "@vehicle/VehicleController";
 import * as THREE from "three";
@@ -144,7 +145,9 @@ async function bootstrap(): Promise<void> {
   renderer.camera.fov = settings.value.cameraFov;
   camera.setBaseFov(settings.value.cameraFov);
   renderer.camera.updateProjectionMatrix();
-  const interactionManager = new InteractionManager(physicsWorld, playerController, eventBus);
+  const interactionManager = new InteractionManager(physicsWorld, playerController, eventBus, () =>
+    getInputGlyph("interact", inputManager.lastInputSource),
+  );
   const uiManager = new UIManager(eventBus);
   let audioManager: import("@audio/AudioManager").AudioController;
   try {

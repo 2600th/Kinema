@@ -9,6 +9,7 @@ export class HUD implements Disposable {
   private prompt: HTMLDivElement;
   private holdWrap: HTMLDivElement;
   private holdFill: HTMLDivElement;
+  private holdKey: HTMLDivElement;
   private objectiveRegion: HTMLDivElement;
   private objective: HTMLDivElement;
   private objectiveText: HTMLDivElement;
@@ -39,13 +40,13 @@ export class HUD implements Disposable {
     this.holdWrap.className = "hud-hold-track";
     this.holdFill = document.createElement("div");
     this.holdFill.className = "hud-hold-fill";
-    const holdKey = document.createElement("div");
-    holdKey.className = "hud-hold-key";
-    holdKey.textContent = "F";
+    this.holdKey = document.createElement("div");
+    this.holdKey.className = "hud-hold-key";
+    this.holdKey.textContent = "F";
     const holdCaption = document.createElement("div");
     holdCaption.className = "hud-hold-caption";
     holdCaption.textContent = "Hold";
-    this.holdFill.appendChild(holdKey);
+    this.holdFill.appendChild(this.holdKey);
     this.holdFill.appendChild(holdCaption);
     this.holdWrap.appendChild(this.holdFill);
     parent.appendChild(this.holdWrap);
@@ -84,12 +85,20 @@ export class HUD implements Disposable {
   }
 
   showPrompt(text: string): void {
-    this.prompt.textContent = text;
-    this.prompt.classList.add("is-visible");
+    this.setPrompt(text);
   }
 
   hidePrompt(): void {
-    this.prompt.classList.remove("is-visible");
+    this.setPrompt("");
+  }
+
+  setPrompt(text: string): void {
+    this.prompt.textContent = text;
+    this.prompt.classList.toggle("is-visible", text.length > 0);
+  }
+
+  setInteractionGlyph(glyph: string): void {
+    this.holdKey.textContent = glyph;
   }
 
   setHoldProgress(progress: number | null): void {

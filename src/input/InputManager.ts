@@ -1,10 +1,11 @@
 import type { EventBus } from "@core/EventBus";
-import type { Disposable, InputState } from "@core/types";
+import type { Disposable, InputSource, InputState } from "@core/types";
 import { NULL_INPUT } from "@core/types";
 import { getPointerLockRequest } from "./pointerLock";
 import type { TouchControlsManager } from "./TouchControlsManager";
 
 const GAMEPAD_MOVE_THRESHOLD = 0.25;
+const GAMEPAD_SOURCE_HYSTERESIS = 0.08;
 const GAMEPAD_LOOK_SPEED = 18;
 
 /** Look deltas consumed per render frame for high-refresh-rate responsiveness. */
@@ -30,6 +31,23 @@ type GamepadSnapshot = {
   moveX: number;
   moveY: number;
 };
+
+const NULL_GAMEPAD_SNAPSHOT: GamepadSnapshot = Object.freeze({
+  forward: false,
+  backward: false,
+  left: false,
+  right: false,
+  crouch: false,
+  jump: false,
+  interact: false,
+  primary: false,
+  sprint: false,
+  lookX: 0,
+  lookY: 0,
+  vehicleVertical: 0,
+  moveX: 0,
+  moveY: 0,
+});
 
 /**
  * Captures keyboard + pointer lock input.
@@ -57,9 +75,13 @@ export class InputManager implements Disposable {
   private editorActive = false;
   private touchControls: TouchControlsManager | null = null;
   private touchActive = false;
+  private touchInputActive = false;
   private desiredTouchEnabled = false;
   private touchControlsLoad: Promise<void> | null = null;
   private rawPointerLockAvailable = true;
+  private _lastInputSource: InputSource = "keyboard";
+  private gamepadSourceAxisActive = false;
+  private gamepadSourceButtonActive = false;
   private unsubs: (() => void)[] = [];
 
   private _onKeyDown = this.handleKeyDown.bind(this);
@@ -70,6 +92,7 @@ export class InputManager implements Disposable {
   private _onWheel = this.handleWheel.bind(this);
   private _onClick = this.handleClick.bind(this);
   private _onPointerLockChange = this.handlePointerLockChange.bind(this);
+  private _onTouchStart = this.handleTouchStart.bind(this);
 
   constructor(
     private eventBus: EventBus,
@@ -83,6 +106,7 @@ export class InputManager implements Disposable {
     canvas.addEventListener("wheel", this._onWheel, { passive: false });
     document.addEventListener("click", this._onClick);
     document.addEventListener("pointerlockchange", this._onPointerLockChange);
+    document.addEventListener("touchstart", this._onTouchStart, { passive: true });
 
     this.unsubs.push(
       this.eventBus.on("menu:opened", () => {
@@ -113,8 +137,10 @@ export class InputManager implements Disposable {
       this.eventBus.emit("input:state", NULL_INPUT);
       return NULL_INPUT;
     }
-    const gamepad = this.readGamepadState();
     const touch = this.touchActive ? (this.touchControls?.getInputState() ?? null) : null;
+    this.touchInputActive = touch?.active ?? false;
+    if (this.touchInputActive) this.setLastInputSource("touch");
+    const gamepad = this.readGamepadState();
 
     // Use latchedKeys for edge detection so short keypresses (down+up between
     // two polls) aren't missed. Held state still comes from live keys set.
@@ -238,6 +264,16 @@ export class InputManager implements Disposable {
     return this.locked;
   }
 
+  get lastInputSource(): InputSource {
+    return this._lastInputSource;
+  }
+
+  /** Sample device activity while gameplay polling is paused (for example, in Help). */
+  pollInputSource(): InputSource {
+    this.updateGamepadInputSource(this.getConnectedGamepad());
+    return this._lastInputSource;
+  }
+
   /** Initialize touch controls when a touch-capable device is detected. */
   initTouchControls(): void {
     if (!this.detectTouchSupport()) return;
@@ -309,6 +345,8 @@ export class InputManager implements Disposable {
     const tag = (e.target as HTMLElement)?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
+    this.setLastInputSource("keyboard");
+
     this.keys.add(e.code);
     this.latchedKeys.add(e.code);
 
@@ -341,6 +379,7 @@ export class InputManager implements Disposable {
   }
 
   private handleMouseDown(e: MouseEvent): void {
+    this.setLastInputSource("keyboard");
     this.mouseDown = true;
     if (e.button === 0) {
       this.mousePrimary = true;
@@ -389,29 +428,14 @@ export class InputManager implements Disposable {
     }
   }
 
-  private readGamepadState(): GamepadSnapshot {
-    const nullSnap: GamepadSnapshot = {
-      forward: false,
-      backward: false,
-      left: false,
-      right: false,
-      crouch: false,
-      jump: false,
-      interact: false,
-      primary: false,
-      sprint: false,
-      lookX: 0,
-      lookY: 0,
-      vehicleVertical: 0,
-      moveX: 0,
-      moveY: 0,
-    };
-    const api = navigator.getGamepads?.bind(navigator);
-    if (!api) return nullSnap;
+  private handleTouchStart(): void {
+    this.setLastInputSource("touch");
+  }
 
-    const pads = api();
-    const pad = Array.from(pads).find((entry) => !!entry && entry.connected) ?? null;
-    if (!pad) return nullSnap;
+  private readGamepadState(): GamepadSnapshot {
+    const pad = this.getConnectedGamepad();
+    this.updateGamepadInputSource(pad);
+    if (!pad) return NULL_GAMEPAD_SNAPSHOT;
 
     const gpMoveX = this.applyDeadzoneCurve(pad.axes[0] ?? 0);
     const gpMoveY = this.applyDeadzoneCurve(pad.axes[1] ?? 0);
@@ -441,6 +465,50 @@ export class InputManager implements Disposable {
     };
   }
 
+  private getConnectedGamepad(): Gamepad | null {
+    const api = navigator.getGamepads;
+    if (!api) return null;
+    const pads = api.call(navigator);
+    for (let index = 0; index < pads.length; index++) {
+      const pad = pads[index];
+      if (pad?.connected) return pad;
+    }
+    return null;
+  }
+
+  private updateGamepadInputSource(pad: Gamepad | null): void {
+    if (!pad) {
+      this.gamepadSourceAxisActive = false;
+      this.gamepadSourceButtonActive = false;
+      return;
+    }
+
+    const sourceAxisEnterThreshold = Math.min(1, this.gamepadDeadzone + GAMEPAD_SOURCE_HYSTERESIS);
+    let hasActiveAxis = false;
+    let hasReleasedAxis = true;
+    for (const axis of pad.axes) {
+      const magnitude = Math.abs(axis);
+      if (magnitude > sourceAxisEnterThreshold) hasActiveAxis = true;
+      if (magnitude > this.gamepadDeadzone) hasReleasedAxis = false;
+    }
+    let hasActiveButton = false;
+    for (const button of pad.buttons) {
+      if (button.pressed || button.value > 0.5) {
+        hasActiveButton = true;
+        break;
+      }
+    }
+
+    const newlyActiveAxis = hasActiveAxis && !this.gamepadSourceAxisActive;
+    const newlyActiveButton = hasActiveButton && !this.gamepadSourceButtonActive;
+    if (hasReleasedAxis) this.gamepadSourceAxisActive = false;
+    else if (hasActiveAxis) this.gamepadSourceAxisActive = true;
+    this.gamepadSourceButtonActive = hasActiveButton;
+    if ((newlyActiveAxis || newlyActiveButton) && !this.touchInputActive) {
+      this.setLastInputSource("gamepad");
+    }
+  }
+
   private applyDeadzoneCurve(value: number): number {
     const sign = Math.sign(value);
     const magnitude = Math.abs(value);
@@ -448,6 +516,12 @@ export class InputManager implements Disposable {
     const normalized = (magnitude - this.gamepadDeadzone) / (1 - this.gamepadDeadzone);
     const curved = normalized ** this.gamepadCurve;
     return sign * curved;
+  }
+
+  private setLastInputSource(source: InputSource): void {
+    if (source === this._lastInputSource) return;
+    this._lastInputSource = source;
+    this.eventBus.emit("input:sourceChanged", { source });
   }
 
   private ensureTouchControls(): void {
@@ -522,5 +596,6 @@ export class InputManager implements Disposable {
     this.canvas.removeEventListener("wheel", this._onWheel);
     document.removeEventListener("click", this._onClick);
     document.removeEventListener("pointerlockchange", this._onPointerLockChange);
+    document.removeEventListener("touchstart", this._onTouchStart);
   }
 }

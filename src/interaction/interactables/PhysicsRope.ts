@@ -5,7 +5,12 @@ import type { InputState } from "@core/types";
 import RAPIER from "@dimforge/rapier3d-compat";
 import type { PhysicsWorld } from "@physics/PhysicsWorld";
 import * as THREE from "three";
-import type { IInteractable, InteractionAccess, InteractionSpec } from "../Interactable";
+import {
+  type IInteractable,
+  INTERACTION_ALLOWED,
+  type InteractionAccess,
+  type InteractionSpec,
+} from "../Interactable";
 
 const _anchorPos = new THREE.Vector3();
 const _tailPos = new THREE.Vector3();
@@ -27,6 +32,10 @@ const ROPE_IDLE_LINEAR_DAMPING = 0.55;
 const ROPE_IDLE_ANGULAR_DAMPING = 0.78;
 const ROPE_ATTACHED_LINEAR_DAMPING = 0.24;
 const ROPE_ATTACHED_ANGULAR_DAMPING = 0.36;
+const ROPE_ATTACHED_ACCESS: InteractionAccess = Object.freeze({
+  allowed: false,
+  reason: "WSAD swing, Shift+W/S climb, Space release",
+});
 
 /**
  * Chain of dynamic rigid bodies linked by spherical joints.
@@ -178,9 +187,9 @@ export class PhysicsRope implements IInteractable {
 
   canInteract(player: PlayerController): InteractionAccess {
     if (this.attachedPlayer === player) {
-      return { allowed: false, reason: "WSAD swing, Shift+W/S climb, Space release" };
+      return ROPE_ATTACHED_ACCESS;
     }
-    return { allowed: true };
+    return INTERACTION_ALLOWED;
   }
 
   getIgnoredColliderHandles(): number[] {

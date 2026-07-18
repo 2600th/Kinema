@@ -1,5 +1,5 @@
 import type { PlayerController } from "@character/PlayerController";
-import type { EventBus } from "@core/EventBus";
+import { EventBus } from "@core/EventBus";
 import type RAPIER from "@dimforge/rapier3d-compat";
 import type { PhysicsWorld } from "@physics/PhysicsWorld";
 import * as THREE from "three";
@@ -19,6 +19,7 @@ type TestPlayer = {
 };
 type TestEventBus = {
   emit: MockFn;
+  on: MockFn;
 };
 type TestInteractable = IInteractable & {
   update: MockFn;
@@ -101,6 +102,7 @@ describe("InteractionManager", () => {
     };
     eventBus = {
       emit: vi.fn(),
+      on: vi.fn(() => () => {}),
     };
   });
 
@@ -221,6 +223,93 @@ describe("InteractionManager", () => {
       id: "door",
       label: "Press F to Close Door",
     });
+  });
+
+  it("refreshes the focused prompt when the input glyph changes without duplicate emissions", () => {
+    physicsWorld.castRay.mockReturnValue(null);
+    const realEventBus = new EventBus();
+    const labels: Array<string | null> = [];
+    realEventBus.on("interaction:focusChanged", ({ label }) => labels.push(label));
+    let glyph = "F";
+    const manager = new InteractionManager(
+      asPhysicsWorld(physicsWorld),
+      asPlayerController(player),
+      realEventBus,
+      () => glyph,
+    );
+    manager.register(makeInteractable("door", 1, 0, 63));
+
+    manager.refreshFocusFromPosition({ x: 0, y: 0, z: 0 });
+    manager.fixedUpdate(1 / 60);
+    glyph = "X";
+    realEventBus.emit("input:sourceChanged", { source: "gamepad" });
+    manager.fixedUpdate(1 / 60);
+
+    expect(labels).toEqual(["Press F to label-door", "Press X to label-door"]);
+    manager.dispose();
+  });
+
+  it("refreshes a focused blocked reason only when access state changes", () => {
+    physicsWorld.castRay.mockReturnValue(null);
+    const realEventBus = new EventBus();
+    const labels: Array<string | null> = [];
+    realEventBus.on("interaction:focusChanged", ({ label }) => labels.push(label));
+    const manager = new InteractionManager(
+      asPhysicsWorld(physicsWorld),
+      asPlayerController(player),
+      realEventBus,
+    );
+    let reason: string | null = null;
+    const target = makeInteractable("door", 1, 0, 65);
+    target.canInteract = asCanInteract(vi.fn(() => (reason ? { allowed: false, reason } : { allowed: true })));
+    manager.register(target);
+
+    manager.refreshFocusFromPosition({ x: 0, y: 0, z: 0 });
+    manager.fixedUpdate(1 / 60);
+    reason = "Needs power";
+    manager.fixedUpdate(1 / 60);
+    manager.fixedUpdate(1 / 60);
+
+    expect(labels).toEqual(["Press F to label-door", "Needs power"]);
+    manager.dispose();
+  });
+
+  it("does not re-emit a blocked prompt when only the input glyph changes", () => {
+    physicsWorld.castRay.mockReturnValue(null);
+    const realEventBus = new EventBus();
+    const labels: Array<string | null> = [];
+    realEventBus.on("interaction:focusChanged", ({ label }) => labels.push(label));
+    let glyph = "F";
+    const manager = new InteractionManager(
+      asPhysicsWorld(physicsWorld),
+      asPlayerController(player),
+      realEventBus,
+      () => glyph,
+    );
+    const target = makeInteractable("door", 1, 0, 66);
+    target.canInteract = asCanInteract(vi.fn(() => ({ allowed: false, reason: "Needs power" })));
+    manager.register(target);
+
+    manager.refreshFocusFromPosition({ x: 0, y: 0, z: 0 });
+    glyph = "X";
+    realEventBus.emit("input:sourceChanged", { source: "gamepad" });
+
+    expect(labels).toEqual(["Needs power"]);
+    manager.dispose();
+  });
+
+  it("unsubscribes from input source changes when disposed", () => {
+    const unsubscribe = vi.fn();
+    eventBus.on.mockReturnValue(unsubscribe);
+    const manager = new InteractionManager(
+      asPhysicsWorld(physicsWorld),
+      asPlayerController(player),
+      asEventBus(eventBus),
+    );
+
+    manager.dispose();
+
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 
   it("feeds hold progress into the interactable and emits world position for hold VFX", () => {

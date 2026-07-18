@@ -4,7 +4,13 @@ import type { EventBus } from "@core/EventBus";
 import RAPIER from "@dimforge/rapier3d-compat";
 import type { PhysicsWorld } from "@physics/PhysicsWorld";
 import * as THREE from "three";
-import type { IInteractable, InteractionAccess, InteractionSpec } from "../Interactable";
+import {
+  type IInteractable,
+  INTERACTION_ALLOWED,
+  INTERACTION_REQUIRES_GROUNDED,
+  type InteractionAccess,
+  type InteractionSpec,
+} from "../Interactable";
 
 const IDLE_COLOR = new THREE.Color(0x9be8ff);
 const CHARGING_COLOR = new THREE.Color(0xbeffcc);
@@ -12,6 +18,7 @@ const ACTIVE_COLOR = new THREE.Color(0x8cff9b);
 const IDLE_EMISSIVE = new THREE.Color(0x123247);
 const CHARGING_EMISSIVE = new THREE.Color(0x52c18f);
 const ACTIVE_EMISSIVE = new THREE.Color(0x2c6f2f);
+const BEACON_ONLINE_ACCESS: InteractionAccess = Object.freeze({ allowed: false, reason: "Beacon online" });
 
 /**
  * Objective beacon with a longer hold-to-activate charge-up.
@@ -168,9 +175,9 @@ export class ObjectiveBeacon implements IInteractable {
 
   canInteract(player: PlayerController): InteractionAccess {
     if (this.activated) {
-      return { allowed: false, reason: "Beacon online" };
+      return BEACON_ONLINE_ACCESS;
     }
-    return player.isGrounded ? { allowed: true } : { allowed: false, reason: "Must be grounded" };
+    return player.isGrounded ? INTERACTION_ALLOWED : INTERACTION_REQUIRES_GROUNDED;
   }
 
   setHoldProgress(progress: number | null): void {

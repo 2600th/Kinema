@@ -1,6 +1,7 @@
 import type { EventBus } from "@core/EventBus";
 import { shouldShowLandscapeHint } from "@core/mobilePlatform";
 import type { Disposable } from "@core/types";
+import { getInputGlyph } from "@input/InputGlyphs";
 import { DeathEffect } from "./components/DeathEffect";
 import { DebugPanel } from "./components/DebugPanel";
 import { FadeScreen } from "./components/FadeScreen";
@@ -53,12 +54,16 @@ export class UIManager implements Disposable {
     // Wire events
     this.unsubscribers.push(
       this.eventBus.on("interaction:focusChanged", ({ id, label }) => {
-        if (id && label) {
-          this.hud.showPrompt(label);
-        } else {
-          this.hud.hidePrompt();
+        this.hud.setPrompt(id && label ? label : "");
+        if (!id) {
           this.hud.setHoldProgress(null);
         }
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on("input:sourceChanged", ({ source }) => {
+        this.hud.setInteractionGlyph(getInputGlyph("interact", source));
       }),
     );
 

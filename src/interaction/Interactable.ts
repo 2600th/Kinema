@@ -14,6 +14,12 @@ export interface InteractionAccess {
   reason?: string;
 }
 
+export const INTERACTION_ALLOWED: InteractionAccess = Object.freeze({ allowed: true });
+export const INTERACTION_REQUIRES_GROUNDED: InteractionAccess = Object.freeze({
+  allowed: false,
+  reason: "Must be grounded",
+});
+
 /**
  * Interface for any object the player can interact with.
  */

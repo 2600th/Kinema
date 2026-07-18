@@ -28,6 +28,8 @@ export interface InputState {
   readonly mouseWheelDelta: number;
 }
 
+export type InputSource = "keyboard" | "gamepad" | "touch";
+
 /** Default (no-input) state */
 export const NULL_INPUT: InputState = Object.freeze({
   forward: false,
@@ -173,6 +175,7 @@ export interface SpawnPointData {
 /** Event map — every event name and its payload type */
 export interface EventMap {
   "input:state": InputState;
+  "input:sourceChanged": { source: InputSource };
   "player:stateChanged": { previous: StateId; current: StateId };
   "player:grounded": boolean;
   "player:landed": { impactSpeed: number };

@@ -4,7 +4,13 @@ import type { EventBus } from "@core/EventBus";
 import RAPIER from "@dimforge/rapier3d-compat";
 import type { PhysicsWorld } from "@physics/PhysicsWorld";
 import * as THREE from "three";
-import type { IInteractable, InteractionAccess, InteractionSpec } from "../Interactable";
+import {
+  type IInteractable,
+  INTERACTION_ALLOWED,
+  INTERACTION_REQUIRES_GROUNDED,
+  type InteractionAccess,
+  type InteractionSpec,
+} from "../Interactable";
 
 const _doorRV3 = new RAPIER.Vector3(0, 0, 0);
 const _doorRQuat = new RAPIER.Quaternion(0, 0, 0, 1);
@@ -49,6 +55,7 @@ export class Door implements IInteractable {
   private holdDuration: number;
   private unlockCondition?: () => boolean;
   private lockedReason: string;
+  private readonly lockedAccess: InteractionAccess;
 
   constructor(
     id: string,
@@ -64,6 +71,7 @@ export class Door implements IInteractable {
     this.holdDuration = Math.max(options?.holdDuration ?? 0.85, 0.05);
     this.unlockCondition = options?.unlockCondition;
     this.lockedReason = options?.lockedReason ?? "The door is locked";
+    this.lockedAccess = Object.freeze({ allowed: false, reason: this.lockedReason });
 
     // Create door mesh
     const geom = new THREE.BoxGeometry(1.5, 2.5, 0.15);
@@ -115,15 +123,12 @@ export class Door implements IInteractable {
 
   canInteract(player: PlayerController): InteractionAccess {
     if (!player.isGrounded) {
-      return { allowed: false, reason: "Must be grounded" };
+      return INTERACTION_REQUIRES_GROUNDED;
     }
     if (this.unlockCondition && !this.unlockCondition()) {
-      return {
-        allowed: false,
-        reason: this.lockedReason,
-      };
+      return this.lockedAccess;
     }
-    return { allowed: true };
+    return INTERACTION_ALLOWED;
   }
 
   getIgnoredColliderHandles(): number[] {

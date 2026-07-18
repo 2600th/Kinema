@@ -10,6 +10,119 @@ const DOOR_BEACON_PLAYER_POSITION = {
   z: getShowcaseStationZ("door"),
 };
 
+test("interaction prompt follows keyboard and synthetic gamepad input sources", async ({ page }, testInfo) => {
+  test.setTimeout(120_000);
+  await page.addInitScript(() => {
+    const state = { active: false, calls: 0 };
+    Object.defineProperty(window, "__KINEMA_TEST_GAMEPAD__", { value: state, configurable: true });
+    Object.defineProperty(navigator, "getGamepads", {
+      configurable: true,
+      value: () => {
+        state.calls += 1;
+        return [
+          {
+            axes: [0, 0, 0, 0],
+            buttons: Array.from({ length: 16 }, (_, index) => ({
+              pressed: state.active && index === 5,
+              touched: state.active && index === 5,
+              value: state.active && index === 5 ? 1 : 0,
+            })),
+            connected: true,
+            id: "Kinema synthetic test pad",
+            index: 0,
+            mapping: "standard",
+            timestamp: 0,
+            vibrationActuator: null,
+          },
+        ];
+      },
+    });
+  });
+
+  await page.goto("/?station=door", { waitUntil: "domcontentloaded" });
+  await page.locator("canvas").waitFor({ state: "visible", timeout: 15_000 });
+  await waitForGrounded(page);
+  await page.evaluate((position) => {
+    window.__KINEMA__.teleportPlayer(position);
+    window.__KINEMA__.setCameraLook(-0.08, 0);
+  }, DOOR_BEACON_PLAYER_POSITION);
+
+  const prompt = page.locator("#hud-prompt");
+  await expect(prompt).toContainText("Hold F to Activate Beacon");
+  await page.screenshot({ path: testInfo.outputPath("prompt-keyboard.png") });
+
+  await page.evaluate(() => {
+    (window as unknown as { __KINEMA_TEST_GAMEPAD__: { active: boolean } }).__KINEMA_TEST_GAMEPAD__.active = true;
+  });
+  await expect(prompt).toContainText("Hold X to Activate Beacon", { timeout: 500 });
+  await expect(page.locator(".hud-hold-key")).toHaveText("X");
+  await page.screenshot({ path: testInfo.outputPath("prompt-gamepad.png") });
+
+  const callsAtRelease = await page.evaluate(() => {
+    const state = (window as unknown as {
+      __KINEMA_TEST_GAMEPAD__: { active: boolean; calls: number };
+    }).__KINEMA_TEST_GAMEPAD__;
+    state.active = false;
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyZ", key: "z", bubbles: true }));
+    window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyZ", key: "z", bubbles: true }));
+    return state.calls;
+  });
+  await expect(prompt).toContainText("Hold F to Activate Beacon", { timeout: 500 });
+  await page.waitForFunction(
+    (previousCalls) =>
+      (window as unknown as { __KINEMA_TEST_GAMEPAD__: { calls: number } }).__KINEMA_TEST_GAMEPAD__.calls >
+      previousCalls,
+    callsAtRelease,
+  );
+
+  await page.evaluate((position) => {
+    window.__KINEMA__.teleportPlayer({ ...position, x: position.x + 20 });
+  }, DOOR_BEACON_PLAYER_POSITION);
+  await expect(prompt).toHaveText("");
+  await expect(prompt).not.toHaveClass(/is-visible/);
+
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Help" }).click();
+  const help = page.locator(".help-menu.active");
+  await expect(help).toContainText("W A S D");
+  const callsBeforeHelpReleaseSample = await page.evaluate(
+    () =>
+      (window as unknown as { __KINEMA_TEST_GAMEPAD__: { calls: number } }).__KINEMA_TEST_GAMEPAD__.calls,
+  );
+  await page.waitForFunction(
+    (previousCalls) =>
+      (window as unknown as { __KINEMA_TEST_GAMEPAD__: { calls: number } }).__KINEMA_TEST_GAMEPAD__.calls >
+      previousCalls,
+    callsBeforeHelpReleaseSample,
+  );
+  await page.evaluate(() => {
+    (window as unknown as { __KINEMA_TEST_GAMEPAD__: { active: boolean } }).__KINEMA_TEST_GAMEPAD__.active = true;
+  });
+  await expect(help).toContainText("Left Stick", { timeout: 500 });
+  await expect(help.locator(".help-key").filter({ hasText: /^X$/ })).toBeVisible();
+  await page.evaluate(() => {
+    const state = (window as unknown as {
+      __KINEMA_TEST_GAMEPAD__: { active: boolean; calls: number };
+    }).__KINEMA_TEST_GAMEPAD__;
+    state.active = false;
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyZ", key: "z", bubbles: true }));
+    window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyZ", key: "z", bubbles: true }));
+  });
+  await expect(help).toContainText("W A S D", { timeout: 500 });
+  await page.getByRole("button", { name: "Back" }).click();
+  const callsAfterHide = await page.evaluate(
+    () =>
+      (window as unknown as { __KINEMA_TEST_GAMEPAD__: { calls: number } }).__KINEMA_TEST_GAMEPAD__.calls,
+  );
+  await page.waitForTimeout(200);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as unknown as { __KINEMA_TEST_GAMEPAD__: { calls: number } }).__KINEMA_TEST_GAMEPAD__.calls,
+    ),
+  ).toBe(callsAfterHide);
+});
+
 test("objective beacon requires a full hold and shows charge feedback", async ({ page }, testInfo) => {
   test.setTimeout(120_000);
 
@@ -194,6 +307,8 @@ test.describe("touch beacon activation", () => {
     const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
     await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
     try {
+      await expect(page.locator("#hud-prompt")).toContainText("Hold ✋ to Activate Beacon", { timeout: 500 });
+      await expect(page.locator(".hud-hold-key")).toHaveText("✋");
       await page.waitForFunction(
         () => window.__KINEMA__.getInteractionEvents().some((event) => event.type === "objective:beaconActivated"),
         undefined,

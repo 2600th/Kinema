@@ -4,7 +4,12 @@ import type RAPIER from "@dimforge/rapier3d-compat";
 import type { VehicleController } from "@vehicle/VehicleController";
 import * as THREE from "three";
 import { setMeshHighlight } from "../highlightMesh";
-import type { IInteractable, InteractionAccess } from "../Interactable";
+import {
+  type IInteractable,
+  INTERACTION_ALLOWED,
+  INTERACTION_REQUIRES_GROUNDED,
+  type InteractionAccess,
+} from "../Interactable";
 
 const _rotatedOffset = new THREE.Vector3();
 
@@ -41,7 +46,7 @@ export class VehicleSeat implements IInteractable {
   }
 
   canInteract(player: PlayerController): InteractionAccess {
-    return player.isGrounded ? { allowed: true } : { allowed: false, reason: "Must be grounded" };
+    return player.isGrounded ? INTERACTION_ALLOWED : INTERACTION_REQUIRES_GROUNDED;
   }
 
   interact(_player: PlayerController): string | undefined {
