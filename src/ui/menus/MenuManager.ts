@@ -110,7 +110,12 @@ export class MenuManager {
   }
 
   showMainMenu(): void {
+    this.resumeOnClose = false;
+    while (this.stack.length) {
+      this.pop();
+    }
     this.push(this.mainMenu);
+    this.resumeOnClose = false;
   }
 
   isMenuOpen(): boolean {
@@ -213,10 +218,6 @@ export class MenuManager {
 
   private async handleReturnToMainMenu(): Promise<void> {
     await this.onReturnToMainMenu();
-    this.resumeOnClose = false;
-    while (this.stack.length) {
-      this.pop();
-    }
     this.showMainMenu();
   }
 

@@ -253,7 +253,13 @@ async function bootstrap(): Promise<void> {
     };
   };
 
+  const closeEditorForSceneTransition = (): void => {
+    editorManager?.abortPlayTest();
+    if (editorManager?.isActive()) editorManager.toggle();
+  };
+
   const unloadCurrentRun = (): void => {
+    closeEditorForSceneTransition();
     if (!levelLoaded) return;
     game.teardownLevel();
     levelManager.unload();
@@ -261,7 +267,7 @@ async function bootstrap(): Promise<void> {
   };
 
   const prepareSceneLoad = async (): Promise<void> => {
-    if (editorManager?.isActive()) editorManager.toggle();
+    closeEditorForSceneTransition();
     await uiManager.loadingScreen.show();
     // Start render loop with simulation DISABLED so the loading screen CSS
     // animations stay alive. Physics/game logic is skipped — only the renderer
@@ -299,8 +305,8 @@ async function bootstrap(): Promise<void> {
   };
 
   const returnToMainMenu = async (): Promise<void> => {
+    closeEditorForSceneTransition();
     if (!levelLoaded) return;
-    if (editorManager?.isActive()) editorManager.toggle();
     gameLoop.stop();
     game.teardownLevel();
     levelManager.unload();
@@ -466,6 +472,13 @@ async function bootstrap(): Promise<void> {
       /** Set camera look angles for headless screenshot capture. */
       setCameraLook(pitch: number, yaw: number) {
         camera.snapToAngle(yaw, pitch);
+      },
+      getCameraPose() {
+        const { position, quaternion } = renderer.camera;
+        return {
+          position: { x: position.x, y: position.y, z: position.z },
+          quaternion: { x: quaternion.x, y: quaternion.y, z: quaternion.z, w: quaternion.w },
+        };
       },
       async freezeForCapture() {
         renderer.setGraphicsProfile("performance");

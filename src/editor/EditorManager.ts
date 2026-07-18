@@ -264,6 +264,7 @@ export class EditorManager {
   }
 
   dispose(): void {
+    this.abortPlayTest();
     for (const unsub of this.unsubs) unsub();
     this.unsubs.length = 0;
     for (const panel of this.panels) panel.dispose();
@@ -524,24 +525,22 @@ export class EditorManager {
   async stopPlayTest(): Promise<void> {
     if (!this.playTestActive) return;
 
-    // Remove stop button
-    if (this.playTestStopButton) {
-      this.playTestStopButton.remove();
-      this.playTestStopButton = null;
-    }
-
-    this.playTestActive = false;
+    const snapshot = this.playTestSnapshot;
+    const cameraState = this.playTestCameraState;
+    this.clearPlayTestState();
 
     // ── Step 1: Restore scene from snapshot BEFORE re-entering editor ──
     // Await to ensure all objects are fully spawned before entering editor.
-    if (this.playTestSnapshot) {
-      const data = JSON.parse(this.playTestSnapshot) as LevelData;
+    if (snapshot) {
       try {
+        const data = JSON.parse(snapshot) as LevelData;
         await this.applyLoadedLevel(data);
       } catch (err) {
         console.error("[Editor] Failed to restore play-test snapshot:", err);
+        return;
       }
-      this.playTestSnapshot = null;
+    } else {
+      return;
     }
 
     // ── Step 2: Re-enter editor mode (skip buildEditorObjects — objects
@@ -549,10 +548,9 @@ export class EditorManager {
     this.enter(false);
 
     // ── Step 3: Restore camera state ──
-    if (this.playTestCameraState) {
-      this.renderer.camera.position.copy(this.playTestCameraState.position);
-      this.renderer.camera.quaternion.copy(this.playTestCameraState.quaternion);
-      this.playTestCameraState = null;
+    if (cameraState) {
+      this.renderer.camera.position.copy(cameraState.position);
+      this.renderer.camera.quaternion.copy(cameraState.quaternion);
       this.freeCamera.disable();
       this.freeCamera.enable();
     }
@@ -560,6 +558,18 @@ export class EditorManager {
     // Clear selection and sync UI
     this.setSelection(null);
     this.syncHierarchy();
+  }
+
+  abortPlayTest(): void {
+    this.clearPlayTestState();
+  }
+
+  private clearPlayTestState(): void {
+    this.playTestActive = false;
+    this.playTestStopButton?.remove();
+    this.playTestStopButton = null;
+    this.playTestSnapshot = null;
+    this.playTestCameraState = null;
   }
 
   /* ==================================================================

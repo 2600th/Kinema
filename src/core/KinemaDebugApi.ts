@@ -15,6 +15,18 @@ export interface KinemaVector3 {
   z: number;
 }
 
+export interface KinemaQuaternion {
+  x: number;
+  y: number;
+  z: number;
+  w: number;
+}
+
+export interface KinemaCameraPose {
+  position: KinemaVector3;
+  quaternion: KinemaQuaternion;
+}
+
 export type KinemaVehicleDebugState = CarDebugState;
 export type KinemaVehicleSteeringTrace = CarSteeringDebugTrace;
 
@@ -63,6 +75,7 @@ export interface KinemaDebugApi {
   readonly config: Readonly<PlayerController["config"]>;
   simulateJump(): void;
   setCameraLook(pitch: number, yaw: number): void;
+  getCameraPose(): KinemaCameraPose;
   freezeForCapture(): Promise<void>;
   listReviewSpawns(): string[];
   teleportToReviewSpawn(key: string): boolean;
