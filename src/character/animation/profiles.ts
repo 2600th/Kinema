@@ -23,7 +23,7 @@ export const PLAYER_PROFILE: AnimationProfile = {
     walk: "Walk_Loop",
     jog: "Jog_Fwd_Loop",
     sprint: "Sprint_Loop",
-    thresholds: [2.0, 4.0],
+    thresholds: [2.6, 6.5],
   },
   crouchLocomotion: {
     idle: "Crouch_Idle_Loop",

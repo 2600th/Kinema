@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { AnimationController } from "./AnimationController";
 import type { AnimationProfile } from "./AnimationProfile";
 import type { CharacterModel } from "./CharacterModel";
+import { PLAYER_PROFILE } from "./profiles";
 
 /** Create a minimal clip with a track that binds to 'bone' child of root. */
 function makeClip(name: string, duration = 1.0): THREE.AnimationClip {
@@ -55,6 +56,7 @@ type AnimationControllerInternals = {
   additiveAction: THREE.AnimationAction | null;
   currentState: StateId | null;
   locoWalk: THREE.AnimationAction | null;
+  locoTargetWeights: { walk: number; jog: number; sprint: number };
   currentAction: THREE.AnimationAction | null;
 };
 
@@ -262,6 +264,25 @@ describe("AnimationController", () => {
     // timeScale should be reduced by alignment factor
     expect(locoWalk.timeScale).toBeLessThan(3.0 / 1.5); // would be 2.0 without alignment
     expect(locoWalk.timeScale).toBeCloseTo((0.5 * 3.0) / 1.5, 1); // ~1.0
+
+    ctrl.dispose();
+  });
+
+  it("maps player walk, run, and sprint speeds to their authored locomotion zones", () => {
+    const ctrl = new AnimationController(
+      makeModel(ALL_CLIPS),
+      makeProfile({ locomotion: PLAYER_PROFILE.locomotion }),
+    );
+    ctrl.setState("move");
+
+    ctrl.setSpeed(1.5);
+    expect(getInternals(ctrl).locoTargetWeights).toEqual({ walk: 1, jog: 0, sprint: 0 });
+
+    ctrl.setSpeed(5.2);
+    expect(getInternals(ctrl).locoTargetWeights.jog).toBeGreaterThan(0.6);
+
+    ctrl.setSpeed(6.76);
+    expect(getInternals(ctrl).locoTargetWeights).toEqual({ walk: 0, jog: 0, sprint: 1 });
 
     ctrl.dispose();
   });
