@@ -52,6 +52,18 @@ export interface KinemaDynamicBodyState {
   velocity: KinemaVector3;
 }
 
+export interface KinemaNavAgentState {
+  id: string;
+  position: KinemaVector3;
+}
+
+export interface KinemaNavigationDebugState {
+  overlayAvailable: boolean;
+  overlayVisible: boolean;
+  targetAvailable: boolean;
+  targetMode: boolean;
+}
+
 export interface KinemaLevelObjectState {
   name: string;
   visible: boolean;
@@ -93,6 +105,8 @@ export interface KinemaDebugApi {
   getVehicleSteeringDebug(id: string): KinemaVehicleSteeringTrace | null;
   dumpVehicleSteeringDebug(id: string): KinemaVehicleSteeringTrace | null;
   getDynamicBodyState(name: string): KinemaDynamicBodyState | null;
+  getNavAgentStates(): KinemaNavAgentState[];
+  getNavigationDebugState(): KinemaNavigationDebugState;
   getLevelObjectState(name: string): KinemaLevelObjectState | null;
   getGraphicsProfile(): GraphicsProfile;
   getRendererDebugFlags(): Readonly<RendererDebugFlags>;

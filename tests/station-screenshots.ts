@@ -37,6 +37,42 @@ const ALL_STATIONS = [
   "futureA",
 ] as const;
 
+async function expectNavigationPatrol(page: import("@playwright/test").Page): Promise<void> {
+  await expect.poll(() => page.evaluate(() => window.__KINEMA__.getNavAgentStates().length)).toBeGreaterThan(0);
+  const before = await page.evaluate(() => window.__KINEMA__.getNavAgentStates());
+  await page.waitForTimeout(3_000);
+  const after = await page.evaluate(() => window.__KINEMA__.getNavAgentStates());
+  const afterById = new Map(after.map((agent) => [agent.id, agent.position]));
+  const maxDisplacement = Math.max(
+    ...before.map((agent) => {
+      const next = afterById.get(agent.id);
+      if (!next) return 0;
+      return Math.hypot(next.x - agent.position.x, next.y - agent.position.y, next.z - agent.position.z);
+    }),
+  );
+  expect(maxDisplacement).toBeGreaterThan(0.5);
+}
+
+async function exerciseNavigationDebugKeys(
+  page: import("@playwright/test").Page,
+): Promise<void> {
+  const before = await page.evaluate(() => window.__KINEMA__.getNavigationDebugState());
+  expect(before.overlayAvailable).toBe(true);
+  expect(before.targetAvailable).toBe(true);
+  await page.keyboard.press("n");
+  await expect
+    .poll(() => page.evaluate(() => window.__KINEMA__.getNavigationDebugState().overlayVisible))
+    .toBe(!before.overlayVisible);
+  await page.keyboard.press("n");
+  await expect
+    .poll(() => page.evaluate(() => window.__KINEMA__.getNavigationDebugState().overlayVisible))
+    .toBe(before.overlayVisible);
+  await page.keyboard.press("t");
+  await expect.poll(() => page.evaluate(() => window.__KINEMA__.getNavigationDebugState().targetMode)).toBe(true);
+  await page.keyboard.press("t");
+  await expect.poll(() => page.evaluate(() => window.__KINEMA__.getNavigationDebugState().targetMode)).toBe(false);
+}
+
 for (const station of ALL_STATIONS) {
   test(`station "${station}" loads, player is grounded, and scene renders`, async ({ page }) => {
     const consoleErrors: string[] = [];
@@ -68,14 +104,55 @@ for (const station of ALL_STATIONS) {
     expect(playerState).not.toBeNull();
     expect(playerState.position.y).toBeGreaterThan(-5);
 
+    if (station === "navigation") {
+      await page.evaluate(() => window.__KINEMA__.setCameraLook(-0.08, 0));
+      await expectNavigationPatrol(page);
+      await page.evaluate(() => window.__KINEMA__.freezeForCapture());
+    }
+
     // Take screenshot
     await page.screenshot({
       path: path.join(SCREENSHOT_DIR, `${station}.png`),
       fullPage: true,
     });
 
+    if (station === "navigation") {
+      await exerciseNavigationDebugKeys(page);
+    }
+
     // Filter out favicon 404 (not a real error)
     const realErrors = consoleErrors.filter((e) => !e.includes("favicon") && !e.includes("404"));
     expect(realErrors).toHaveLength(0);
   });
 }
+
+test('station "navigation" patrols with the compatibility renderer', async ({ page }) => {
+  const consoleErrors: string[] = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "error") consoleErrors.push(msg.text());
+  });
+
+  await page.goto("/?station=navigation&forceWebGL=1", { waitUntil: "domcontentloaded" });
+  await page.locator("canvas").waitFor({ state: "visible", timeout: 15_000 });
+  await waitForKinema(page);
+  await waitForGrounded(page);
+  await page.evaluate(() => window.__KINEMA__.setCameraLook(-0.08, 0));
+  await expectNavigationPatrol(page);
+  await page.evaluate(() => window.__KINEMA__.freezeForCapture());
+  await page.screenshot({
+    path: path.join(SCREENSHOT_DIR, "navigation-compat.png"),
+    fullPage: true,
+  });
+  await exerciseNavigationDebugKeys(page);
+
+  const realErrors = consoleErrors.filter((e) => !e.includes("favicon") && !e.includes("404"));
+  expect(realErrors).toHaveLength(0);
+});
+
+test("full showcase navigation debug keys stay wired", async ({ page }) => {
+  await page.goto("/?spawn=navigation", { waitUntil: "domcontentloaded" });
+  await waitForKinema(page);
+  await waitForGrounded(page);
+  await expect.poll(() => page.evaluate(() => window.__KINEMA__.getNavAgentStates().length)).toBeGreaterThan(0);
+  await exerciseNavigationDebugKeys(page);
+});

@@ -56,6 +56,8 @@ export class NavAgent {
       }
       this.characterModel = model;
       this.animator = animator;
+      this.animator.setState(STATE.idle);
+      this.animator.setSpeed(0);
       this.capsuleMesh.visible = false;
     } catch (err) {
       console.warn("[NavAgent] Model load failed, keeping capsule:", err);

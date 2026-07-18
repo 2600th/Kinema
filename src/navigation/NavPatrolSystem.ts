@@ -162,6 +162,17 @@ export class NavPatrolSystem {
     return null;
   }
 
+  getAgentStates(): Array<{ id: string; position: { x: number; y: number; z: number } }> {
+    return this.agents.map(({ navAgent }) => ({
+      id: navAgent.id,
+      position: {
+        x: navAgent.mesh.position.x,
+        y: navAgent.mesh.position.y,
+        z: navAgent.mesh.position.z,
+      },
+    }));
+  }
+
   dispose(): void {
     for (const { navAgent, crowdAgentId } of this.agents) {
       crowd.removeAgent(this.crowdInstance, crowdAgentId);

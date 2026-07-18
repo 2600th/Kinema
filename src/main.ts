@@ -617,6 +617,12 @@ async function bootstrap(): Promise<void> {
           velocity: { x: vel.x, y: vel.y, z: vel.z },
         };
       },
+      getNavAgentStates() {
+        return levelManager.getNavPatrolSystem()?.getAgentStates() ?? [];
+      },
+      getNavigationDebugState() {
+        return game.getNavigationDebugState();
+      },
       getLevelObjectState(name: string) {
         const object =
           levelManager.getLevelObjects().find((candidate) => candidate.name === name) ??

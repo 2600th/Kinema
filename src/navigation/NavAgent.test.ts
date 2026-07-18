@@ -1,3 +1,4 @@
+import type { AssetLoader } from "@level/AssetLoader";
 import * as THREE from "three";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NavAgent } from "./NavAgent";
@@ -32,7 +33,7 @@ describe("NavAgent", () => {
       setSpeed: vi.fn(),
     };
 
-    const initPromise = agent.init({} as any);
+    const initPromise = agent.init({} as AssetLoader);
     agent.dispose(scene);
     resolveCharacter({ model, animator });
     await initPromise;
@@ -41,5 +42,26 @@ describe("NavAgent", () => {
     expect(animator.dispose).toHaveBeenCalledTimes(1);
     expect((agent as any).characterModel).toBeNull();
     expect((agent as any).animator).toBeNull();
+  });
+
+  it("starts the idle animation as soon as the model finishes loading", async () => {
+    const scene = new THREE.Scene();
+    const agent = new NavAgent(scene, new THREE.Vector3(0, 0, 0));
+    const model = {
+      root: new THREE.Group(),
+      dispose: vi.fn(),
+    };
+    const animator = {
+      dispose: vi.fn(),
+      update: vi.fn(),
+      setState: vi.fn(),
+      setSpeed: vi.fn(),
+    };
+
+    const initPromise = agent.init({} as AssetLoader);
+    resolveCharacter({ model, animator });
+    await initPromise;
+
+    expect(animator.setState).toHaveBeenCalledWith("idle");
   });
 });

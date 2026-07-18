@@ -3,6 +3,7 @@ import type { RuntimeSystem } from "@core/RuntimeSystem";
 import type { EditorManager } from "@editor/EditorManager";
 import { exitPointerLockIfSupported } from "@input/pointerLock";
 import type { LevelManager } from "@level/LevelManager";
+import type { ShowcaseStationKey } from "@level/ShowcaseLayout";
 import type { NavDebugOverlay } from "@navigation/NavDebugOverlay";
 import type { NavPatrolSystem } from "@navigation/NavPatrolSystem";
 import type { PhysicsDebugView } from "@physics/PhysicsDebugView";
@@ -53,6 +54,11 @@ export class DebugRuntimeSystem implements RuntimeSystem {
     this.navDebugOverlay = this.levelManager.getNavDebugOverlay();
   }
 
+  setupStation(_key: ShowcaseStationKey): void {
+    this.navPatrolSystem = this.levelManager.getNavPatrolSystem();
+    this.navDebugOverlay = this.levelManager.getNavDebugOverlay();
+  }
+
   teardownLevel(): void {
     this.navPatrolSystem = null;
     this.navDebugOverlay = null;
@@ -75,6 +81,20 @@ export class DebugRuntimeSystem implements RuntimeSystem {
 
   getColliderDebugEnabled(): boolean {
     return this.colliderDebugEnabled;
+  }
+
+  getNavigationDebugState(): {
+    overlayAvailable: boolean;
+    overlayVisible: boolean;
+    targetAvailable: boolean;
+    targetMode: boolean;
+  } {
+    return {
+      overlayAvailable: this.navDebugOverlay !== null,
+      overlayVisible: this.navDebugOverlay?.isVisible() ?? false,
+      targetAvailable: this.navPatrolSystem !== null,
+      targetMode: this.navTargetMode,
+    };
   }
 
   update(dt: number, _alpha: number): void {

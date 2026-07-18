@@ -612,10 +612,15 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
 
   /** Setup only the interactables for a single showcase station (debug/test). */
   setupStation(key: ShowcaseStationKey): void {
+    this.debugSystem.setupStation(key);
     this.healthSystem.setupStation(key);
     this.spikeHazardSystem.setupStation(key);
     this.coinSystem.setupStation(key);
     this.interactableSystem.setupStation(key);
+  }
+
+  getNavigationDebugState(): ReturnType<DebugRuntimeSystem["getNavigationDebugState"]> {
+    return this.debugSystem.getNavigationDebugState();
   }
 
   teardownLevel(): void {
