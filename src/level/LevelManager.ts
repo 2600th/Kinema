@@ -11,6 +11,7 @@ import type { NavMeshManager } from "@navigation/NavMeshManager";
 import type { NavPatrolSystem } from "@navigation/NavPatrolSystem";
 import { ColliderFactory } from "@physics/ColliderFactory";
 import type { PhysicsWorld } from "@physics/PhysicsWorld";
+import type { GpuResourceMutationScheduler } from "@renderer/gpuResourceMutationQueue";
 import * as THREE from "three";
 import { clone as skeletonClone } from "three/addons/utils/SkeletonUtils.js";
 import { AssetLoader } from "./AssetLoader";
@@ -152,9 +153,10 @@ export class LevelManager implements Disposable {
     private eventBus: EventBus,
     maxAnisotropy?: number,
     private supportsAdvancedGpuEffects = true,
+    scheduleGpuResourceMutation?: GpuResourceMutationScheduler,
   ) {
     this.colliderFactory = new ColliderFactory(physicsWorld);
-    this.lighting = new LightingSystem(scene);
+    this.lighting = new LightingSystem(scene, scheduleGpuResourceMutation);
     if (typeof maxAnisotropy === "number" && Number.isFinite(maxAnisotropy) && maxAnisotropy > 0) {
       this.textureAnisotropy = Math.max(1, Math.floor(maxAnisotropy));
     }

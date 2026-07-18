@@ -9,6 +9,7 @@ import type { GraphicsProfile, ShadowQualityTier } from "@core/UserSettings";
 import * as THREE from "three";
 import { PMREMGenerator, type RenderPipeline, WebGPURenderer } from "three/webgpu";
 import { sanitizeSceneForCompatibility } from "./compatibilityMaterialSanitizer";
+import { GpuResourceMutationQueue, type GpuResourceMutationScheduler } from "./gpuResourceMutationQueue";
 import {
   buildRendererPipelineDescriptor,
   getRendererMaxPixelRatio,
@@ -74,6 +75,9 @@ export class RendererManager implements Disposable {
   private pipelineDisposables: Array<{ dispose: () => void }> = [];
   private tslRuntime: TSLRuntime | null = null;
   private currentPipelineDescriptor: RendererPipelineDescriptor | null = null;
+  private gpuResourceMutations: GpuResourceMutationQueue | null = null;
+  private renderingSuspendedForGpuMutation = false;
+  private hasRenderedFrame = false;
 
   // Keep a reference for runtime SSR parameter sync/debugging.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -210,6 +214,7 @@ export class RendererManager implements Disposable {
 
         (this as { renderer: THREE.WebGLRenderer | WebGPURenderer }).renderer = bootstrapRenderer;
         this.isWebGPUPipeline = true;
+        this.initializeGpuResourceMutationQueue(bootstrapRenderer);
 
         this.pipelineRebuildNeeded = true;
         this.applyQualitySettings();
@@ -285,6 +290,9 @@ export class RendererManager implements Disposable {
 
   /** Render one frame. */
   render(): void {
+    if (this.renderingSuspendedForGpuMutation) return;
+    this.hasRenderedFrame = true;
+
     if (!this.isWebGPUPipeline) {
       // Sanitize when the top-level child count changes (fast heuristic), when
       // explicitly requested, or on a periodic sweep (~2s at 60fps) as a final
@@ -320,6 +328,44 @@ export class RendererManager implements Disposable {
 
   private markPipelineDirty(): void {
     this.pipelineRebuildNeeded = true;
+  }
+
+  /**
+   * Runs resource-disposing mutations immediately on compatibility backends and
+   * behind a submitted-work barrier on true WebGPU.
+   */
+  readonly scheduleGpuResourceMutation: GpuResourceMutationScheduler = (key, mutation) => {
+    if (!this.gpuResourceMutations || !this.hasRenderedFrame) {
+      mutation();
+      return;
+    }
+    this.gpuResourceMutations.enqueue(key, mutation);
+  };
+
+  waitForGpuResourceMutations(): Promise<void> {
+    return this.gpuResourceMutations?.whenIdle() ?? Promise.resolve();
+  }
+
+  private initializeGpuResourceMutationQueue(renderer: WebGPURenderer): void {
+    const backend = (
+      renderer as unknown as {
+        backend?: {
+          isWebGPUBackend?: boolean;
+          device?: { queue?: { onSubmittedWorkDone?: () => Promise<void> } };
+        };
+      }
+    ).backend;
+    const waitForSubmittedWork = backend?.device?.queue?.onSubmittedWorkDone;
+    if (backend?.isWebGPUBackend !== true || typeof waitForSubmittedWork !== "function") return;
+
+    // Three r183 no longer exposes a public GPU-idle helper. Keep the narrow
+    // backend adapter here so a future Three upgrade has one compatibility seam.
+    this.gpuResourceMutations = new GpuResourceMutationQueue(
+      () => waitForSubmittedWork.call(backend.device?.queue),
+      (suspended) => {
+        this.renderingSuspendedForGpuMutation = suspended;
+      },
+    );
   }
 
   private registerPipelineDisposable(node: unknown): void {
@@ -434,6 +480,7 @@ export class RendererManager implements Disposable {
   }
 
   setGraphicsProfile(profile: GraphicsProfile): void {
+    if (profile === this.graphicsProfile) return;
     this.graphicsProfile = profile;
     const defaults = getGraphicsProfileDefaults(profile);
     this.gtaoEnabled = defaults.gtaoEnabled;
@@ -450,7 +497,7 @@ export class RendererManager implements Disposable {
     this.ssrOpacity = defaults.ssrOpacity;
     this.ssrResolutionScale = defaults.ssrResolutionScale;
     this.markPipelineDirty();
-    this.applyQualitySettings();
+    this.scheduleGpuResourceMutation("renderer-quality", () => this.applyQualitySettings());
   }
 
   private getProfileMaxPixelRatio(profile: GraphicsProfile): number {
@@ -517,9 +564,9 @@ export class RendererManager implements Disposable {
 
   setResolutionScale(value: number): void {
     const nextValue = clampFiniteNumber(value, 0.5, 1);
-    if (nextValue === null) return;
+    if (nextValue === null || nextValue === this.resolutionScale) return;
     this.resolutionScale = nextValue;
-    this.applyQualitySettings();
+    this.scheduleGpuResourceMutation("renderer-quality", () => this.applyQualitySettings());
   }
 
   setBackgroundIntensity(value: number): void {
@@ -829,6 +876,8 @@ export class RendererManager implements Disposable {
       window.clearTimeout(this.orientationSettleTimer);
       this.orientationSettleTimer = null;
     }
+    this.gpuResourceMutations?.dispose();
+    this.gpuResourceMutations = null;
     this.setAnimationLoop(null);
     this.resetPipelineResources();
     this.pipelineRebuildNeeded = false;

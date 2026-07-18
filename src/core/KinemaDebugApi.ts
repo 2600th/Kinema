@@ -112,7 +112,7 @@ export interface KinemaDebugApi {
   getLevelObjectState(name: string): KinemaLevelObjectState | null;
   getGraphicsProfile(): GraphicsProfile;
   getRendererDebugFlags(): Readonly<RendererDebugFlags>;
-  setGraphicsProfile(profile: GraphicsProfile): GraphicsProfile;
+  setGraphicsProfile(profile: GraphicsProfile): Promise<GraphicsProfile>;
   forceVehicleTransform(id: string, position: KinemaVector3, yaw?: number): boolean;
   forceVehicleVelocity(id: string, velocity: KinemaVector3): boolean;
   enterVehicle(id: string): boolean;

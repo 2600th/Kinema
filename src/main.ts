@@ -132,6 +132,7 @@ async function bootstrap(): Promise<void> {
     eventBus,
     renderer.maxAnisotropy,
     renderer.supportsAdvancedGpuEffects(),
+    renderer.scheduleGpuResourceMutation,
   );
   levelManager.setGraphicsProfile(settings.value.graphicsProfile);
   levelManager.setShadowsEnabled(settings.value.shadowsEnabled);
@@ -697,8 +698,9 @@ async function bootstrap(): Promise<void> {
       getRendererDebugFlags() {
         return renderer.getDebugFlags();
       },
-      setGraphicsProfile(profile: "performance" | "balanced" | "cinematic") {
+      async setGraphicsProfile(profile: "performance" | "balanced" | "cinematic") {
         eventBus.emit("debug:graphicsProfile", { profile });
+        await renderer.waitForGpuResourceMutations();
         return renderer.getDebugFlags().graphicsProfile;
       },
       forceVehicleTransform(id: string, position: { x: number; y: number; z: number }, yaw = 0) {

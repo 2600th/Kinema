@@ -1,5 +1,6 @@
 import type { Disposable } from "@core/types";
 import type { GraphicsProfile, ShadowQualityTier } from "@core/UserSettings";
+import type { GpuResourceMutationScheduler } from "@renderer/gpuResourceMutationQueue";
 import { getShadowMapSizeForProfile } from "@renderer/pipelineProfile";
 import * as THREE from "three";
 
@@ -26,7 +27,10 @@ export class LightingSystem implements Disposable {
   /** Objects added to scene by lighting (caller must track for unload). */
   private ownedObjects: THREE.Object3D[] = [];
 
-  constructor(private scene: THREE.Scene) {}
+  constructor(
+    private scene: THREE.Scene,
+    private scheduleGpuResourceMutation: GpuResourceMutationScheduler = (_key, mutation) => mutation(),
+  ) {}
 
   /**
    * Add ambient, hemisphere, and directional lights to the scene.
@@ -119,12 +123,12 @@ export class LightingSystem implements Disposable {
   /** Allows runtime quality changes to update shadow map budgets. */
   setGraphicsProfile(profile: GraphicsProfile): void {
     this.graphicsProfile = profile;
-    this.applyDirectionalLightQuality();
+    this.scheduleDirectionalLightQuality();
   }
 
   setShadowQualityTier(tier: ShadowQualityTier): void {
     this.shadowQualityTier = tier;
-    this.applyDirectionalLightQuality();
+    this.scheduleDirectionalLightQuality();
   }
 
   getShadowQualityTier(): ShadowQualityTier {
@@ -136,7 +140,11 @@ export class LightingSystem implements Disposable {
     // IMPORTANT: Avoid toggling `light.castShadow` at runtime under WebGPU.
     // It can trigger shadow texture destruction/recreation while render commands
     // are being encoded/submitted, causing WebGPU validation errors.
-    this.applyDirectionalLightQuality();
+    if (enabled) {
+      this.scheduleDirectionalLightQuality();
+    } else {
+      this.applyDirectionalLightQuality();
+    }
   }
 
   setLightDebugEnabled(enabled: boolean): void {
@@ -185,6 +193,11 @@ export class LightingSystem implements Disposable {
     return getShadowMapSizeForProfile(effectiveProfile);
   }
 
+  private scheduleDirectionalLightQuality(): void {
+    if (!this.dirLight) return;
+    this.scheduleGpuResourceMutation("directional-shadow-quality", () => this.applyDirectionalLightQuality());
+  }
+
   private applyDirectionalLightQuality(): void {
     if (!this.dirLight) return;
     // Keep castShadow stable; enable/disable shadowing via renderer.shadowMap.enabled instead.
@@ -196,6 +209,13 @@ export class LightingSystem implements Disposable {
     }
     const size = this.getShadowMapSize();
     this.dirLight.shadow.mapSize.set(size, size);
+    const shadowMap = this.dirLight.shadow.map;
+    if (shadowMap && (shadowMap.width !== size || shadowMap.height !== size)) {
+      // Resize the live target inside the renderer's GPU-idle mutation boundary.
+      // Leaving this to ShadowNode.renderShadow() destroys ShadowDepthTexture
+      // while the next frame is already being encoded on true WebGPU.
+      shadowMap.setSize(size, size);
+    }
     this.dirLight.shadow.needsUpdate = true;
     this.updateDebugHelpers();
   }
