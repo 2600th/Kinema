@@ -605,7 +605,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     // should fire normally even inside a ladder zone.
     const wantsLadder =
       !movementLocked &&
-      (input.forward || input.backward || (input.jumpPressed && !groundedForTransitions) || this.onLadder);
+      (Math.abs(input.moveY) > 0.15 || (input.jumpPressed && !groundedForTransitions) || this.onLadder);
     if (inLadderZone && wantsLadder) return "ladder";
 
     // When leaving ladder zone, restore gravity

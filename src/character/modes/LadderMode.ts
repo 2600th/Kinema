@@ -5,6 +5,7 @@ import { type CharacterMode, type PlayerContext, restoreStandingCapsule } from "
 
 const _ladderProbePoint = new THREE.Vector3();
 const _rv3A = new RAPIER.Vector3(0, 0, 0);
+const LADDER_MOVE_DEADZONE = 0.1;
 
 function _setRV(v: RAPIER.Vector3, x: number, y: number, z: number): RAPIER.Vector3 {
   v.x = x;
@@ -56,11 +57,12 @@ export class LadderMode implements CharacterMode {
     ctx.fsm.update(dt);
 
     // Override FSM: on ladder, climb when moving vertically, idle when stationary
-    const climbing = input.forward || input.backward;
+    const climbDir = this.getClimbDirection(input);
+    const climbing = climbDir !== 0;
     ctx.fsm.requestState(climbing ? STATE.climb : STATE.idle);
 
     // Ladder climbing movement
-    this.handleLadderMovement(ctx, input);
+    this.handleLadderMovement(ctx, input, climbDir);
 
     return null;
   }
@@ -84,8 +86,12 @@ export class LadderMode implements CharacterMode {
   //  Ladder movement
   // ---------------------------------------------------------------------------
 
-  private handleLadderMovement(ctx: PlayerContext, input: InputState): void {
-    const climbDir = (input.forward ? 1 : 0) - (input.backward ? 1 : 0);
+  private getClimbDirection(input: InputState): number {
+    const climbDir = THREE.MathUtils.clamp(input.moveY, -1, 1);
+    return Math.abs(climbDir) > LADDER_MOVE_DEADZONE ? climbDir : 0;
+  }
+
+  private handleLadderMovement(ctx: PlayerContext, input: InputState, climbDir: number): void {
     const climbSpeed = input.sprint ? 3.6 : 2.6;
     const lv = ctx.body.linvel();
     ctx.motor.setGravityScale(ctx.body, 0);

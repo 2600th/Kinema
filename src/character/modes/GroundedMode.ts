@@ -1,3 +1,4 @@
+import { AUTOSTEP } from "@core/constants";
 import { type InputState, STATE } from "@core/types";
 import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
@@ -425,7 +426,7 @@ export class GroundedMode implements CharacterMode {
   //  Step assist
   // ---------------------------------------------------------------------------
 
-  private applyStepAssist(ctx: PlayerContext, desiredInputDir: THREE.Vector3, run: boolean, _dt: number): void {
+  private applyStepAssist(ctx: PlayerContext, desiredInputDir: THREE.Vector3, run: boolean, dt: number): void {
     // Cooldown: skip if recently stepped to prevent compounding
     if (this.stepAssistCooldown > 0) {
       this.stepAssistCooldown--;
@@ -433,6 +434,7 @@ export class GroundedMode implements CharacterMode {
     }
     // Only fire when truly grounded (not coyote-only)
     if (!ctx.isGrounded) return;
+    if (!Number.isFinite(dt) || dt <= 0) return;
     if (desiredInputDir.lengthSq() < 0.0001) return;
     if (ctx.currentVel.y > 0.55) return;
 
@@ -441,7 +443,11 @@ export class GroundedMode implements CharacterMode {
     _stepForward.normalize();
 
     const probeDist = ctx.config.capsuleRadius + (run ? 0.34 : 0.28);
-    _stepProbeLowOrigin.set(ctx.currentPos.x, ctx.currentPos.y - ctx.currentCapsuleHalfHeight + 0.05, ctx.currentPos.z);
+    _stepProbeLowOrigin.set(
+      ctx.currentPos.x,
+      ctx.currentPos.y - ctx.currentCapsuleHalfHeight - ctx.config.capsuleRadius + 0.05,
+      ctx.currentPos.z,
+    );
     _stepProbeHighOrigin.set(
       ctx.currentPos.x,
       ctx.currentPos.y - ctx.currentCapsuleHalfHeight + 0.46,
@@ -487,17 +493,17 @@ export class GroundedMode implements CharacterMode {
       ctx.body,
       (c) => !c.isSensor(),
     );
-    const maxStepHeight = run ? 0.2 : 0.15;
+    const maxStepHeight = run ? AUTOSTEP.maxHeight : 0.25;
     const stepTolerance = 0.02;
     if (downHit) {
       const groundAheadY = _stepGroundProbeOrigin.y - downHit.timeOfImpact;
-      const feetY = ctx.currentPos.y - ctx.currentCapsuleHalfHeight;
+      const feetY = ctx.currentPos.y - ctx.currentCapsuleHalfHeight - ctx.config.capsuleRadius;
       const stepHeight = groundAheadY - feetY;
       if (stepHeight > 0.02 && stepHeight <= maxStepHeight + stepTolerance) {
         // Precise step: use measured height
         const clampedHeight = Math.min(stepHeight + 0.01, maxStepHeight);
-        finalVy = Math.max(lv.y, clampedHeight * 60);
-        finalFwdBoost = 0.018 * 60;
+        finalVy = Math.max(lv.y, clampedHeight / dt);
+        finalFwdBoost = 0.018 / dt;
       } else if (stepHeight > maxStepHeight + stepTolerance) {
         // Tall obstacles should block movement instead of converting into an
         // unintended auto-hop or launch.

@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { State } from "./State";
 
 const _movement = new THREE.Vector3();
-const LAND_DURATION = 0.4;
+const LAND_DURATION = 0.25;
 
 export class LandState extends State {
   readonly id: StateId = STATE.land;
@@ -19,6 +19,8 @@ export class LandState extends State {
 
   handleInput(input: InputState, isGrounded: boolean): StateId | null {
     if (!isGrounded) return STATE.air;
+    if (input.crouch) return STATE.crouch;
+    if (input.interactPressed) return STATE.interact;
     if (input.jumpPressed) return STATE.jump;
 
     // Exit when timer expires OR animation clip finishes (whichever comes first)
@@ -31,7 +33,8 @@ export class LandState extends State {
   }
 
   update(dt: number): void {
-    this.timer = Math.max(0, this.timer - dt);
+    const remaining = this.timer - dt;
+    this.timer = remaining <= 1e-6 ? 0 : remaining;
   }
 
   getDesiredMovement(_dt: number, _input: InputState): THREE.Vector3 {
