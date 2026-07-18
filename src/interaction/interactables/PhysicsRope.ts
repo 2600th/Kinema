@@ -208,6 +208,14 @@ export class PhysicsRope implements IInteractable {
       return;
     }
 
+    // Spawn/respawn can detach the controller outside this interactable.
+    // Release the stale joint before the next physics step can pull it back.
+    if (!this.attachedPlayer.isRopeAttached) {
+      this.detachPlayer(false);
+      this.updateInteractionPositionFromClosestSegment();
+      return;
+    }
+
     this.updateInteractionPositionFromAttachedSegment();
     this.handleAttachedInput(this.attachedPlayer.lastInputSnapshot);
   }
@@ -322,7 +330,7 @@ export class PhysicsRope implements IInteractable {
       this.physicsWorld.world.removeImpulseJoint(this.attachJoint, true);
       this.attachJoint = null;
     }
-    player.detachFromRope();
+    player.detachFromRope(jumpOff);
     player.body.setAdditionalSolverIterations(this.playerBaseSolverIters);
     for (const body of this.segmentBodies) {
       body.setLinearDamping(ROPE_IDLE_LINEAR_DAMPING);

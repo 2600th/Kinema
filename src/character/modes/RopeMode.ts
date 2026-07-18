@@ -22,6 +22,7 @@ export class RopeMode implements CharacterMode {
     // Not grounded while on rope
     const wasGrounded = ctx.isGrounded;
     ctx.isGrounded = false;
+    ctx.stableGrounded = false;
     ctx.canJump = false;
     ctx.motor.clearGroundedGrace();
     if (wasGrounded) {
@@ -30,6 +31,10 @@ export class RopeMode implements CharacterMode {
     if (ctx.fsm.current !== STATE.rope) {
       ctx.fsm.requestState(STATE.rope);
     }
+  }
+
+  exit(ctx: PlayerContext): void {
+    ctx.fsm.requestState(ctx.stableGrounded ? STATE.idle : STATE.air);
   }
 
   fixedUpdate(ctx: PlayerContext, _input: InputState, _dt: number): string | null {

@@ -34,6 +34,7 @@ export interface KinemaPlayerState {
   position: KinemaVector3;
   velocity: KinemaVector3;
   isGrounded: boolean;
+  ropeAttached: boolean;
   state: string;
   verticalVelocity: number;
 }
@@ -86,6 +87,7 @@ export interface KinemaDebugApi {
   readonly player: KinemaPlayerState;
   readonly config: Readonly<PlayerController["config"]>;
   simulateJump(): void;
+  simulateCrouch(): void;
   setCameraLook(pitch: number, yaw: number): void;
   getCameraPose(): KinemaCameraPose;
   freezeForCapture(): Promise<void>;

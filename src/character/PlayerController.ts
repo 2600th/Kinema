@@ -283,6 +283,10 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   }
 
   spawn(spawn: SpawnPointData): void {
+    if (this.ropeAttached || this.currentMode.id === "rope") {
+      this.detachFromRope();
+    }
+
     const p = spawn.position;
     this.body.setTranslation(new RAPIER.Vector3(p.x, p.y, p.z), true);
     this.body.setLinvel(new RAPIER.Vector3(0, 0, 0), true);
@@ -756,9 +760,15 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.switchMode("rope");
   }
 
-  detachFromRope(): void {
+  detachFromRope(consumeJumpPressed = false): void {
+    if (consumeJumpPressed && this.lastInput?.jumpPressed) {
+      this.lastInput = { ...this.lastInput, jumpPressed: false };
+      this.jumpBufferRemaining = 0;
+    }
     this.ropeAttached = false;
-    // RopeMode.fixedUpdate will detect ropeAttached=false and return 'air'
+    if (this.currentMode.id === "rope") {
+      this.switchMode(this.stableGrounded ? "grounded" : "air");
+    }
   }
 
   getCameraForward(): THREE.Vector3 {

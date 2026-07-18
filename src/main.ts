@@ -434,6 +434,7 @@ async function bootstrap(): Promise<void> {
           position: { x: pos.x, y: pos.y, z: pos.z },
           velocity: { x: vel.x, y: vel.y, z: vel.z },
           isGrounded: playerController.isGrounded,
+          ropeAttached: playerController.isRopeAttached,
           state: playerController.fsm.current,
           verticalVelocity: playerController.verticalVelocity,
         };
@@ -467,6 +468,33 @@ async function bootstrap(): Promise<void> {
           mouseWheelDelta: 0,
         };
         game.testInputOverride = jumpInput;
+        game.testInputFrames = 1;
+      },
+      simulateCrouch() {
+        const crouchInput: InputState = {
+          forward: false,
+          backward: false,
+          left: false,
+          right: false,
+          crouch: true,
+          crouchPressed: true,
+          jump: false,
+          jumpPressed: false,
+          interact: false,
+          interactPressed: false,
+          primary: false,
+          primaryPressed: false,
+          altitudeUp: false,
+          altitudeDown: false,
+          vehicleVertical: 0,
+          moveX: 0,
+          moveY: 0,
+          sprint: false,
+          mouseDeltaX: 0,
+          mouseDeltaY: 0,
+          mouseWheelDelta: 0,
+        };
+        game.testInputOverride = crouchInput;
         game.testInputFrames = 1;
       },
       /** Set camera look angles for headless screenshot capture. */
@@ -798,6 +826,7 @@ async function bootstrap(): Promise<void> {
               vy: vel.y,
               vz: vel.z,
               isGrounded: playerController.isGrounded,
+              ropeAttached: playerController.isRopeAttached,
               state: playerController.fsm.current,
             };
             if (fn(p)) {
