@@ -82,6 +82,7 @@ export class MusicEngine {
   private duckedVolume = 1;
   private targetVolume = 1;
   private stopGeneration = 0;
+  private stopTimer: ReturnType<typeof setTimeout> | null = null;
   private intensity = 0.1;
   private currentScale: readonly string[] = C_SCALE;
   private currentChords: readonly (readonly string[])[] = C_CHORDS;
@@ -162,6 +163,11 @@ export class MusicEngine {
     if (this.running) return;
     this.running = true;
     this.stopGeneration++;
+    if (this.stopTimer !== null) {
+      clearTimeout(this.stopTimer);
+      this.stopTimer = null;
+    }
+    this.disposeLoops(true);
 
     Tone.getTransport().bpm.value = 72;
     const padHoldSeconds = Tone.Time("2n").toSeconds();
@@ -240,25 +246,16 @@ export class MusicEngine {
     this.output.gain.linearRampToValueAtTime(0, now + fadeOutSec);
 
     const gen = this.stopGeneration;
-    setTimeout(
+    const timer = setTimeout(
       () => {
+        if (this.stopTimer !== timer) return;
+        this.stopTimer = null;
         if (this.stopGeneration !== gen) return;
-        this.padLoop?.stop();
-        this.padLoop?.dispose();
-        this.padLoop = null;
-        this.bassLoop?.stop();
-        this.bassLoop?.dispose();
-        this.bassLoop = null;
-        this.melodyLoop?.stop();
-        this.melodyLoop?.dispose();
-        this.melodyLoop = null;
-        this.percLoop?.stop();
-        this.percLoop?.dispose();
-        this.percLoop = null;
-        Tone.getTransport().stop();
+        this.disposeLoops(true);
       },
       fadeOutSec * 1000 + 100,
     );
+    this.stopTimer = timer;
   }
 
   /** Set music intensity (0..1) — drives layer crossfading */
@@ -307,22 +304,15 @@ export class MusicEngine {
 
   dispose(): void {
     this.running = false;
+    this.stopGeneration++;
+    if (this.stopTimer !== null) {
+      clearTimeout(this.stopTimer);
+      this.stopTimer = null;
+    }
     this.output.gain.cancelScheduledValues(Tone.now());
     this.output.gain.value = 0;
 
-    this.padLoop?.stop();
-    this.padLoop?.dispose();
-    this.padLoop = null;
-    this.bassLoop?.stop();
-    this.bassLoop?.dispose();
-    this.bassLoop = null;
-    this.melodyLoop?.stop();
-    this.melodyLoop?.dispose();
-    this.melodyLoop = null;
-    this.percLoop?.stop();
-    this.percLoop?.dispose();
-    this.percLoop = null;
-    Tone.getTransport().stop();
+    this.disposeLoops(true);
 
     this.padSynth.dispose();
     this.bassSynth.dispose();
@@ -339,5 +329,23 @@ export class MusicEngine {
     this.limiter.dispose();
     this.effectsBus.dispose();
     this.output.dispose();
+  }
+
+  private disposeLoops(stopTransport: boolean): void {
+    const loops = [this.padLoop, this.bassLoop, this.melodyLoop, this.percLoop];
+    const hadLoops = loops.some((loop) => loop !== null);
+    for (const loop of loops) {
+      loop?.stop();
+      loop?.dispose();
+    }
+    this.padLoop = null;
+    this.bassLoop = null;
+    this.melodyLoop = null;
+    this.percLoop = null;
+    if (stopTransport && hadLoops) {
+      const transport = Tone.getTransport();
+      transport.stop();
+      transport.cancel(0);
+    }
   }
 }
