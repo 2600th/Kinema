@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { getShowcaseBayTopY, getShowcaseStationZ } from "../src/level/ShowcaseLayout";
+import { waitForGrounded } from "./helpers/kinema";
 
 const DOOR_BEACON_PLAYER_POSITION = {
   x: 4,
@@ -12,19 +13,18 @@ test("objective beacon requires a full hold and shows charge feedback", async ({
 
   await page.goto("/?station=door", { waitUntil: "domcontentloaded" });
   await page.locator("canvas").waitFor({ state: "visible", timeout: 15_000 });
-  await page.waitForFunction(() => Boolean((window as any).__KINEMA__), undefined, { timeout: 60_000 });
-  await page.evaluate(() => (window as any).__KINEMA__.waitFor("p.isGrounded === true", 60_000));
+  await waitForGrounded(page);
 
   await page.evaluate((position) => {
-    (window as any).__KINEMA__.teleportPlayer(position);
-    (window as any).__KINEMA__.setCameraLook(-0.08, 0);
+    window.__KINEMA__.teleportPlayer(position);
+    window.__KINEMA__.setCameraLook(-0.08, 0);
   }, DOOR_BEACON_PLAYER_POSITION);
 
   const prompt = page.locator("#hud-prompt");
   await expect(prompt).toContainText("Activate Beacon");
 
   await page.evaluate(() => {
-    (window as any).__KINEMA__.simulateHoldInteract(320);
+    window.__KINEMA__.simulateHoldInteract(320);
   });
 
   await page.waitForFunction(
@@ -39,7 +39,7 @@ test("objective beacon requires a full hold and shows charge feedback", async ({
   await page.screenshot({ path: testInfo.outputPath("beacon-charge-mid.png") });
 
   await page.evaluate(() => {
-    (window as any).__KINEMA__.clearSimulatedInput();
+    window.__KINEMA__.clearSimulatedInput();
   });
 
   await page.waitForFunction(
@@ -54,7 +54,7 @@ test("objective beacon requires a full hold and shows charge feedback", async ({
   );
 
   await page.evaluate(() => {
-    (window as any).__KINEMA__.simulateHoldInteract(720);
+    window.__KINEMA__.simulateHoldInteract(720);
   });
 
   await page.waitForFunction(

@@ -1,11 +1,10 @@
 import { expect, type Page, test } from "@playwright/test";
+import { waitForGrounded } from "./helpers/kinema";
 
 async function waitForGameReady(page: Page, station = "vehicles"): Promise<void> {
   await page.goto(`/?station=${station}`, { waitUntil: "domcontentloaded" });
   await page.locator("canvas").waitFor({ state: "visible", timeout: 60_000 });
-  await page.waitForFunction(() => Boolean((window as any).__KINEMA__), undefined, { timeout: 60_000 });
-  const grounded = await page.evaluate(() => (window as any).__KINEMA__.waitFor("p.isGrounded === true", 60_000));
-  expect(grounded).toBe(true);
+  await waitForGrounded(page);
 }
 
 async function hasParticleRuntimeLoaded(page: Page): Promise<boolean> {
@@ -32,13 +31,13 @@ test.describe("VFX Particle System", () => {
       undefined,
       { timeout: 10_000 },
     );
-    await page.evaluate(() => (window as any).__KINEMA__.simulateJump());
+    await page.evaluate(() => window.__KINEMA__.simulateJump());
 
     const airborne = await page.evaluate(() =>
-      (window as any).__KINEMA__.waitFor("p.vy > 0.5 && !p.isGrounded", 10_000),
+      window.__KINEMA__.waitFor("p.vy > 0.5 && !p.isGrounded", 10_000),
     );
     expect(airborne).toBe(true);
-    const landed = await page.evaluate(() => (window as any).__KINEMA__.waitFor("p.isGrounded === true", 15_000));
+    const landed = await page.evaluate(() => window.__KINEMA__.waitFor("p.isGrounded === true", 15_000));
     expect(landed).toBe(true);
 
     const afterLoad = await hasParticleRuntimeLoaded(page);
@@ -56,15 +55,15 @@ test.describe("VFX Particle System", () => {
 
     await waitForGameReady(page);
 
-    const before = await page.evaluate(() => (window as any).__KINEMA__.player.position);
-    await page.evaluate(() => (window as any).__KINEMA__.simulateMove(0, 1, 120));
+    const before = await page.evaluate(() => window.__KINEMA__.player.position);
+    await page.evaluate(() => window.__KINEMA__.simulateMove(0, 1, 120));
 
     const movedFastEnough = await page.evaluate(() =>
-      (window as any).__KINEMA__.waitFor("Math.hypot(p.vx, p.vz) > 0.35 && p.isGrounded", 10_000),
+      window.__KINEMA__.waitFor("Math.hypot(p.vx, p.vz) > 0.35 && p.isGrounded", 10_000),
     );
     expect(movedFastEnough).toBe(true);
 
-    const after = await page.evaluate(() => (window as any).__KINEMA__.player.position);
+    const after = await page.evaluate(() => window.__KINEMA__.player.position);
     const delta = Math.hypot(after.x - before.x, after.z - before.z);
     expect(delta).toBeGreaterThan(0.05);
 
@@ -81,12 +80,12 @@ test.describe("VFX Particle System", () => {
     await waitForGameReady(page);
 
     for (let i = 0; i < 4; i++) {
-      await page.evaluate(() => (window as any).__KINEMA__.simulateJump());
+      await page.evaluate(() => window.__KINEMA__.simulateJump());
       const airborne = await page.evaluate(() =>
-        (window as any).__KINEMA__.waitFor("p.vy > 0.5 && !p.isGrounded", 10_000),
+        window.__KINEMA__.waitFor("p.vy > 0.5 && !p.isGrounded", 10_000),
       );
       expect(airborne).toBe(true);
-      const landed = await page.evaluate(() => (window as any).__KINEMA__.waitFor("p.isGrounded === true", 15_000));
+      const landed = await page.evaluate(() => window.__KINEMA__.waitFor("p.isGrounded === true", 15_000));
       expect(landed).toBe(true);
     }
 
@@ -108,29 +107,33 @@ test.describe("VFX Particle System", () => {
     });
 
     await waitForGameReady(page, "vfx");
-    await page.waitForFunction(() => (window as any).__KINEMA__.getGraphicsProfile?.() === "performance", undefined, {
+    await page.waitForFunction(() => window.__KINEMA__.getGraphicsProfile?.() === "performance", undefined, {
       timeout: 10_000,
     });
 
-    const fireCore = await page.evaluate(() => (window as any).__KINEMA__.getLevelObjectState("VFX_FireCore"));
+    const fireCore = await page.evaluate(() => window.__KINEMA__.getLevelObjectState("VFX_FireCore"));
     expect(fireCore).not.toBeNull();
+    if (!fireCore) throw new Error("VFX fire core was not loaded");
     expect(fireCore.visible).toBe(true);
     expect(fireCore.material).not.toBeNull();
+    if (!fireCore.material) throw new Error("VFX fire core material was not loaded");
     expect(fireCore.material.blending).toBe(1);
     expect(fireCore.material.opacity).toBeGreaterThan(0);
 
-    const bolt = await page.evaluate(() => (window as any).__KINEMA__.getLevelObjectState("VFX_LightningBolt1"));
+    const bolt = await page.evaluate(() => window.__KINEMA__.getLevelObjectState("VFX_LightningBolt1"));
     const flashLight = await page.evaluate(() =>
-      (window as any).__KINEMA__.getLevelObjectState("VFX_LightningFlashLight"),
+      window.__KINEMA__.getLevelObjectState("VFX_LightningFlashLight"),
     );
     const strikeGlow = await page.evaluate(() =>
-      (window as any).__KINEMA__.getLevelObjectState("VFX_LightningStrikeGlow"),
+      window.__KINEMA__.getLevelObjectState("VFX_LightningStrikeGlow"),
     );
     const strikeColumn = await page.evaluate(() =>
-      (window as any).__KINEMA__.getLevelObjectState("VFX_LightningStrikeColumn"),
+      window.__KINEMA__.getLevelObjectState("VFX_LightningStrikeColumn"),
     );
     expect(bolt).not.toBeNull();
+    if (!bolt) throw new Error("VFX lightning bolt was not loaded");
     expect(bolt.material).not.toBeNull();
+    if (!bolt.material) throw new Error("VFX lightning bolt material was not loaded");
     expect(bolt.material.emissive).not.toBeNull();
     expect(bolt.material.emissiveIntensity).toBeGreaterThan(0);
     expect(flashLight).not.toBeNull();

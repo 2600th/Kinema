@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { waitForGrounded, waitForKinema, waitForLoadingGone } from "./helpers/kinema";
 
 const REVIEW_SPAWNS = [
   "entrance",
@@ -29,12 +30,11 @@ test("procedural review spawns render from reusable review points", async ({ pag
 
   await page.goto("/?spawn=entrance", { waitUntil: "domcontentloaded" });
   await page.locator("canvas").waitFor({ state: "visible", timeout: 15_000 });
-  await page.waitForFunction(() => !!(window as any).__KINEMA__, undefined, { timeout: 60_000 });
-  await page.waitForFunction(() => !document.querySelector(".loading-screen"), undefined, { timeout: 120_000 });
-  await page.waitForTimeout(1500);
+  await waitForKinema(page);
+  await waitForLoadingGone(page);
 
   const boundaryWalls = await page.evaluate(() => {
-    const k = (window as any).__KINEMA__;
+    const k = window.__KINEMA__;
     return {
       entrance: k?.getLevelObjectState?.("ShowcaseBoundaryWall_Entrance_col") ?? null,
       exit: k?.getLevelObjectState?.("ShowcaseBoundaryWall_End_col") ?? null,
@@ -42,6 +42,7 @@ test("procedural review spawns render from reusable review points", async ({ pag
   });
   expect(boundaryWalls.entrance).not.toBeNull();
   expect(boundaryWalls.exit).not.toBeNull();
+  if (!boundaryWalls.entrance || !boundaryWalls.exit) throw new Error("Boundary walls were not loaded");
   expect(boundaryWalls.entrance.position.z).toBeGreaterThan(250);
   expect(boundaryWalls.exit.position.z).toBeLessThan(-250);
   expect(boundaryWalls.entrance.size.x).toBeGreaterThan(58);
@@ -51,14 +52,14 @@ test("procedural review spawns render from reusable review points", async ({ pag
 
   for (const spawn of REVIEW_SPAWNS) {
     const teleported = await page.evaluate((spawnKey) => {
-      return (window as any).__KINEMA__?.teleportToReviewSpawn?.(spawnKey) ?? false;
+      return window.__KINEMA__.teleportToReviewSpawn?.(spawnKey) ?? false;
     }, spawn);
     expect(teleported).toBe(true);
 
-    await page.waitForTimeout(1200);
+    await waitForGrounded(page);
 
     const playerState = await page.evaluate(() => {
-      const k = (window as any).__KINEMA__;
+      const k = window.__KINEMA__;
       return k?.player ?? null;
     });
     expect(playerState).not.toBeNull();
@@ -66,28 +67,30 @@ test("procedural review spawns render from reusable review points", async ({ pag
   }
 
   const vehicleIds = await page.evaluate(() => {
-    return (window as any).__KINEMA__?.listVehicles?.() ?? [];
+    return window.__KINEMA__.listVehicles?.() ?? [];
   });
   expect(vehicleIds).toContain("car-1");
   expect(vehicleIds).toContain("drone-1");
 
   const carState = await page.evaluate(() => {
-    return (window as any).__KINEMA__?.getVehicleState?.("car-1") ?? null;
+    return window.__KINEMA__.getVehicleState?.("car-1") ?? null;
   });
   expect(carState).not.toBeNull();
+  if (!carState) throw new Error("Car state was not available");
   expect(carState.position.y).toBeGreaterThan(-1.2);
   expect(carState.position.y).toBeLessThan(0.2);
 
   const resetCar = await page.evaluate(() => {
-    return (window as any).__KINEMA__?.resetVehicle?.("car-1") ?? false;
+    return window.__KINEMA__.resetVehicle?.("car-1") ?? false;
   });
   expect(resetCar).toBe(true);
   await page.waitForTimeout(250);
 
   const resetCarState = await page.evaluate(() => {
-    return (window as any).__KINEMA__?.getVehicleState?.("car-1") ?? null;
+    return window.__KINEMA__.getVehicleState?.("car-1") ?? null;
   });
   expect(resetCarState).not.toBeNull();
+  if (!resetCarState) throw new Error("Reset car state was not available");
   expect(resetCarState.position.y).toBeGreaterThan(-1.2);
   expect(resetCarState.position.y).toBeLessThan(0.2);
 

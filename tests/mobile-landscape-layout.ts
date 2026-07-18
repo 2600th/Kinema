@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { waitForKinema } from "./helpers/kinema";
 
 test.use({
   viewport: { width: 844, height: 390 },
@@ -28,7 +29,7 @@ test("landscape touch controls stay within the viewport and avoid button overlap
   });
 
   await page.goto("/?station=movement", { waitUntil: "domcontentloaded" });
-  await page.waitForFunction(() => Boolean((window as any).__KINEMA__), undefined, { timeout: 60_000 });
+  await waitForKinema(page);
 
   await expect(page.locator(".touch-zone--left")).toBeVisible();
   await expect(page.locator(".touch-zone--right")).toBeVisible();

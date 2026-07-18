@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { waitForKinema } from "./helpers/kinema";
 
 test.use({
   viewport: { width: 390, height: 844 },
@@ -26,7 +27,7 @@ test("mobile viewport updates when rotating to landscape", async ({ page }) => {
   });
 
   await page.goto("/?station=movement", { waitUntil: "domcontentloaded" });
-  await page.waitForFunction(() => Boolean((window as any).__KINEMA__), undefined, { timeout: 60_000 });
+  await waitForKinema(page);
 
   await expect
     .poll(async () =>

@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { waitForGrounded } from "./helpers/kinema";
 
 type HealthState = {
   current: number;
@@ -16,31 +17,21 @@ type HazardDebugEntry = {
 async function waitForRuntimeReady(page: Page, url: string): Promise<void> {
   await page.goto(url, { waitUntil: "domcontentloaded" });
   await page.locator("canvas").waitFor({ state: "visible", timeout: 60_000 });
-  await page.waitForFunction(() => Boolean((window as any).__KINEMA__), undefined, { timeout: 60_000 });
-  const grounded = await page.evaluate(() => (window as any).__KINEMA__.waitFor("p.isGrounded === true", 60_000));
-  expect(grounded).toBe(true);
+  await waitForGrounded(page);
 }
 
 async function getHealth(page: Page): Promise<HealthState> {
-  return page.evaluate(() => (window as any).__KINEMA__.getHealth());
+  return page.evaluate(() => window.__KINEMA__.getHealth());
 }
 
 async function listHazards(page: Page): Promise<HazardDebugEntry[]> {
-  return page.evaluate(() => (window as any).__KINEMA__.listHazards());
-}
-
-async function waitUntilGrounded(page: Page, timeoutMs = 20_000): Promise<void> {
-  const grounded = await page.evaluate(
-    (timeout) => (window as any).__KINEMA__.waitFor("p.isGrounded === true", timeout),
-    timeoutMs,
-  );
-  expect(grounded).toBe(true);
+  return page.evaluate(() => window.__KINEMA__.listHazards());
 }
 
 async function moveToSafeStationSpawn(page: Page): Promise<void> {
-  const teleported = await page.evaluate(() => (window as any).__KINEMA__.teleportToReviewSpawn("platformsPhysics"));
+  const teleported = await page.evaluate(() => window.__KINEMA__.teleportToReviewSpawn("platformsPhysics"));
   expect(teleported).toBe(true);
-  await waitUntilGrounded(page);
+  await waitForGrounded(page);
 }
 
 test.describe("Procedural Hazards", () => {
@@ -53,13 +44,13 @@ test.describe("Procedural Hazards", () => {
     expect(initialHazards.length).toBeGreaterThanOrEqual(3);
     expect((await getHealth(page)).current).toBe(3);
 
-    await page.evaluate((hazardId) => (window as any).__KINEMA__.teleportToHazard(hazardId), initialHazards[0].id);
-    await page.waitForFunction(() => (window as any).__KINEMA__.getHealth().current === 2, undefined, {
+    await page.evaluate((hazardId) => window.__KINEMA__.teleportToHazard(hazardId), initialHazards[0].id);
+    await page.waitForFunction(() => window.__KINEMA__.getHealth().current === 2, undefined, {
       timeout: 10_000,
     });
     await page.waitForFunction(
       () => {
-        const health = (window as any).__KINEMA__.getHealth();
+        const health = window.__KINEMA__.getHealth();
         return health.current === 2 && health.invulnerable === true && health.invulnerabilityRemaining > 0;
       },
       undefined,
@@ -68,34 +59,34 @@ test.describe("Procedural Hazards", () => {
     expect((await getHealth(page)).current).toBe(2);
 
     await moveToSafeStationSpawn(page);
-    await page.waitForFunction(() => (window as any).__KINEMA__.getHealth().invulnerable === false, undefined, {
+    await page.waitForFunction(() => window.__KINEMA__.getHealth().invulnerable === false, undefined, {
       timeout: 30_000,
     });
 
-    await page.evaluate((hazardId) => (window as any).__KINEMA__.teleportToHazard(hazardId), initialHazards[1].id);
-    await page.waitForFunction(() => (window as any).__KINEMA__.getHealth().current === 1, undefined, {
+    await page.evaluate((hazardId) => window.__KINEMA__.teleportToHazard(hazardId), initialHazards[1].id);
+    await page.waitForFunction(() => window.__KINEMA__.getHealth().current === 1, undefined, {
       timeout: 10_000,
     });
 
     await moveToSafeStationSpawn(page);
-    await page.waitForFunction(() => (window as any).__KINEMA__.getHealth().invulnerable === false, undefined, {
+    await page.waitForFunction(() => window.__KINEMA__.getHealth().invulnerable === false, undefined, {
       timeout: 30_000,
     });
 
-    await page.evaluate((hazardId) => (window as any).__KINEMA__.teleportToHazard(hazardId), initialHazards[2].id);
+    await page.evaluate((hazardId) => window.__KINEMA__.teleportToHazard(hazardId), initialHazards[2].id);
     await page.waitForFunction(
       (hazardCount) => {
-        const health = (window as any).__KINEMA__.getHealth();
+        const health = window.__KINEMA__.getHealth();
         return (
           health.current === 3 &&
-          (window as any).__KINEMA__.getCollectibleCount() === 0 &&
-          (window as any).__KINEMA__.listHazards().length === hazardCount
+          window.__KINEMA__.getCollectibleCount() === 0 &&
+          window.__KINEMA__.listHazards().length === hazardCount
         );
       },
       initialHazards.length,
       { timeout: 30_000 },
     );
-    await waitUntilGrounded(page, 30_000);
+    await waitForGrounded(page);
   });
 
   test("falls consume hearts and lethal falls fully restart the current station run", async ({ page }) => {
@@ -105,28 +96,28 @@ test.describe("Procedural Hazards", () => {
     expect((await getHealth(page)).current).toBe(3);
 
     for (const expectedHealth of [2, 1] as const) {
-      await page.evaluate(() => (window as any).__KINEMA__.forcePlayerPosition({ x: 0, y: -40, z: 0 }));
+      await page.evaluate(() => window.__KINEMA__.forcePlayerPosition({ x: 0, y: -40, z: 0 }));
       await page.waitForFunction(
-        (targetHealth) => (window as any).__KINEMA__.getHealth().current === targetHealth,
+        (targetHealth) => window.__KINEMA__.getHealth().current === targetHealth,
         expectedHealth,
         { timeout: 20_000 },
       );
-      await waitUntilGrounded(page, 20_000);
+      await waitForGrounded(page);
     }
 
-    await page.evaluate(() => (window as any).__KINEMA__.forcePlayerPosition({ x: 0, y: -40, z: 0 }));
+    await page.evaluate(() => window.__KINEMA__.forcePlayerPosition({ x: 0, y: -40, z: 0 }));
     await page.waitForFunction(
       (hazardCount) => {
-        const health = (window as any).__KINEMA__.getHealth();
+        const health = window.__KINEMA__.getHealth();
         return (
           health.current === 3 &&
-          (window as any).__KINEMA__.getCollectibleCount() === 0 &&
-          (window as any).__KINEMA__.listHazards().length === hazardCount
+          window.__KINEMA__.getCollectibleCount() === 0 &&
+          window.__KINEMA__.listHazards().length === hazardCount
         );
       },
       expectedHazardCount,
       { timeout: 30_000 },
     );
-    await waitUntilGrounded(page, 30_000);
+    await waitForGrounded(page);
   });
 });

@@ -1,11 +1,12 @@
 import { expect, test } from "@playwright/test";
+import { waitForGrounded, waitForKinema, waitForLoadingGone } from "./helpers/kinema";
 
 test("pause overlay click returns focus to gameplay and restores pointer lock", async ({ page }) => {
   test.setTimeout(120_000);
 
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.locator("canvas").waitFor({ state: "visible", timeout: 15_000 });
-  await page.waitForFunction(() => Boolean((window as any).__KINEMA__), undefined, { timeout: 60_000 });
+  await waitForKinema(page);
   await page.evaluate(() => {
     const canvas = document.querySelector("canvas");
     if (!canvas) return;
@@ -35,8 +36,8 @@ test("pause overlay click returns focus to gameplay and restores pointer lock", 
     }) as typeof canvas.requestPointerLock;
   });
   await page.getByRole("button", { name: "Play" }).click();
-  await page.waitForFunction(() => !document.querySelector(".loading-screen"), undefined, { timeout: 120_000 });
-  await page.waitForTimeout(2_000);
+  await waitForLoadingGone(page);
+  await waitForGrounded(page);
 
   await page.mouse.click(960, 540);
   await page.waitForTimeout(1_000);

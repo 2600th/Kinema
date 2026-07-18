@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { waitForGrounded, waitForKinema, waitForLoadingGone } from "./helpers/kinema";
 
 test.use({
   viewport: { width: 844, height: 390 },
@@ -36,16 +37,18 @@ test("iPhone-like compatibility renderer loads the full procedural level without
   });
 
   await page.goto("/", { waitUntil: "domcontentloaded" });
-  await page.waitForFunction(() => Boolean((window as any).__KINEMA__), undefined, { timeout: 60_000 });
+  await waitForKinema(page);
 
   await expect(page.getByRole("button", { name: /^play$/i })).toBeVisible();
   await page.getByRole("button", { name: /^play$/i }).click();
+  await waitForLoadingGone(page);
+  await waitForGrounded(page);
 
   await expect
     .poll(
       async () =>
         page.evaluate(() => {
-          const api = (window as any).__KINEMA__;
+          const api = window.__KINEMA__;
           return {
             backend: api.getRendererDebugFlags().activeBackend,
             vfxScanner: api.getLevelObjectState("VFX_Scanner"),
@@ -62,6 +65,5 @@ test("iPhone-like compatibility renderer loads the full procedural level without
       futureBarrier: { visible: true },
     });
 
-  await page.waitForTimeout(4000);
   expect(runtimeErrors).toEqual([]);
 });

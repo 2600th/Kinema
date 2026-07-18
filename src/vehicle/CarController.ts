@@ -372,7 +372,7 @@ export type CarSteeringDebugSample = {
   };
 };
 
-type CarSteeringDebugTrace = {
+export type CarSteeringDebugTrace = {
   enabled: boolean;
   autoLog: boolean;
   label: string;
@@ -383,6 +383,37 @@ type CarSteeringDebugTrace = {
   incidentCount: number;
   samples: readonly CarSteeringDebugSample[];
   incidentSamples: readonly CarSteeringDebugSample[];
+};
+
+export type CarDebugState = {
+  contactWheelCount: number;
+  groundedWheelCount: number;
+  frontGroundedWheelCount: number;
+  rearGroundedWheelCount: number;
+  groundedTraction: number;
+  wheelGroundHandles: readonly (number | null)[];
+  wheelGroundKinds: readonly (string | null)[];
+  wheelContactNormalY: readonly number[];
+  wheelSuspensionLengths: readonly number[];
+  wheelForwardImpulses: readonly number[];
+  wheelSideImpulses: readonly number[];
+  wheelSuspensionForces: readonly number[];
+  averageSuspensionCompression: number;
+  averageSuspensionForce: number;
+  suspensionOffset: number;
+  verticalVelocity: number;
+  forwardSpeed: number;
+  lateralSpeed: number;
+  steerAngle: number;
+  headingYaw: number;
+  yawRate: number;
+  driveImpulseMagnitude: number;
+  contactPushImpulse: number;
+  contactPushCarDrag: number;
+  activeContactPushBodies: number;
+  handlingFeel: VehicleHandlingFeelState;
+  lastDriveCommand: CarDriveCommand;
+  rideGeometry: Pick<CarRideGeometry, "nominalChassisClearance" | "chassisBottomY" | "nominalGroundPlaneY">;
 };
 
 const DEFAULT_CAR_DRIVE_COMMAND: CarDriveCommand = {
@@ -1034,36 +1065,7 @@ export class CarController implements VehicleController {
     this.physicsWorld.removeBody(this.body);
   }
 
-  getDebugState(): {
-    contactWheelCount: number;
-    groundedWheelCount: number;
-    frontGroundedWheelCount: number;
-    rearGroundedWheelCount: number;
-    groundedTraction: number;
-    wheelGroundHandles: readonly (number | null)[];
-    wheelGroundKinds: readonly (string | null)[];
-    wheelContactNormalY: readonly number[];
-    wheelSuspensionLengths: readonly number[];
-    wheelForwardImpulses: readonly number[];
-    wheelSideImpulses: readonly number[];
-    wheelSuspensionForces: readonly number[];
-    averageSuspensionCompression: number;
-    averageSuspensionForce: number;
-    suspensionOffset: number;
-    verticalVelocity: number;
-    forwardSpeed: number;
-    lateralSpeed: number;
-    steerAngle: number;
-    headingYaw: number;
-    yawRate: number;
-    driveImpulseMagnitude: number;
-    contactPushImpulse: number;
-    contactPushCarDrag: number;
-    activeContactPushBodies: number;
-    handlingFeel: VehicleHandlingFeelState;
-    lastDriveCommand: CarDriveCommand;
-    rideGeometry: Pick<CarRideGeometry, "nominalChassisClearance" | "chassisBottomY" | "nominalGroundPlaneY">;
-  } {
+  getDebugState(): CarDebugState {
     const linvel = this.body.linvel();
     return {
       contactWheelCount: this.contactWheelCount,

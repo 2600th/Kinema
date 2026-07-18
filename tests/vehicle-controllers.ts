@@ -1,4 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
+import type { KinemaVehicleSteeringTrace } from "../src/core/KinemaDebugApi";
+import { waitForGrounded } from "./helpers/kinema";
 
 type VehicleState = {
   id: string;
@@ -43,87 +45,37 @@ type DynamicBodyState = {
   velocity: { x: number; y: number; z: number };
 };
 
-type VehicleSteeringTrace = {
-  enabled: boolean;
-  autoLog: boolean;
-  label: string;
-  capacity: number;
-  sampleCount: number;
-  incidentSampleCapacity: number;
-  incidentSampleCount: number;
-  incidentCount: number;
-  samples: Array<{
-    frame: number;
-    input: { moveX: number; moveY: number };
-    command: { physicsSteerAngle: number };
-    state: {
-      groundedWheelCount: number;
-      frontGroundedWheelCount: number;
-      rearGroundedWheelCount: number;
-      forwardSpeed: number;
-      yawRate: number;
-    };
-    derived: {
-      driveMode: "forward" | "reverse" | "coast";
-      expectedYawSign: number;
-      actualYawSign: number;
-      yawAgreement: boolean;
-      suspectedForwardSteerLoss: boolean;
-    };
-  }>;
-  incidentSamples: Array<{
-    frame: number;
-    input: { moveX: number; moveY: number };
-    command: { physicsSteerAngle: number };
-    state: {
-      groundedWheelCount: number;
-      frontGroundedWheelCount: number;
-      rearGroundedWheelCount: number;
-      forwardSpeed: number;
-      yawRate: number;
-    };
-    derived: {
-      driveMode: "forward" | "reverse" | "coast";
-      expectedYawSign: number;
-      actualYawSign: number;
-      yawAgreement: boolean;
-      suspectedForwardSteerLoss: boolean;
-    };
-  }>;
-};
-
 async function waitForVehiclesStationReady(page: Page): Promise<void> {
   await page.goto("/?station=vehicles", { waitUntil: "domcontentloaded" });
   await page.locator("canvas").waitFor({ state: "visible", timeout: 60_000 });
-  await page.waitForFunction(() => Boolean((window as any).__KINEMA__), undefined, { timeout: 60_000 });
-  const grounded = await page.evaluate(() => (window as any).__KINEMA__.waitFor("p.isGrounded === true", 60_000));
-  expect(grounded).toBe(true);
+  await waitForGrounded(page);
 }
 
 async function getVehicleState(page: Page, id: string): Promise<VehicleState> {
-  const state = await page.evaluate((vehicleId) => (window as any).__KINEMA__.getVehicleState(vehicleId), id);
+  const state = await page.evaluate((vehicleId) => window.__KINEMA__.getVehicleState(vehicleId), id);
   expect(state).not.toBeNull();
   return state as VehicleState;
 }
 
 async function getDynamicBodyState(page: Page, name: string): Promise<DynamicBodyState> {
-  const state = await page.evaluate((bodyName) => (window as any).__KINEMA__.getDynamicBodyState(bodyName), name);
+  const state = await page.evaluate((bodyName) => window.__KINEMA__.getDynamicBodyState(bodyName), name);
   expect(state).not.toBeNull();
   return state as DynamicBodyState;
 }
 
-async function getVehicleSteeringTrace(page: Page, id: string): Promise<VehicleSteeringTrace> {
-  const trace = await page.evaluate((vehicleId) => (window as any).__KINEMA__.getVehicleSteeringDebug(vehicleId), id);
+async function getVehicleSteeringTrace(page: Page, id: string): Promise<KinemaVehicleSteeringTrace> {
+  const trace = await page.evaluate((vehicleId) => window.__KINEMA__.getVehicleSteeringDebug(vehicleId), id);
   expect(trace).not.toBeNull();
-  return trace as VehicleSteeringTrace;
+  if (!trace) throw new Error(`Vehicle steering trace was not available for ${id}`);
+  return trace;
 }
 
 async function enterVehicle(page: Page, id: string): Promise<void> {
-  const entered = await page.evaluate((vehicleId) => (window as any).__KINEMA__.enterVehicle(vehicleId), id);
+  const entered = await page.evaluate((vehicleId) => window.__KINEMA__.enterVehicle(vehicleId), id);
   expect(entered).toBe(true);
   await page.waitForFunction(
     (vehicleId) => {
-      const state = (window as any).__KINEMA__.getVehicleState(vehicleId);
+      const state = window.__KINEMA__.getVehicleState(vehicleId);
       return Boolean(state?.active);
     },
     id,
@@ -132,11 +84,11 @@ async function enterVehicle(page: Page, id: string): Promise<void> {
 }
 
 async function exitActiveVehicle(page: Page): Promise<void> {
-  await page.evaluate(() => (window as any).__KINEMA__.simulateVehicleInput({ interactPressed: true }, 8));
+  await page.evaluate(() => window.__KINEMA__.simulateVehicleInput({ interactPressed: true }, 8));
   await page.waitForFunction(
     () => {
-      const ids: string[] = (window as any).__KINEMA__.listVehicles();
-      return ids.every((id) => !(window as any).__KINEMA__.getVehicleState(id)?.active);
+      const ids: string[] = window.__KINEMA__.listVehicles();
+      return ids.every((id) => !window.__KINEMA__.getVehicleState(id)?.active);
     },
     undefined,
     { timeout: 10_000 },
@@ -146,7 +98,7 @@ async function exitActiveVehicle(page: Page): Promise<void> {
 test.describe("Vehicle Controllers", () => {
   test("vehicles station exposes expected runtime ids", async ({ page }) => {
     await waitForVehiclesStationReady(page);
-    const ids = await page.evaluate(() => (window as any).__KINEMA__.listVehicles());
+    const ids = await page.evaluate(() => window.__KINEMA__.listVehicles());
     expect(ids).toContain("car-1");
     expect(ids).toContain("drone-1");
   });
@@ -156,11 +108,11 @@ test.describe("Vehicle Controllers", () => {
     await enterVehicle(page, "car-1");
 
     const before = await getVehicleState(page, "car-1");
-    await page.evaluate(() => (window as any).__KINEMA__.simulateVehicleInput({ moveY: -1 }, 90));
+    await page.evaluate(() => window.__KINEMA__.simulateVehicleInput({ moveY: -1 }, 90));
 
     await page.waitForFunction(
       () => {
-        const s = (window as any).__KINEMA__.getVehicleState("car-1");
+        const s = window.__KINEMA__.getVehicleState("car-1");
         if (!s) return false;
         const speed = Math.hypot(s.velocity.x, s.velocity.z);
         return speed > 0.05;
@@ -182,7 +134,7 @@ test.describe("Vehicle Controllers", () => {
     await enterVehicle(page, "car-1");
 
     const enabled = await page.evaluate(() =>
-      (window as any).__KINEMA__.enableVehicleSteeringDebug("car-1", {
+      window.__KINEMA__.enableVehicleSteeringDebug("car-1", {
         capacity: 120,
         autoLog: false,
         label: "playwright-forward-turn",
@@ -190,7 +142,7 @@ test.describe("Vehicle Controllers", () => {
     );
     expect(enabled?.enabled).toBe(true);
 
-    await page.evaluate(() => (window as any).__KINEMA__.simulateVehicleInput({ moveY: 0.75, moveX: -1 }, 120));
+    await page.evaluate(() => window.__KINEMA__.simulateVehicleInput({ moveY: 0.75, moveX: -1 }, 120));
     await page.waitForTimeout(2200);
 
     const trace = await getVehicleSteeringTrace(page, "car-1");
@@ -222,7 +174,7 @@ test.describe("Vehicle Controllers", () => {
       ),
     ).toBe(false);
 
-    await page.evaluate(() => (window as any).__KINEMA__.simulateVehicleInput({ moveX: 0, moveY: 0 }, 240));
+    await page.evaluate(() => window.__KINEMA__.simulateVehicleInput({ moveX: 0, moveY: 0 }, 240));
     await page.waitForTimeout(2200);
 
     const lateTrace = await getVehicleSteeringTrace(page, "car-1");
@@ -239,7 +191,7 @@ test.describe("Vehicle Controllers", () => {
     await enterVehicle(page, "car-1");
 
     const metrics = await page.evaluate(async () => {
-      const k = (window as any).__KINEMA__;
+      const k = window.__KINEMA__;
       k.simulateVehicleInput({ moveY: -1 }, 220);
 
       const samples: Array<{
@@ -254,14 +206,15 @@ test.describe("Vehicle Controllers", () => {
       const start = performance.now();
       while (performance.now() - start < 3200) {
         const state = k.getVehicleState("car-1");
-        const debug = state?.debug ?? {};
+        if (!state) throw new Error("Car state was not available");
+        const debug = state.debug;
         samples.push({
           y: state.position.y,
-          grounded: debug.groundedWheelCount ?? 0,
-          traction: debug.groundedTraction ?? 0,
-          compression: debug.averageSuspensionCompression ?? 0,
-          verticalVelocity: Math.abs(debug.verticalVelocity ?? state.velocity.y ?? 0),
-          lateralSpeed: Math.abs(debug.lateralSpeed ?? 0),
+          grounded: debug?.groundedWheelCount ?? 0,
+          traction: debug?.groundedTraction ?? 0,
+          compression: debug?.averageSuspensionCompression ?? 0,
+          verticalVelocity: Math.abs(debug?.verticalVelocity ?? state.velocity.y ?? 0),
+          lateralSpeed: Math.abs(debug?.lateralSpeed ?? 0),
         });
         await new Promise<void>((resolve) => setTimeout(() => resolve(), 40));
       }
@@ -303,7 +256,7 @@ test.describe("Vehicle Controllers", () => {
 
     const movedVehicle = await page.evaluate(
       ({ x, y, z }) => {
-        return (window as any).__KINEMA__.forceVehicleTransform("car-1", { x, y, z }, 0);
+        return window.__KINEMA__.forceVehicleTransform("car-1", { x, y, z }, 0);
       },
       {
         x: target.position.x,
@@ -315,14 +268,14 @@ test.describe("Vehicle Controllers", () => {
     await page.waitForTimeout(180);
 
     const launchedVehicle = await page.evaluate(() => {
-      return (window as any).__KINEMA__.forceVehicleVelocity("car-1", { x: 0, y: 0, z: -14.5 });
+      return window.__KINEMA__.forceVehicleVelocity("car-1", { x: 0, y: 0, z: -14.5 });
     });
     expect(launchedVehicle).toBe(true);
-    await page.evaluate(() => (window as any).__KINEMA__.simulateVehicleInput({ moveY: 1, sprint: true }, 420));
+    await page.evaluate(() => window.__KINEMA__.simulateVehicleInput({ moveY: 1, sprint: true }, 420));
 
     await page.waitForFunction(
       ({ name, startX, startZ }) => {
-        const body = (window as any).__KINEMA__.getDynamicBodyState(name);
+        const body = window.__KINEMA__.getDynamicBodyState(name);
         if (!body) return false;
         return Math.hypot(body.position.x - startX, body.position.z - startZ) > 0.2;
       },
@@ -347,7 +300,7 @@ test.describe("Vehicle Controllers", () => {
 
     await page.waitForFunction(
       ({ name, startX, startZ }) => {
-        const body = (window as any).__KINEMA__.getDynamicBodyState(name);
+        const body = window.__KINEMA__.getDynamicBodyState(name);
         if (!body) return false;
         return Math.hypot(body.position.x - startX, body.position.z - startZ) > 0.7;
       },
@@ -367,7 +320,7 @@ test.describe("Vehicle Controllers", () => {
 
     await page.waitForFunction(
       () => {
-        const car = (window as any).__KINEMA__.getVehicleState("car-1");
+        const car = window.__KINEMA__.getVehicleState("car-1");
         if (!car?.active) return false;
         const grounded = car.debug?.groundedWheelCount ?? 0;
         const verticalVelocity = Math.abs(car.debug?.verticalVelocity ?? car.velocity.y ?? 0);
@@ -389,10 +342,10 @@ test.describe("Vehicle Controllers", () => {
     expect(sustainedGap).toBeLessThan(3.4);
 
     const turnStart = await getVehicleState(page, "car-1");
-    await page.evaluate(() => (window as any).__KINEMA__.simulateVehicleInput({ moveY: 0.7, moveX: 1 }, 180));
+    await page.evaluate(() => window.__KINEMA__.simulateVehicleInput({ moveY: 0.7, moveX: 1 }, 180));
     await page.waitForFunction(
       (startX) => {
-        const car = (window as any).__KINEMA__.getVehicleState("car-1");
+        const car = window.__KINEMA__.getVehicleState("car-1");
         if (!car?.active) return false;
         const lateral = Math.abs(car.debug?.lateralSpeed ?? 0);
         return Math.abs(car.position.x - startX) > 0.25 || lateral > 0.55;
@@ -406,7 +359,7 @@ test.describe("Vehicle Controllers", () => {
     const beforeSecondImpactCar = await getVehicleState(page, "car-1");
     const movedVehicleAgain = await page.evaluate(
       ({ x, y, z }) => {
-        return (window as any).__KINEMA__.forceVehicleTransform("car-1", { x, y, z }, 0);
+        return window.__KINEMA__.forceVehicleTransform("car-1", { x, y, z }, 0);
       },
       {
         x: secondTarget.position.x,
@@ -418,14 +371,14 @@ test.describe("Vehicle Controllers", () => {
     await page.waitForTimeout(180);
 
     const relaunchedVehicle = await page.evaluate(() => {
-      return (window as any).__KINEMA__.forceVehicleVelocity("car-1", { x: 0, y: 0, z: -13.8 });
+      return window.__KINEMA__.forceVehicleVelocity("car-1", { x: 0, y: 0, z: -13.8 });
     });
     expect(relaunchedVehicle).toBe(true);
-    await page.evaluate(() => (window as any).__KINEMA__.simulateVehicleInput({ moveY: 1, sprint: true }, 260));
+    await page.evaluate(() => window.__KINEMA__.simulateVehicleInput({ moveY: 1, sprint: true }, 260));
 
     await page.waitForFunction(
       ({ name, startX, startZ }) => {
-        const body = (window as any).__KINEMA__.getDynamicBodyState(name);
+        const body = window.__KINEMA__.getDynamicBodyState(name);
         if (!body) return false;
         return Math.hypot(body.position.x - startX, body.position.z - startZ) > 0.18;
       },
@@ -435,10 +388,10 @@ test.describe("Vehicle Controllers", () => {
 
     const secondTurnStart = await getVehicleState(page, "car-1");
     expect(secondTurnStart.active).toBe(true);
-    await page.evaluate(() => (window as any).__KINEMA__.simulateVehicleInput({ moveY: 0.65, moveX: -1 }, 180));
+    await page.evaluate(() => window.__KINEMA__.simulateVehicleInput({ moveY: 0.65, moveX: -1 }, 180));
     await page.waitForFunction(
       (startX) => {
-        const car = (window as any).__KINEMA__.getVehicleState("car-1");
+        const car = window.__KINEMA__.getVehicleState("car-1");
         if (!car?.active) return false;
         const lateral = Math.abs(car.debug?.lateralSpeed ?? 0);
         return Math.abs(car.position.x - startX) > 0.25 || lateral > 0.55;
@@ -453,10 +406,10 @@ test.describe("Vehicle Controllers", () => {
     await enterVehicle(page, "car-1");
 
     const startLeft = await getVehicleState(page, "car-1");
-    await page.evaluate(() => (window as any).__KINEMA__.simulateVehicleInput({ moveY: 0.7, moveX: -1 }, 180));
+    await page.evaluate(() => window.__KINEMA__.simulateVehicleInput({ moveY: 0.7, moveX: -1 }, 180));
     await page.waitForFunction(
       ({ startX, startYaw }) => {
-        const car = (window as any).__KINEMA__.getVehicleState("car-1");
+        const car = window.__KINEMA__.getVehicleState("car-1");
         if (!car?.active) return false;
         const lateral = Math.abs(car.debug?.lateralSpeed ?? 0);
         const headingYaw = car.debug?.headingYaw;
@@ -477,18 +430,18 @@ test.describe("Vehicle Controllers", () => {
         shortestAngleDelta(startLeft.debug?.headingYaw ?? 0, endLeft.debug?.headingYaw ?? 0) < -0.08,
     ).toBe(true);
 
-    await page.evaluate(() => (window as any).__KINEMA__.resetVehicle("car-1"));
+    await page.evaluate(() => window.__KINEMA__.resetVehicle("car-1"));
     await page.waitForTimeout(250);
-    await page.evaluate(() => (window as any).__KINEMA__.enterVehicle("car-1"));
-    await page.waitForFunction(() => (window as any).__KINEMA__.getVehicleState("car-1")?.active === true, undefined, {
+    await page.evaluate(() => window.__KINEMA__.enterVehicle("car-1"));
+    await page.waitForFunction(() => window.__KINEMA__.getVehicleState("car-1")?.active === true, undefined, {
       timeout: 10_000,
     });
 
     const startRight = await getVehicleState(page, "car-1");
-    await page.evaluate(() => (window as any).__KINEMA__.simulateVehicleInput({ moveY: 0.7, moveX: 1 }, 180));
+    await page.evaluate(() => window.__KINEMA__.simulateVehicleInput({ moveY: 0.7, moveX: 1 }, 180));
     await page.waitForFunction(
       ({ startX, startYaw }) => {
-        const car = (window as any).__KINEMA__.getVehicleState("car-1");
+        const car = window.__KINEMA__.getVehicleState("car-1");
         if (!car?.active) return false;
         const lateral = Math.abs(car.debug?.lateralSpeed ?? 0);
         const headingYaw = car.debug?.headingYaw;
@@ -515,11 +468,11 @@ test.describe("Vehicle Controllers", () => {
     await enterVehicle(page, "car-1");
     await exitActiveVehicle(page);
 
-    const grounded = await page.evaluate(() => (window as any).__KINEMA__.waitFor("p.isGrounded === true", 10_000));
+    const grounded = await page.evaluate(() => window.__KINEMA__.waitFor("p.isGrounded === true", 10_000));
     expect(grounded).toBe(true);
 
     const moved = await page.evaluate(async () => {
-      const k = (window as any).__KINEMA__;
+      const k = window.__KINEMA__;
       const before = k.player.position;
       k.simulateMove(0, 1, 180);
       const ok = await k.waitFor(
@@ -542,11 +495,11 @@ test.describe("Vehicle Controllers", () => {
     await enterVehicle(page, "drone-1");
 
     const before = await getVehicleState(page, "drone-1");
-    await page.evaluate(() => (window as any).__KINEMA__.simulateVehicleInput({ moveY: 1, sprint: true }, 90));
+    await page.evaluate(() => window.__KINEMA__.simulateVehicleInput({ moveY: 1, sprint: true }, 90));
 
     await page.waitForFunction(
       () => {
-        const s = (window as any).__KINEMA__.getVehicleState("drone-1");
+        const s = window.__KINEMA__.getVehicleState("drone-1");
         if (!s) return false;
         const speed = Math.hypot(s.velocity.x, s.velocity.y, s.velocity.z);
         return speed > 0.2;

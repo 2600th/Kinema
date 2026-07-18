@@ -12,6 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
+import { getPlayer, waitForGrounded, waitForKinema } from "./helpers/kinema";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirnameSelf = path.dirname(__filename);
@@ -49,37 +50,21 @@ for (const station of ALL_STATIONS) {
 
     // Condition-based bootstrap wait — a fixed wall-clock wait flakes on slow
     // CI workers (SwiftShader bootstrap can exceed it under load).
-    await page.waitForFunction(() => Boolean((window as unknown as { __KINEMA__?: unknown }).__KINEMA__), undefined, {
-      timeout: 30_000,
-    });
-    // Allow physics warm-up + first rendered frames to settle.
-    await page.waitForTimeout(2_000);
+    await waitForKinema(page);
 
     // Check the debug API is available
-    const kinemaAvailable = await page.evaluate(() => !!(window as any).__KINEMA__);
+    const kinemaAvailable = await page.evaluate(() => !!window.__KINEMA__);
     expect(kinemaAvailable).toBe(true);
 
     // Wait for player to be grounded. __KINEMA__ appears early in bootstrap
     // (before the station finishes loading), so this poll carries the level
     // load + spawn + settle budget — keep it generous.
-    const grounded = await page.evaluate(async () => {
-      const deadline = Date.now() + 15_000;
-      while (Date.now() < deadline) {
-        const k = (window as any).__KINEMA__;
-        if (k?.player?.isGrounded) return true;
-        await new Promise((r) => setTimeout(r, 100));
-      }
-      return false;
-    });
+    await waitForGrounded(page);
 
     // Verify player is grounded — not falling off the platform
-    expect(grounded).toBe(true);
 
     // Check player Y position is above a reasonable threshold (not in the void)
-    const playerState = await page.evaluate(() => {
-      const k = (window as any).__KINEMA__;
-      return k?.player ?? null;
-    });
+    const playerState = await getPlayer(page);
     expect(playerState).not.toBeNull();
     expect(playerState.position.y).toBeGreaterThan(-5);
 

@@ -1,7 +1,14 @@
+import type { KinemaDebugApi } from "@core/KinemaDebugApi";
 import { shouldUseCompatibilityRenderer } from "@core/mobilePlatform";
 import type { InputState } from "@core/types";
 import RAPIER from "@dimforge/rapier3d-compat";
+import type { CarController } from "@vehicle/CarController";
+import type { VehicleController } from "@vehicle/VehicleController";
 import * as THREE from "three";
+
+function isCarController(vehicle: VehicleController | null): vehicle is CarController {
+  return vehicle?.type === "car";
+}
 
 function showBootstrapError(err: unknown): void {
   const message = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
@@ -400,7 +407,7 @@ async function bootstrap(): Promise<void> {
   // Expose debug API for automated testing (Playwright, etc.)
   // Gated behind DEV to tree-shake new Function() evaluator from production builds.
   if (import.meta.env.DEV) {
-    (window as unknown as Record<string, unknown>).__KINEMA__ = {
+    const kinemaDebugApi = {
       getFrameStats: () => gameLoop.getFrameStats(),
       getLastLoadStats: () => levelManager.getLastLoadStats(),
       get player() {
@@ -533,7 +540,7 @@ async function bootstrap(): Promise<void> {
         if (!vehicle) return null;
         const pos = vehicle.body.translation();
         const vel = vehicle.body.linvel();
-        const debug = vehicle.getDebugState?.();
+        const debug = isCarController(vehicle) ? vehicle.getDebugState() : undefined;
         return {
           id,
           active: vehicleManager.isActive() && vehicleManager.getVehicle(id) === vehicle,
@@ -547,24 +554,25 @@ async function bootstrap(): Promise<void> {
         options?: { capacity?: number; autoLog?: boolean; label?: string | null },
       ) {
         const vehicle = vehicleManager.getVehicle(id);
-        return vehicle?.enableSteeringDebugTrace?.(options) ?? null;
+        return isCarController(vehicle) ? vehicle.enableSteeringDebugTrace(options) : null;
       },
       disableVehicleSteeringDebug(id: string) {
         const vehicle = vehicleManager.getVehicle(id);
-        return vehicle?.disableSteeringDebugTrace?.() ?? null;
+        return isCarController(vehicle) ? vehicle.disableSteeringDebugTrace() : null;
       },
       clearVehicleSteeringDebug(id: string) {
         const vehicle = vehicleManager.getVehicle(id);
-        vehicle?.clearSteeringDebugTrace?.();
-        return vehicle?.getSteeringDebugTrace?.() ?? null;
+        if (!isCarController(vehicle)) return null;
+        vehicle.clearSteeringDebugTrace();
+        return vehicle.getSteeringDebugTrace();
       },
       getVehicleSteeringDebug(id: string) {
         const vehicle = vehicleManager.getVehicle(id);
-        return vehicle?.getSteeringDebugTrace?.() ?? null;
+        return isCarController(vehicle) ? vehicle.getSteeringDebugTrace() : null;
       },
       dumpVehicleSteeringDebug(id: string) {
         const vehicle = vehicleManager.getVehicle(id);
-        return vehicle?.dumpSteeringDebugTrace?.() ?? null;
+        return isCarController(vehicle) ? vehicle.dumpSteeringDebugTrace() : null;
       },
       getDynamicBodyState(name: string) {
         const entry = levelManager.getDynamicBodies().find((candidate) => candidate.mesh.name === name);
@@ -739,7 +747,8 @@ async function bootstrap(): Promise<void> {
           check();
         });
       },
-    };
+    } satisfies KinemaDebugApi;
+    (window as Window & { __KINEMA__?: KinemaDebugApi }).__KINEMA__ = kinemaDebugApi;
   } // if (import.meta.env.DEV)
 
   // Check for ?station= query param to load a single station directly.

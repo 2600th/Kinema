@@ -13,6 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
+import { waitForKinema } from "./helpers/kinema";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirnameSelf = path.dirname(__filename);
@@ -31,7 +32,7 @@ test("main menu renders correctly with no bootstrap errors", async ({ page }) =>
 
   await page.locator("canvas").waitFor({ state: "visible", timeout: 15_000 });
   // Wait for the game to finish bootstrapping (assets, shaders, initial render)
-  await page.waitForTimeout(3_000);
+  await waitForKinema(page);
 
   // Screenshot of main menu
   await page.screenshot({
@@ -58,7 +59,7 @@ test("settings menu tabs are accessible", async ({ page }) => {
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.locator("canvas").waitFor({ state: "visible", timeout: 15_000 });
   // Wait for the game to finish bootstrapping (assets, shaders, initial render)
-  await page.waitForTimeout(2_000);
+  await waitForKinema(page);
 
   await page.locator("text=Settings").click();
   // Wait for settings panel to render
