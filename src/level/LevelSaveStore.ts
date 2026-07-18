@@ -7,8 +7,14 @@ export interface LevelSaveMeta {
   objectCount: number;
 }
 
+export type LevelSaveResult = { ok: true } | { ok: false; reason: "quota" | "error" };
+
 const INDEX_KEY = "kinema_level_index";
 const LEVEL_PREFIX = "kinema_level_";
+
+function getSaveFailureReason(error: unknown): "quota" | "error" {
+  return error instanceof DOMException && error.name === "QuotaExceededError" ? "quota" : "error";
+}
 
 /**
  * Persists editor levels in localStorage with an index/data pattern.
@@ -27,7 +33,7 @@ export class LevelSaveStore {
   }
 
   /** Save (or overwrite) a level. Reuses existing key for known levels; generates UUID key for new ones. */
-  static save(data: LevelDataV2): void {
+  static save(data: LevelDataV2): LevelSaveResult {
     const index = LevelSaveStore.list();
 
     // For existing levels, reuse the stored key so we don't create duplicates.
@@ -37,11 +43,13 @@ export class LevelSaveStore {
     try {
       localStorage.setItem(key, JSON.stringify(data));
     } catch (err) {
-      if (err instanceof DOMException && err.name === "QuotaExceededError") {
+      const reason = getSaveFailureReason(err);
+      if (reason === "quota") {
         console.error("[LevelSaveStore] Storage quota exceeded — level not saved.", err);
-        return;
+      } else {
+        console.error("[LevelSaveStore] Level data write failed.", err);
       }
-      throw err;
+      return { ok: false, reason };
     }
 
     const existing = index.findIndex((m) => m.key === key);
@@ -59,18 +67,25 @@ export class LevelSaveStore {
     try {
       localStorage.setItem(INDEX_KEY, JSON.stringify(index));
     } catch (err) {
-      if (err instanceof DOMException && err.name === "QuotaExceededError") {
+      const reason = getSaveFailureReason(err);
+      if (reason === "quota") {
         console.error("[LevelSaveStore] Storage quota exceeded — level index not updated.", err);
-        if (!existingEntry) {
-          // A new level whose index entry failed to write would be invisible
-          // to the UI and re-saved under a fresh UUID each time, stranding
-          // storage. Remove the orphaned data blob instead.
-          localStorage.removeItem(key);
-        }
-        return;
+      } else {
+        console.error("[LevelSaveStore] Level index write failed.", err);
       }
-      throw err;
+      if (!existingEntry) {
+        // A new level whose index entry failed to write would be invisible
+        // to the UI and re-saved under a fresh UUID each time, stranding
+        // storage. Remove the orphaned data blob instead.
+        try {
+          localStorage.removeItem(key);
+        } catch (cleanupErr) {
+          console.error("[LevelSaveStore] Failed to remove an unindexed level blob.", cleanupErr);
+        }
+      }
+      return { ok: false, reason };
     }
+    return { ok: true };
   }
 
   /** Load full level data by key. Returns null if missing or corrupt. */

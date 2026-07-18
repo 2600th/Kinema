@@ -87,3 +87,57 @@ test("play-test cannot survive a main-menu transition and soft-brick the next ru
   const realErrors = errors.filter((message) => !message.includes("favicon") && !message.includes("404"));
   expect(realErrors).toEqual([]);
 });
+
+test("storage quota failure shows a persistent editor error without emitting save success", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  await page.addInitScript(() => {
+    localStorage.setItem("kinema.user-settings.v1", JSON.stringify({ graphicsProfile: "performance" }));
+  });
+  await page.goto("/?station=steps", { waitUntil: "domcontentloaded" });
+  await waitForKinema(page);
+  await waitForGrounded(page);
+  await openEditor(page);
+
+  const saveEventsBefore = await page.evaluate(() => window.__KINEMA__.getEditorSaveEventCount());
+  await page.evaluate(() => {
+    const originalSetItem = Storage.prototype.setItem;
+    const testWindow = window as Window & { __kinemaOriginalSetItem?: typeof originalSetItem };
+    testWindow.__kinemaOriginalSetItem = originalSetItem;
+    Storage.prototype.setItem = function (this: Storage, key: string, value: string): void {
+      if (key.startsWith("kinema_level_")) {
+        throw new DOMException("quota", "QuotaExceededError");
+      }
+      originalSetItem.call(this, key, value);
+    };
+  });
+
+  page.once("dialog", (dialog) => void dialog.accept("quota-test"));
+  const failedDownloadPromise = page.waitForEvent("download");
+  await page.locator('button[title="Save (Ctrl+S)"]').click();
+  const failedDownload = await failedDownloadPromise;
+  expect(failedDownload.suggestedFilename()).toBe("quota-test.json");
+
+  const errorToast = page.locator(".ke-save-error");
+  await expect(errorToast).toHaveText("Save failed — storage full. A file download was started instead.");
+  await expect(errorToast).toBeVisible();
+  await page.waitForTimeout(1_000);
+  await expect(errorToast).toBeVisible();
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorSaveEventCount())).toBe(saveEventsBefore);
+  await page.screenshot({ path: testInfo.outputPath("editor-save-quota-error.png") });
+
+  await page.evaluate(() => {
+    const testWindow = window as Window & { __kinemaOriginalSetItem?: typeof Storage.prototype.setItem };
+    if (testWindow.__kinemaOriginalSetItem) {
+      Storage.prototype.setItem = testWindow.__kinemaOriginalSetItem;
+      delete testWindow.__kinemaOriginalSetItem;
+    }
+  });
+  page.once("dialog", (dialog) => void dialog.accept("saved-after-recovery"));
+  const successfulDownloadPromise = page.waitForEvent("download");
+  await page.locator('button[title="Save (Ctrl+S)"]').click();
+  await successfulDownloadPromise;
+  await expect(errorToast).toBeHidden();
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorSaveEventCount())).toBe(saveEventsBefore + 1);
+});

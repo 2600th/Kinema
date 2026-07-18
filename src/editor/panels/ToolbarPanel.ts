@@ -28,6 +28,7 @@ export class ToolbarPanel extends EditorPanel {
   private modeButtons = new Map<TransformMode, HTMLButtonElement>();
   private snapBtn!: HTMLButtonElement;
   private gridBtn!: HTMLButtonElement;
+  private saveError!: HTMLDivElement;
 
   constructor(private callbacks: ToolbarCallbacks) {
     super("toolbar", "Toolbar");
@@ -113,6 +114,12 @@ export class ToolbarPanel extends EditorPanel {
 
     el.appendChild(rightGroup);
 
+    this.saveError = document.createElement("div");
+    this.saveError.className = "ke-save-error ke-hidden";
+    this.saveError.setAttribute("role", "alert");
+    this.saveError.setAttribute("aria-live", "assertive");
+    el.appendChild(this.saveError);
+
     // Default: translate active
     this.setActiveMode("translate");
   }
@@ -133,6 +140,16 @@ export class ToolbarPanel extends EditorPanel {
 
   setGridActive(active: boolean): void {
     this.gridBtn.classList.toggle("ke-btn-active", active);
+  }
+
+  showSaveError(message: string): void {
+    this.saveError.textContent = message;
+    this.saveError.classList.remove("ke-hidden");
+  }
+
+  clearSaveError(): void {
+    this.saveError.textContent = "";
+    this.saveError.classList.add("ke-hidden");
   }
 
   // ── Private helpers ──

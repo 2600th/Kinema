@@ -8,6 +8,10 @@ class LocalStorageMock implements Storage {
   private store = new Map<string, string>();
   /** Keys whose writes should fail with QuotaExceededError. */
   failKeys = new Set<string>();
+  /** Error to throw when writing a generated level-data key. */
+  failLevelWriteWith: Error | null = null;
+  /** Keys whose writes should fail with a generic storage error. */
+  errorKeys = new Set<string>();
   get length(): number {
     return this.store.size;
   }
@@ -24,6 +28,12 @@ class LocalStorageMock implements Storage {
     this.store.delete(key);
   }
   setItem(key: string, value: string): void {
+    if (key !== INDEX_KEY && key.startsWith("kinema_level_") && this.failLevelWriteWith) {
+      throw this.failLevelWriteWith;
+    }
+    if (this.errorKeys.has(key)) {
+      throw new Error("storage unavailable");
+    }
     if (this.failKeys.has(key)) {
       throw new DOMException("quota", "QuotaExceededError");
     }
@@ -55,7 +65,7 @@ describe("LevelSaveStore", () => {
   });
 
   it("round-trips a saved level through list and load", () => {
-    LevelSaveStore.save(makeLevel("Alpha"));
+    expect(LevelSaveStore.save(makeLevel("Alpha"))).toEqual({ ok: true });
     const list = LevelSaveStore.list();
     expect(list).toHaveLength(1);
     expect(list[0].name).toBe("Alpha");
@@ -101,7 +111,7 @@ describe("LevelSaveStore", () => {
 
   it("removes the orphaned data blob when the index write hits quota for a new level", () => {
     storage.failKeys.add(INDEX_KEY);
-    LevelSaveStore.save(makeLevel("Alpha"));
+    expect(LevelSaveStore.save(makeLevel("Alpha"))).toEqual({ ok: false, reason: "quota" });
 
     // Neither an index entry nor an unindexed blob may survive; otherwise the
     // level is invisible to the UI but permanently occupies storage.
@@ -120,11 +130,28 @@ describe("LevelSaveStore", () => {
     storage.failKeys.add(INDEX_KEY);
     const updated = makeLevel("Alpha");
     updated.modified = "2026-06-13T00:00:00.000Z";
-    LevelSaveStore.save(updated);
+    expect(LevelSaveStore.save(updated)).toEqual({ ok: false, reason: "quota" });
 
     // The data write succeeded and the key is still indexed (stale meta is
     // acceptable; losing the level is not).
     expect(LevelSaveStore.load(key)?.modified).toBe("2026-06-13T00:00:00.000Z");
     expect(LevelSaveStore.list()[0]?.key).toBe(key);
+  });
+
+  it("returns quota when the level data write is rejected", () => {
+    storage.failLevelWriteWith = new DOMException("quota", "QuotaExceededError");
+
+    expect(LevelSaveStore.save(makeLevel("Alpha"))).toEqual({ ok: false, reason: "quota" });
+    expect(LevelSaveStore.list()).toHaveLength(0);
+  });
+
+  it("returns error for non-quota storage failures", () => {
+    storage.failLevelWriteWith = new Error("storage unavailable");
+    expect(LevelSaveStore.save(makeLevel("Alpha"))).toEqual({ ok: false, reason: "error" });
+
+    storage.failLevelWriteWith = null;
+    storage.errorKeys.add(INDEX_KEY);
+    expect(LevelSaveStore.save(makeLevel("Beta"))).toEqual({ ok: false, reason: "error" });
+    expect(LevelSaveStore.list()).toHaveLength(0);
   });
 });

@@ -131,6 +131,7 @@ export interface KinemaDebugApi {
   isEditorActive(): boolean;
   isPlayTesting(): boolean;
   getEditorObjectCount(): number;
+  getEditorSaveEventCount(): number;
   editorUndo(): void;
   editorRedo(): void;
   startPlayTest(): void;

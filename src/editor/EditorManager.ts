@@ -1360,7 +1360,16 @@ export class EditorManager {
     }
     const data = LevelSerializer.serialize(name, this.document.objects, existingCreated);
     LevelSerializer.download(data);
-    LevelSaveStore.save(data);
+    const result = LevelSaveStore.save(data);
+    if (!result.ok) {
+      const message =
+        result.reason === "quota"
+          ? "Save failed — storage full. A file download was started instead."
+          : "Save failed — browser storage unavailable. A file download was started instead.";
+      this.toolbarPanel.showSaveError(message);
+      return;
+    }
+    this.toolbarPanel.clearSaveError();
     this.eventBus.emit("editor:saved", { name: data.name });
   }
 

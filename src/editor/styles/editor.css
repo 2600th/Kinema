@@ -142,6 +142,25 @@
   flex-shrink: 0;
 }
 
+.ke-save-error {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 50%;
+  width: max-content;
+  max-width: min(520px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 121, 186, 0.55);
+  border-radius: var(--ke-radius-sm);
+  background: rgba(38, 12, 30, 0.96);
+  box-shadow: var(--ke-shadow), 0 0 18px rgba(255, 121, 186, 0.18);
+  color: #ffd6e9;
+  font-size: var(--ke-font-size);
+  line-height: 1.4;
+  text-align: center;
+  white-space: normal;
+}
+
 /* Transport controls (center group) */
 .ke-toolbar-transport {
   display: flex;

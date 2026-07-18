@@ -424,6 +424,10 @@ async function bootstrap(): Promise<void> {
   // Expose debug API for automated testing (Playwright, etc.)
   // Gated behind DEV to tree-shake new Function() evaluator from production builds.
   if (import.meta.env.DEV) {
+    let editorSaveEventCount = 0;
+    eventBus.on("editor:saved", () => {
+      editorSaveEventCount++;
+    });
     const kinemaDebugApi = {
       getFrameStats: () => gameLoop.getFrameStats(),
       getLastLoadStats: () => levelManager.getLastLoadStats(),
@@ -797,6 +801,9 @@ async function bootstrap(): Promise<void> {
       },
       getEditorObjectCount() {
         return editorManager?.getObjectCount() ?? 0;
+      },
+      getEditorSaveEventCount() {
+        return editorSaveEventCount;
       },
       editorUndo() {
         editorManager?.undo();
