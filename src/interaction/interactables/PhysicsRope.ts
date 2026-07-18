@@ -1,5 +1,6 @@
 import type { PlayerController } from "@character/PlayerController";
 import { COLLISION_GROUP_INTERACTABLE } from "@core/constants";
+import type { EventBus } from "@core/EventBus";
 import type { InputState } from "@core/types";
 import RAPIER from "@dimforge/rapier3d-compat";
 import type { PhysicsWorld } from "@physics/PhysicsWorld";
@@ -74,6 +75,7 @@ export class PhysicsRope implements IInteractable {
     scene: THREE.Scene,
     physicsWorld: PhysicsWorld,
     player: PlayerController,
+    private readonly eventBus: EventBus,
   ) {
     this.id = id;
     this.scene = scene;
@@ -261,9 +263,9 @@ export class PhysicsRope implements IInteractable {
     this.jointBallMaterial.emissiveIntensity = 0;
   }
 
-  interact(player: PlayerController): void {
+  interact(player: PlayerController): string | undefined {
     if (this.attachedPlayer === player) return;
-    this.attachPlayer(player);
+    if (this.attachPlayer(player)) return "attached";
   }
 
   dispose(): void {
@@ -296,8 +298,8 @@ export class PhysicsRope implements IInteractable {
     this.physicsWorld.removeBody(this.anchorBody);
   }
 
-  private attachPlayer(player: PlayerController): void {
-    if (this.segmentBodies.length === 0) return;
+  private attachPlayer(player: PlayerController): boolean {
+    if (this.segmentBodies.length === 0) return false;
     this.detachPlayer(false);
     player.attachToRope();
     const carryVel = player.body.linvel();
@@ -321,6 +323,8 @@ export class PhysicsRope implements IInteractable {
     }
     this.jointBallMaterial.emissive.setHex(0x1f4a60);
     this.jointBallMaterial.emissiveIntensity = 0.7;
+    this.eventBus.emit("interaction:ropeAttached", { id: this.id });
+    return true;
   }
 
   private detachPlayer(jumpOff: boolean): void {
@@ -352,6 +356,7 @@ export class PhysicsRope implements IInteractable {
     this.attachedPlayer = null;
     this.jointBallMaterial.emissive.setHex(0x000000);
     this.jointBallMaterial.emissiveIntensity = 0;
+    this.eventBus.emit("interaction:ropeReleased", { id: this.id });
   }
 
   private handleAttachedInput(input: InputState | null): void {

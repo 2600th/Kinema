@@ -1,5 +1,6 @@
 import type { PlayerController } from "@character/PlayerController";
 import { COLLISION_GROUP_INTERACTABLE } from "@core/constants";
+import type { EventBus } from "@core/EventBus";
 import RAPIER from "@dimforge/rapier3d-compat";
 import type { PhysicsWorld } from "@physics/PhysicsWorld";
 import * as THREE from "three";
@@ -38,7 +39,13 @@ export class ObjectiveBeacon implements IInteractable {
   private targetHoldProgress = 0;
   private time = Math.random() * Math.PI * 2;
 
-  constructor(id: string, position: THREE.Vector3, scene: THREE.Scene, physicsWorld: PhysicsWorld) {
+  constructor(
+    id: string,
+    position: THREE.Vector3,
+    scene: THREE.Scene,
+    physicsWorld: PhysicsWorld,
+    private readonly eventBus: EventBus,
+  ) {
     this.id = id;
     this.position = position.clone().add(new THREE.Vector3(0, 1.0, 0));
     this.scene = scene;
@@ -171,7 +178,7 @@ export class ObjectiveBeacon implements IInteractable {
     this.targetHoldProgress = progress === null ? 0 : THREE.MathUtils.clamp(progress, 0, 1);
   }
 
-  interact(_player: PlayerController): void {
+  interact(_player: PlayerController): string | undefined {
     if (this.activated) return;
     this.activated = true;
     this.focused = false;
@@ -180,7 +187,9 @@ export class ObjectiveBeacon implements IInteractable {
     this.beaconMaterial.color.copy(ACTIVE_COLOR);
     this.beaconMaterial.emissive.copy(ACTIVE_EMISSIVE);
     this.beaconMaterial.emissiveIntensity = 1.35;
+    this.eventBus.emit("objective:beaconActivated", { id: this.id });
     console.log(`[ObjectiveBeacon] ${this.id} activated`);
+    return "activated";
   }
 
   dispose(): void {

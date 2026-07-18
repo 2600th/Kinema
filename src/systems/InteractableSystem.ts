@@ -124,6 +124,9 @@ export class InteractableSystem implements RuntimeSystem {
         if (this.carriedThrowable) this.impactToastArmed.delete(this.carriedThrowable.id);
         this.restoreThrownObject();
       }),
+      this.eventBus.on("objective:beaconActivated", ({ id }) => {
+        this.interactionManager.unregister(id);
+      }),
     );
   }
 
@@ -155,9 +158,16 @@ export class InteractableSystem implements RuntimeSystem {
           new THREE.Vector3(4, bayTopY, zDoor),
           this.renderer.scene,
           this.physicsWorld,
+          this.eventBus,
         );
         this.interactionManager.register(beacon);
-        const door = new Door("door1", new THREE.Vector3(0, bayTopY, zDoor), this.renderer.scene, this.physicsWorld);
+        const door = new Door(
+          "door1",
+          new THREE.Vector3(0, bayTopY, zDoor),
+          this.renderer.scene,
+          this.physicsWorld,
+          this.eventBus,
+        );
         this.interactionManager.register(door);
         this.runtimeInteractables.push(beacon, door);
         break;
@@ -171,6 +181,7 @@ export class InteractableSystem implements RuntimeSystem {
           this.renderer.scene,
           this.physicsWorld,
           this.playerController,
+          this.eventBus,
         );
         this.rope = rope;
         this.interactionManager.register(rope);
@@ -244,6 +255,7 @@ export class InteractableSystem implements RuntimeSystem {
       this.renderer.scene,
       this.physicsWorld,
       this.playerController,
+      this.eventBus,
     );
     this.rope = rope;
     this.interactionManager.register(rope);
@@ -253,10 +265,17 @@ export class InteractableSystem implements RuntimeSystem {
       new THREE.Vector3(4, bayTopY, zDoor),
       this.renderer.scene,
       this.physicsWorld,
+      this.eventBus,
     );
     this.interactionManager.register(beacon);
 
-    const door = new Door("door1", new THREE.Vector3(0, bayTopY, zDoor), this.renderer.scene, this.physicsWorld);
+    const door = new Door(
+      "door1",
+      new THREE.Vector3(0, bayTopY, zDoor),
+      this.renderer.scene,
+      this.physicsWorld,
+      this.eventBus,
+    );
     this.interactionManager.register(door);
 
     this.runtimeInteractables.push(rope, beacon, door);

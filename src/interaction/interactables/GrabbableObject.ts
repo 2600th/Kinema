@@ -39,11 +39,12 @@ export class GrabbableObject implements IInteractable {
     return player.isGrounded ? { allowed: true } : { allowed: false, reason: "Must be grounded" };
   }
 
-  interact(player: PlayerController): void {
+  interact(player: PlayerController): string | undefined {
     const bodyPos = this.body.translation();
     _grabOffset.set(bodyPos.x, bodyPos.y, bodyPos.z).sub(player.position);
     const grabWeight = this.mesh?.userData?.grabWeight as number | undefined;
     this.eventBus.emit("interaction:grabStart", { body: this.body, offset: _grabOffset, grabWeight });
+    return undefined;
   }
 
   dispose(): void {

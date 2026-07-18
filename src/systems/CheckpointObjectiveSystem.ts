@@ -25,10 +25,8 @@ export class CheckpointObjectiveSystem implements RuntimeSystem {
     this.objectiveManager = new ObjectiveManager(eventBus);
 
     this.unsubs.push(
-      this.eventBus.on("interaction:triggered", ({ id }) => {
-        if (id === "beacon1") {
-          this.objectiveManager.complete("activate-beacon");
-        }
+      this.eventBus.on("objective:beaconActivated", () => {
+        this.objectiveManager.complete("activate-beacon");
       }),
       this.eventBus.on("checkpoint:activated", ({ position }) => {
         this.playerController.setRespawnPoint({

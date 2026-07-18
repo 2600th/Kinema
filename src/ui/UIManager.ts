@@ -85,8 +85,11 @@ export class UIManager implements Disposable {
     );
 
     this.unsubscribers.push(
-      this.eventBus.on("objective:set", ({ text }) => {
+      this.eventBus.on("objective:set", ({ id, text }) => {
         this.hud.setObjective(text);
+        if (id === "none") {
+          this.hud.showStatus("All objectives complete");
+        }
       }),
     );
 

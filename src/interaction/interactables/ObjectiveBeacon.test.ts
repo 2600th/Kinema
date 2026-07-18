@@ -1,4 +1,5 @@
 import type { PlayerController } from "@character/PlayerController";
+import { EventBus } from "@core/EventBus";
 import type RAPIER from "@dimforge/rapier3d-compat";
 import type { PhysicsWorld } from "@physics/PhysicsWorld";
 import * as THREE from "three";
@@ -39,11 +40,13 @@ function getBeaconInternals(beacon: ObjectiveBeacon): BeaconInternals {
 describe("ObjectiveBeacon", () => {
   it("uses a 3-second hold interaction spec", () => {
     const physicsWorld = createPhysicsWorld();
+    const eventBus = new EventBus();
     const beacon = new ObjectiveBeacon(
       "beacon1",
       new THREE.Vector3(0, 0, 0),
       new THREE.Scene(),
       asPhysicsWorld(physicsWorld),
+      eventBus,
     );
 
     expect(beacon.getInteractionSpec()).toEqual({ mode: "hold", holdDuration: 3 });
@@ -52,11 +55,13 @@ describe("ObjectiveBeacon", () => {
 
   it("charges up while held, resets when released, and locks once activated", () => {
     const physicsWorld = createPhysicsWorld();
+    const eventBus = new EventBus();
     const beacon = new ObjectiveBeacon(
       "beacon1",
       new THREE.Vector3(0, 0, 0),
       new THREE.Scene(),
       asPhysicsWorld(physicsWorld),
+      eventBus,
     );
 
     const baseIntensity = getBeaconInternals(beacon).beaconMaterial.emissiveIntensity;
@@ -86,6 +91,25 @@ describe("ObjectiveBeacon", () => {
       reason: "Beacon online",
     });
     expect(getBeaconInternals(beacon).beaconLight.intensity).toBeGreaterThan(2);
+    beacon.dispose();
+  });
+
+  it("emits one activation event and reports the first activation outcome", () => {
+    const physicsWorld = createPhysicsWorld();
+    const eventBus = new EventBus();
+    const activations: string[] = [];
+    eventBus.on("objective:beaconActivated", ({ id }) => activations.push(id));
+    const beacon = new ObjectiveBeacon(
+      "beacon1",
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Scene(),
+      asPhysicsWorld(physicsWorld),
+      eventBus,
+    );
+
+    expect(beacon.interact({} as PlayerController)).toBe("activated");
+    expect(beacon.interact({} as PlayerController)).toBeUndefined();
+    expect(activations).toEqual(["beacon1"]);
     beacon.dispose();
   });
 });

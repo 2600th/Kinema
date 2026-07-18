@@ -1,4 +1,4 @@
-import type { KinemaDebugApi } from "@core/KinemaDebugApi";
+import type { KinemaDebugApi, KinemaInteractionEvent } from "@core/KinemaDebugApi";
 import { shouldUseCompatibilityRenderer } from "@core/mobilePlatform";
 import type { InputState } from "@core/types";
 import RAPIER from "@dimforge/rapier3d-compat";
@@ -426,8 +426,28 @@ async function bootstrap(): Promise<void> {
   // Gated behind DEV to tree-shake new Function() evaluator from production builds.
   if (import.meta.env.DEV) {
     let editorSaveEventCount = 0;
+    const interactionEvents: KinemaInteractionEvent[] = [];
+    const recordInteractionEvent = (event: KinemaInteractionEvent): void => {
+      interactionEvents.push(event);
+      if (interactionEvents.length > 128) interactionEvents.shift();
+    };
     eventBus.on("editor:saved", () => {
       editorSaveEventCount++;
+    });
+    eventBus.on("interaction:triggered", (payload) => {
+      recordInteractionEvent({ type: "interaction:triggered", ...payload });
+    });
+    eventBus.on("interaction:doorToggled", (payload) => {
+      recordInteractionEvent({ type: "interaction:doorToggled", ...payload });
+    });
+    eventBus.on("objective:beaconActivated", (payload) => {
+      recordInteractionEvent({ type: "objective:beaconActivated", ...payload });
+    });
+    eventBus.on("interaction:ropeAttached", (payload) => {
+      recordInteractionEvent({ type: "interaction:ropeAttached", ...payload });
+    });
+    eventBus.on("interaction:ropeReleased", (payload) => {
+      recordInteractionEvent({ type: "interaction:ropeReleased", ...payload });
     });
     const kinemaDebugApi = {
       getFrameStats: () => gameLoop.getFrameStats(),
@@ -806,6 +826,12 @@ async function bootstrap(): Promise<void> {
       },
       getEditorSaveEventCount() {
         return editorSaveEventCount;
+      },
+      getInteractionEvents() {
+        return interactionEvents.map((event) => ({ ...event }));
+      },
+      clearInteractionEvents() {
+        interactionEvents.length = 0;
       },
       editorUndo() {
         editorManager?.undo();

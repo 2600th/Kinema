@@ -15,21 +15,37 @@ function createSystem(now: () => number, force: () => number) {
     }),
   };
   const eventBus = new EventBus();
+  const interactionManager = { register: vi.fn(), unregister: vi.fn() };
   const system = new InteractableSystem(
     { scene: {} } as never,
     { eventQueue } as never,
     eventBus,
-    { register: vi.fn(), unregister: vi.fn() } as never,
+    interactionManager as never,
     {} as never,
     { clear: vi.fn() } as never,
     { getDynamicBodies: vi.fn(() => []) } as never,
     { hud: { showStatus } } as never,
     now,
   );
-  return { contact, eventBus, eventQueue, system, showStatus };
+  return { contact, eventBus, eventQueue, interactionManager, system, showStatus };
 }
 
 describe("InteractableSystem impact toast grace", () => {
+  it("retires an activated beacon and removes its listener on dispose", () => {
+    const { eventBus, interactionManager, system } = createSystem(
+      () => 0,
+      () => 0,
+    );
+
+    eventBus.emit("objective:beaconActivated", { id: "beacon1" });
+    expect(interactionManager.unregister).toHaveBeenCalledWith("beacon1");
+
+    system.dispose();
+    interactionManager.unregister.mockClear();
+    eventBus.emit("objective:beaconActivated", { id: "beacon2" });
+    expect(interactionManager.unregister).not.toHaveBeenCalled();
+  });
+
   it("drains unarmed settle contacts without ever showing impact feedback", () => {
     let now = 1_000;
     const force = 13;

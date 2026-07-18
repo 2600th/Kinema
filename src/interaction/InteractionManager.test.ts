@@ -192,6 +192,37 @@ describe("InteractionManager", () => {
     expect(eventBus.emit).toHaveBeenCalledWith("interaction:triggered", { id: "hold" });
   });
 
+  it("reports an interaction outcome and refreshes a state-dependent prompt", () => {
+    physicsWorld.castRay.mockReturnValue(null);
+    const manager = new InteractionManager(
+      asPhysicsWorld(physicsWorld),
+      asPlayerController(player),
+      asEventBus(eventBus),
+    );
+    const door = makeInteractable("door", 1, 0, 62);
+    let open = false;
+    Object.defineProperty(door, "label", {
+      get: () => (open ? "Close Door" : "Open Door"),
+    });
+    door.interact.mockImplementation(() => {
+      open = true;
+      return "opened";
+    });
+    manager.register(door);
+
+    manager.refreshFocusFromPosition({ x: 0, y: 0, z: 0 });
+    manager.triggerInteraction();
+
+    expect(eventBus.emit).toHaveBeenCalledWith("interaction:triggered", {
+      id: "door",
+      outcome: "opened",
+    });
+    expect(eventBus.emit).toHaveBeenLastCalledWith("interaction:focusChanged", {
+      id: "door",
+      label: "Press F to Close Door",
+    });
+  });
+
   it("feeds hold progress into the interactable and emits world position for hold VFX", () => {
     physicsWorld.castRay.mockReturnValue(null);
     const manager = new InteractionManager(

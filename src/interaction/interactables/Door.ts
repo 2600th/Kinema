@@ -1,5 +1,6 @@
 import type { PlayerController } from "@character/PlayerController";
 import { COLLISION_GROUP_INTERACTABLE, COLLISION_GROUP_WORLD } from "@core/constants";
+import type { EventBus } from "@core/EventBus";
 import RAPIER from "@dimforge/rapier3d-compat";
 import type { PhysicsWorld } from "@physics/PhysicsWorld";
 import * as THREE from "three";
@@ -54,6 +55,7 @@ export class Door implements IInteractable {
     position: THREE.Vector3,
     scene: THREE.Scene,
     physicsWorld: PhysicsWorld,
+    private readonly eventBus: EventBus,
     options?: DoorOptions,
   ) {
     this.id = id;
@@ -156,7 +158,7 @@ export class Door implements IInteractable {
     this.mesh.material = this.originalMaterial;
   }
 
-  interact(player: PlayerController): void {
+  interact(player: PlayerController): string {
     this.isOpen = !this.isOpen;
     if (this.isOpen) {
       this.playerLocal.copy(player.position);
@@ -167,6 +169,8 @@ export class Door implements IInteractable {
     } else {
       this.targetRotation = this.closedRotation;
     }
+    this.eventBus.emit("interaction:doorToggled", { id: this.id, open: this.isOpen });
+    return this.isOpen ? "opened" : "closed";
   }
 
   dispose(): void {

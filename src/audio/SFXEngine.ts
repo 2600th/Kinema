@@ -314,6 +314,97 @@ export class SFXEngine {
     }, 600);
   }
 
+  doorToggle(open: boolean): void {
+    const toneNow = this.safeToneTime();
+    const noiseNow = this.safeNoiseTime();
+    const pitchVar = randRange(1, 0.1);
+    const start = (open ? 220 : 310) * pitchVar;
+    const end = (open ? 390 : 170) * pitchVar;
+    this.toneSynth.oscillator.type = "triangle";
+    this.toneSynth.envelope.attack = 0.004;
+    this.toneSynth.envelope.decay = 0.18;
+    this.toneSynth.envelope.sustain = 0;
+    this.toneSynth.envelope.release = 0.04;
+    this.toneSynth.volume.value = -12;
+    this.toneSynth.triggerAttackRelease(start, 0.18, toneNow);
+    this.toneSynth.frequency.setValueAtTime(start, toneNow);
+    this.toneSynth.frequency.exponentialRampToValueAtTime(end, toneNow + 0.17);
+    this.noiseSynth.noise.type = "brown";
+    this.noiseSynth.envelope.attack = 0.002;
+    this.noiseSynth.envelope.decay = 0.1;
+    this.noiseSynth.envelope.sustain = 0;
+    this.noiseSynth.envelope.release = 0.02;
+    this.noiseSynth.volume.value = -22;
+    this.noiseSynth.triggerAttackRelease("32n", noiseNow);
+    this.noiseSynth.noise.type = "white";
+  }
+
+  beaconActivate(): void {
+    const now = Tone.now();
+    const sparkleNow = this.safeSparkleSynthTime();
+    const pitchVar = randRange(1, 0.1);
+    this.delay.wet.value = 0.22;
+    this.polySynth.set({
+      oscillator: { type: "sine" },
+      envelope: { attack: 0.015, decay: 0.42, sustain: 0.12, release: 0.5 },
+    });
+    this.polySynth.volume.value = -8;
+    this.polySynth.triggerAttackRelease(
+      [523.25 * pitchVar, 659.25 * pitchVar, 783.99 * pitchVar],
+      0.45,
+      now,
+    );
+    this.sparkleSynth.volume.value = -13;
+    this.sparkleSynth.triggerAttackRelease(1567.98 * pitchVar, 0.32, sparkleNow + 0.05);
+    this.defer(() => {
+      this.delay.wet.value = 0;
+    }, 700);
+  }
+
+  ropeAttach(): void {
+    const toneNow = this.safeToneTime();
+    const noiseNow = this.safeNoiseTime();
+    const pitchVar = randRange(1, 0.1);
+    this.toneSynth.oscillator.type = "square";
+    this.toneSynth.envelope.attack = 0.002;
+    this.toneSynth.envelope.decay = 0.1;
+    this.toneSynth.envelope.sustain = 0;
+    this.toneSynth.envelope.release = 0.03;
+    this.toneSynth.volume.value = -15;
+    this.toneSynth.triggerAttackRelease(150 * pitchVar, 0.1, toneNow);
+    this.noiseSynth.noise.type = "brown";
+    this.noiseSynth.envelope.attack = 0.001;
+    this.noiseSynth.envelope.decay = 0.07;
+    this.noiseSynth.envelope.sustain = 0;
+    this.noiseSynth.envelope.release = 0.01;
+    this.noiseSynth.volume.value = -17;
+    this.noiseSynth.triggerAttackRelease("64n", noiseNow);
+    this.noiseSynth.noise.type = "white";
+  }
+
+  ropeRelease(): void {
+    const toneNow = this.safeToneTime();
+    const noiseNow = this.safeNoiseTime();
+    const pitchVar = randRange(1, 0.1);
+    const start = 360 * pitchVar;
+    const end = 130 * pitchVar;
+    this.toneSynth.oscillator.type = "triangle";
+    this.toneSynth.envelope.attack = 0.002;
+    this.toneSynth.envelope.decay = 0.14;
+    this.toneSynth.envelope.sustain = 0;
+    this.toneSynth.envelope.release = 0.03;
+    this.toneSynth.volume.value = -14;
+    this.toneSynth.triggerAttackRelease(start, 0.14, toneNow);
+    this.toneSynth.frequency.setValueAtTime(start, toneNow);
+    this.toneSynth.frequency.exponentialRampToValueAtTime(end, toneNow + 0.13);
+    this.noiseSynth.envelope.attack = 0.002;
+    this.noiseSynth.envelope.decay = 0.09;
+    this.noiseSynth.envelope.sustain = 0;
+    this.noiseSynth.envelope.release = 0.01;
+    this.noiseSynth.volume.value = -21;
+    this.noiseSynth.triggerAttackRelease("64n", noiseNow);
+  }
+
   checkpoint(): void {
     // Warm FMSynth arpeggio C5 -> E5 -> G5 -> C6 with chorus + delay
     if (Tone.getContext().state !== "running") return;

@@ -352,9 +352,27 @@ export class AudioManager implements AudioController {
 
     // ── Interaction ────────────────────────────────────
     this.unsubscribers.push(
-      this.eventBus.on("interaction:triggered", () => {
+      this.eventBus.on("interaction:triggered", ({ outcome }) => {
         if (!this.toneStarted) return;
+        if (outcome) return;
         this.sfxEngine.interact();
+      }),
+      this.eventBus.on("interaction:doorToggled", ({ open }) => {
+        if (!this.toneStarted) return;
+        this.sfxEngine.doorToggle(open);
+      }),
+      this.eventBus.on("objective:beaconActivated", () => {
+        if (!this.toneStarted) return;
+        this.sfxEngine.beaconActivate();
+        this.duckFor(0.6, 600);
+      }),
+      this.eventBus.on("interaction:ropeAttached", () => {
+        if (!this.toneStarted) return;
+        this.sfxEngine.ropeAttach();
+      }),
+      this.eventBus.on("interaction:ropeReleased", () => {
+        if (!this.toneStarted) return;
+        this.sfxEngine.ropeRelease();
       }),
     );
 
@@ -437,8 +455,9 @@ export class AudioManager implements AudioController {
     );
 
     this.unsubscribers.push(
-      this.eventBus.on("objective:completed", () => {
+      this.eventBus.on("objective:completed", ({ id }) => {
         if (!this.toneStarted) return;
+        if (id === "activate-beacon") return;
         this.sfxEngine.objectiveComplete();
         // Brief music duck
         this.duckFor(0.6, 500);

@@ -80,6 +80,13 @@ export interface KinemaLevelObjectState {
   } | null;
 }
 
+export type KinemaInteractionEvent =
+  | { type: "interaction:triggered"; id: string; outcome?: string }
+  | { type: "interaction:doorToggled"; id: string; open: boolean }
+  | { type: "objective:beaconActivated"; id: string }
+  | { type: "interaction:ropeAttached"; id: string }
+  | { type: "interaction:ropeReleased"; id: string };
+
 /** Complete contract for the development-only browser automation surface. */
 export interface KinemaDebugApi {
   getFrameStats(): FrameStats;
@@ -132,6 +139,8 @@ export interface KinemaDebugApi {
   isPlayTesting(): boolean;
   getEditorObjectCount(): number;
   getEditorSaveEventCount(): number;
+  getInteractionEvents(): KinemaInteractionEvent[];
+  clearInteractionEvents(): void;
   editorUndo(): void;
   editorRedo(): void;
   startPlayTest(): void;

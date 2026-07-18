@@ -44,8 +44,9 @@ export class VehicleSeat implements IInteractable {
     return player.isGrounded ? { allowed: true } : { allowed: false, reason: "Must be grounded" };
   }
 
-  interact(_player: PlayerController): void {
+  interact(_player: PlayerController): string | undefined {
     this.eventBus.emit("vehicle:enter", { vehicle: this.vehicle });
+    return undefined;
   }
 
   getIgnoredColliderHandles(): number[] {

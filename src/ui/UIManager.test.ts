@@ -108,12 +108,15 @@ describe("UIManager", () => {
     const ui = new UIManager(eventBus as any);
     const hud = hudInstances[0];
 
-    listeners.get("objective:set")?.({ text: "Reach the beacon" });
+    listeners.get("objective:set")?.({ id: "reach-beacon", text: "Reach the beacon" });
     listeners.get("objective:completed")?.({ text: "Reach the beacon" });
+    listeners.get("objective:set")?.({ id: "none", text: "All objectives complete" });
 
-    expect(hud.setObjective).toHaveBeenCalledWith("Reach the beacon");
+    expect(hud.setObjective).toHaveBeenNthCalledWith(1, "Reach the beacon");
+    expect(hud.setObjective).toHaveBeenNthCalledWith(2, "All objectives complete");
     expect(hud.flashObjectiveComplete).toHaveBeenCalledWith("Reach the beacon");
     expect(hud.showStatus).toHaveBeenCalledWith("Objective complete: Reach the beacon");
+    expect(hud.showStatus).toHaveBeenCalledWith("All objectives complete");
     ui.dispose();
   });
 

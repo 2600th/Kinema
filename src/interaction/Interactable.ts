@@ -29,6 +29,6 @@ export interface IInteractable {
   canInteract?(player: PlayerController): InteractionAccess;
   setHoldProgress?(progress: number | null): void;
   getIgnoredColliderHandles?(): number[];
-  interact(player: PlayerController): void;
+  interact(player: PlayerController): string | undefined;
   dispose(): void;
 }

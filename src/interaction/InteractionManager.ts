@@ -237,8 +237,9 @@ export class InteractionManager implements FixedUpdatable, Disposable {
   }
 
   private executeInteraction(target: IInteractable): void {
-    target.interact(this.player);
-    this.eventBus.emit("interaction:triggered", { id: target.id });
+    const outcome = target.interact(this.player);
+    this.eventBus.emit("interaction:triggered", outcome ? { id: target.id, outcome } : { id: target.id });
+    this.refreshFocusFromPosition(this.player.position);
   }
 
   private updateHoldInteraction(dt: number): void {

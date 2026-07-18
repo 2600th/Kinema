@@ -89,7 +89,7 @@ export class ParticleSystem implements RuntimeSystem {
           progress: payload.progress,
         };
       }),
-      this.eventBus.on("interaction:triggered", ({ id }) => {
+      this.eventBus.on("objective:beaconActivated", ({ id }) => {
         if (id !== "beacon1" || !this.beaconChargeState) {
           return;
         }

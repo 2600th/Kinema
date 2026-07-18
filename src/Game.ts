@@ -211,6 +211,9 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
           { duration: 0, onStart: () => this.hitstop.trigger(0.06) },
         ]);
       }),
+      this.eventBus.on("objective:beaconActivated", () => {
+        this.fovPunch.punch(1.75);
+      }),
       this.eventBus.on("player:damaged", ({ reason }) => {
         if (reason !== "spike") {
           return;

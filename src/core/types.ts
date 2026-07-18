@@ -187,7 +187,11 @@ export interface EventMap {
   "player:damaged": { current: number; max: number; reason: "spike" | "fall"; position: THREE.Vector3 };
   "player:invulnerabilityChanged": { active: boolean; remaining: number; reason: "spike" | "fall" | null };
   "interaction:focusChanged": { id: string | null; label: string | null };
-  "interaction:triggered": { id: string };
+  "interaction:triggered": { id: string; outcome?: string };
+  "interaction:doorToggled": { id: string; open: boolean };
+  "objective:beaconActivated": { id: string };
+  "interaction:ropeAttached": { id: string };
+  "interaction:ropeReleased": { id: string };
   "interaction:blocked": { id: string; reason: string };
   "interaction:grabStart": { body: RAPIER.RigidBody; offset: THREE.Vector3; grabWeight?: number };
   "interaction:grabEnd": undefined;
