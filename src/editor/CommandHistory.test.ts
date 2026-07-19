@@ -174,16 +174,39 @@ describe("CommandHistory", () => {
   });
 
   it("isolates discard exceptions while clearing both stacks", () => {
+    const discarded: string[] = [];
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     const history = new CommandHistory();
-    history.push({
-      execute: () => true,
-      undo: () => true,
-      discard: () => {
-        throw new Error("boom");
-      },
-    });
-    history.undo();
-    expect(() => history.clear()).not.toThrow();
+    try {
+      history.push({
+        execute: () => true,
+        undo: () => true,
+        discard: () => discarded.push("undo"),
+      });
+      history.push({
+        execute: () => true,
+        undo: () => true,
+        discard: () => {
+          throw new Error("boom");
+        },
+      });
+      history.push({
+        execute: () => true,
+        undo: () => true,
+        discard: () => discarded.push("redo"),
+      });
+      history.undo();
+
+      expect(() => history.clear()).not.toThrow();
+      expect(discarded).toEqual(["undo", "redo"]);
+      expect(consoleError).toHaveBeenCalledOnce();
+      expect(consoleError).toHaveBeenCalledWith(
+        "[Editor] Command cleanup failed:",
+        expect.objectContaining({ message: "boom" }),
+      );
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it("treats undo and redo on empty stacks as no-ops", () => {
