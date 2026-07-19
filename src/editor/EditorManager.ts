@@ -20,9 +20,9 @@ import {
   shouldProtectEditorUnload,
 } from "./EditorDocumentState";
 import { validateEditorLevelData } from "./EditorLevelValidator";
-import { EditorLoadTransaction } from "./EditorLoadTransaction";
+import { type EditorLoadToken, EditorLoadTransaction } from "./EditorLoadTransaction";
 import type { EditorObject } from "./EditorObject";
-import { syncRigidBodyToObjectWorldPose } from "./EditorPhysicsSync";
+import { getObjectColliderBounds, getObjectWorldPhysicsPose } from "./EditorPhysicsSync";
 import { FreeCamera } from "./FreeCamera";
 import { type LevelData, LevelSerializer } from "./LevelSerializer";
 import { BrushPanel } from "./panels/BrushPanel";
@@ -35,6 +35,8 @@ import { BrushPlacementTool, buildColliderDesc } from "./tools/BrushPlacementToo
 import type { EditorTool, EditorToolContext } from "./tools/EditorTool";
 import { GLBPlacementTool } from "./tools/GLBPlacementTool";
 import { SelectionTool } from "./tools/SelectionTool";
+
+type EditorLoadResult = "completed" | "failed" | "superseded";
 
 export class EditorManager {
   private active = false;
@@ -236,6 +238,7 @@ export class EditorManager {
       levelManager: this.levelManager,
       onFinished: () => this.switchTool("selection"),
       onImported: () => this.toolbarPanel.showSessionImportNotice(),
+      getLifecycleGeneration: () => this.loadTransaction.generation,
     });
     this.tools.set(this.selectionTool.id, this.selectionTool);
     this.tools.set(this.brushPlacementTool.id, this.brushPlacementTool);
@@ -248,6 +251,8 @@ export class EditorManager {
     this.unsubs.push(
       this.eventBus.on("level:loaded", ({ name }) => {
         this.loadTransaction.invalidate();
+        this.glbPlacementTool.cancelPendingImport(this.buildToolContext());
+        this.restoringPlayTest = false;
         this.toolbarPanel.setLoadBusy(false);
         this.history.clear();
         const identity = this.levelManager.getCurrentLevelIdentity();
@@ -345,6 +350,7 @@ export class EditorManager {
 
   dispose(): void {
     this.loadTransaction.invalidate();
+    this.glbPlacementTool.cancelPendingImport(this.buildToolContext());
     this.abortPlayTest();
     for (const unsub of this.unsubs) unsub();
     this.unsubs.length = 0;
@@ -609,6 +615,12 @@ export class EditorManager {
   async stopPlayTest(): Promise<void> {
     if (!this.playTestActive) return;
 
+    const restoreToken = this.loadTransaction.begin("playtest-restore");
+    if (restoreToken === null) {
+      this.showLoadBusyFeedback();
+      return;
+    }
+
     const snapshot = this.playTestSnapshot;
     const cameraState = this.playTestCameraState;
     this.restoringPlayTest = true;
@@ -620,11 +632,14 @@ export class EditorManager {
       // Await to ensure all objects are fully spawned before entering editor.
       if (snapshot) {
         const data = JSON.parse(snapshot) as LevelData;
-        const restored = await this.applyLoadedLevel(data, "playtest-restore");
-        if (!restored) throw new Error("Snapshot reconstruction was incomplete.");
+        const result = await this.applyLoadedLevel(data, "playtest-restore", restoreToken);
+        if (result === "superseded") return;
+        if (result === "failed") throw new Error("Snapshot reconstruction was incomplete.");
       } else {
         throw new Error("Play-test snapshot was unavailable.");
       }
+
+      if (!this.loadTransaction.isCurrent(restoreToken)) return;
 
       // ── Step 2: Re-enter editor mode (skip buildEditorObjects — objects
       //    are already populated by applyLoadedLevel) ──
@@ -642,6 +657,7 @@ export class EditorManager {
       this.setSelection(null);
       this.syncHierarchy();
     } catch (err) {
+      if (!this.loadTransaction.isCurrent(restoreToken)) return;
       console.error("[Editor] Failed to restore play-test snapshot:", err);
       this.markDirty();
       if (!this.active) {
@@ -657,12 +673,16 @@ export class EditorManager {
         "Play-test restore failed — the recovered document has unsaved changes and remains protected.",
       );
     } finally {
-      this.restoringPlayTest = false;
+      const completion = this.loadTransaction.finish(restoreToken);
+      if (completion === "completed") this.restoringPlayTest = false;
       this.syncUnloadProtection();
     }
   }
 
   abortPlayTest(): void {
+    this.loadTransaction.invalidate();
+    this.glbPlacementTool.cancelPendingImport(this.buildToolContext());
+    this.restoringPlayTest = false;
     this.clearPlayTestState();
   }
 
@@ -1563,9 +1583,25 @@ export class EditorManager {
     input.addEventListener("change", async () => {
       const file = input.files?.[0];
       if (!file) return;
-      const data = await LevelSerializer.loadFromFile(file);
-      if (!data) return;
-      void this.applyLoadedLevel(data, "user-load");
+      const loadToken = this.loadTransaction.begin("user-load");
+      if (loadToken === null) {
+        this.showLoadBusyFeedback();
+        return;
+      }
+      this.glbPlacementTool.cancelPendingImport(this.buildToolContext());
+      this.toolbarPanel.setLoadBusy(true);
+      try {
+        const data = await LevelSerializer.loadFromFile(file);
+        if (!this.loadTransaction.isCurrent(loadToken)) return;
+        if (!data) {
+          this.toolbarPanel.showSaveError("Load rejected — the selected file is not valid Kinema level JSON.");
+          return;
+        }
+        await this.applyLoadedLevel(data, "user-load", loadToken);
+      } finally {
+        const completion = this.loadTransaction.finish(loadToken);
+        if (completion === "completed") this.toolbarPanel.setLoadBusy(false);
+      }
     });
     input.click();
   }
@@ -1573,31 +1609,16 @@ export class EditorManager {
   private async applyLoadedLevel(
     data: LevelData,
     intent: "user-load" | "playtest-restore",
-  ): Promise<boolean> {
-    if (intent === "playtest-restore") {
-      return this.applyLoadedLevelContents(data, intent);
-    }
-
-    const loadToken = this.loadTransaction.begin();
-    if (loadToken === null) {
-      this.showLoadBusyFeedback();
-      return false;
-    }
-    this.toolbarPanel.setLoadBusy(true);
-    try {
-      return await this.applyLoadedLevelContents(data, intent, loadToken);
-    } finally {
-      const wasCurrent = this.loadTransaction.isCurrent(loadToken);
-      this.loadTransaction.finish(loadToken);
-      if (wasCurrent) this.toolbarPanel.setLoadBusy(false);
-    }
+    loadToken: EditorLoadToken,
+  ): Promise<EditorLoadResult> {
+    return this.applyLoadedLevelContents(data, intent, loadToken);
   }
 
   private async applyLoadedLevelContents(
     data: LevelData,
     intent: "user-load" | "playtest-restore",
-    loadToken?: number,
-  ): Promise<boolean> {
+    loadToken: EditorLoadToken,
+  ): Promise<EditorLoadResult> {
     if (intent === "user-load") {
       const validation = validateEditorLevelData(data);
       if (!validation.ok) {
@@ -1605,7 +1626,7 @@ export class EditorManager {
         this.toolbarPanel.showSaveError(
           "Load rejected — one or more objects or hierarchy links could not be reconstructed.",
         );
-        return false;
+        return "failed";
       }
     }
 
@@ -1659,15 +1680,12 @@ export class EditorManager {
 
       // ── Phase 4: Spawn fresh objects from the snapshot ──
       for (const entry of data.objects) {
-        if (loadToken !== undefined && !this.loadTransaction.isCurrent(loadToken)) {
-          throw new Error("Level load was superseded.");
-        }
+        if (!this.loadTransaction.isCurrent(loadToken)) return "superseded";
         if (!(await this.spawnSerializedObject(entry, loadToken))) {
+          if (!this.loadTransaction.isCurrent(loadToken)) return "superseded";
           throw new Error(`Object "${entry.id}" could not be reconstructed.`);
         }
-        if (loadToken !== undefined && !this.loadTransaction.isCurrent(loadToken)) {
-          throw new Error("Level load was superseded.");
-        }
+        if (!this.loadTransaction.isCurrent(loadToken)) return "superseded";
       }
 
       // ── Phase 5: Reconstruct parent-child hierarchy ──
@@ -1694,11 +1712,16 @@ export class EditorManager {
       }
 
       this.renderer.scene.updateWorldMatrix(true, true);
-      for (const obj of this.document.objects) {
-        if (obj.body) syncRigidBodyToObjectWorldPose(obj.mesh, obj.body);
+      for (const entry of data.objects) {
+        if (!this.loadTransaction.isCurrent(loadToken)) return "superseded";
+        const obj = this.document.findById(entry.id);
+        if (!obj) throw new Error(`Object "${entry.id}" disappeared before physics reconstruction.`);
+        this.createSerializedObjectPhysics(obj, entry);
+        this.levelManager.removeLevelObject(obj.mesh);
+        this.levelManager.addLevelObject(obj.mesh, this.createLevelObjectTracking(obj));
       }
     } catch (err) {
-      if (loadToken !== undefined && !this.loadTransaction.isCurrent(loadToken)) return false;
+      if (!this.loadTransaction.isCurrent(loadToken)) return "superseded";
       console.error(`[Editor] ${intent === "user-load" ? "Level load" : "Play-test restore"} failed:`, err);
       this.markDirty();
       this.syncHierarchy();
@@ -1707,10 +1730,10 @@ export class EditorManager {
           ? "Load failed — the recovered document has unsaved changes and remains protected."
           : "Play-test restore failed — the recovered document has unsaved changes and remains protected.",
       );
-      return false;
+      return "failed";
     }
 
-    if (loadToken !== undefined && !this.loadTransaction.isCurrent(loadToken)) return false;
+    if (!this.loadTransaction.isCurrent(loadToken)) return "superseded";
     if (intent === "user-load") {
       this.history.clear();
       this.documentState.markClean(data.name);
@@ -1718,10 +1741,10 @@ export class EditorManager {
     }
     this.syncHierarchy();
     this.eventBus.emit("editor:loaded", { name: data.name });
-    return true;
+    return "completed";
   }
 
-  private async spawnSerializedObject(entry: LevelData["objects"][number], loadToken?: number): Promise<boolean> {
+  private async spawnSerializedObject(entry: LevelData["objects"][number], loadToken: EditorLoadToken): Promise<boolean> {
     let obj: THREE.Object3D | null = null;
     if (entry.source.type === "primitive" && entry.source.primitive) {
       const p = entry.source.primitive;
@@ -1776,7 +1799,7 @@ export class EditorManager {
         obj.userData.editorMissingAssetPath = entry.source.asset;
       }
     }
-    if (loadToken !== undefined && !this.loadTransaction.isCurrent(loadToken)) return false;
+    if (!this.loadTransaction.isCurrent(loadToken)) return false;
     if (!obj) return false;
 
     obj.position.set(entry.transform.position[0], entry.transform.position[1], entry.transform.position[2]);
@@ -1824,71 +1847,47 @@ export class EditorManager {
       editorObj.brushParams = entry.brushParams;
     }
 
-    // Create physics body if applicable
-    const isTransformOnlyGroup = entry.source.type === "primitive" && entry.source.primitive === "group";
-    if (entry.physics && !isTransformOnlyGroup) {
-      let bodyDesc: RAPIER.RigidBodyDesc;
-      if (entry.physics.type === "static") {
-        bodyDesc = RAPIER.RigidBodyDesc.fixed();
-      } else if (entry.physics.type === "kinematic") {
-        bodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased();
-      } else {
-        bodyDesc = RAPIER.RigidBodyDesc.dynamic();
-      }
-      // Body sits at the mesh pivot with the saved rotation — the same
-      // convention as BrushPlacementTool and applyPhysicsTypeChange. The old
-      // AABB-center placement misaligned colliders for offset-pivot models
-      // and ignored rotation entirely.
-      obj.updateMatrixWorld(true);
-      bodyDesc.setTranslation(obj.position.x, obj.position.y, obj.position.z);
-      bodyDesc.setRotation(
-        new RAPIER.Quaternion(obj.quaternion.x, obj.quaternion.y, obj.quaternion.z, obj.quaternion.w),
-      );
-      const body = this.physicsWorld.world.createRigidBody(bodyDesc);
-
-      // Use shape-appropriate collider for brushes, AABB cuboid for others
-      let colliderDesc: RAPIER.ColliderDesc;
-      const meshObj = obj as THREE.Mesh;
-      if (entry.source.type === "brush" && entry.source.brush && meshObj.isMesh && meshObj.geometry) {
-        colliderDesc = buildColliderDesc(entry.source.brush, meshObj.geometry, meshObj);
-      } else if (meshObj.isMesh && meshObj.geometry) {
-        // Local-space bounding box scaled, offset to its center so the
-        // collider covers the visual even when the pivot is off-center.
-        meshObj.geometry.computeBoundingBox();
-        const bb = meshObj.geometry.boundingBox ?? new THREE.Box3();
-        const s = obj.scale;
-        colliderDesc = RAPIER.ColliderDesc.cuboid(
-          Math.max(((bb.max.x - bb.min.x) / 2) * s.x, 0.01),
-          Math.max(((bb.max.y - bb.min.y) / 2) * s.y, 0.01),
-          Math.max(((bb.max.z - bb.min.z) / 2) * s.z, 0.01),
-        ).setTranslation(
-          ((bb.max.x + bb.min.x) / 2) * s.x,
-          ((bb.max.y + bb.min.y) / 2) * s.y,
-          ((bb.max.z + bb.min.z) / 2) * s.z,
-        );
-      } else {
-        // Group (GLB): approximate with the world AABB expressed in the
-        // body's local frame so rotation doesn't displace the collider.
-        const box = new THREE.Box3().setFromObject(obj);
-        const size = box.getSize(new THREE.Vector3());
-        const localOffset = box
-          .getCenter(new THREE.Vector3())
-          .sub(obj.position)
-          .applyQuaternion(obj.quaternion.clone().invert());
-        colliderDesc = RAPIER.ColliderDesc.cuboid(
-          Math.max(size.x / 2, 0.01),
-          Math.max(size.y / 2, 0.01),
-          Math.max(size.z / 2, 0.01),
-        ).setTranslation(localOffset.x, localOffset.y, localOffset.z);
-      }
-
-      const collider = this.physicsWorld.world.createCollider(colliderDesc, body);
-      editorObj.body = body;
-      editorObj.collider = collider;
-      editorObj.physicsType = entry.physics.type as "static" | "dynamic" | "kinematic";
-    }
-
-    this.addTrackedEditorObject(editorObj, this.renderer.scene);
+    editorObj.physicsType = entry.physics?.type ?? "static";
+    this.document.addObject(editorObj, this.renderer.scene);
+    // Track the visual immediately so an external load that supersedes a later
+    // awaited object can still tear down this partially reconstructed document.
+    this.levelManager.addLevelObject(editorObj.mesh);
     return this.document.findById(entry.id) === editorObj && obj.parent === this.renderer.scene;
+  }
+
+  private createSerializedObjectPhysics(editorObj: EditorObject, entry: LevelData["objects"][number]): void {
+    const isTransformOnlyGroup = entry.source.type === "primitive" && entry.source.primitive === "group";
+    if (!entry.physics || isTransformOnlyGroup || !editorObj.visible) return;
+
+    const pose = getObjectWorldPhysicsPose(editorObj.mesh);
+    const bodyDesc =
+      entry.physics.type === "static"
+        ? RAPIER.RigidBodyDesc.fixed()
+        : entry.physics.type === "kinematic"
+          ? RAPIER.RigidBodyDesc.kinematicPositionBased()
+          : RAPIER.RigidBodyDesc.dynamic();
+    bodyDesc.setTranslation(pose.position.x, pose.position.y, pose.position.z);
+    bodyDesc.setRotation(
+      new RAPIER.Quaternion(pose.rotation.x, pose.rotation.y, pose.rotation.z, pose.rotation.w),
+    );
+    const body = this.physicsWorld.world.createRigidBody(bodyDesc);
+
+    let colliderDesc: RAPIER.ColliderDesc;
+    const mesh = editorObj.mesh as THREE.Mesh;
+    if (entry.source.type === "brush" && entry.source.brush && mesh.isMesh && mesh.geometry) {
+      const scaleProxy = new THREE.Mesh(mesh.geometry);
+      scaleProxy.scale.copy(pose.scale);
+      colliderDesc = buildColliderDesc(entry.source.brush, mesh.geometry, scaleProxy);
+    } else {
+      const bounds = getObjectColliderBounds(editorObj.mesh);
+      colliderDesc = RAPIER.ColliderDesc.cuboid(
+        Math.max(bounds.halfExtents.x, 0.01),
+        Math.max(bounds.halfExtents.y, 0.01),
+        Math.max(bounds.halfExtents.z, 0.01),
+      ).setTranslation(bounds.center.x, bounds.center.y, bounds.center.z);
+    }
+    const collider = this.physicsWorld.world.createCollider(colliderDesc, body);
+    editorObj.body = body;
+    editorObj.collider = collider;
   }
 }

@@ -37,4 +37,35 @@ describe("EditorLoadTransaction", () => {
     transaction.finish(currentToken);
     expect(transaction.isBusy).toBe(false);
   });
+
+  it("distinguishes completed user loads from superseded play-test restores", () => {
+    const transaction = new EditorLoadTransaction();
+    const initialGeneration = transaction.generation;
+    const userLoad = transaction.begin("user-load");
+
+    expect(userLoad).not.toBeNull();
+    if (userLoad === null) throw new Error("Expected a user-load token");
+    expect(userLoad.kind).toBe("user-load");
+    expect(transaction.generation).toBeGreaterThan(initialGeneration);
+    expect(transaction.finish(userLoad)).toBe("completed");
+
+    const restore = transaction.begin("playtest-restore");
+    expect(restore).not.toBeNull();
+    if (restore === null) throw new Error("Expected a restore token");
+    transaction.invalidate();
+
+    expect(transaction.finish(restore)).toBe("superseded");
+    expect(transaction.isBusy).toBe(false);
+  });
+
+  it("invalidates async work captured before a newer lifecycle begins", () => {
+    const transaction = new EditorLoadTransaction();
+    const importGeneration = transaction.generation;
+
+    const load = transaction.begin("user-load");
+
+    expect(load).not.toBeNull();
+    expect(transaction.isGenerationCurrent(importGeneration)).toBe(false);
+    expect(transaction.isGenerationCurrent(transaction.generation)).toBe(true);
+  });
 });

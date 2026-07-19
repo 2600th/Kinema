@@ -20,21 +20,29 @@ export class GLBPlacementTool implements EditorTool {
   private pendingGLBAsset: string | null = null;
   private placementPhase: PlacementPhase = "idle";
   private placementPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  private importGeneration = 0;
 
   private readonly levelManager: LevelManager;
   private readonly onFinished: () => void;
   private readonly onImported: (assetPath: string) => void;
+  private readonly getLifecycleGeneration: () => number;
 
-  constructor(opts: { levelManager: LevelManager; onFinished: () => void; onImported: (assetPath: string) => void }) {
+  constructor(opts: {
+    levelManager: LevelManager;
+    onFinished: () => void;
+    onImported: (assetPath: string) => void;
+    getLifecycleGeneration?: () => number;
+  }) {
     this.levelManager = opts.levelManager;
     this.onFinished = opts.onFinished;
     this.onImported = opts.onImported;
+    this.getLifecycleGeneration = opts.getLifecycleGeneration ?? (() => 0);
   }
 
   /* ---- Lifecycle ---- */
 
   deactivate(ctx: EditorToolContext): void {
-    this.cancelPlacement(ctx);
+    this.cancelPendingImport(ctx);
   }
 
   /* ---- Public helpers called by EditorManager ---- */
@@ -57,9 +65,12 @@ export class GLBPlacementTool implements EditorTool {
 
   /** Import a GLB file (from file picker or drag-and-drop). */
   async importFile(ctx: EditorToolContext, file: File): Promise<void> {
+    const importGeneration = ++this.importGeneration;
+    const lifecycleGeneration = this.getLifecycleGeneration();
     const objectUrl = URL.createObjectURL(file);
     try {
       const gltf = await this.levelManager.getAssetLoader().load(objectUrl);
+      if (!this.isImportCurrent(importGeneration, lifecycleGeneration)) return;
       const assetPath = `/assets/models/${file.name}`;
 
       // Register the loaded GLTF under the canonical asset path so it survives
@@ -104,7 +115,7 @@ export class GLBPlacementTool implements EditorTool {
 
   onKeyDown(ctx: EditorToolContext, e: KeyboardEvent): boolean {
     if (e.code === "Escape") {
-      this.cancelPlacement(ctx);
+      this.cancelPendingImport(ctx);
       this.onFinished();
       return true;
     }
@@ -240,5 +251,16 @@ export class GLBPlacementTool implements EditorTool {
     this.glbPreview = null;
     this.pendingGLBAsset = null;
     this.placementPhase = "idle";
+  }
+
+  cancelPendingImport(ctx: EditorToolContext): void {
+    this.importGeneration++;
+    this.cancelPlacement(ctx);
+  }
+
+  private isImportCurrent(importGeneration: number, lifecycleGeneration: number): boolean {
+    return (
+      this.importGeneration === importGeneration && this.getLifecycleGeneration() === lifecycleGeneration
+    );
   }
 }

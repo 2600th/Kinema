@@ -380,6 +380,113 @@ describe("LevelManager rotated body creation", () => {
     cuboidSpy.mockRestore();
   });
 
+  it("builds parented physics from the final world pose and inherited uniform scale", async () => {
+    const scene = new THREE.Scene();
+    const setTranslation = vi.fn();
+    const setRotation = vi.fn();
+    const colliderSetTranslation = vi.fn().mockReturnThis();
+    const physicsWorld = {
+      world: { createRigidBody: vi.fn(() => ({})), createCollider: vi.fn(() => ({})) },
+      removeCollider: vi.fn(),
+      removeBody: vi.fn(),
+    };
+    const manager = new LevelManager(scene, physicsWorld as any, { emit: vi.fn() } as any);
+    vi.spyOn(manager as any, "addLighting").mockImplementation(() => {});
+    const RAPIER = await import("@dimforge/rapier3d-compat");
+    const fixedSpy = vi.spyOn(RAPIER.RigidBodyDesc, "fixed").mockReturnValue({ setTranslation, setRotation } as any);
+    const cuboidSpy = vi.spyOn(RAPIER.ColliderDesc, "cuboid").mockReturnValue({
+      setCollisionGroups: vi.fn().mockReturnThis(),
+      setTranslation: colliderSetTranslation,
+    } as any);
+
+    await manager.loadFromJSON({
+      version: 2,
+      name: "parented-physics",
+      created: "2026-07-19T00:00:00.000Z",
+      modified: "2026-07-19T00:00:00.000Z",
+      spawnPoint: { position: [0, 2, 0] },
+      objects: [
+        {
+          id: "parent",
+          name: "Parent",
+          parentId: null,
+          source: { type: "primitive", primitive: "group" },
+          transform: { position: [4, 2, -6], rotation: [0.1, Math.PI / 3, -0.2], scale: [2, 2, 2] },
+          physics: { type: "static" },
+        },
+        {
+          id: "child",
+          name: "Child",
+          parentId: "parent",
+          source: { type: "primitive", primitive: "cube" },
+          transform: { position: [1, 2, 3], rotation: [-0.2, 0.4, 0.1], scale: [1, 1.5, 0.5] },
+          physics: { type: "static" },
+        },
+      ],
+    });
+
+    const child = manager.getLevelObjects().find((object) => object.name === "Child");
+    expect(child).toBeDefined();
+    const expectedPosition = child!.getWorldPosition(new THREE.Vector3());
+    const expectedRotation = child!.getWorldQuaternion(new THREE.Quaternion());
+    expect(setTranslation).toHaveBeenCalledWith(expectedPosition.x, expectedPosition.y, expectedPosition.z);
+    expect(setRotation.mock.calls[0][0]).toEqual(
+      expect.objectContaining({
+        x: expect.closeTo(expectedRotation.x, 8),
+        y: expect.closeTo(expectedRotation.y, 8),
+        z: expect.closeTo(expectedRotation.z, 8),
+        w: expect.closeTo(expectedRotation.w, 8),
+      }),
+    );
+    const colliderArgs = cuboidSpy.mock.calls[0];
+    expect(colliderArgs[0]).toBeCloseTo(1, 8);
+    expect(colliderArgs[1]).toBeCloseTo(1.5, 8);
+    expect(colliderArgs[2]).toBeCloseTo(0.5, 8);
+    const colliderOffset = colliderSetTranslation.mock.calls[0];
+    expect(colliderOffset[0]).toBeCloseTo(0, 8);
+    expect(colliderOffset[1]).toBeCloseTo(0, 8);
+    expect(colliderOffset[2]).toBeCloseTo(0, 8);
+
+    fixedSpy.mockRestore();
+    cuboidSpy.mockRestore();
+  });
+
+  it("interpolates a parented dynamic visual from Rapier world space without double-applying its parent", () => {
+    const scene = new THREE.Scene();
+    const manager = new LevelManager(scene, { world: {} } as any, { emit: vi.fn() } as any);
+    const parent = new THREE.Group();
+    parent.position.set(8, 2, -5);
+    parent.rotation.set(0.2, 0.7, -0.1);
+    parent.scale.setScalar(2);
+    const child = new THREE.Object3D();
+    parent.add(child);
+    scene.add(parent);
+    const worldPosition = new THREE.Vector3(-3, 6, 4);
+    const worldRotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.3, 0.5, 0.2));
+    const body = {
+      translation: () => ({ x: worldPosition.x, y: worldPosition.y, z: worldPosition.z }),
+      rotation: () => ({ x: worldRotation.x, y: worldRotation.y, z: worldRotation.z, w: worldRotation.w }),
+    };
+    (manager as any).dynamicBodies = [
+      {
+        mesh: child,
+        body,
+        prevPos: new THREE.Vector3(),
+        currPos: new THREE.Vector3(),
+        prevQuat: new THREE.Quaternion(),
+        currQuat: new THREE.Quaternion(),
+        hasPose: false,
+      },
+    ];
+
+    manager.postPhysicsUpdate(1 / 60);
+    manager.update(1 / 60, 1);
+    child.updateWorldMatrix(true, false);
+
+    expect(child.getWorldPosition(new THREE.Vector3()).distanceTo(worldPosition)).toBeLessThan(1e-8);
+    expect(child.getWorldQuaternion(new THREE.Quaternion()).angleTo(worldRotation)).toBeLessThan(1e-6);
+  });
+
   it("returns enough physics tracking state to restore a dynamic object after undo", () => {
     const scene = new THREE.Scene();
     const physicsWorld = {

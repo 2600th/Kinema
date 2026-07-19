@@ -4,6 +4,7 @@ import type { Disposable, SpawnPointData } from "@core/types";
 import type { GraphicsProfile, ShadowQualityTier } from "@core/UserSettings";
 import RAPIER from "@dimforge/rapier3d-compat";
 import { getBrushById } from "@editor/brushes/index";
+import { applyWorldPoseToObject, getObjectColliderBounds } from "@editor/EditorPhysicsSync";
 import type { LevelDataV2, SerializedObjectV2 } from "@editor/LevelSerializer";
 import type { ShowcaseStationKey } from "@level/ShowcaseLayout";
 import type { NavDebugOverlay } from "@navigation/NavDebugOverlay";
@@ -32,6 +33,8 @@ const _platformEuler = new THREE.Euler();
 const _platformQuat = new THREE.Quaternion();
 const _platformRV3 = new RAPIER.Vector3(0, 0, 0);
 const _platformRQuat = new RAPIER.Quaternion(0, 0, 0, 1);
+const _dynamicRenderPosition = new THREE.Vector3();
+const _dynamicRenderRotation = new THREE.Quaternion();
 const _floatOrigin = new RAPIER.Vector3(0, 0, 0);
 const _floatDown = new RAPIER.Vector3(0, -1, 0);
 const _floatImpulse = new RAPIER.Vector3(0, 0, 0);
@@ -627,41 +630,7 @@ export class LevelManager implements Disposable {
     center: THREE.Vector3;
     halfExtents: THREE.Vector3;
   } {
-    const localBounds = new THREE.Box3();
-    const childBounds = new THREE.Box3();
-    const inverseRoot = obj.matrixWorld.clone().invert();
-    const childLocalMatrix = new THREE.Matrix4();
-    const scaledCenter = new THREE.Vector3();
-    const scaledSize = new THREE.Vector3();
-
-    obj.traverse((child) => {
-      if (!(child instanceof THREE.Mesh) || !child.geometry) return;
-      child.geometry.computeBoundingBox();
-      const boundingBox = child.geometry.boundingBox;
-      if (!boundingBox) return;
-      childBounds.copy(boundingBox);
-      childLocalMatrix.multiplyMatrices(inverseRoot, child.matrixWorld);
-      childBounds.applyMatrix4(childLocalMatrix);
-      localBounds.union(childBounds);
-    });
-
-    if (localBounds.isEmpty()) {
-      localBounds.set(new THREE.Vector3(-0.5, -0.5, -0.5), new THREE.Vector3(0.5, 0.5, 0.5));
-    }
-
-    localBounds.getCenter(scaledCenter);
-    localBounds.getSize(scaledSize);
-    scaledCenter.set(scaledCenter.x * obj.scale.x, scaledCenter.y * obj.scale.y, scaledCenter.z * obj.scale.z);
-    scaledSize.set(
-      scaledSize.x * Math.abs(obj.scale.x),
-      scaledSize.y * Math.abs(obj.scale.y),
-      scaledSize.z * Math.abs(obj.scale.z),
-    );
-
-    return {
-      center: scaledCenter,
-      halfExtents: scaledSize.multiplyScalar(0.5),
-    };
+    return getObjectColliderBounds(obj);
   }
 
   private createPrimitiveMesh(primitive: string): THREE.Object3D {
@@ -1024,8 +993,9 @@ export class LevelManager implements Disposable {
   update(dt: number, alpha: number): void {
     for (const item of this.dynamicBodies) {
       if (!item.hasPose) continue;
-      item.mesh.position.lerpVectors(item.prevPos, item.currPos, alpha);
-      item.mesh.quaternion.slerpQuaternions(item.prevQuat, item.currQuat, alpha);
+      _dynamicRenderPosition.lerpVectors(item.prevPos, item.currPos, alpha);
+      _dynamicRenderRotation.slerpQuaternions(item.prevQuat, item.currQuat, alpha);
+      applyWorldPoseToObject(item.mesh, _dynamicRenderPosition, _dynamicRenderRotation);
     }
     // VFX showcase animations — visual-only, runs at render rate for smooth animation
     for (const cb of this.vfxUpdateCallbacks) cb(dt);

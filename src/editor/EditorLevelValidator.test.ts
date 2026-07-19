@@ -113,4 +113,19 @@ describe("validateEditorLevelData", () => {
     if (result.ok) throw new Error("Expected cyclic hierarchy rejection");
     expect(result.reason).toContain("cycle");
   });
+
+  it("rejects a rotated physics child whose non-uniform inherited scale would shear its collider", () => {
+    const parent = objectWith({ type: "primitive", primitive: "group" }, "scaled-parent");
+    parent.transform.scale = [2, 1, 0.5];
+    const child = objectWith({ type: "primitive", primitive: "cube" }, "rotated-child");
+    child.parentId = parent.id;
+    child.transform.rotation = [0.2, 0.7, 0.1];
+
+    const result = validateEditorLevelData(levelWith([parent, child]));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Expected unsupported inherited scale rejection");
+    expect(result.reason).toContain("rotated-child");
+    expect(result.reason).toMatch(/non-uniform inherited scale/i);
+  });
 });

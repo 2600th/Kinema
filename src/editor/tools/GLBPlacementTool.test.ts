@@ -68,4 +68,61 @@ describe("GLBPlacementTool import boundaries", () => {
     expect(onImported).not.toHaveBeenCalled();
     expect(revoke).toHaveBeenCalledWith("blob:kinema-test");
   });
+
+  it("drops a completed import when a newer editor lifecycle supersedes it", async () => {
+    let resolveLoad!: (value: { scene: THREE.Group; animations: never[] }) => void;
+    const load = vi.fn(
+      () =>
+        new Promise<{ scene: THREE.Group; animations: never[] }>((resolve) => {
+          resolveLoad = resolve;
+        }),
+    );
+    const put = vi.fn();
+    const onImported = vi.fn();
+    let lifecycleGeneration = 4;
+    installObjectURLMocks();
+    const tool = new GLBPlacementTool({
+      levelManager: { getAssetLoader: () => ({ load, put }) } as unknown as LevelManager,
+      onFinished: vi.fn(),
+      onImported,
+      getLifecycleGeneration: () => lifecycleGeneration,
+    });
+
+    const pending = tool.importFile(makeContext(), { name: "Stale.glb" } as File);
+    lifecycleGeneration++;
+    resolveLoad({ scene: new THREE.Group(), animations: [] });
+    await pending;
+
+    expect(put).not.toHaveBeenCalled();
+    expect(onImported).not.toHaveBeenCalled();
+    expect(tool.isPlacing()).toBe(false);
+  });
+
+  it("drops a completed import after explicit tool cancellation", async () => {
+    let resolveLoad!: (value: { scene: THREE.Group; animations: never[] }) => void;
+    const load = vi.fn(
+      () =>
+        new Promise<{ scene: THREE.Group; animations: never[] }>((resolve) => {
+          resolveLoad = resolve;
+        }),
+    );
+    const put = vi.fn();
+    const onImported = vi.fn();
+    installObjectURLMocks();
+    const tool = new GLBPlacementTool({
+      levelManager: { getAssetLoader: () => ({ load, put }) } as unknown as LevelManager,
+      onFinished: vi.fn(),
+      onImported,
+      getLifecycleGeneration: () => 9,
+    });
+
+    const pending = tool.importFile(makeContext(), { name: "Cancelled.glb" } as File);
+    tool.cancelPendingImport(makeContext());
+    resolveLoad({ scene: new THREE.Group(), animations: [] });
+    await pending;
+
+    expect(put).not.toHaveBeenCalled();
+    expect(onImported).not.toHaveBeenCalled();
+    expect(tool.isPlacing()).toBe(false);
+  });
 });

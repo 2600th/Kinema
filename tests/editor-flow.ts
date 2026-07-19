@@ -380,6 +380,198 @@ test("protects unsaved editor work and saves through Ctrl+S", async ({ page }) =
   await expect(page.locator(".ke-save-error")).toBeHidden();
 });
 
+test("rejects stale async editor lifecycle completions", async ({ page }) => {
+  test.setTimeout(300_000);
+  await page.addInitScript(() => {
+    localStorage.setItem("kinema.user-settings.v1", JSON.stringify({ graphicsProfile: "performance" }));
+  });
+  await page.goto("/?station=steps", { waitUntil: "domcontentloaded" });
+  await waitForKinema(page);
+  await waitForGrounded(page);
+  await openEditor(page);
+
+  // Hold the first FileReader completion after selection. The load lifecycle must
+  // already be exclusive while parsing, and a later external document must win.
+  await page.evaluate(() => {
+    const testWindow = window as typeof window & { __kinemaReleaseFileRead?: () => void };
+    const nativeReadAsText = FileReader.prototype.readAsText;
+    FileReader.prototype.readAsText = function (blob: Blob, encoding?: string): void {
+      testWindow.__kinemaReleaseFileRead = () => {
+        FileReader.prototype.readAsText = nativeReadAsText;
+        nativeReadAsText.call(this, blob, encoding);
+      };
+    };
+  });
+  const staleFileChooserPromise = page.waitForEvent("filechooser");
+  await page.getByTitle("Load", { exact: true }).click();
+  const staleFileChooser = await staleFileChooserPromise;
+  await staleFileChooser.setFiles({
+    name: "stale-file-reader-level.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(
+      JSON.stringify({
+        version: 2,
+        name: "stale-file-reader",
+        created: "2026-07-19T00:00:00.000Z",
+        modified: "2026-07-19T00:00:00.000Z",
+        spawnPoint: { position: [0, 2, 0] },
+        objects: [],
+      }),
+    ),
+  });
+  await expect(page.locator(".ke-toolbar")).toHaveAttribute("aria-busy", "true");
+  await page.evaluate(async () => {
+    await (
+      window.__KINEMA__ as typeof window.__KINEMA__ & {
+        loadExternalEditorLevel(name: string): Promise<void>;
+      }
+    ).loadExternalEditorLevel("external-after-file-read");
+  });
+  await page.evaluate(() => {
+    const testWindow = window as typeof window & { __kinemaReleaseFileRead?: () => void };
+    testWindow.__kinemaReleaseFileRead?.();
+  });
+  await openEditor(page);
+  await expect(page.locator(".ke-document-title")).toHaveText("external-after-file-read");
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorObjectCount())).toBe(0);
+
+  // Pause a real GLTFLoader request. A scene transition deactivates the tool and
+  // invalidates its captured editor generation before the request completes.
+  let releaseImport!: () => void;
+  let confirmImportRequest!: () => void;
+  const importRequested = new Promise<void>((resolve) => {
+    confirmImportRequest = resolve;
+  });
+  const importReleased = new Promise<void>((resolve) => {
+    releaseImport = resolve;
+  });
+  await page.route("**/assets/models/kin021-import-race.glb", async (route) => {
+    confirmImportRequest();
+    await importReleased;
+    await route.fulfill({
+      path: path.resolve(
+        "public/assets/models/Universal Animation Library 2[Standard]/Female Mannequin/Unreal-Godot/Mannequin_F.glb",
+      ),
+    });
+  });
+  await page.evaluate(() => {
+    const nativeCreateObjectURL = URL.createObjectURL.bind(URL);
+    let useControlledUrl = true;
+    URL.createObjectURL = (value: Blob | MediaSource): string => {
+      if (useControlledUrl) {
+        useControlledUrl = false;
+        return "/assets/models/kin021-import-race.glb";
+      }
+      return nativeCreateObjectURL(value);
+    };
+  });
+  const importChooserPromise = page.waitForEvent("filechooser");
+  await page.getByTitle("Import GLB").click();
+  const importChooser = await importChooserPromise;
+  await importChooser.setFiles(
+    path.resolve(
+      "public/assets/models/Universal Animation Library 2[Standard]/Female Mannequin/Unreal-Godot/Mannequin_F.glb",
+    ),
+  );
+  await importRequested;
+  await page.evaluate(async () => {
+    await (
+      window.__KINEMA__ as typeof window.__KINEMA__ & {
+        loadExternalEditorLevel(name: string): Promise<void>;
+      }
+    ).loadExternalEditorLevel("external-after-import");
+  });
+  releaseImport();
+  await openEditor(page);
+  await expect(page.locator(".ke-document-title")).toHaveText("external-after-import");
+  await expect(page.locator(".ke-session-import-notice")).toBeHidden();
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorObjectCount())).toBe(0);
+
+  // Load a document with a GLB, evict its cache, and pause the play-test restore
+  // on the same real request. The external level must supersede restore without
+  // dirty recovery, editor:loaded emission, or re-entering the stale document.
+  let restoreRequestCount = 0;
+  let releaseRestore!: () => void;
+  let confirmRestoreRequest!: () => void;
+  const restoreRequested = new Promise<void>((resolve) => {
+    confirmRestoreRequest = resolve;
+  });
+  const restoreReleased = new Promise<void>((resolve) => {
+    releaseRestore = resolve;
+  });
+  await page.route("**/assets/models/kin021-restore-race.glb", async (route) => {
+    restoreRequestCount++;
+    if (restoreRequestCount > 1) {
+      confirmRestoreRequest();
+      await restoreReleased;
+    }
+    await route.fulfill({
+      path: path.resolve(
+        "public/assets/models/Universal Animation Library 2[Standard]/Female Mannequin/Unreal-Godot/Mannequin_F.glb",
+      ),
+    });
+  });
+  const restoreLevelChooserPromise = page.waitForEvent("filechooser");
+  await page.getByTitle("Load", { exact: true }).click();
+  const restoreLevelChooser = await restoreLevelChooserPromise;
+  await restoreLevelChooser.setFiles({
+    name: "restore-race-level.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(
+      JSON.stringify({
+        version: 2,
+        name: "restore-race-source",
+        created: "2026-07-19T00:00:00.000Z",
+        modified: "2026-07-19T00:00:00.000Z",
+        spawnPoint: { position: [0, 2, 0] },
+        objects: [
+          {
+            id: "restore-glb",
+            name: "Restore GLB",
+            parentId: null,
+            source: { type: "glb", asset: "/assets/models/kin021-restore-race.glb" },
+            transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+            physics: { type: "static" },
+          },
+        ],
+      }),
+    ),
+  });
+  await expect(page.locator(".ke-document-title")).toHaveText("restore-race-source", { timeout: 60_000 });
+  await page.evaluate(() => window.__KINEMA__.startPlayTest());
+  await expect.poll(() => page.evaluate(() => window.__KINEMA__.isPlayTesting())).toBe(true);
+  await page.evaluate(() => {
+    (
+      window.__KINEMA__ as typeof window.__KINEMA__ & {
+        evictEditorAsset(assetPath: string): void;
+      }
+    ).evictEditorAsset("/assets/models/kin021-restore-race.glb");
+    const testWindow = window as typeof window & { __kinemaRestorePromise?: Promise<void> };
+    testWindow.__kinemaRestorePromise = window.__KINEMA__.stopPlayTest();
+  });
+  await restoreRequested;
+  await page.evaluate(async () => {
+    await (
+      window.__KINEMA__ as typeof window.__KINEMA__ & {
+        loadExternalEditorLevel(name: string): Promise<void>;
+      }
+    ).loadExternalEditorLevel("external-after-restore");
+  });
+  releaseRestore();
+  await page.evaluate(async () => {
+    const testWindow = window as typeof window & { __kinemaRestorePromise?: Promise<void> };
+    await testWindow.__kinemaRestorePromise;
+  });
+  await openEditor(page);
+  await expect(page.locator(".ke-document-title")).toHaveText("external-after-restore");
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorDocumentState())).toEqual({
+    name: "external-after-restore",
+    dirty: false,
+  });
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorObjectCount())).toBe(0);
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorUnloadProtectionState().registered)).toBe(false);
+});
+
 test("play-test cannot survive a main-menu transition and soft-brick the next run", async ({ page }, testInfo) => {
   test.setTimeout(300_000);
   await page.addInitScript(() => {

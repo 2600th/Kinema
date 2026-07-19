@@ -905,6 +905,21 @@ async function bootstrap(): Promise<void> {
       async stopPlayTest() {
         await editorManager?.stopPlayTest();
       },
+      async loadExternalEditorLevel(name: string) {
+        closeEditorForSceneTransition();
+        const now = new Date().toISOString();
+        await levelManager.loadFromJSON({
+          version: 2,
+          name,
+          created: now,
+          modified: now,
+          spawnPoint: { position: [0, 2, 0] },
+          objects: [],
+        });
+      },
+      evictEditorAsset(assetPath: string) {
+        levelManager.getAssetLoader().evict(assetPath);
+      },
       /** Wait for a condition on player state, polling at physics rate. */
       waitFor(predicate: string, timeoutMs = 5000): Promise<boolean> {
         const fn = new Function("p", `return ${predicate}`) as (p: any) => boolean;

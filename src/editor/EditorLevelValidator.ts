@@ -1,7 +1,9 @@
+import * as THREE from "three";
 import { getBrushById } from "./brushes/index";
 import type { LevelDataV2, SerializedObjectV2 } from "./LevelSerializer";
 
 const SUPPORTED_PRIMITIVES = new Set(["group", "cube", "sphere", "cylinder", "capsule", "plane"]);
+const MATRIX_EPSILON = 1e-6;
 
 export type EditorLevelValidationResult = { ok: true } | { ok: false; reason: string };
 
@@ -76,6 +78,38 @@ export function validateEditorLevelData(data: LevelDataV2): EditorLevelValidatio
       current = current.parentId ? objectsById.get(current.parentId) : undefined;
     }
     for (const id of path) resolved.add(id);
+  }
+
+  const worldMatrices = new Map<string, THREE.Matrix4>();
+  const resolveWorldMatrix = (entry: SerializedObjectV2): THREE.Matrix4 => {
+    const cached = worldMatrices.get(entry.id);
+    if (cached) return cached;
+    const local = new THREE.Matrix4().compose(
+      new THREE.Vector3(...entry.transform.position),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(...entry.transform.rotation)),
+      new THREE.Vector3(...entry.transform.scale),
+    );
+    const parent = entry.parentId ? objectsById.get(entry.parentId) : undefined;
+    const world = parent ? resolveWorldMatrix(parent).clone().multiply(local) : local;
+    worldMatrices.set(entry.id, world);
+    return world;
+  };
+
+  for (const entry of data.objects) {
+    const isTransformOnlyGroup = entry.source.type === "primitive" && entry.source.primitive === "group";
+    if (isTransformOnlyGroup || entry.visible === false) continue;
+    const world = resolveWorldMatrix(entry);
+    const position = new THREE.Vector3();
+    const rotation = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    world.decompose(position, rotation, scale);
+    const recomposed = new THREE.Matrix4().compose(position, rotation, scale);
+    if (world.elements.some((value, index) => Math.abs(value - recomposed.elements[index]) > MATRIX_EPSILON)) {
+      return {
+        ok: false,
+        reason: `Object "${entry.id}" has a rotated child transform under non-uniform inherited scale, which physics cannot represent exactly.`,
+      };
+    }
   }
 
   return { ok: true };

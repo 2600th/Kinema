@@ -149,5 +149,7 @@ export interface KinemaDebugApi {
   editorRedo(): void;
   startPlayTest(): void;
   stopPlayTest(): Promise<void>;
+  loadExternalEditorLevel(name: string): Promise<void>;
+  evictEditorAsset(assetPath: string): void;
   waitFor(predicate: string, timeoutMs?: number): Promise<boolean>;
 }
