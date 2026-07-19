@@ -56,6 +56,18 @@ export class UIManager implements Disposable {
 
     // Wire events
     this.unsubscribers.push(
+      this.eventBus.on("menu:opened", () => {
+        this.hud.setGameplayAccessibilitySuppressed(true);
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on("menu:closed", () => {
+        this.hud.setGameplayAccessibilitySuppressed(false);
+      }),
+    );
+
+    this.unsubscribers.push(
       this.eventBus.on("interaction:focusChanged", ({ id, label }) => {
         this.hud.setPrompt(id && label ? label : "");
         if (!id) {
@@ -234,6 +246,7 @@ export class UIManager implements Disposable {
     const dismiss = (): void => {
       document.removeEventListener("pointerdown", dismiss);
       hint.style.opacity = "0";
+      hint.setAttribute("aria-hidden", "true");
       setTimeout(() => {
         hint.remove();
       }, 500);
@@ -248,6 +261,9 @@ export class UIManager implements Disposable {
     const hint = this.orientationHintEl;
     hint.className = "kinema-orientation-hint";
     hint.textContent = "Rotate to landscape for the best view";
+    hint.setAttribute("role", "status");
+    hint.setAttribute("aria-live", "polite");
+    hint.setAttribute("aria-hidden", "true");
     Object.assign(hint.style, {
       position: "fixed",
       left: "50%",
@@ -284,6 +300,7 @@ export class UIManager implements Disposable {
     if (!this.orientationHintEl || typeof window === "undefined") return;
     const visible = shouldShowLandscapeHint(window.navigator, window);
     this.orientationHintEl.style.opacity = visible ? "1" : "0";
+    this.orientationHintEl.setAttribute("aria-hidden", String(!visible));
   }
 
   private updateHoldGlyph(): void {

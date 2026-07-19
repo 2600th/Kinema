@@ -800,6 +800,16 @@
   border-color: rgba(255, 80, 80, 0.45);
 }
 
+.menu-button:focus-visible,
+.menu-tab:focus-visible,
+.menu-button-small:focus-visible,
+.menu-button-danger:focus-visible,
+.menu-field input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--menu-accent-cyan);
+  outline-offset: 2px;
+  transition: none;
+}
+
 .menu-section-header {
   font-size: 11px;
   font-weight: 600;

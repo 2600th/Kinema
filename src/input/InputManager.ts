@@ -77,6 +77,7 @@ export class InputManager implements Disposable {
   private touchActive = false;
   private touchInputActive = false;
   private desiredTouchEnabled = false;
+  private menuOpen = false;
   private touchControlsLoad: Promise<void> | null = null;
   private rawPointerLockAvailable = true;
   private _lastInputSource: InputSource = "keyboard";
@@ -110,10 +111,14 @@ export class InputManager implements Disposable {
 
     this.unsubs.push(
       this.eventBus.on("menu:opened", () => {
+        this.menuOpen = true;
         this.inputSuppressed = true;
+        this.applyTouchControlsVisibility(false);
       }),
       this.eventBus.on("menu:closed", () => {
+        this.menuOpen = false;
         this.inputSuppressed = false;
+        this.applyTouchControlsVisibility(this.desiredTouchEnabled);
       }),
       this.eventBus.on("editor:opened", () => {
         this.editorActive = true;
@@ -290,7 +295,7 @@ export class InputManager implements Disposable {
       }
       return;
     }
-    this.applyTouchControlsVisibility(enabled);
+    this.applyTouchControlsVisibility(enabled && !this.menuOpen);
   }
 
   get isTouchActive(): boolean {
@@ -531,7 +536,7 @@ export class InputManager implements Disposable {
         const overlay = document.getElementById("ui-overlay");
         if (!overlay || this.touchControls) return;
         this.touchControls = new TouchControlsManager(overlay);
-        this.applyTouchControlsVisibility(this.desiredTouchEnabled);
+        this.applyTouchControlsVisibility(this.desiredTouchEnabled && !this.menuOpen);
       })
       .finally(() => {
         this.touchControlsLoad = null;

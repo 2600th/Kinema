@@ -27,17 +27,26 @@ export class HUD implements Disposable {
   private elementTimers = new Map<HTMLElement, ReturnType<typeof setTimeout>>();
   private healthHitTimer: ReturnType<typeof setTimeout> | null = null;
   private holdResetTimer: ReturnType<typeof setTimeout> | null = null;
+  private accessibilitySuppressed = false;
+  private gameHudVisible = false;
 
   constructor(parent: HTMLElement) {
     this.container = parent;
     this.prompt = document.createElement("div");
     this.prompt.id = "hud-prompt";
     this.prompt.className = "hud-glass-card hud-prompt";
+    this.prompt.setAttribute("aria-hidden", "true");
     parent.appendChild(this.prompt);
 
     this.holdWrap = document.createElement("div");
     this.holdWrap.id = "hud-hold";
     this.holdWrap.className = "hud-hold-track";
+    this.holdWrap.setAttribute("role", "progressbar");
+    this.holdWrap.setAttribute("aria-label", "Hold progress");
+    this.holdWrap.setAttribute("aria-valuemin", "0");
+    this.holdWrap.setAttribute("aria-valuemax", "100");
+    this.holdWrap.setAttribute("aria-valuenow", "0");
+    this.holdWrap.setAttribute("aria-hidden", "true");
     this.holdFill = document.createElement("div");
     this.holdFill.className = "hud-hold-fill";
     this.holdKey = document.createElement("div");
@@ -58,6 +67,10 @@ export class HUD implements Disposable {
     this.objective = document.createElement("div");
     this.objective.id = "hud-objective";
     this.objective.className = "hud-glass-card hud-objective-card";
+    this.objective.setAttribute("role", "status");
+    this.objective.setAttribute("aria-live", "polite");
+    this.objective.setAttribute("aria-atomic", "true");
+    this.objective.setAttribute("aria-hidden", "true");
     const objectiveEyebrow = document.createElement("div");
     objectiveEyebrow.className = "hud-card-eyebrow";
     objectiveEyebrow.textContent = "Objective";
@@ -70,14 +83,21 @@ export class HUD implements Disposable {
     this.statusLane = document.createElement("div");
     this.statusLane.id = "hud-status-lane";
     this.statusLane.className = "hud-status-lane";
+    this.statusLane.setAttribute("role", "status");
+    this.statusLane.setAttribute("aria-live", "polite");
+    this.statusLane.setAttribute("aria-atomic", "false");
+    this.statusLane.setAttribute("aria-relevant", "additions text");
+    this.statusLane.setAttribute("aria-hidden", "true");
     this.objectiveRegion.appendChild(this.statusLane);
 
     this.crosshair = document.createElement("div");
     this.crosshair.className = "hud-crosshair";
+    this.crosshair.setAttribute("aria-hidden", "true");
     parent.appendChild(this.crosshair);
 
     this.damageOverlay = document.createElement("div");
     this.damageOverlay.className = "hud-damage-overlay";
+    this.damageOverlay.setAttribute("aria-hidden", "true");
     parent.appendChild(this.damageOverlay);
 
     this.createCollectibleCounter();
@@ -95,6 +115,7 @@ export class HUD implements Disposable {
   setPrompt(text: string): void {
     this.prompt.textContent = text;
     this.prompt.classList.toggle("is-visible", text.length > 0);
+    this.setAccessibilityVisibility(this.prompt, text.length > 0);
   }
 
   setInteractionGlyph(glyph: string): void {
@@ -122,6 +143,8 @@ export class HUD implements Disposable {
     }
     const clamped = Math.max(0, Math.min(1, progress));
     this.holdWrap.classList.add("is-visible");
+    this.setAccessibilityVisibility(this.holdWrap, true);
+    this.holdWrap.setAttribute("aria-valuenow", String(Math.round(clamped * 100)));
     this.holdWrap.classList.toggle("is-complete", clamped >= 1);
     this.holdWrap.style.setProperty("--hold-progress", clamped.toFixed(3));
     this.holdWrap.style.setProperty("--hold-progress-angle", `${(clamped * 360).toFixed(1)}deg`);
@@ -129,8 +152,8 @@ export class HUD implements Disposable {
 
   setObjective(text: string): void {
     const changed = text !== this.previousObjectiveText;
-    this.objectiveText.textContent = text;
     this.showObjective();
+    this.objectiveText.textContent = text;
     if (changed) {
       this.triggerPulse(this.objective, "is-updated", 480);
       this.previousObjectiveText = text;
@@ -139,16 +162,19 @@ export class HUD implements Disposable {
 
   hideObjective(): void {
     this.objective.classList.remove("is-visible");
+    this.setAccessibilityVisibility(this.objective, false);
   }
 
   showObjective(): void {
     this.objective.classList.add("is-visible");
+    this.setAccessibilityVisibility(this.objective, true);
   }
 
   showStatus(text: string, durationMs = 1600): void {
     const status = document.createElement("div");
     status.className = "hud-glass-card hud-status-card";
     status.textContent = text;
+    status.setAttribute("aria-hidden", "false");
     this.statusLane.appendChild(status);
     void status.offsetHeight;
     status.classList.add("is-visible");
@@ -168,10 +194,16 @@ export class HUD implements Disposable {
   private createCollectibleCounter(): void {
     this.collectibleEl = document.createElement("div");
     this.collectibleEl.className = "hud-stat-chip hud-collectible-chip";
+    this.collectibleEl.setAttribute("role", "status");
+    this.collectibleEl.setAttribute("aria-live", "polite");
+    this.collectibleEl.setAttribute("aria-atomic", "true");
+    this.collectibleEl.setAttribute("aria-label", "Collectibles: 0");
+    this.collectibleEl.setAttribute("aria-hidden", "true");
 
     const icon = document.createElement("div");
     icon.className = "hud-stat-icon hud-collectible-icon";
     icon.textContent = "\u2726";
+    icon.setAttribute("aria-hidden", "true");
 
     const count = document.createElement("span");
     count.className = "collectible-count";
@@ -185,11 +217,17 @@ export class HUD implements Disposable {
   private createHealthHearts(): void {
     this.healthEl = document.createElement("div");
     this.healthEl.className = "hud-stat-chip hud-health-chip";
+    this.healthEl.setAttribute("role", "status");
+    this.healthEl.setAttribute("aria-live", "polite");
+    this.healthEl.setAttribute("aria-atomic", "true");
+    this.healthEl.setAttribute("aria-label", "Health: 3 of 3 hearts");
+    this.healthEl.setAttribute("aria-hidden", "true");
 
     for (let i = 0; i < 3; i++) {
       const heart = document.createElement("span");
       heart.className = "hud-heart is-filled";
       heart.textContent = "\u2764";
+      heart.setAttribute("aria-hidden", "true");
       this.hearts.push(heart);
       this.healthEl.appendChild(heart);
     }
@@ -209,10 +247,11 @@ export class HUD implements Disposable {
         }, 200);
       }
     }
+    this.collectibleEl.setAttribute("aria-label", `Collectibles: ${count}`);
     this.previousCollectibleCount = count;
   }
 
-  updateHealth(current: number, _max: number): void {
+  updateHealth(current: number, max: number): void {
     if (this.previousHealth !== null && current < this.previousHealth) {
       const lostCount = this.previousHealth - current;
       this.healthEl.classList.remove("is-hit");
@@ -266,6 +305,7 @@ export class HUD implements Disposable {
       heart.classList.toggle("is-filled", filled);
       heart.classList.toggle("is-empty", !filled);
     });
+    this.healthEl.setAttribute("aria-label", `Health: ${current} of ${max} hearts`);
     this.previousHealth = current;
   }
 
@@ -277,7 +317,9 @@ export class HUD implements Disposable {
   flashObjectiveComplete(text: string): void {
     this.triggerPulse(this.objective, "is-complete", 620);
     this.spawnFloatingDelta(this.objective, "Complete", "hud-floating-delta objective");
-    this.objectiveText.textContent = text;
+    if (this.objectiveText.textContent !== text) {
+      this.objectiveText.textContent = text;
+    }
   }
 
   flashDamage(reason: "spike" | "fall"): void {
@@ -286,13 +328,43 @@ export class HUD implements Disposable {
   }
 
   showGameHUD(): void {
+    this.gameHudVisible = true;
     this.collectibleEl.classList.add("is-visible");
     this.healthEl.classList.add("is-visible");
+    this.setAccessibilityVisibility(this.collectibleEl, true);
+    this.setAccessibilityVisibility(this.healthEl, true);
+    this.setAccessibilityVisibility(this.statusLane, true);
   }
 
   hideGameHUD(): void {
+    this.gameHudVisible = false;
+    this.hidePrompt();
+    this.resetHoldProgressVisuals();
+    this.hideObjective();
     this.collectibleEl.classList.remove("is-visible");
     this.healthEl.classList.remove("is-visible");
+    this.setAccessibilityVisibility(this.collectibleEl, false);
+    this.setAccessibilityVisibility(this.healthEl, false);
+    this.setAccessibilityVisibility(this.statusLane, false);
+    for (const status of Array.from(this.statusLane.children)) {
+      this.clearStatus(status as HTMLDivElement, true);
+    }
+  }
+
+  setGameplayAccessibilitySuppressed(suppressed: boolean): void {
+    this.accessibilitySuppressed = suppressed;
+    this.setAccessibilityVisibility(this.prompt, this.prompt.classList.contains("is-visible"));
+    this.setAccessibilityVisibility(this.holdWrap, this.holdWrap.classList.contains("is-visible"));
+    this.setAccessibilityVisibility(this.objective, this.objective.classList.contains("is-visible"));
+    this.setAccessibilityVisibility(
+      this.collectibleEl,
+      this.gameHudVisible && this.collectibleEl.classList.contains("is-visible"),
+    );
+    this.setAccessibilityVisibility(
+      this.healthEl,
+      this.gameHudVisible && this.healthEl.classList.contains("is-visible"),
+    );
+    this.setAccessibilityVisibility(this.statusLane, this.gameHudVisible);
   }
 
   dispose(): void {
@@ -339,11 +411,14 @@ export class HUD implements Disposable {
     }
 
     status.classList.remove("is-visible");
+    status.setAttribute("aria-hidden", "true");
     window.setTimeout(() => status.remove(), 180);
   }
 
   private resetHoldProgressVisuals(): void {
     this.holdWrap.classList.remove("is-visible", "is-complete");
+    this.setAccessibilityVisibility(this.holdWrap, false);
+    this.holdWrap.setAttribute("aria-valuenow", "0");
     this.holdWrap.style.setProperty("--hold-progress", "0");
     this.holdWrap.style.setProperty("--hold-progress-angle", "0deg");
   }
@@ -363,10 +438,15 @@ export class HUD implements Disposable {
     this.elementTimers.set(element, timer);
   }
 
+  private setAccessibilityVisibility(element: HTMLElement, visible: boolean): void {
+    element.setAttribute("aria-hidden", String(this.accessibilitySuppressed || !visible));
+  }
+
   private spawnFloatingDelta(parent: HTMLElement, text: string, className: string): void {
     const delta = document.createElement("div");
     delta.className = className;
     delta.textContent = text;
+    delta.setAttribute("aria-hidden", "true");
     parent.appendChild(delta);
     void delta.offsetWidth;
     delta.classList.add("is-visible");

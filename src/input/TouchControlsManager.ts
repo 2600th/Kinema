@@ -44,11 +44,15 @@ export class TouchControlsManager implements Disposable {
     // Create a fixed overlay container for all touch controls
     this.root = document.createElement("div");
     this.root.className = "touch-controls-container";
+    this.root.setAttribute("aria-hidden", "true");
+    this.root.inert = true;
     container.appendChild(this.root);
 
     // -- Left side: movement joystick --
     const leftZone = document.createElement("div");
     leftZone.className = "touch-zone touch-zone--left";
+    leftZone.setAttribute("role", "group");
+    leftZone.setAttribute("aria-label", "Movement joystick");
     this.root.appendChild(leftZone);
 
     this.moveJoystick = new VirtualJoystick(leftZone, {
@@ -65,6 +69,7 @@ export class TouchControlsManager implements Disposable {
     this.sprintButton = new TouchButton(sprintZone, {
       icon: "\u21e7", // ⇧
       size: 48,
+      ariaLabel: "Sprint",
       className: "touch-btn--sprint",
       hold: true,
     });
@@ -72,6 +77,8 @@ export class TouchControlsManager implements Disposable {
     // -- Right side: look joystick --
     const rightZone = document.createElement("div");
     rightZone.className = "touch-zone touch-zone--right";
+    rightZone.setAttribute("role", "group");
+    rightZone.setAttribute("aria-label", "Camera joystick");
     this.root.appendChild(rightZone);
 
     this.lookJoystick = new VirtualJoystick(rightZone, {
@@ -88,18 +95,21 @@ export class TouchControlsManager implements Disposable {
     this.jumpButton = new TouchButton(btnZone, {
       icon: "\u2191", // ↑
       size: 64,
+      ariaLabel: "Jump",
       className: "touch-btn--jump",
     });
 
     this.interactButton = new TouchButton(btnZone, {
       icon: "\u270B", // ✋
       size: 48,
+      ariaLabel: "Interact",
       className: "touch-btn--interact",
     });
 
     this.crouchButton = new TouchButton(btnZone, {
       icon: "\u2193", // ↓
       size: 48,
+      ariaLabel: "Crouch",
       className: "touch-btn--crouch",
     });
   }
@@ -116,6 +126,7 @@ export class TouchControlsManager implements Disposable {
     const jumpHeld = jump.held || jump.pressed;
     const interactHeld = interact.held || interact.pressed;
     const crouchHeld = crouch.held || crouch.pressed;
+    const sprintHeld = sprint.held || sprint.pressed;
 
     const jumpPressed = jumpHeld && !this.prevJump;
     const interactPressed = interactHeld && !this.prevInteract;
@@ -125,7 +136,7 @@ export class TouchControlsManager implements Disposable {
     this.prevInteract = interactHeld;
     this.prevCrouch = crouchHeld;
 
-    const active = move.active || look.active || jumpHeld || interactHeld || crouchHeld || sprint.held;
+    const active = move.active || look.active || jumpHeld || interactHeld || crouchHeld || sprintHeld;
 
     return {
       // Invert Y: joystick down (positive y) = backward (negative moveY)
@@ -140,7 +151,7 @@ export class TouchControlsManager implements Disposable {
       interactPressed,
       crouch: crouchHeld,
       crouchPressed,
-      sprint: sprint.held,
+      sprint: sprintHeld,
       active,
     };
   }
@@ -148,11 +159,15 @@ export class TouchControlsManager implements Disposable {
   /** Show all touch controls. */
   show(): void {
     this.root.style.display = "";
+    this.root.setAttribute("aria-hidden", "false");
+    this.root.inert = false;
   }
 
   /** Hide all touch controls. */
   hide(): void {
     this.root.style.display = "none";
+    this.root.setAttribute("aria-hidden", "true");
+    this.root.inert = true;
   }
 
   get visible(): boolean {

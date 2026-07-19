@@ -21,9 +21,19 @@ interface MenuScreen {
   dispose(): void;
 }
 
+const FOCUSABLE_SELECTOR = [
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  'a[href]',
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
 export class MenuManager {
   private overlay: HTMLDivElement;
   private stack: MenuScreen[] = [];
+  private focusOrigins: (HTMLElement | null)[] = [];
   private resumeOnClose = false;
   private backgroundTimer: number | null = null;
   private lastBgRender = 0;
@@ -35,6 +45,7 @@ export class MenuManager {
   private levelSelectMenu: LevelSelectMenu;
   private helpMenu: HelpMenu;
   private _onOverlayClick = this.handleOverlayClick.bind(this);
+  private _onOverlayKeyDown = this.handleOverlayKeyDown.bind(this);
 
   constructor(
     private eventBus: EventBus,
@@ -52,6 +63,7 @@ export class MenuManager {
     this.overlay = document.createElement("div");
     this.overlay.className = "menu-overlay";
     this.overlay.addEventListener("click", this._onOverlayClick);
+    document.addEventListener("keydown", this._onOverlayKeyDown);
     document.body.appendChild(this.overlay);
     this.addCosmicBackground();
 
@@ -115,7 +127,7 @@ export class MenuManager {
   showMainMenu(): void {
     this.resumeOnClose = false;
     while (this.stack.length) {
-      this.pop();
+      this.pop(false);
     }
     this.push(this.mainMenu);
     this.resumeOnClose = false;
@@ -134,11 +146,15 @@ export class MenuManager {
     this.levelSelectMenu.dispose();
     this.helpMenu.dispose();
     this.overlay.removeEventListener("click", this._onOverlayClick);
+    document.removeEventListener("keydown", this._onOverlayKeyDown);
     this.overlay.remove();
     this.stopBackgroundLoop();
   }
 
   private push(screen: MenuScreen): void {
+    const activeElement = document.activeElement;
+    const invoker = activeElement instanceof HTMLElement ? activeElement : null;
+    this.prepareDialog(screen);
     if (!this.overlay.contains(screen.root)) {
       this.overlay.appendChild(screen.root);
     }
@@ -152,21 +168,40 @@ export class MenuManager {
       }
       exitPointerLockIfSupported();
     }
-    if (this.stack.length > 0) {
-      this.stack[this.stack.length - 1].hide();
-    }
+    const previous = this.stack[this.stack.length - 1];
     this.stack.push(screen);
+    this.focusOrigins.push(invoker);
     screen.show();
+    this.setDialogActive(screen, true);
+    this.focusFirstControl(screen);
+    if (previous) {
+      previous.hide();
+      this.setDialogActive(previous, false);
+    }
     this.eventBus.emit("menu:opened", { screen: screen.id });
   }
 
-  private pop(): void {
-    if (!this.stack.length) return;
-    const screen = this.stack.pop()!;
-    screen.hide();
+  private pop(restoreFocus = true): void {
+    const screen = this.stack.pop();
+    if (!screen) return;
+    const invoker = this.focusOrigins.pop() ?? null;
+    const previous = this.stack[this.stack.length - 1];
     if (this.stack.length > 0) {
-      this.stack[this.stack.length - 1].show();
+      previous.show();
+      this.setDialogActive(previous, true);
+      if (restoreFocus) {
+        this.restoreFocus(invoker);
+      } else {
+        this.releaseFocusFrom(screen);
+      }
+    } else if (restoreFocus) {
+      this.restoreFocus(invoker);
+      this.releaseFocusFrom(screen);
+    } else {
+      this.releaseFocusFrom(screen);
     }
+    screen.hide();
+    this.setDialogActive(screen, false);
     if (this.stack.length === 0) {
       this.overlay.classList.remove("active");
       this.eventBus.emit("menu:closed", undefined);
@@ -183,7 +218,7 @@ export class MenuManager {
     // Close menus BEFORE starting the heavy level load so the loading screen
     // (appended to document.body) is clearly visible, not hidden behind the menu.
     while (this.stack.length) {
-      this.pop();
+      this.pop(false);
     }
     this.resumeOnClose = false;
     await this.onPlay();
@@ -195,7 +230,7 @@ export class MenuManager {
 
   private async handlePlaySavedLevel(key: string): Promise<void> {
     while (this.stack.length) {
-      this.pop();
+      this.pop(false);
     }
     this.resumeOnClose = false;
     await this.onPlayLevel(key);
@@ -210,7 +245,7 @@ export class MenuManager {
       await this.onCreateLevel();
     }
     while (this.stack.length) {
-      this.pop();
+      this.pop(false);
     }
     this.resumeOnClose = false;
     if (!this.gameLoop.isRunning()) {
@@ -287,6 +322,95 @@ export class MenuManager {
 
     event.preventDefault();
     this.pop();
+  }
+
+  private handleOverlayKeyDown(event: KeyboardEvent): void {
+    if (this.stack.length === 0) return;
+
+    if (event.key === "Escape") {
+      const top = this.stack[this.stack.length - 1];
+      if (top.id === "main") return;
+      event.preventDefault();
+      event.stopPropagation();
+      this.pop();
+      return;
+    }
+
+    if (event.key !== "Tab") return;
+
+    const top = this.stack[this.stack.length - 1];
+    const focusable = this.getFocusableControls(top.root);
+    if (focusable.length === 0) {
+      event.preventDefault();
+      top.root.focus({ preventScroll: true });
+      return;
+    }
+
+    const activeElement = document.activeElement;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && (activeElement === first || !top.root.contains(activeElement))) {
+      event.preventDefault();
+      last.focus({ preventScroll: true });
+    } else if (!event.shiftKey && (activeElement === last || !top.root.contains(activeElement))) {
+      event.preventDefault();
+      first.focus({ preventScroll: true });
+    }
+  }
+
+  private prepareDialog(screen: MenuScreen): void {
+    const title = screen.root.querySelector<HTMLElement>(".menu-title");
+    if (!title) {
+      throw new Error(`[MenuManager] Menu screen '${screen.id}' is missing a .menu-title.`);
+    }
+    title.id ||= `menu-${screen.id}-title`;
+    screen.root.setAttribute("role", "dialog");
+    screen.root.setAttribute("aria-modal", "true");
+    screen.root.setAttribute("aria-labelledby", title.id);
+    screen.root.tabIndex = -1;
+    this.setDialogActive(screen, false);
+  }
+
+  private setDialogActive(screen: MenuScreen, active: boolean): void {
+    screen.root.setAttribute("aria-hidden", String(!active));
+    screen.root.inert = !active;
+  }
+
+  private focusFirstControl(screen: MenuScreen): void {
+    const first = this.getFocusableControls(screen.root)[0] ?? screen.root;
+    first.focus({ preventScroll: true });
+  }
+
+  private restoreFocus(invoker: HTMLElement | null): void {
+    if (invoker?.isConnected) {
+      if (!invoker.closest('[aria-hidden="true"]')) {
+        invoker.focus({ preventScroll: true });
+        if (document.activeElement === invoker) return;
+      } else {
+        queueMicrotask(() => {
+          if (invoker.isConnected && !invoker.closest('[aria-hidden="true"]')) {
+            invoker.focus({ preventScroll: true });
+          }
+        });
+      }
+    }
+    const top = this.stack[this.stack.length - 1];
+    if (top) this.focusFirstControl(top);
+  }
+
+  private releaseFocusFrom(screen: MenuScreen): void {
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement && screen.root.contains(activeElement)) {
+      activeElement.blur();
+    }
+  }
+
+  private getFocusableControls(root: HTMLElement): HTMLElement[] {
+    return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter((element) => {
+      if (element.getAttribute("aria-hidden") === "true") return false;
+      const style = window.getComputedStyle(element);
+      return style.display !== "none" && style.visibility !== "hidden" && element.getClientRects().length > 0;
+    });
   }
 
   private addCosmicBackground(): void {

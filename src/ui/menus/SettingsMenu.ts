@@ -22,6 +22,7 @@ export class SettingsMenu {
   private controlsSection: HTMLDivElement;
   private graphicsSection: HTMLDivElement;
   private audioSection: HTMLDivElement;
+  private controlId = 0;
 
   constructor(private options: SettingsMenuOptions) {
     this.root = document.createElement("div");
@@ -34,6 +35,8 @@ export class SettingsMenu {
 
     const tabs = document.createElement("div");
     tabs.className = "menu-tabs";
+    tabs.setAttribute("role", "group");
+    tabs.setAttribute("aria-label", "Settings sections");
     this.root.appendChild(tabs);
 
     const controlsTab = this.createTab("Controls", () => this.showSection("controls"));
@@ -282,6 +285,7 @@ export class SettingsMenu {
     const btn = document.createElement("button");
     btn.className = "menu-tab";
     btn.textContent = label;
+    btn.setAttribute("aria-pressed", "false");
     btn.addEventListener("click", () => {
       this.setActiveTab(btn);
       onClick();
@@ -292,7 +296,9 @@ export class SettingsMenu {
   private setActiveTab(tab: HTMLButtonElement): void {
     const tabs = Array.from(this.root.querySelectorAll(".menu-tab"));
     for (const t of tabs) {
-      t.classList.toggle("active", t === tab);
+      const active = t === tab;
+      t.classList.toggle("active", active);
+      t.setAttribute("aria-pressed", String(active));
     }
   }
 
@@ -323,6 +329,9 @@ export class SettingsMenu {
     const decimals = step < 0.01 ? (step < 0.001 ? 4 : 3) : 2;
     fieldLabel.textContent = `${label}: ${value.toFixed(decimals)}`;
     const input = document.createElement("input");
+    const inputId = `settings-control-${++this.controlId}`;
+    fieldLabel.htmlFor = inputId;
+    input.id = inputId;
     input.type = "range";
     input.min = String(min);
     input.max = String(max);
@@ -376,6 +385,9 @@ export class SettingsMenu {
     const fieldLabel = document.createElement("label");
     fieldLabel.textContent = label;
     const select = document.createElement("select");
+    const selectId = `settings-control-${++this.controlId}`;
+    fieldLabel.htmlFor = selectId;
+    select.id = selectId;
     select.className = "menu-select";
     options.forEach((opt) => {
       const option = document.createElement("option");

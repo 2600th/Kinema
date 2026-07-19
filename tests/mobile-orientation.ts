@@ -41,6 +41,7 @@ test("mobile viewport updates when rotating to landscape", async ({ page }) => {
         return {
           appWidth: styles.getPropertyValue("--app-width").trim(),
           appHeight: styles.getPropertyValue("--app-height").trim(),
+          hintAriaHidden: hint?.getAttribute("aria-hidden") ?? null,
           hintOpacity: hint ? getComputedStyle(hint).opacity : null,
           canvasWidth: rect ? Math.round(rect.width) : 0,
           canvasHeight: rect ? Math.round(rect.height) : 0,
@@ -50,6 +51,7 @@ test("mobile viewport updates when rotating to landscape", async ({ page }) => {
     .toEqual({
       appWidth: "390px",
       appHeight: "844px",
+      hintAriaHidden: "false",
       hintOpacity: "1",
       canvasWidth: 390,
       canvasHeight: 844,
@@ -69,6 +71,7 @@ test("mobile viewport updates when rotating to landscape", async ({ page }) => {
         return {
           appWidth: styles.getPropertyValue("--app-width").trim(),
           appHeight: styles.getPropertyValue("--app-height").trim(),
+          hintAriaHidden: hint?.getAttribute("aria-hidden") ?? null,
           hintOpacity: hint ? getComputedStyle(hint).opacity : null,
           canvasWidth: rect ? Math.round(rect.width) : 0,
           canvasHeight: rect ? Math.round(rect.height) : 0,
@@ -78,6 +81,7 @@ test("mobile viewport updates when rotating to landscape", async ({ page }) => {
     .toEqual({
       appWidth: "844px",
       appHeight: "390px",
+      hintAriaHidden: "true",
       hintOpacity: "0",
       canvasWidth: 844,
       canvasHeight: 390,

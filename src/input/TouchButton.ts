@@ -2,6 +2,7 @@ import type { Disposable } from "@core/types";
 
 export interface TouchButtonOptions {
   icon: string; // unicode or text label
+  ariaLabel: string;
   size?: number; // diameter in px (default 56)
   className?: string; // extra CSS class
   hold?: boolean; // hint for manager — button supports hold behavior
@@ -26,6 +27,7 @@ export class TouchButton implements Disposable {
 
   private _onTouchStart = this.handleTouchStart.bind(this);
   private _onTouchEnd = this.handleTouchEnd.bind(this);
+  private _onClick = this.handleClick.bind(this);
 
   constructor(
     private container: HTMLElement,
@@ -40,6 +42,7 @@ export class TouchButton implements Disposable {
     this.button.style.touchAction = "none";
     this.button.style.pointerEvents = "auto";
     this.button.setAttribute("type", "button");
+    this.button.setAttribute("aria-label", options.ariaLabel);
 
     const classes = ["touch-btn"];
     if (options.className) classes.push(options.className);
@@ -48,6 +51,7 @@ export class TouchButton implements Disposable {
     this.container.appendChild(this.button);
 
     this.button.addEventListener("touchstart", this._onTouchStart, { passive: false });
+    this.button.addEventListener("click", this._onClick);
     window.addEventListener("touchend", this._onTouchEnd);
     window.addEventListener("touchcancel", this._onTouchEnd);
   }
@@ -73,6 +77,7 @@ export class TouchButton implements Disposable {
 
   dispose(): void {
     this.button.removeEventListener("touchstart", this._onTouchStart);
+    this.button.removeEventListener("click", this._onClick);
     window.removeEventListener("touchend", this._onTouchEnd);
     window.removeEventListener("touchcancel", this._onTouchEnd);
     this.button.remove();
@@ -89,6 +94,14 @@ export class TouchButton implements Disposable {
     this._pressed = true;
     this._held = true;
     this.button.classList.add("touch-btn--active");
+  }
+
+  private handleClick(event: MouseEvent): void {
+    // Keyboard, programmatic, and assistive-technology activation uses a
+    // non-pointer click with detail 0. Ignore pointer/touch clicks so a tap does
+    // not create a second edge after touchstart.
+    if (event.detail !== 0) return;
+    this._pressed = true;
   }
 
   private handleTouchEnd(e: TouchEvent): void {

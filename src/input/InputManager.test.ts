@@ -8,7 +8,7 @@ type TestCanvas = FakeTarget & { requestPointerLock?: ReturnType<typeof vi.fn> }
 type TestDocument = FakeTarget & { pointerLockElement: unknown };
 type InputManagerInternals = {
   touchActive: boolean;
-  touchControls: Pick<TouchControlsManager, "dispose" | "getInputState"> | null;
+  touchControls: Pick<TouchControlsManager, "dispose" | "getInputState" | "hide" | "show"> | null;
 };
 
 function gamepadSnapshot(axes: number[], pressedButtons: number[] = []): Gamepad {
@@ -268,6 +268,8 @@ describe("InputManager", () => {
     const manager = new InputManager(new EventBus(), asCanvas(canvasTarget));
     asManagerInternals(manager).touchControls = {
       dispose: vi.fn(),
+      hide: vi.fn(),
+      show: vi.fn(),
       getInputState: vi.fn(() => ({
         moveX: 0.6,
         moveY: 0.8,
@@ -300,6 +302,32 @@ describe("InputManager", () => {
     expect(state.sprint).toBe(true);
     expect(look.lookDX).toBe(5);
     expect(look.lookDY).toBe(-2);
+    manager.dispose();
+  });
+
+  it("hides touch controls behind menus and restores the requested state on close", () => {
+    const eventBus = new EventBus();
+    const manager = new InputManager(eventBus, asCanvas(canvasTarget));
+    const show = vi.fn();
+    const hide = vi.fn();
+    asManagerInternals(manager).touchControls = {
+      dispose: vi.fn(),
+      getInputState: vi.fn(),
+      hide,
+      show,
+    };
+
+    manager.setTouchControlsEnabled(true);
+    show.mockClear();
+    eventBus.emit("menu:opened", { screen: "pause" });
+
+    expect(hide).toHaveBeenCalledTimes(1);
+    expect(manager.isTouchActive).toBe(false);
+
+    eventBus.emit("menu:closed", undefined);
+
+    expect(show).toHaveBeenCalledTimes(1);
+    expect(manager.isTouchActive).toBe(true);
     manager.dispose();
   });
 

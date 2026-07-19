@@ -25,16 +25,60 @@ test("mobile touch controls stay active without pointer lock and can trigger a j
 
   await expect(page.locator(".touch-zone--left")).toBeVisible();
   await expect(page.locator(".touch-zone--right")).toBeVisible();
-  await expect(page.locator(".touch-btn--jump")).toBeVisible();
+  await expect(page.getByRole("group", { name: "Movement joystick" })).toBeVisible();
+  await expect(page.getByRole("group", { name: "Camera joystick" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Jump" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sprint" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Interact" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Crouch" })).toBeVisible();
+  await expect(page.locator(".touch-controls-container")).toHaveAttribute("aria-hidden", "false");
+  await expect(page.locator(".hud-collectible-chip")).toHaveAttribute("aria-hidden", "false");
+  await expect(page.locator(".hud-health-chip")).toHaveAttribute("aria-hidden", "false");
+  await expect(page.locator("#hud-status-lane")).toHaveAttribute("aria-hidden", "false");
+
+  await page.keyboard.press("Tab");
+  const sprintButton = page.getByRole("button", { name: "Sprint" });
+  await expect(sprintButton).toBeFocused();
+  await expect
+    .poll(() =>
+      sprintButton.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return `${style.outlineWidth} ${style.outlineStyle} ${style.outlineColor} / ${style.outlineOffset}`;
+      }),
+    )
+    .toBe("2px solid rgb(98, 230, 255) / 2px");
+
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Paused" })).toBeVisible();
+  await expect(page.locator(".touch-controls-container")).toHaveAttribute("aria-hidden", "true");
+  await expect(page.locator(".touch-controls-container")).toHaveAttribute("inert", "");
+  await expect(page.locator(".hud-collectible-chip")).toHaveAttribute("aria-hidden", "true");
+  await expect(page.locator(".hud-health-chip")).toHaveAttribute("aria-hidden", "true");
+  await expect(page.locator("#hud-status-lane")).toHaveAttribute("aria-hidden", "true");
+
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".touch-controls-container")).toHaveAttribute("aria-hidden", "false");
+  await expect(page.locator(".touch-controls-container")).not.toHaveAttribute("inert", "");
+  await expect(page.locator(".hud-collectible-chip")).toHaveAttribute("aria-hidden", "false");
+  await expect(page.locator(".hud-health-chip")).toHaveAttribute("aria-hidden", "false");
+  await expect(page.locator("#hud-status-lane")).toHaveAttribute("aria-hidden", "false");
 
   await expect.poll(async () => page.evaluate(() => document.pointerLockElement === null)).toBe(true);
 
-  await page.locator(".touch-btn--jump").tap();
+  const jumpButton = page.getByRole("button", { name: "Jump" });
+  await jumpButton.tap();
 
   const jumped = await page.evaluate(() =>
     window.__KINEMA__.waitFor("p.vy > 0.5 && p.state !== 'idle'", 4_000),
   );
   expect(jumped).toBe(true);
+  await waitForGrounded(page);
+
+  await jumpButton.evaluate((button) => (button as HTMLButtonElement).click());
+  const semanticJumped = await page.evaluate(() =>
+    window.__KINEMA__.waitFor("p.vy > 0.5 && p.state !== 'idle'", 4_000),
+  );
+  expect(semanticJumped).toBe(true);
   await expect.poll(async () => page.evaluate(() => document.pointerLockElement === null)).toBe(true);
   expect(runtimeErrors).toEqual([]);
 });

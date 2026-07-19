@@ -62,6 +62,7 @@ export class VirtualJoystick implements Disposable {
     this.canvas.style.touchAction = "none";
     this.canvas.style.pointerEvents = "none";
     this.canvas.classList.add("touch-joystick");
+    this.canvas.setAttribute("aria-hidden", "true");
 
     const ctx = this.canvas.getContext("2d");
     if (!ctx) throw new Error("[VirtualJoystick] Failed to get 2d context");

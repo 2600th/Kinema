@@ -21,6 +21,7 @@ vi.mock("./components/HUD", () => ({
     flashDamage = vi.fn();
     showGameHUD = vi.fn();
     hideGameHUD = vi.fn();
+    setGameplayAccessibilitySuppressed = vi.fn();
     dispose = hudDispose;
     constructor(_parent: HTMLElement) {
       hudInstances.push(this);
@@ -233,6 +234,23 @@ describe("UIManager", () => {
     listeners.get("health:changed")?.({ current: 2, max: 3 });
 
     expect(hud.updateHealth).toHaveBeenCalledWith(2, 3);
+    ui.dispose();
+  });
+
+  it("suppresses gameplay accessibility while a menu is open", () => {
+    const listeners = new Map<string, (payload: unknown) => void>();
+    const on = vi.fn((event: string, handler: (payload: unknown) => void) => {
+      listeners.set(event, handler);
+      return () => {};
+    });
+    const ui = new UIManager({ on } as never);
+    const hud = hudInstances[0];
+
+    listeners.get("menu:opened")?.({ screen: "pause" });
+    listeners.get("menu:closed")?.(undefined);
+
+    expect(hud.setGameplayAccessibilitySuppressed).toHaveBeenNthCalledWith(1, true);
+    expect(hud.setGameplayAccessibilitySuppressed).toHaveBeenNthCalledWith(2, false);
     ui.dispose();
   });
 });
