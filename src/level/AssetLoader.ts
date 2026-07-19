@@ -6,6 +6,13 @@ import { KTX2Loader } from "three/addons/loaders/KTX2Loader.js";
 import { clone as skeletonClone } from "three/addons/utils/SkeletonUtils.js";
 import type { WebGPURenderer } from "three/webgpu";
 
+type Drawable = THREE.Mesh | THREE.Points | THREE.Line;
+
+function isDrawable(object: THREE.Object3D): object is Drawable {
+  const candidate = object as THREE.Object3D & { isMesh?: boolean; isPoints?: boolean; isLine?: boolean };
+  return candidate.isMesh === true || candidate.isPoints === true || candidate.isLine === true;
+}
+
 /**
  * GLTF/GLB loader with caching.
  * Configures DRACO + KTX2 decoders so compressed assets work out of the box.
@@ -82,13 +89,31 @@ export class AssetLoader {
   }
 
   disposeObject(root: THREE.Object3D): void {
+    const geometries = new Set<THREE.BufferGeometry>();
+    const disposedMaterials = new Set<THREE.Material>();
+    const textures = new Set<THREE.Texture>();
+    const skeletons = new Set<THREE.Skeleton>();
     root.traverse((child) => {
-      if (!(child instanceof THREE.Mesh)) return;
-      child.geometry.dispose();
-      const materials = Array.isArray(child.material) ? child.material : [child.material];
-      for (const material of materials) {
-        this.disposeMaterialTextures(material);
-        material.dispose();
+      if (!isDrawable(child)) return;
+      if (!geometries.has(child.geometry)) {
+        geometries.add(child.geometry);
+        child.geometry.dispose();
+      }
+      const drawableMaterials = Array.isArray(child.material) ? child.material : [child.material];
+      for (const material of drawableMaterials) {
+        if (material && !disposedMaterials.has(material)) {
+          disposedMaterials.add(material);
+          this.disposeMaterialTextures(material, textures);
+          material.dispose();
+        }
+      }
+      if (child instanceof THREE.SkinnedMesh && !skeletons.has(child.skeleton)) {
+        skeletons.add(child.skeleton);
+        if (child.skeleton.boneTexture) {
+          this.disposeTextureOnce(child.skeleton.boneTexture, textures);
+          child.skeleton.boneTexture = null;
+        }
+        child.skeleton.dispose();
       }
     });
   }
@@ -133,19 +158,16 @@ export class AssetLoader {
     this.ktx2Loader.detectSupport(renderer);
   }
 
-  private disposeMaterialTextures(material: THREE.Material): void {
-    const mat = material as THREE.MeshStandardMaterial;
-    mat.map?.dispose();
-    mat.normalMap?.dispose();
-    mat.roughnessMap?.dispose();
-    mat.metalnessMap?.dispose();
-    mat.aoMap?.dispose();
-    mat.emissiveMap?.dispose();
-    mat.displacementMap?.dispose();
-    mat.alphaMap?.dispose();
-    mat.envMap?.dispose();
-    mat.lightMap?.dispose();
-    mat.bumpMap?.dispose();
+  private disposeTextureOnce(texture: THREE.Texture, disposed: Set<THREE.Texture>): void {
+    if (disposed.has(texture)) return;
+    disposed.add(texture);
+    texture.dispose();
+  }
+
+  private disposeMaterialTextures(material: THREE.Material, disposed: Set<THREE.Texture>): void {
+    for (const value of Object.values(material as unknown as Record<string, unknown>)) {
+      if (value instanceof THREE.Texture) this.disposeTextureOnce(value, disposed);
+    }
   }
 
   private disposeGLTF(gltf: GLTF): void {
@@ -154,22 +176,55 @@ export class AssetLoader {
 
   private cloneForUse(gltf: GLTF): GLTF {
     const scene = skeletonClone(gltf.scene) as THREE.Group;
+    const geometryClones = new Map<THREE.BufferGeometry, THREE.BufferGeometry>();
+    const materialClones = new Map<THREE.Material, THREE.Material>();
+    const textureClones = new Map<THREE.Texture, THREE.Texture>();
     scene.traverse((child) => {
-      if (!(child instanceof THREE.Mesh)) return;
-      child.geometry = child.geometry.clone();
+      if (!isDrawable(child)) return;
+      let geometry = geometryClones.get(child.geometry);
+      if (!geometry) {
+        geometry = child.geometry.clone();
+        geometryClones.set(child.geometry, geometry);
+      }
+      child.geometry = geometry;
       child.material = Array.isArray(child.material)
-        ? child.material.map((material) => this.cloneMaterialForUse(material))
-        : this.cloneMaterialForUse(child.material);
+        ? child.material.map((material) => this.cloneMaterialForUse(material, materialClones, textureClones))
+        : this.cloneMaterialForUse(child.material, materialClones, textureClones);
+      if (child instanceof THREE.SkinnedMesh && child.skeleton.boneTexture) {
+        child.skeleton.boneTexture = this.cloneTextureForUse(
+          child.skeleton.boneTexture,
+          textureClones,
+        ) as THREE.DataTexture;
+      }
     });
     return { ...gltf, scene };
   }
 
-  private cloneMaterialForUse(material: THREE.Material): THREE.Material {
+  private cloneTextureForUse(
+    texture: THREE.Texture,
+    textureClones: Map<THREE.Texture, THREE.Texture>,
+  ): THREE.Texture {
+    let clone = textureClones.get(texture);
+    if (!clone) {
+      clone = texture.clone();
+      textureClones.set(texture, clone);
+    }
+    return clone;
+  }
+
+  private cloneMaterialForUse(
+    material: THREE.Material,
+    materialClones: Map<THREE.Material, THREE.Material>,
+    textureClones: Map<THREE.Texture, THREE.Texture>,
+  ): THREE.Material {
+    const existing = materialClones.get(material);
+    if (existing) return existing;
     const clone = material.clone();
+    materialClones.set(material, clone);
     const source = material as unknown as Record<string, unknown>;
     const target = clone as unknown as Record<string, unknown>;
     for (const [key, value] of Object.entries(source)) {
-      if (value instanceof THREE.Texture) target[key] = value.clone();
+      if (value instanceof THREE.Texture) target[key] = this.cloneTextureForUse(value, textureClones);
     }
     return clone;
   }

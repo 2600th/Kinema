@@ -212,6 +212,40 @@ describe("LevelManager transactional editor JSON loading", () => {
     expect(manager.getLevelObjects()).toHaveLength(0);
     expect(scene.getObjectByName("Cube")).toBeUndefined();
   });
+
+  it("computes collider bounds before creating a rigid body", async () => {
+    const scene = new THREE.Scene();
+    const physicsWorld = {
+      world: { createRigidBody: vi.fn(), createCollider: vi.fn() },
+      removeCollider: vi.fn(),
+      removeBody: vi.fn(),
+    };
+    const manager = new LevelManager(scene, physicsWorld as any, { emit: vi.fn() } as any);
+    vi.spyOn(manager as any, "addLighting").mockImplementation(() => {});
+    vi.spyOn(manager as any, "computeColliderBounds").mockImplementation(() => {
+      throw new Error("forced bounds failure");
+    });
+
+    await expect(
+      manager.loadFromJSON({
+        ...baseLevel,
+        objects: [
+          {
+            id: "cube",
+            name: "Cube",
+            parentId: null,
+            source: { type: "primitive", primitive: "cube" },
+            transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+            physics: { type: "static" },
+          },
+        ],
+      }),
+    ).rejects.toThrow("forced bounds failure");
+
+    expect(physicsWorld.world.createRigidBody).not.toHaveBeenCalled();
+    expect(physicsWorld.removeBody).not.toHaveBeenCalled();
+    expect(manager.getLevelObjects()).toHaveLength(0);
+  });
 });
 
 describe("LevelManager load timing", () => {

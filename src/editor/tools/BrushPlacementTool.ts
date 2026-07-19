@@ -252,8 +252,8 @@ export class BrushPlacementTool implements EditorTool {
     // Create static physics body/collider for physical brushes (not spawn or trigger)
     if (brush.id !== "spawn" && brush.id !== "trigger") {
       const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(position.x, position.y, position.z);
-      const body = ctx.physicsWorld.world.createRigidBody(bodyDesc);
       const colliderDesc = buildColliderDesc(brush.id, geometry, mesh);
+      const body = ctx.physicsWorld.world.createRigidBody(bodyDesc);
       let collider: RAPIER.Collider;
       try {
         collider = ctx.physicsWorld.world.createCollider(colliderDesc, body);

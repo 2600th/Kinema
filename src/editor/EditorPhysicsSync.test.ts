@@ -4,10 +4,12 @@ import {
   applyWorldPoseToObject,
   getObjectColliderBounds,
   getObjectWorldPhysicsPose,
+  syncPhysicsSubtreeAtomically,
   syncRigidBodiesInSubtree,
   syncRigidBodyToObjectWorldPose,
   validateObjectPhysicsTransform,
   validatePhysicsAttachment,
+  validateWorldMatrixAttachment,
 } from "./EditorPhysicsSync";
 
 describe("syncRigidBodyToObjectWorldPose", () => {
@@ -164,5 +166,80 @@ describe("syncRigidBodyToObjectWorldPose", () => {
       }),
       true,
     );
+  });
+
+  it("rejects a prospective group attachment that would decompose a sheared world matrix", () => {
+    const scaledParent = new THREE.Group();
+    scaledParent.scale.set(2, 1, 0.5);
+    const rotatedChild = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+    rotatedChild.rotation.set(0.2, 0.7, 0.1);
+    scaledParent.add(rotatedChild);
+    scaledParent.updateWorldMatrix(true, true);
+
+    const prospectiveGroupWorld = new THREE.Matrix4().makeTranslation(3, 0, 0);
+
+    expect(
+      validateWorldMatrixAttachment(rotatedChild.matrixWorld, prospectiveGroupWorld, "static"),
+    ).toEqual(expect.objectContaining({ ok: false }));
+    expect(rotatedChild.parent).toBe(scaledParent);
+  });
+
+  it("accepts a prospective group attachment when the world transform is exact TRS", () => {
+    const object = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+    object.position.set(4, 2, -3);
+    object.rotation.set(0.2, 0.7, 0.1);
+    object.scale.set(2, 1, 0.5);
+    object.updateWorldMatrix(true, false);
+
+    const prospectiveGroupWorld = new THREE.Matrix4().makeTranslation(3, 0, 0);
+
+    expect(validateWorldMatrixAttachment(object.matrixWorld, prospectiveGroupWorld, "static")).toEqual({ ok: true });
+  });
+
+  it("keeps old colliders and body poses when the second replacement collider fails", () => {
+    const root = new THREE.Group();
+    const firstMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+    const secondMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+    root.add(firstMesh, secondMesh);
+    root.position.set(5, 0, 0);
+
+    const firstBody = { setTranslation: vi.fn(), setRotation: vi.fn() };
+    const secondBody = { setTranslation: vi.fn(), setRotation: vi.fn() };
+    const firstOldCollider = { id: "first-old" };
+    const secondOldCollider = { id: "second-old" };
+    const replacement = { id: "replacement" };
+    const removeCollider = vi.fn();
+    const commitCollider = vi.fn();
+    const createCollider = vi
+      .fn()
+      .mockReturnValueOnce(replacement)
+      .mockImplementationOnce(() => {
+        throw new Error("second collider failed");
+      });
+
+    const result = syncPhysicsSubtreeAtomically(
+      root,
+      [
+        { mesh: firstMesh, body: firstBody, collider: firstOldCollider },
+        { mesh: secondMesh, body: secondBody, collider: secondOldCollider },
+      ],
+      {
+        rebuildColliders: true,
+        buildColliderDesc: (entry) => ({ mesh: entry.mesh }),
+        createCollider,
+        removeCollider,
+        commitCollider,
+      },
+    );
+
+    expect(result).toEqual(expect.objectContaining({ ok: false }));
+    expect(createCollider).toHaveBeenCalledTimes(2);
+    expect(removeCollider).toHaveBeenCalledOnce();
+    expect(removeCollider).toHaveBeenCalledWith(replacement);
+    expect(removeCollider).not.toHaveBeenCalledWith(firstOldCollider);
+    expect(removeCollider).not.toHaveBeenCalledWith(secondOldCollider);
+    expect(firstBody.setTranslation).not.toHaveBeenCalled();
+    expect(secondBody.setTranslation).not.toHaveBeenCalled();
+    expect(commitCollider).not.toHaveBeenCalled();
   });
 });

@@ -129,4 +129,82 @@ describe("AssetLoader", () => {
     expect(materialDispose).toHaveBeenCalledOnce();
     expect(textureDispose).toHaveBeenCalledOnce();
   });
+
+  it("deep-clones mesh, points, line, and skinned-mesh resources while preserving shared ownership", () => {
+    const sharedGeometry = new THREE.BufferGeometry();
+    sharedGeometry.setAttribute("position", new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0], 3));
+    const sharedTexture = new THREE.Texture();
+    const sharedMaterial = new THREE.MeshPhysicalMaterial({ map: sharedTexture });
+    sharedMaterial.clearcoatMap = sharedTexture;
+    sharedMaterial.transmissionMap = sharedTexture;
+    const root = new THREE.Group();
+    root.add(
+      new THREE.Mesh(sharedGeometry, sharedMaterial),
+      new THREE.Points(sharedGeometry, sharedMaterial),
+      new THREE.LineSegments(sharedGeometry, sharedMaterial),
+    );
+
+    const bone = new THREE.Bone();
+    const skinned = new THREE.SkinnedMesh(sharedGeometry, sharedMaterial);
+    skinned.add(bone);
+    skinned.bind(new THREE.Skeleton([bone]));
+    skinned.skeleton.boneTexture = new THREE.DataTexture(new Uint8Array(4), 1, 1);
+    root.add(skinned);
+    const loader = new AssetLoader();
+
+    const owned = loader.adopt("/assets/models/drawables.glb", {
+      scene: root,
+      animations: [new THREE.AnimationClip("idle", 1, [])],
+    } as unknown as GLTF);
+    const ownedDrawables = owned.scene.children as Array<THREE.Mesh | THREE.Points | THREE.LineSegments>;
+
+    for (const drawable of ownedDrawables) {
+      expect(drawable.geometry).not.toBe(sharedGeometry);
+      expect(drawable.material).not.toBe(sharedMaterial);
+      expect((drawable.material as THREE.MeshPhysicalMaterial).map).not.toBe(sharedTexture);
+    }
+    expect(ownedDrawables[0]?.geometry).toBe(ownedDrawables[1]?.geometry);
+    expect(ownedDrawables[0]?.material).toBe(ownedDrawables[2]?.material);
+    const ownedSkinned = ownedDrawables[3] as THREE.SkinnedMesh;
+    expect(ownedSkinned.skeleton).not.toBe(skinned.skeleton);
+    expect(ownedSkinned.skeleton.boneTexture).not.toBe(skinned.skeleton.boneTexture);
+    expect(owned.animations[0]).toBeDefined();
+  });
+
+  it("disposes shared drawable, physical-map, and skeleton resources exactly once on eviction", () => {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0], 3));
+    const texture = new THREE.Texture();
+    const material = new THREE.MeshPhysicalMaterial({ map: texture });
+    material.clearcoatMap = texture;
+    material.transmissionMap = texture;
+    material.sheenColorMap = texture;
+    material.specularColorMap = texture;
+    material.iridescenceMap = texture;
+    material.anisotropyMap = texture;
+    const root = new THREE.Group();
+    root.add(new THREE.Points(geometry, material), new THREE.LineSegments(geometry, material));
+    const bone = new THREE.Bone();
+    const skinned = new THREE.SkinnedMesh(geometry, material);
+    skinned.add(bone);
+    skinned.bind(new THREE.Skeleton([bone]));
+    const boneTexture = new THREE.DataTexture(new Uint8Array(4), 1, 1);
+    skinned.skeleton.boneTexture = boneTexture;
+    root.add(skinned);
+    const geometryDispose = vi.spyOn(geometry, "dispose");
+    const materialDispose = vi.spyOn(material, "dispose");
+    const textureDispose = vi.spyOn(texture, "dispose");
+    const boneTextureDispose = vi.spyOn(boneTexture, "dispose");
+    const skeletonDispose = vi.spyOn(skinned.skeleton, "dispose");
+    const loader = new AssetLoader();
+    loader.put("/assets/models/shared-drawables.glb", { scene: root, animations: [] } as unknown as GLTF);
+
+    loader.evict("/assets/models/shared-drawables.glb");
+
+    expect(geometryDispose).toHaveBeenCalledOnce();
+    expect(materialDispose).toHaveBeenCalledOnce();
+    expect(textureDispose).toHaveBeenCalledOnce();
+    expect(boneTextureDispose).toHaveBeenCalledOnce();
+    expect(skeletonDispose).toHaveBeenCalledOnce();
+  });
 });

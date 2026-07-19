@@ -13,6 +13,7 @@ export interface InspectorCallbacks {
       rotation: [number, number, number];
       scale: [number, number, number];
     },
+    phase: "preview" | "commit",
   ) => void;
   onMaterialChange: (
     id: string,
@@ -26,6 +27,28 @@ export interface InspectorCallbacks {
     },
   ) => void;
   onPhysicsTypeChange: (id: string, type: "static" | "dynamic" | "kinematic") => void;
+}
+
+export function bindTransformEditEvents(
+  input: { addEventListener(type: string, listener: (event: { key?: string }) => void): void },
+  preview: () => void,
+  commit: () => void,
+): void {
+  let pendingCommit = false;
+  input.addEventListener("input", () => {
+    pendingCommit = true;
+    preview();
+  });
+  const commitOnce = (): void => {
+    if (!pendingCommit) return;
+    pendingCommit = false;
+    commit();
+  };
+  input.addEventListener("change", commitOnce);
+  input.addEventListener("blur", commitOnce);
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") commitOnce();
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -183,17 +206,17 @@ export class InspectorPanel extends EditorPanel {
     this.transformBody.appendChild(physicsRow);
 
     /* Wire up transform input callbacks */
-    const fireTransform = (): void => {
+    const fireTransform = (phase: "preview" | "commit"): void => {
       if (this.updating || !this.selection) return;
       this.callbacks.onTransformChange(this.selection.id, {
         position: this.readVec3(this.posInputs),
         rotation: this.readVec3Rad(this.rotInputs),
         scale: this.readVec3(this.scaleInputs),
-      });
+      }, phase);
     };
 
     for (const input of [...this.posInputs, ...this.rotInputs, ...this.scaleInputs]) {
-      input.addEventListener("input", fireTransform);
+      bindTransformEditEvents(input, () => fireTransform("preview"), () => fireTransform("commit"));
     }
 
     this.transformSection.appendChild(this.transformBody);

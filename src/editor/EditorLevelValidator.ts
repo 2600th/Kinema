@@ -47,91 +47,95 @@ function matrixHasNonUniformScale(matrix: THREE.Matrix4): boolean {
 }
 
 export function validateEditorLevelData(untrustedData: unknown): EditorLevelValidationResult {
-  const shape = validateLevelDataV2Shape(untrustedData);
-  if (!shape.ok) return shape;
-  const data = untrustedData as LevelDataV2;
+  try {
+    const shape = validateLevelDataV2Shape(untrustedData);
+    if (!shape.ok) return shape;
+    const data = untrustedData as LevelDataV2;
 
-  const objectsById = new Map<string, SerializedObjectV2>();
-  for (const entry of data.objects) {
-    if (!entry || typeof entry.id !== "string" || entry.id.length === 0) {
-      return { ok: false, reason: "The level contains an object with no id." };
-    }
-    if (objectsById.has(entry.id)) {
-      return { ok: false, reason: `The level contains duplicate object id "${entry.id}".` };
-    }
-    const sourceError = validateSource(entry);
-    if (sourceError) return { ok: false, reason: sourceError };
-    objectsById.set(entry.id, entry);
-  }
-
-  for (const entry of data.objects) {
-    if (entry.parentId !== null && !objectsById.has(entry.parentId)) {
-      return {
-        ok: false,
-        reason: `Object "${entry.id}" references missing parent "${entry.parentId}".`,
-      };
-    }
-  }
-
-  const resolved = new Set<string>();
-  for (const entry of data.objects) {
-    if (resolved.has(entry.id)) continue;
-    const path = new Set<string>();
-    let current: SerializedObjectV2 | undefined = entry;
-    while (current) {
-      if (path.has(current.id)) {
-        return { ok: false, reason: `The hierarchy contains a cycle at object "${current.id}".` };
+    const objectsById = new Map<string, SerializedObjectV2>();
+    const childrenByParent = new Map<string, SerializedObjectV2[]>();
+    const roots: SerializedObjectV2[] = [];
+    for (const entry of data.objects) {
+      if (!entry || typeof entry.id !== "string" || entry.id.length === 0) {
+        return { ok: false, reason: "The level contains an object with no id." };
       }
-      if (resolved.has(current.id)) break;
-      path.add(current.id);
-      current = current.parentId ? objectsById.get(current.parentId) : undefined;
+      if (objectsById.has(entry.id)) {
+        return { ok: false, reason: `The level contains duplicate object id "${entry.id}".` };
+      }
+      const sourceError = validateSource(entry);
+      if (sourceError) return { ok: false, reason: sourceError };
+      objectsById.set(entry.id, entry);
     }
-    for (const id of path) resolved.add(id);
+
+    for (const entry of data.objects) {
+      if (entry.parentId === null) {
+        roots.push(entry);
+        continue;
+      }
+      if (!objectsById.has(entry.parentId)) {
+        return {
+          ok: false,
+          reason: `Object "${entry.id}" references missing parent "${entry.parentId}".`,
+        };
+      }
+      const children = childrenByParent.get(entry.parentId) ?? [];
+      children.push(entry);
+      childrenByParent.set(entry.parentId, children);
+    }
+
+    const worldMatrices = new Map<string, THREE.Matrix4>();
+    const queue = [...roots];
+    let cursor = 0;
+    while (cursor < queue.length) {
+      const entry = queue[cursor++];
+      const local = new THREE.Matrix4().compose(
+        new THREE.Vector3(...entry.transform.position),
+        new THREE.Quaternion().setFromEuler(new THREE.Euler(...entry.transform.rotation)),
+        new THREE.Vector3(...entry.transform.scale),
+      );
+      const parentWorld = entry.parentId ? worldMatrices.get(entry.parentId) : undefined;
+      const world = parentWorld ? parentWorld.clone().multiply(local) : local;
+      worldMatrices.set(entry.id, world);
+
+      const isTransformOnlyGroup = entry.source.type === "primitive" && entry.source.primitive === "group";
+      if (!isTransformOnlyGroup) {
+        if (
+          parentWorld &&
+          (entry.physics.type === "dynamic" || entry.physics.type === "kinematic") &&
+          matrixHasNonUniformScale(parentWorld)
+        ) {
+          return {
+            ok: false,
+            reason: `Object "${entry.id}" is a moving ${entry.physics.type} body below non-uniform inherited scale, which physics cannot represent exactly.`,
+          };
+        }
+        if (entry.visible !== false) {
+          const position = new THREE.Vector3();
+          const rotation = new THREE.Quaternion();
+          const scale = new THREE.Vector3();
+          world.decompose(position, rotation, scale);
+          const recomposed = new THREE.Matrix4().compose(position, rotation, scale);
+          if (world.elements.some((value, index) => Math.abs(value - recomposed.elements[index]) > MATRIX_EPSILON)) {
+            return {
+              ok: false,
+              reason: `Object "${entry.id}" has a rotated child transform under non-uniform inherited scale, which physics cannot represent exactly.`,
+            };
+          }
+        }
+      }
+
+      for (const child of childrenByParent.get(entry.id) ?? []) queue.push(child);
+    }
+
+    if (worldMatrices.size !== data.objects.length) {
+      const cyclic = data.objects.find((entry) => !worldMatrices.has(entry.id));
+      return { ok: false, reason: `The hierarchy contains a cycle at object "${cyclic?.id ?? "unknown"}".` };
+    }
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: error instanceof Error ? error.message : "The level contains malformed semantic data.",
+    };
   }
-
-  const worldMatrices = new Map<string, THREE.Matrix4>();
-  const resolveWorldMatrix = (entry: SerializedObjectV2): THREE.Matrix4 => {
-    const cached = worldMatrices.get(entry.id);
-    if (cached) return cached;
-    const local = new THREE.Matrix4().compose(
-      new THREE.Vector3(...entry.transform.position),
-      new THREE.Quaternion().setFromEuler(new THREE.Euler(...entry.transform.rotation)),
-      new THREE.Vector3(...entry.transform.scale),
-    );
-    const parent = entry.parentId ? objectsById.get(entry.parentId) : undefined;
-    const world = parent ? resolveWorldMatrix(parent).clone().multiply(local) : local;
-    worldMatrices.set(entry.id, world);
-    return world;
-  };
-
-  for (const entry of data.objects) {
-    const isTransformOnlyGroup = entry.source.type === "primitive" && entry.source.primitive === "group";
-    if (isTransformOnlyGroup) continue;
-    const parent = entry.parentId ? objectsById.get(entry.parentId) : undefined;
-    if (
-      parent &&
-      (entry.physics.type === "dynamic" || entry.physics.type === "kinematic") &&
-      matrixHasNonUniformScale(resolveWorldMatrix(parent))
-    ) {
-      return {
-        ok: false,
-        reason: `Object "${entry.id}" is a moving ${entry.physics.type} body below non-uniform inherited scale, which physics cannot represent exactly.`,
-      };
-    }
-    if (entry.visible === false) continue;
-    const world = resolveWorldMatrix(entry);
-    const position = new THREE.Vector3();
-    const rotation = new THREE.Quaternion();
-    const scale = new THREE.Vector3();
-    world.decompose(position, rotation, scale);
-    const recomposed = new THREE.Matrix4().compose(position, rotation, scale);
-    if (world.elements.some((value, index) => Math.abs(value - recomposed.elements[index]) > MATRIX_EPSILON)) {
-      return {
-        ok: false,
-        reason: `Object "${entry.id}" has a rotated child transform under non-uniform inherited scale, which physics cannot represent exactly.`,
-      };
-    }
-  }
-
-  return { ok: true };
 }

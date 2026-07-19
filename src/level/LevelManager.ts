@@ -610,8 +610,6 @@ export class LevelManager implements Disposable {
     const worldQuat = obj.getWorldQuaternion(new THREE.Quaternion());
     bodyDesc.setTranslation(worldPos.x, worldPos.y, worldPos.z);
     bodyDesc.setRotation({ x: worldQuat.x, y: worldQuat.y, z: worldQuat.z, w: worldQuat.w });
-    const body = this.physicsWorld.world.createRigidBody(bodyDesc);
-
     const { center, halfExtents } = this.computeColliderBounds(obj);
     const colliderDesc = RAPIER.ColliderDesc.cuboid(
       Math.max(halfExtents.x, 0.01),
@@ -619,6 +617,7 @@ export class LevelManager implements Disposable {
       Math.max(halfExtents.z, 0.01),
     ).setCollisionGroups(COLLISION_GROUP_WORLD);
     colliderDesc.setTranslation(center.x, center.y, center.z);
+    const body = this.physicsWorld.world.createRigidBody(bodyDesc);
     let collider: RAPIER.Collider;
     try {
       collider = this.physicsWorld.world.createCollider(colliderDesc, body);

@@ -184,13 +184,13 @@ export class EditorDocument {
     this.syncLocalTransform(child);
   }
 
-  groupObjects(ids: string[]): EditorObject | null {
-    if (ids.length === 0) return null;
+  getGroupingRoots(ids: string[]): EditorObject[] {
+    if (ids.length === 0) return [];
     const groupedObjects = ids.map((id) => this.findById(id)).filter((o): o is EditorObject => o != null);
-    if (groupedObjects.length === 0) return null;
+    if (groupedObjects.length === 0) return [];
 
     const selectedIds = new Set(groupedObjects.map((o) => o.id));
-    const rootObjects = groupedObjects.filter((obj) => {
+    return groupedObjects.filter((obj) => {
       let cursor = obj.parentId ?? null;
       while (cursor) {
         if (selectedIds.has(cursor)) return false;
@@ -198,6 +198,10 @@ export class EditorDocument {
       }
       return true;
     });
+  }
+
+  groupObjects(ids: string[]): EditorObject | null {
+    const rootObjects = this.getGroupingRoots(ids);
     if (rootObjects.length === 0) return null;
 
     const center = new THREE.Vector3();

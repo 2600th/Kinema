@@ -169,4 +169,39 @@ describe("validateEditorLevelData", () => {
     expect(() => validateEditorLevelData(malformed as LevelDataV2)).not.toThrow();
     expect(validateEditorLevelData(malformed as LevelDataV2).ok).toBe(false);
   });
+
+  it("validates a deep leaf-first acyclic hierarchy without overflowing the call stack", () => {
+    const depth = 15_000;
+    const objects = Array.from({ length: depth }, (_, index) => {
+      const entry = objectWith(
+        { type: "primitive", primitive: index === depth - 1 ? "cube" : "group" },
+        `node-${index}`,
+      );
+      entry.parentId = index === 0 ? null : `node-${index - 1}`;
+      return entry;
+    }).reverse();
+
+    expect(() => validateEditorLevelData(levelWith(objects))).not.toThrow();
+    expect(validateEditorLevelData(levelWith(objects))).toEqual({ ok: true });
+  });
+
+  it("turns unexpected structural access errors into a validation result", () => {
+    let accesses = 0;
+    const source = Object.defineProperty({ primitive: "cube" }, "type", {
+      get: () => {
+        accesses++;
+        if (accesses === 1) return "primitive";
+        throw new Error("hostile getter");
+      },
+    }) as SerializedObjectV2["source"];
+    const hostile = levelWith([objectWith(source)]);
+    let result: ReturnType<typeof validateEditorLevelData> | undefined;
+
+    expect(() => {
+      result = validateEditorLevelData(hostile);
+    }).not.toThrow();
+    expect(result).toEqual(
+      expect.objectContaining({ ok: false, reason: expect.stringMatching(/hostile getter/i) }),
+    );
+  });
 });
