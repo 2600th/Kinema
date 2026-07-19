@@ -102,7 +102,7 @@ describe("ComfortPreferencesController", () => {
   });
 
   it("sanitizes invalid modes and intensity inputs", () => {
-    const { controller, camera, hud, rootState } = createHarness(true);
+    const { controller, media, camera, hud, rootState } = createHarness(true);
 
     controller.apply({
       cameraEffectsIntensity: Number.NaN,
@@ -110,11 +110,22 @@ describe("ComfortPreferencesController", () => {
       reducedMotion: "sometimes" as never,
     });
 
-    expect(hud.setDamageFlashIntensity).toHaveBeenLastCalledWith(1);
+    expect(camera.setEffectsIntensity).toHaveBeenLastCalledWith(0);
+    expect(rootState.get("data-reduced-motion")).toBe("reduce");
+
+    media.emit(false);
+    expect(camera.setEffectsIntensity).toHaveBeenLastCalledWith(1);
+    expect(rootState.get("data-reduced-motion")).toBe("normal");
+
+    media.emit(true);
     expect(camera.setEffectsIntensity).toHaveBeenLastCalledWith(0);
     expect(rootState.get("data-reduced-motion")).toBe("reduce");
 
     controller.setReducedMotion("off");
+    expect(camera.setEffectsIntensity).toHaveBeenLastCalledWith(1);
+    expect(rootState.get("data-reduced-motion")).toBe("normal");
+    expect(hud.setDamageFlashIntensity).toHaveBeenLastCalledWith(1);
+
     controller.setCameraEffectsIntensity(-2);
     controller.setDamageFlashIntensity(4);
     expect(camera.setEffectsIntensity).toHaveBeenLastCalledWith(0);

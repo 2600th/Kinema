@@ -143,6 +143,17 @@ describe("HUD damage flash intensity", () => {
     expect(overlay.classList.contains("is-hit")).toBe(true);
   });
 
+  it.each(["spike", "fall"] as const)("does not activate or schedule a %s flash at zero", (reason) => {
+    const { hud, overlay } = createHud();
+    hud.setDamageFlashIntensity(0);
+
+    hud.flashDamage(reason);
+
+    expect(overlay.classList.contains("is-hit")).toBe(false);
+    expect(overlay.classList.contains("is-fall")).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("restarts repeated pulses without letting an old timer clear the new pulse", () => {
     const { hud, overlay } = createHud();
     hud.flashDamage("spike");
