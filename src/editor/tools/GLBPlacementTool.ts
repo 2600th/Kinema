@@ -258,9 +258,12 @@ export class GLBPlacementTool implements EditorTool {
       this.onFinished();
     } catch (error) {
       console.error("[Editor] GLB placement failed:", error);
-      if (publicationAttempted) ctx.rollbackEditorObject(editorObj);
-      ctx.scene.remove(finalObj);
-      if (!publicationAttempted && body) ctx.physicsWorld.removeBody(body);
+      if (publicationAttempted) {
+        ctx.rollbackEditorObject(editorObj);
+      } else {
+        ctx.scene.remove(finalObj);
+        if (body) ctx.physicsWorld.removeBody(body);
+      }
       this.levelManager.getAssetLoader().disposeObject(finalObj);
       this.glbPreview = null;
       this.pendingGLBAsset = null;

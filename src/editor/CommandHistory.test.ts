@@ -17,25 +17,32 @@ describe("CommandHistory", () => {
     const onMutation = vi.fn();
     const history = new CommandHistory(onMutation);
     const seeded = createCommand("seeded", []);
+    const redoSeed = createCommand("redo-seed", []);
     const rejected: Command = { execute: vi.fn(() => false), undo: vi.fn() };
 
     expect(history.push(seeded)).toBe(true);
-    expect(history.push(rejected)).toBe(false);
-    expect(onMutation).toHaveBeenCalledTimes(1);
+    expect(history.push(redoSeed)).toBe(true);
     expect(history.undo()).toBe(true);
+    expect(history.push(rejected)).toBe(false);
+    expect(onMutation).toHaveBeenCalledTimes(3);
     expect(history.redo()).toBe(true);
+    expect(history.undo()).toBe(true);
+    expect(history.undo()).toBe(true);
 
     expect(rejected.execute).toHaveBeenCalledOnce();
     expect(rejected.undo).not.toHaveBeenCalled();
     expect(seeded.undo).toHaveBeenCalledOnce();
-    expect(seeded.execute).toHaveBeenCalledTimes(2);
-    expect(onMutation).toHaveBeenCalledTimes(3);
+    expect(seeded.execute).toHaveBeenCalledOnce();
+    expect(redoSeed.execute).toHaveBeenCalledTimes(2);
+    expect(redoSeed.undo).toHaveBeenCalledTimes(2);
+    expect(onMutation).toHaveBeenCalledTimes(6);
   });
 
   it("keeps a seeded command on the undo stack when undo reports failure", () => {
     const onMutation = vi.fn();
     const history = new CommandHistory(onMutation);
     const first = createCommand("first", []);
+    const redoSeed = createCommand("redo-seed", []);
     let rejectUndo = true;
     const second: Command = {
       execute: vi.fn(() => true),
@@ -44,41 +51,57 @@ describe("CommandHistory", () => {
 
     expect(history.push(first)).toBe(true);
     expect(history.push(second)).toBe(true);
+    expect(history.push(redoSeed)).toBe(true);
+    expect(history.undo()).toBe(true);
     expect(history.undo()).toBe(false);
-    expect(onMutation).toHaveBeenCalledTimes(2);
+    expect(onMutation).toHaveBeenCalledTimes(4);
+    expect(history.redo()).toBe(true);
+    expect(history.undo()).toBe(true);
     rejectUndo = false;
     expect(history.undo()).toBe(true);
     expect(history.undo()).toBe(true);
-    expect(history.redo()).toBe(true);
 
     expect(second.undo).toHaveBeenCalledTimes(2);
     expect(first.undo).toHaveBeenCalledOnce();
-    expect(first.execute).toHaveBeenCalledTimes(2);
+    expect(first.execute).toHaveBeenCalledOnce();
     expect(second.execute).toHaveBeenCalledOnce();
-    expect(onMutation).toHaveBeenCalledTimes(5);
+    expect(redoSeed.execute).toHaveBeenCalledTimes(2);
+    expect(redoSeed.undo).toHaveBeenCalledTimes(2);
+    expect(onMutation).toHaveBeenCalledTimes(8);
   });
 
   it("keeps a seeded command on the redo stack when redo reports failure", () => {
     const onMutation = vi.fn();
     const history = new CommandHistory(onMutation);
+    const undoSeed = createCommand("undo-seed", []);
+    const redoTail = createCommand("redo-tail", []);
     let rejectRedo = false;
     const command: Command = {
       execute: vi.fn(() => !rejectRedo),
       undo: vi.fn(() => true),
     };
 
+    expect(history.push(undoSeed)).toBe(true);
     expect(history.push(command)).toBe(true);
+    expect(history.push(redoTail)).toBe(true);
+    expect(history.undo()).toBe(true);
     expect(history.undo()).toBe(true);
     rejectRedo = true;
     expect(history.redo()).toBe(false);
-    expect(onMutation).toHaveBeenCalledTimes(2);
+    expect(onMutation).toHaveBeenCalledTimes(5);
+    expect(history.undo()).toBe(true);
+    expect(history.redo()).toBe(true);
     rejectRedo = false;
     expect(history.redo()).toBe(true);
-    expect(history.undo()).toBe(true);
+    expect(history.redo()).toBe(true);
 
     expect(command.execute).toHaveBeenCalledTimes(3);
-    expect(command.undo).toHaveBeenCalledTimes(2);
-    expect(onMutation).toHaveBeenCalledTimes(4);
+    expect(command.undo).toHaveBeenCalledOnce();
+    expect(undoSeed.execute).toHaveBeenCalledTimes(2);
+    expect(undoSeed.undo).toHaveBeenCalledOnce();
+    expect(redoTail.execute).toHaveBeenCalledTimes(2);
+    expect(redoTail.undo).toHaveBeenCalledOnce();
+    expect(onMutation).toHaveBeenCalledTimes(9);
   });
 
   it("executes commands and preserves undo and redo ordering", () => {
