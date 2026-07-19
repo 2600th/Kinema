@@ -168,13 +168,19 @@
   box-shadow: 0 0 6px var(--ke-accent-glow);
 }
 
-.ke-save-error {
+.ke-toolbar-messages {
   position: absolute;
   top: calc(100% + 10px);
   left: 50%;
   width: max-content;
   max-width: min(520px, calc(100vw - 32px));
   transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ke-save-error {
   padding: 10px 14px;
   border: 1px solid rgba(255, 121, 186, 0.55);
   border-radius: var(--ke-radius-sm);
@@ -185,6 +191,39 @@
   line-height: 1.4;
   text-align: center;
   white-space: normal;
+}
+
+.ke-session-import-notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px 10px 14px;
+  border: 1px solid rgba(255, 207, 103, 0.55);
+  border-radius: var(--ke-radius-sm);
+  background: rgba(38, 30, 12, 0.96);
+  box-shadow: var(--ke-shadow), 0 0 18px rgba(255, 207, 103, 0.16);
+  color: #fff0c2;
+  font-size: var(--ke-font-size);
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.ke-session-import-dismiss {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  border: 1px solid rgba(255, 207, 103, 0.5);
+  border-radius: var(--ke-radius-sm);
+  background: rgba(255, 207, 103, 0.12);
+  color: #fff6da;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ke-session-import-dismiss:hover,
+.ke-session-import-dismiss:focus-visible {
+  border-color: var(--ke-warning);
+  background: rgba(255, 207, 103, 0.22);
+  outline: none;
 }
 
 /* Transport controls (center group) */
@@ -362,6 +401,15 @@
   transform: rotate(90deg);
 }
 
+.ke-tree-row-warning {
+  flex-shrink: 0;
+  width: 14px;
+  color: var(--ke-warning);
+  font-size: var(--ke-font-size-sm);
+  line-height: 1;
+  text-align: center;
+}
+
 /* ----- Inspector ----- */
 .ke-inspector {
   display: flex;
@@ -389,6 +437,18 @@
 .ke-inspector-value {
   flex: 1;
   min-width: 0;
+}
+
+.ke-inspector-warning {
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 207, 103, 0.42);
+  border-radius: var(--ke-radius-sm);
+  background: rgba(255, 207, 103, 0.1);
+  color: #fff0c2;
+  font-size: var(--ke-font-size-sm);
+  line-height: 1.45;
+  user-select: text;
 }
 
 /* ----- Brush Bar ----- */

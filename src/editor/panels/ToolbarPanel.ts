@@ -32,6 +32,7 @@ export class ToolbarPanel extends EditorPanel {
   private snapBtn!: HTMLButtonElement;
   private gridBtn!: HTMLButtonElement;
   private saveError!: HTMLDivElement;
+  private sessionImportNotice!: HTMLDivElement;
 
   constructor(private callbacks: ToolbarCallbacks) {
     super("toolbar", "Toolbar");
@@ -126,11 +127,32 @@ export class ToolbarPanel extends EditorPanel {
 
     el.appendChild(rightGroup);
 
+    const messages = document.createElement("div");
+    messages.className = "ke-toolbar-messages";
+
     this.saveError = document.createElement("div");
     this.saveError.className = "ke-save-error ke-hidden";
     this.saveError.setAttribute("role", "alert");
     this.saveError.setAttribute("aria-live", "assertive");
-    el.appendChild(this.saveError);
+    messages.appendChild(this.saveError);
+
+    this.sessionImportNotice = document.createElement("div");
+    this.sessionImportNotice.className = "ke-session-import-notice ke-hidden";
+    this.sessionImportNotice.setAttribute("role", "status");
+    this.sessionImportNotice.setAttribute("aria-live", "polite");
+    this.sessionImportNotice.setAttribute("aria-atomic", "true");
+    const noticeText = document.createElement("span");
+    noticeText.textContent =
+      "Imported model is session-only — copy it to public/assets/models/ to keep it after reload.";
+    this.sessionImportNotice.appendChild(noticeText);
+    const dismissButton = document.createElement("button");
+    dismissButton.className = "ke-session-import-dismiss";
+    dismissButton.type = "button";
+    dismissButton.textContent = "Dismiss";
+    dismissButton.addEventListener("click", () => this.sessionImportNotice.classList.add("ke-hidden"));
+    this.sessionImportNotice.appendChild(dismissButton);
+    messages.appendChild(this.sessionImportNotice);
+    el.appendChild(messages);
 
     // Default: translate active
     this.setActiveMode("translate");
@@ -171,6 +193,10 @@ export class ToolbarPanel extends EditorPanel {
   clearSaveError(): void {
     this.saveError.textContent = "";
     this.saveError.classList.add("ke-hidden");
+  }
+
+  showSessionImportNotice(): void {
+    this.sessionImportNotice.classList.remove("ke-hidden");
   }
 
   // ── Private helpers ──

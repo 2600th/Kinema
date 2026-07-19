@@ -215,6 +215,7 @@ export class EditorManager {
     this.glbPlacementTool = new GLBPlacementTool({
       levelManager: this.levelManager,
       onFinished: () => this.switchTool("selection"),
+      onImported: () => this.toolbarPanel.showSessionImportNotice(),
     });
     this.tools.set(this.selectionTool.id, this.selectionTool);
     this.tools.set(this.brushPlacementTool.id, this.brushPlacementTool);
@@ -944,6 +945,7 @@ export class EditorManager {
       };
     }
 
+    const missingAssetPath = mesh.userData.editorMissingAssetPath;
     return {
       id: mesh.uuid,
       name: mesh.name || "Object",
@@ -958,6 +960,7 @@ export class EditorManager {
       physicsType,
       body,
       collider,
+      missingAssetPath: typeof missingAssetPath === "string" ? missingAssetPath : undefined,
     };
   }
 
@@ -1614,6 +1617,7 @@ export class EditorManager {
           new THREE.BoxGeometry(1, 1, 1),
           new THREE.MeshBasicMaterial({ color: 0xff00ff, wireframe: true }),
         );
+        obj.userData.editorMissingAssetPath = entry.source.asset;
       }
     }
     if (!obj) return;

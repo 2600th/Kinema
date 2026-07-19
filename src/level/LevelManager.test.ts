@@ -52,6 +52,62 @@ describe("LevelManager spawn handling", () => {
   });
 });
 
+describe("LevelManager editor metadata for JSON GLBs", () => {
+  function makeManager(): LevelManager {
+    return new LevelManager(
+      new THREE.Scene(),
+      { world: {}, removeCollider: vi.fn(), removeBody: vi.fn() } as unknown as PhysicsWorld,
+      { emit: vi.fn() } as unknown as EventBus,
+    );
+  }
+
+  const entry = {
+    id: "glb-root",
+    name: "Imported model",
+    parentId: null,
+    source: { type: "glb" as const, asset: "/assets/models/Missing.glb" },
+    transform: {
+      position: [0, 0, 0] as [number, number, number],
+      rotation: [0, 0, 0] as [number, number, number],
+      scale: [1, 1, 1] as [number, number, number],
+    },
+    physics: { type: "static" as const },
+  };
+
+  it("restores source metadata on a successful GLB root", async () => {
+    const manager = makeManager();
+    const internals = manager as unknown as {
+      loadGLBObject(assetPath: string): Promise<THREE.Object3D | null>;
+      spawnJSONObject(json: typeof entry): Promise<{ obj: THREE.Object3D } | null>;
+    };
+    vi.spyOn(internals, "loadGLBObject").mockResolvedValue(new THREE.Group());
+
+    const spawned = await internals.spawnJSONObject(entry);
+
+    expect(spawned).not.toBeNull();
+    if (!spawned) throw new Error("Expected successful GLB root");
+    expect(spawned.obj.userData.editorSource).toEqual(entry.source);
+    expect(spawned.obj.userData.editorSource).not.toBe(entry.source);
+  });
+
+  it("tags a missing GLB placeholder and restores its source metadata", async () => {
+    const manager = makeManager();
+    const internals = manager as unknown as {
+      spawnJSONObject(json: typeof entry): Promise<{ obj: THREE.Object3D } | null>;
+    };
+    vi.spyOn(manager.getAssetLoader(), "load").mockRejectedValue(new Error("missing"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const spawned = await internals.spawnJSONObject(entry);
+
+    expect(spawned).not.toBeNull();
+    if (!spawned) throw new Error("Expected missing GLB placeholder");
+    const placeholder = spawned.obj as THREE.Mesh;
+    expect(placeholder.userData.editorMissingAssetPath).toBe("/assets/models/Missing.glb");
+    expect(placeholder.userData.editorSource).toEqual(entry.source);
+  });
+});
+
 describe("LevelManager load timing", () => {
   it.each([
     {

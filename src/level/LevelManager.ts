@@ -531,6 +531,7 @@ export class LevelManager implements Disposable {
       }
     });
     obj.name = entry.name;
+    obj.userData.editorSource = { ...entry.source };
 
     // Editor-only gizmos (spawn, trigger) — hide in play mode, skip physics
     const isEditorGizmo =
@@ -684,7 +685,9 @@ export class LevelManager implements Disposable {
       console.warn(`[LevelManager] Failed to load GLB "${assetPath}", using placeholder`, err);
       const geo = new THREE.BoxGeometry(1, 1, 1);
       const mat = new THREE.MeshBasicMaterial({ color: 0xff00ff, wireframe: true });
-      return new THREE.Mesh(geo, mat);
+      const placeholder = new THREE.Mesh(geo, mat);
+      placeholder.userData.editorMissingAssetPath = assetPath;
+      return placeholder;
     }
   }
 

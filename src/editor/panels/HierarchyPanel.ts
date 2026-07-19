@@ -322,6 +322,15 @@ export class HierarchyPanel extends EditorPanel {
     }
     row.appendChild(toggle);
 
+    if (obj.missingAssetPath) {
+      const warning = document.createElement("span");
+      warning.className = "ke-tree-row-warning";
+      warning.textContent = "\u26a0";
+      warning.title = "GLB unavailable; placeholder shown.";
+      warning.setAttribute("aria-label", "GLB unavailable; placeholder shown.");
+      row.appendChild(warning);
+    }
+
     /* label */
     const label = document.createElement("span");
     label.className = "ke-tree-row-label";

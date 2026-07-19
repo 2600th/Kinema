@@ -50,6 +50,7 @@ export class InspectorPanel extends EditorPanel {
 
   /* --- Section DOM refs --- */
   private placeholder!: HTMLDivElement;
+  private missingAssetWarning!: HTMLDivElement;
   private transformSection!: HTMLDivElement;
   private transformBody!: HTMLDivElement;
   private materialSection!: HTMLDivElement;
@@ -128,6 +129,11 @@ export class InspectorPanel extends EditorPanel {
     });
     this.placeholder.textContent = "No selection";
     body.appendChild(this.placeholder);
+
+    this.missingAssetWarning = document.createElement("div");
+    this.missingAssetWarning.className = "ke-inspector-warning ke-hidden";
+    this.missingAssetWarning.setAttribute("role", "note");
+    body.appendChild(this.missingAssetWarning);
 
     /* ---------- Transform section ---------- */
     this.transformSection = document.createElement("div");
@@ -289,12 +295,23 @@ export class InspectorPanel extends EditorPanel {
 
     if (!obj) {
       this.placeholder.style.display = "";
+      this.missingAssetWarning.textContent = "";
+      this.missingAssetWarning.classList.add("ke-hidden");
       this.transformSection.style.display = "none";
       this.materialSection.style.display = "none";
       return;
     }
 
     this.placeholder.style.display = "none";
+    if (obj.missingAssetPath) {
+      this.missingAssetWarning.textContent =
+        `Model unavailable: ${obj.missingAssetPath}. Kinema is showing a placeholder. ` +
+        "Copy the original file to public/assets/models/ and reload the level.";
+      this.missingAssetWarning.classList.remove("ke-hidden");
+    } else {
+      this.missingAssetWarning.textContent = "";
+      this.missingAssetWarning.classList.add("ke-hidden");
+    }
     this.transformSection.style.display = "";
     this.materialSection.style.display = "";
 

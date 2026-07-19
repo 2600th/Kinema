@@ -1,3 +1,4 @@
+import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { waitForGrounded, waitForKinema } from "./helpers/kinema";
 
@@ -24,6 +25,79 @@ async function placeBlock(page: import("@playwright/test").Page): Promise<void> 
     canvas.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0, clientX, clientY }));
   });
 }
+
+async function placeCurrentPreview(page: import("@playwright/test").Page): Promise<void> {
+  await page.locator("canvas").evaluate(async (canvas: HTMLCanvasElement) => {
+    const bounds = canvas.getBoundingClientRect();
+    const clientX = bounds.left + bounds.width * 0.5;
+    const clientY = bounds.top + bounds.height * 0.6;
+    canvas.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX, clientY }));
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    canvas.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0, clientX, clientY }));
+  });
+}
+
+test("explains session-only and missing GLB models", async ({ page }) => {
+  test.setTimeout(300_000);
+  await page.addInitScript(() => {
+    localStorage.setItem("kinema.user-settings.v1", JSON.stringify({ graphicsProfile: "performance" }));
+  });
+  await page.goto("/?station=steps", { waitUntil: "domcontentloaded" });
+  await waitForKinema(page);
+  await waitForGrounded(page);
+  await openEditor(page);
+
+  const objectCountBeforeImport = await page.evaluate(() => window.__KINEMA__.getEditorObjectCount());
+  const fileChooserPromise = page.waitForEvent("filechooser");
+  await page.getByTitle("Import GLB").click();
+  const fileChooser = await fileChooserPromise;
+  await fileChooser.setFiles(
+    path.resolve(
+      "public/assets/models/Universal Animation Library 2[Standard]/Female Mannequin/Unreal-Godot/Mannequin_F.glb",
+    ),
+  );
+
+  const noticeCopy =
+    "Imported model is session-only — copy it to public/assets/models/ to keep it after reload.";
+  const sessionNotice = page.locator('.ke-session-import-notice[role="status"]');
+  await expect(sessionNotice).toContainText(noticeCopy, { timeout: 60_000 });
+  await expect(sessionNotice.getByRole("button", { name: "Dismiss", exact: true })).toBeVisible();
+  await page.screenshot({ path: "docs/audits/evidence/29-glb-session-banner.png" });
+  await sessionNotice.getByRole("button", { name: "Dismiss", exact: true }).click();
+  await expect(sessionNotice).toBeHidden();
+
+  await placeCurrentPreview(page);
+  await expect
+    .poll(() => page.evaluate(() => window.__KINEMA__.getEditorObjectCount()))
+    .toBe(objectCountBeforeImport + 1);
+
+  page.once("dialog", (dialog) => void dialog.accept("kin021-session-model"));
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByTitle(/Save \(Ctrl\+S\)/).click();
+  await downloadPromise;
+  await expect(page.locator(".ke-document-title")).toHaveText("kin021-session-model");
+
+  await page.evaluate(() => window.history.replaceState(null, "", "/"));
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await waitForKinema(page);
+  await page.getByRole("button", { name: "Level Select", exact: true }).click();
+  const savedCard = page.locator(".menu-level-card").filter({ hasText: "kin021-session-model" });
+  await savedCard.getByRole("button", { name: "Play", exact: true }).click();
+  await page.locator(".loading-screen").waitFor({ state: "hidden", timeout: 120_000 });
+  await page.keyboard.press("F1");
+  await page.waitForFunction(() => window.__KINEMA__.isEditorActive(), undefined, { timeout: 60_000 });
+
+  const warningLabel = "GLB unavailable; placeholder shown.";
+  const hierarchyWarning = page.locator(`.ke-tree-row-warning[aria-label="${warningLabel}"]`);
+  await expect(hierarchyWarning).toBeVisible();
+  await hierarchyWarning.locator("..").click();
+  await expect(hierarchyWarning.locator("..")).toHaveClass(/ke-tree-row-selected/);
+  await expect(page.locator(".ke-inspector-warning")).toHaveText(
+    "Model unavailable: /assets/models/Mannequin_F.glb. Kinema is showing a placeholder. " +
+      "Copy the original file to public/assets/models/ and reload the level.",
+  );
+  await page.screenshot({ path: "docs/audits/evidence/30-glb-placeholder.png" });
+});
 
 test("protects unsaved editor work and saves through Ctrl+S", async ({ page }) => {
   test.setTimeout(300_000);

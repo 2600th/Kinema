@@ -34,4 +34,6 @@ export interface EditorObject {
   physicsType?: "static" | "dynamic" | "kinematic";
   /** Spawn point tag — only meaningful for spawn brushes (e.g. 'player', 'ai', 'item'). */
   spawnTag?: string;
+  /** Runtime-only path retained when a GLB is replaced by a missing-asset placeholder. */
+  missingAssetPath?: string;
 }

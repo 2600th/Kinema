@@ -113,6 +113,19 @@ describe("LevelSerializer", () => {
     expect(roundTripped?.objects.filter((object) => object.parentId === "brush-block")).toHaveLength(8);
   });
 
+  it("does not serialize runtime-only missing-asset metadata", () => {
+    const object = Object.assign(
+      makeEditorObject("missing-glb", { type: "glb", asset: "/assets/models/Missing.glb" }, 0, null),
+      { missingAssetPath: "/assets/models/Missing.glb" },
+    );
+
+    const serialized = serialize("Missing model", [object], CREATED);
+
+    expect(serialized.objects).toHaveLength(1);
+    expect(serialized.objects[0]).not.toHaveProperty("missingAssetPath");
+    expect(serialized.objects[0].source).toEqual({ type: "glb", asset: "/assets/models/Missing.glb" });
+  });
+
   it("migrates a V1 document to the current V2 shape", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(NOW));

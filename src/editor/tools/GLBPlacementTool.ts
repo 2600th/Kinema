@@ -23,10 +23,12 @@ export class GLBPlacementTool implements EditorTool {
 
   private readonly levelManager: LevelManager;
   private readonly onFinished: () => void;
+  private readonly onImported: (assetPath: string) => void;
 
-  constructor(opts: { levelManager: LevelManager; onFinished: () => void }) {
+  constructor(opts: { levelManager: LevelManager; onFinished: () => void; onImported: (assetPath: string) => void }) {
     this.levelManager = opts.levelManager;
     this.onFinished = opts.onFinished;
+    this.onImported = opts.onImported;
   }
 
   /* ---- Lifecycle ---- */
@@ -71,6 +73,11 @@ export class GLBPlacementTool implements EditorTool {
         clone.userData.animations = gltf.animations;
       }
       this.startPlacement(ctx, clone, assetPath);
+      this.onImported(assetPath);
+      console.warn(
+        `[Editor] Imported "${file.name}" for this session. ` +
+          `Copy the file to public/assets/models/ for it to persist across reloads.`,
+      );
     } catch (err) {
       console.error("[Editor] Failed to import GLB:", err);
     } finally {
@@ -78,10 +85,6 @@ export class GLBPlacementTool implements EditorTool {
       // Don't call evict() — that would dispose the shared scene/materials.
       URL.revokeObjectURL(objectUrl);
     }
-    console.warn(
-      `[Editor] Imported "${file.name}" for this session. ` +
-        `Copy the file to public/assets/models/ for it to persist across reloads.`,
-    );
   }
 
   /* ---- Tool interface ---- */
