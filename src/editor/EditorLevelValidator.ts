@@ -132,10 +132,10 @@ export function validateEditorLevelData(untrustedData: unknown): EditorLevelVali
       return { ok: false, reason: `The hierarchy contains a cycle at object "${cyclic?.id ?? "unknown"}".` };
     }
     return { ok: true };
-  } catch (error) {
+  } catch {
     return {
       ok: false,
-      reason: error instanceof Error ? error.message : "The level contains malformed semantic data.",
+      reason: "The level contains malformed semantic data.",
     };
   }
 }

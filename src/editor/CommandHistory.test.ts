@@ -3,12 +3,52 @@ import { type Command, CommandHistory } from "./CommandHistory";
 
 function createCommand(label: string, events: string[]): Command {
   return {
-    execute: vi.fn(() => events.push(`execute:${label}`)),
-    undo: vi.fn(() => events.push(`undo:${label}`)),
+    execute: vi.fn(() => {
+      events.push(`execute:${label}`);
+    }),
+    undo: vi.fn(() => {
+      events.push(`undo:${label}`);
+    }),
   };
 }
 
 describe("CommandHistory", () => {
+  it.each([
+    "push",
+    "undo",
+    "redo",
+  ] as const)("keeps history stacks and mutation state unchanged when %s reports failure", (operation) => {
+    const onMutation = vi.fn();
+    const history = new CommandHistory(onMutation);
+    const command: Command = {
+      execute: vi.fn(() => false),
+      undo: vi.fn(() => false),
+    };
+
+    if (operation !== "push") {
+      command.execute = vi.fn(() => true);
+      history.push(command);
+      onMutation.mockClear();
+      if (operation === "redo") {
+        command.undo = vi.fn(() => true);
+        history.undo();
+        onMutation.mockClear();
+        command.execute = vi.fn(() => false);
+      } else {
+        command.undo = vi.fn(() => false);
+      }
+    }
+
+    if (operation === "push") history.push(command);
+    else history[operation]();
+
+    expect(onMutation).not.toHaveBeenCalled();
+    if (operation === "push") history.undo();
+    if (operation === "undo") history.undo();
+    if (operation === "redo") history.redo();
+    expect(onMutation).not.toHaveBeenCalled();
+  });
+
   it("executes commands and preserves undo and redo ordering", () => {
     const events: string[] = [];
     const history = new CommandHistory();
@@ -93,7 +133,11 @@ describe("CommandHistory", () => {
     let canMutate = true;
     const onRejected = vi.fn();
     const events: string[] = [];
-    const history = new CommandHistory(() => {}, () => canMutate, onRejected);
+    const history = new CommandHistory(
+      () => {},
+      () => canMutate,
+      onRejected,
+    );
     const command = createCommand("locked", events);
 
     canMutate = false;

@@ -145,11 +145,14 @@ describe("AssetLoader", () => {
     );
 
     const bone = new THREE.Bone();
+    const sourceSkeleton = new THREE.Skeleton([bone], [new THREE.Matrix4().makeTranslation(1, 2, 3)]);
+    sourceSkeleton.boneTexture = new THREE.DataTexture(new Float32Array(16), 2, 2);
     const skinned = new THREE.SkinnedMesh(sharedGeometry, sharedMaterial);
+    const secondSkinned = new THREE.SkinnedMesh(sharedGeometry, sharedMaterial);
     skinned.add(bone);
-    skinned.bind(new THREE.Skeleton([bone]));
-    skinned.skeleton.boneTexture = new THREE.DataTexture(new Uint8Array(4), 1, 1);
-    root.add(skinned);
+    skinned.bind(sourceSkeleton);
+    secondSkinned.bind(sourceSkeleton);
+    root.add(skinned, secondSkinned);
     const loader = new AssetLoader();
 
     const owned = loader.adopt("/assets/models/drawables.glb", {
@@ -166,8 +169,20 @@ describe("AssetLoader", () => {
     expect(ownedDrawables[0]?.geometry).toBe(ownedDrawables[1]?.geometry);
     expect(ownedDrawables[0]?.material).toBe(ownedDrawables[2]?.material);
     const ownedSkinned = ownedDrawables[3] as THREE.SkinnedMesh;
+    const secondOwnedSkinned = ownedDrawables[4] as THREE.SkinnedMesh;
     expect(ownedSkinned.skeleton).not.toBe(skinned.skeleton);
-    expect(ownedSkinned.skeleton.boneTexture).not.toBe(skinned.skeleton.boneTexture);
+    expect(ownedSkinned.skeleton).toBe(secondOwnedSkinned.skeleton);
+    expect(ownedSkinned.skeleton.boneInverses).not.toBe(sourceSkeleton.boneInverses);
+    expect(ownedSkinned.skeleton.boneInverses[0]).not.toBe(sourceSkeleton.boneInverses[0]);
+    expect(ownedSkinned.skeleton.boneTexture).not.toBeNull();
+    expect(ownedSkinned.skeleton.boneTexture).not.toBe(sourceSkeleton.boneTexture);
+    const ownedSkeletonDispose = vi.spyOn(ownedSkinned.skeleton, "dispose");
+    const ownedBoneTexture = ownedSkinned.skeleton.boneTexture;
+    if (!ownedBoneTexture) throw new Error("Expected an independently owned bone texture.");
+    const ownedBoneTextureDispose = vi.spyOn(ownedBoneTexture, "dispose");
+    loader.disposeObject(owned.scene);
+    expect(ownedSkeletonDispose).toHaveBeenCalledOnce();
+    expect(ownedBoneTextureDispose).toHaveBeenCalledOnce();
     expect(owned.animations[0]).toBeDefined();
   });
 

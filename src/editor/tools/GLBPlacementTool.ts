@@ -24,17 +24,20 @@ export class GLBPlacementTool implements EditorTool {
   private readonly levelManager: LevelManager;
   private readonly onFinished: () => void;
   private readonly onImported: (assetPath: string) => void;
+  private readonly onError: (message: string) => void;
   private readonly getLifecycleGeneration: () => number;
 
   constructor(opts: {
     levelManager: LevelManager;
     onFinished: () => void;
     onImported: (assetPath: string) => void;
+    onError?: (message: string) => void;
     getLifecycleGeneration?: () => number;
   }) {
     this.levelManager = opts.levelManager;
     this.onFinished = opts.onFinished;
     this.onImported = opts.onImported;
+    this.onError = opts.onError ?? (() => {});
     this.getLifecycleGeneration = opts.getLifecycleGeneration ?? (() => 0);
   }
 
@@ -168,29 +171,12 @@ export class GLBPlacementTool implements EditorTool {
 
   private confirmPlacement(ctx: EditorToolContext): void {
     if (!this.glbPreview || !this.pendingGLBAsset) return;
-    const position = this.glbPreview.position.clone();
-    const assetPath = this.pendingGLBAsset;
-
-    // Remove the transparent preview
-    ctx.scene.remove(this.glbPreview);
-
-    // Transfer the owned preview scene directly into the document.
     const finalObj = this.glbPreview;
-    finalObj.traverse((child) => {
-      if (child instanceof THREE.Mesh && child.material) {
-        const materials = Array.isArray(child.material) ? child.material : [child.material];
-        for (const material of materials) {
-          const finalMaterial = material as THREE.MeshStandardMaterial;
-          finalMaterial.transparent = false;
-          finalMaterial.opacity = 1;
-          finalMaterial.depthWrite = true;
-        }
-        child.castShadow = true;
-        child.receiveShadow = true;
-      }
-    });
-    finalObj.position.copy(position);
-
+    const position = finalObj.position.clone();
+    const assetPath = this.pendingGLBAsset;
+    let body: RAPIER.RigidBody | null = null;
+    let published = false;
+    let publicationAttempted = false;
     const editorObj: EditorObject = {
       id: finalObj.uuid,
       name: `GLB_${++glbNameCounter}`,
@@ -208,47 +194,69 @@ export class GLBPlacementTool implements EditorTool {
       physicsType: "static",
     };
 
-    finalObj.userData.editorSource = editorObj.source;
-
-    // Create static physics body with approximate bounding box
-    const box = new THREE.Box3().setFromObject(finalObj);
-    const size = box.getSize(new THREE.Vector3());
-    const center = box.getCenter(new THREE.Vector3());
-    const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(center.x, center.y, center.z);
-    const body = ctx.physicsWorld.world.createRigidBody(bodyDesc);
-    const colliderDesc = RAPIER.ColliderDesc.cuboid(
-      Math.max(size.x / 2, 0.01),
-      Math.max(size.y / 2, 0.01),
-      Math.max(size.z / 2, 0.01),
-    );
-    let collider: RAPIER.Collider;
     try {
-      collider = ctx.physicsWorld.world.createCollider(colliderDesc, body);
+      // Prepare the descriptor before allocating a body.
+      const box = new THREE.Box3().setFromObject(finalObj);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+      const colliderDesc = RAPIER.ColliderDesc.cuboid(
+        Math.max(size.x / 2, 0.01),
+        Math.max(size.y / 2, 0.01),
+        Math.max(size.z / 2, 0.01),
+      );
+      const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(center.x, center.y, center.z);
+      body = ctx.physicsWorld.world.createRigidBody(bodyDesc);
+      const collider = ctx.physicsWorld.world.createCollider(colliderDesc, body);
+      editorObj.body = body;
+      editorObj.collider = collider;
+
+      finalObj.traverse((child) => {
+        if (!(child instanceof THREE.Mesh) || !child.material) return;
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        for (const material of materials) {
+          const finalMaterial = material as THREE.MeshStandardMaterial;
+          finalMaterial.transparent = false;
+          finalMaterial.opacity = 1;
+          finalMaterial.depthWrite = true;
+        }
+        child.castShadow = true;
+        child.receiveShadow = true;
+      });
+      finalObj.position.copy(position);
+      finalObj.userData.editorSource = editorObj.source;
+      ctx.scene.remove(finalObj);
+
+      publicationAttempted = true;
+      published = ctx.history.push({
+        execute: () => {
+          ctx.addEditorObject(editorObj, ctx.scene);
+          ctx.syncHierarchy();
+          ctx.eventBus.emit("editor:objectAdded", { id: editorObj.id });
+          ctx.setSelection(editorObj);
+        },
+        undo: () => {
+          ctx.removeEditorObject(editorObj.id);
+          ctx.syncHierarchy();
+          ctx.eventBus.emit("editor:objectRemoved", { id: editorObj.id });
+        },
+      });
+      if (!published) throw new Error("History rejected GLB placement.");
+      this.glbPreview = null;
+      this.pendingGLBAsset = null;
+      this.placementPhase = "idle";
+      this.onFinished();
     } catch (error) {
-      ctx.physicsWorld.removeBody(body);
-      throw error;
+      console.error("[Editor] GLB placement failed:", error);
+      if (publicationAttempted) ctx.removeEditorObject?.(editorObj.id);
+      ctx.scene.remove(finalObj);
+      if (body) ctx.physicsWorld.removeBody(body);
+      this.levelManager.getAssetLoader().disposeObject(finalObj);
+      this.glbPreview = null;
+      this.pendingGLBAsset = null;
+      this.placementPhase = "idle";
+      this.onError("Imported model could not be placed. No editor changes were made.");
+      this.onFinished();
     }
-    editorObj.body = body;
-    editorObj.collider = collider;
-
-    ctx.history.push({
-      execute: () => {
-        ctx.addEditorObject(editorObj, ctx.scene);
-        ctx.syncHierarchy();
-        ctx.eventBus.emit("editor:objectAdded", { id: editorObj.id });
-      },
-      undo: () => {
-        ctx.removeEditorObject(editorObj.id);
-        ctx.syncHierarchy();
-        ctx.eventBus.emit("editor:objectRemoved", { id: editorObj.id });
-      },
-    });
-
-    ctx.setSelection(editorObj);
-    this.glbPreview = null;
-    this.pendingGLBAsset = null;
-    this.placementPhase = "idle";
-    this.onFinished();
   }
 
   cancelPlacement(ctx: EditorToolContext): void {
@@ -267,8 +275,6 @@ export class GLBPlacementTool implements EditorTool {
   }
 
   private isImportCurrent(importGeneration: number, lifecycleGeneration: number): boolean {
-    return (
-      this.importGeneration === importGeneration && this.getLifecycleGeneration() === lifecycleGeneration
-    );
+    return this.importGeneration === importGeneration && this.getLifecycleGeneration() === lifecycleGeneration;
   }
 }

@@ -93,13 +93,16 @@ export class BrushPlacementTool implements EditorTool {
   private readonly onFinished: () => void;
   /** Callback to keep the BrushPanel highlight in sync. */
   private readonly onBrushChanged: (brushId: string | null) => void;
+  private readonly onError: (message: string) => void;
 
   constructor(opts: {
     onFinished: () => void;
     onBrushChanged: (brushId: string | null) => void;
+    onError?: (message: string) => void;
   }) {
     this.onFinished = opts.onFinished;
     this.onBrushChanged = opts.onBrushChanged;
+    this.onError = opts.onError ?? (() => {});
   }
 
   /* ---- Lifecycle ---- */
@@ -249,43 +252,52 @@ export class BrushPlacementTool implements EditorTool {
 
     mesh.userData.editorSource = editorObj.source;
 
-    // Create static physics body/collider for physical brushes (not spawn or trigger)
-    if (brush.id !== "spawn" && brush.id !== "trigger") {
-      const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(position.x, position.y, position.z);
-      const colliderDesc = buildColliderDesc(brush.id, geometry, mesh);
-      const body = ctx.physicsWorld.world.createRigidBody(bodyDesc);
-      let collider: RAPIER.Collider;
-      try {
-        collider = ctx.physicsWorld.world.createCollider(colliderDesc, body);
-      } catch (error) {
-        ctx.physicsWorld.removeBody(body);
-        throw error;
+    let body: RAPIER.RigidBody | null = null;
+    let publicationAttempted = false;
+    try {
+      // Create static physics body/collider for physical brushes (not spawn or trigger).
+      // Descriptor construction remains before body allocation.
+      if (brush.id !== "spawn" && brush.id !== "trigger") {
+        const colliderDesc = buildColliderDesc(brush.id, geometry, mesh);
+        const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(position.x, position.y, position.z);
+        body = ctx.physicsWorld.world.createRigidBody(bodyDesc);
+        editorObj.body = body;
+        editorObj.collider = ctx.physicsWorld.world.createCollider(colliderDesc, body);
       }
-      editorObj.body = body;
-      editorObj.collider = collider;
+
+      publicationAttempted = true;
+      const published = ctx.history.push({
+        execute: () => {
+          ctx.addEditorObject(editorObj, ctx.scene);
+          ctx.syncHierarchy();
+          ctx.eventBus.emit("editor:objectAdded", { id: editorObj.id });
+          ctx.setSelection(editorObj);
+        },
+        undo: () => {
+          ctx.removeEditorObject(editorObj.id);
+          ctx.syncHierarchy();
+          ctx.eventBus.emit("editor:objectRemoved", { id: editorObj.id });
+        },
+      });
+      if (!published) throw new Error("History rejected brush placement.");
+      this.cleanupPreview(ctx);
+      this.placementPhase = "idle";
+      this.activeBrush = null;
+      this.onBrushChanged(null);
+      this.onFinished();
+    } catch (error) {
+      console.error("[Editor] Brush placement failed:", error);
+      if (publicationAttempted) ctx.removeEditorObject?.(editorObj.id);
+      if (body) ctx.physicsWorld.removeBody(body);
+      geometry.dispose();
+      material.dispose();
+      this.cleanupPreview(ctx);
+      this.placementPhase = "idle";
+      this.activeBrush = null;
+      this.onBrushChanged(null);
+      this.onError("Brush could not be placed. No editor changes were made.");
+      this.onFinished();
     }
-
-    // Push to undo stack
-    ctx.history.push({
-      execute: () => {
-        ctx.addEditorObject(editorObj, ctx.scene);
-        ctx.syncHierarchy();
-        ctx.eventBus.emit("editor:objectAdded", { id: editorObj.id });
-      },
-      undo: () => {
-        ctx.removeEditorObject(editorObj.id);
-        ctx.syncHierarchy();
-        ctx.eventBus.emit("editor:objectRemoved", { id: editorObj.id });
-      },
-    });
-
-    // Select the new object, switch back to selection tool
-    ctx.setSelection(editorObj);
-    this.cleanupPreview(ctx);
-    this.placementPhase = "idle";
-    this.activeBrush = null;
-    this.onBrushChanged(null);
-    this.onFinished();
   }
 
   cancelPlacement(ctx: EditorToolContext): void {

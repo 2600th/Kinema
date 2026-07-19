@@ -1,7 +1,8 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
 
-type WorldPoseBody = Pick<RAPIER.RigidBody, "setTranslation" | "setRotation">;
+type WorldPoseBody = Pick<RAPIER.RigidBody, "setTranslation" | "setRotation"> &
+  Partial<Pick<RAPIER.RigidBody, "translation" | "rotation">>;
 
 export type ObjectWorldPhysicsPose = Readonly<{
   position: THREE.Vector3;
@@ -45,12 +46,12 @@ export function validateWorldMatrixAttachment(
   try {
     const prospectiveLocal = targetParentWorld.clone().invert().multiply(objectWorld);
     if (!matrixCanDecomposeExactly(prospectiveLocal)) {
-      return { ok: false, reason: "This hierarchy edit would create a sheared local transform that cannot be preserved exactly." };
+      return {
+        ok: false,
+        reason: "This hierarchy edit would create a sheared local transform that cannot be preserved exactly.",
+      };
     }
-    if (
-      (physicsType === "dynamic" || physicsType === "kinematic") &&
-      matrixHasNonUniformScale(targetParentWorld)
-    ) {
+    if ((physicsType === "dynamic" || physicsType === "kinematic") && matrixHasNonUniformScale(targetParentWorld)) {
       return {
         ok: false,
         reason: `Moving ${physicsType} physics cannot be parented below non-uniform inherited scale.`,
@@ -58,7 +59,10 @@ export function validateWorldMatrixAttachment(
     }
     return { ok: true };
   } catch (error) {
-    return { ok: false, reason: error instanceof Error ? error.message : "The hierarchy transform is not representable." };
+    return {
+      ok: false,
+      reason: error instanceof Error ? error.message : "The hierarchy transform is not representable.",
+    };
   }
 }
 
@@ -81,7 +85,10 @@ export function validateObjectPhysicsTransform(
     }
     return { ok: true };
   } catch (error) {
-    return { ok: false, reason: error instanceof Error ? error.message : "The physics transform is not representable." };
+    return {
+      ok: false,
+      reason: error instanceof Error ? error.message : "The physics transform is not representable.",
+    };
   }
 }
 
@@ -107,7 +114,9 @@ export function getObjectWorldPhysicsPose(object: THREE.Object3D): ObjectWorldPh
   // shapes, but no shear. A rotated child below non-uniform inherited scale
   // produces shear and therefore has no exact Rapier representation.
   const recomposed = new THREE.Matrix4().compose(position, rotation, scale);
-  if (object.matrixWorld.elements.some((value, index) => Math.abs(value - recomposed.elements[index]) > MATRIX_EPSILON)) {
+  if (
+    object.matrixWorld.elements.some((value, index) => Math.abs(value - recomposed.elements[index]) > MATRIX_EPSILON)
+  ) {
     throw new Error("Physics does not support a rotated child under non-uniform inherited scale.");
   }
   return { position, rotation, scale };
@@ -187,6 +196,7 @@ export type AtomicPhysicsSyncOptions<TEntry, TCollider, TColliderDesc> = {
   buildColliderDesc(entry: TEntry): TColliderDesc;
   createCollider(desc: TColliderDesc, body: WorldPoseBody): TCollider;
   removeCollider(collider: TCollider): void;
+  prepareColliderRestore?(entry: TEntry, collider: TCollider): () => TCollider;
   commitCollider(entry: TEntry, replacement: TCollider): void;
 };
 
@@ -211,8 +221,13 @@ export function syncPhysicsSubtreeAtomically<
     body: WorldPoseBody;
     pose: ObjectWorldPhysicsPose;
     colliderDesc?: TColliderDesc;
+    previousPose?: {
+      position: { x: number; y: number; z: number };
+      rotation: { x: number; y: number; z: number; w: number };
+    };
   }> = [];
 
+  const retired = new Set<TCollider>();
   try {
     for (const entry of entries) {
       if (!entry.body || !nodes.has(entry.mesh)) continue;
@@ -220,40 +235,95 @@ export function syncPhysicsSubtreeAtomically<
         entry,
         body: entry.body,
         pose: getObjectWorldPhysicsPose(entry.mesh),
-        ...(options.rebuildColliders && entry.collider
-          ? { colliderDesc: options.buildColliderDesc(entry) }
+        ...(entry.body.translation && entry.body.rotation
+          ? {
+              previousPose: {
+                position: { ...entry.body.translation() },
+                rotation: { ...entry.body.rotation() },
+              },
+            }
           : {}),
+        ...(options.rebuildColliders && entry.collider ? { colliderDesc: options.buildColliderDesc(entry) } : {}),
       });
     }
   } catch (error) {
     return { ok: false, reason: error instanceof Error ? error.message : "Physics preparation failed." };
   }
 
-  const replacements: Array<{ entry: TEntry; collider: TCollider }> = [];
+  const replacements: Array<{
+    entry: TEntry;
+    collider: TCollider;
+    oldCollider: TCollider;
+    restore?: () => TCollider;
+  }> = [];
   try {
     for (const item of prepared) {
       if (item.colliderDesc === undefined) continue;
       replacements.push({
         entry: item.entry,
         collider: options.createCollider(item.colliderDesc, item.body),
+        oldCollider: item.entry.collider as TCollider,
       });
     }
   } catch (error) {
     for (const replacement of replacements) options.removeCollider(replacement.collider);
     return { ok: false, reason: error instanceof Error ? error.message : "Collider replacement failed." };
   }
+  try {
+    for (const replacement of replacements) {
+      replacement.restore = options.prepareColliderRestore?.(replacement.entry, replacement.oldCollider);
+    }
+  } catch (error) {
+    for (const replacement of replacements) options.removeCollider(replacement.collider);
+    return { ok: false, reason: error instanceof Error ? error.message : "Collider rollback preparation failed." };
+  }
 
-  for (const item of prepared) {
-    item.body.setTranslation(new RAPIER.Vector3(item.pose.position.x, item.pose.position.y, item.pose.position.z), true);
-    item.body.setRotation(
-      new RAPIER.Quaternion(item.pose.rotation.x, item.pose.rotation.y, item.pose.rotation.z, item.pose.rotation.w),
-      true,
-    );
+  try {
+    for (const item of prepared) {
+      item.body.setTranslation(
+        new RAPIER.Vector3(item.pose.position.x, item.pose.position.y, item.pose.position.z),
+        true,
+      );
+      item.body.setRotation(
+        new RAPIER.Quaternion(item.pose.rotation.x, item.pose.rotation.y, item.pose.rotation.z, item.pose.rotation.w),
+        true,
+      );
+    }
+    // Publish tracking only after all poses and replacement colliders exist.
+    // Old colliders stay live until every tracking update has succeeded.
+    for (const replacement of replacements) {
+      options.commitCollider(replacement.entry, replacement.collider);
+    }
+    for (const replacement of replacements) {
+      options.removeCollider(replacement.oldCollider);
+      retired.add(replacement.oldCollider);
+    }
+    return { ok: true };
+  } catch {
+    for (const item of prepared) {
+      if (!item.previousPose) continue;
+      try {
+        item.body.setTranslation(item.previousPose.position as RAPIER.Vector, true);
+        item.body.setRotation(item.previousPose.rotation as RAPIER.Rotation, true);
+      } catch {
+        // Continue rolling back the remaining independently owned resources.
+      }
+    }
+    for (const replacement of replacements) {
+      try {
+        const rollbackCollider = retired.has(replacement.oldCollider)
+          ? replacement.restore?.()
+          : replacement.oldCollider;
+        if (rollbackCollider) options.commitCollider(replacement.entry, rollbackCollider);
+      } catch {
+        // Best effort for an external tracking callback that is itself failing.
+      }
+      try {
+        options.removeCollider(replacement.collider);
+      } catch {
+        // Continue rolling back the remaining replacements.
+      }
+    }
+    return { ok: false, reason: "Physics commit failed; the previous state was restored." };
   }
-  for (const replacement of replacements) {
-    const oldCollider = replacement.entry.collider;
-    if (oldCollider) options.removeCollider(oldCollider);
-    options.commitCollider(replacement.entry, replacement.collider);
-  }
-  return { ok: true };
 }

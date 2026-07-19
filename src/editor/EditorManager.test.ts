@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
+import { CommandHistory } from "./CommandHistory";
 import { EditorManager } from "./EditorManager";
 import type { EditorObject } from "./EditorObject";
 
@@ -24,6 +25,32 @@ interface EditorManagerHarness {
   } | null;
   inspectorEditObjectId: string | null;
   applyInspectorTransform(transform: TransformTuple, phase: "preview" | "commit"): void;
+  applyTransform(
+    obj: EditorObject,
+    transform: { position: THREE.Vector3; rotation: THREE.Euler; scale: THREE.Vector3 },
+  ): boolean;
+  onDragStateChanged(dragging: boolean): void;
+  dragStartTransform: { position: THREE.Vector3; rotation: THREE.Euler; scale: THREE.Vector3 } | null;
+  history: CommandHistory;
+}
+
+interface DuplicateManagerHarness {
+  guardDocumentMutation(): boolean;
+  document: {
+    duplicateById: ReturnType<typeof vi.fn>;
+    findById: ReturnType<typeof vi.fn>;
+  };
+  physicsWorld: {
+    world: {
+      createRigidBody: ReturnType<typeof vi.fn>;
+      createCollider: ReturnType<typeof vi.fn>;
+    };
+    removeBody: ReturnType<typeof vi.fn>;
+  };
+  history: { push: ReturnType<typeof vi.fn> };
+  showPhysicsMutationError: ReturnType<typeof vi.fn>;
+  setSelection: ReturnType<typeof vi.fn>;
+  duplicateById(id: string): void;
 }
 
 function makeObject(): EditorObject {
@@ -90,15 +117,72 @@ describe("EditorManager inspector transform transactions", () => {
     selected.mesh.position.set(3, 4, 5);
     selected.transform.position = [3, 4, 5];
 
-    manager.applyInspectorTransform(
-      { position: [3, 4, 5], rotation: [0, 0, 0], scale: [1, 1, 1] },
-      "commit",
-    );
+    manager.applyInspectorTransform({ position: [3, 4, 5], rotation: [0, 0, 0], scale: [1, 1, 1] }, "commit");
 
     expect(selected.mesh.position.toArray()).toEqual([0, 0, 0]);
     expect(selected.transform.position).toEqual([0, 0, 0]);
     expect(manager.syncPhysicsSubtree.mock.calls.map((call: unknown[]) => call[1])).toEqual([true, false]);
     expect(manager.markDirty).not.toHaveBeenCalled();
-    expect(manager.showPhysicsMutationError).toHaveBeenCalledWith(expect.stringMatching(/reverted.*second descendant/i));
+    expect(manager.showPhysicsMutationError).toHaveBeenCalledWith(
+      expect.stringMatching(/reverted.*second descendant/i),
+    );
+  });
+});
+
+describe("EditorManager gizmo history transactions", () => {
+  it("rolls a failed gizmo commit back and does not dirty or retain history", () => {
+    const selected = makeObject();
+    const manager = makeManager(selected);
+    manager.dragStartTransform = {
+      position: new THREE.Vector3(0, 0, 0),
+      rotation: new THREE.Euler(0, 0, 0),
+      scale: new THREE.Vector3(1, 1, 1),
+    };
+    manager.history = new CommandHistory(() => (manager.markDirty as unknown as () => void)());
+    manager.syncPhysicsSubtree = vi
+      .fn()
+      .mockReturnValueOnce({ ok: true })
+      .mockReturnValueOnce({ ok: false, reason: "commit failed" })
+      .mockReturnValueOnce({ ok: true });
+    selected.mesh.position.set(4, 5, 6);
+    selected.transform.position = [4, 5, 6];
+
+    manager.onDragStateChanged(false);
+
+    expect(selected.mesh.position.toArray()).toEqual([0, 0, 0]);
+    expect(selected.transform.position).toEqual([0, 0, 0]);
+    expect(manager.markDirty).not.toHaveBeenCalled();
+    manager.history.undo();
+    expect(manager.syncPhysicsSubtree).toHaveBeenCalledTimes(3);
+    expect(manager.showPhysicsMutationError).toHaveBeenCalledWith(expect.stringMatching(/commit failed/i));
+  });
+
+  it("keeps duplicate physics and history unpublished when collider creation fails", () => {
+    const duplicate = makeObject();
+    const body = { id: "duplicate-body" };
+    const removeBody = vi.fn();
+    const historyPush = vi.fn();
+    const manager = Object.create(EditorManager.prototype) as DuplicateManagerHarness;
+    manager.guardDocumentMutation = () => true;
+    manager.document = { duplicateById: vi.fn(() => duplicate), findById: vi.fn(() => undefined) };
+    manager.physicsWorld = {
+      world: {
+        createRigidBody: vi.fn(() => body),
+        createCollider: vi.fn(() => {
+          throw new Error("duplicate collider failed");
+        }),
+      },
+      removeBody,
+    };
+    manager.history = { push: historyPush };
+    manager.showPhysicsMutationError = vi.fn();
+    manager.setSelection = vi.fn();
+
+    expect(() => manager.duplicateById("source")).not.toThrow();
+
+    expect(removeBody).toHaveBeenCalledWith(body);
+    expect(historyPush).not.toHaveBeenCalled();
+    expect(manager.setSelection).not.toHaveBeenCalled();
+    expect(manager.showPhysicsMutationError).toHaveBeenCalledWith(expect.stringMatching(/duplicate/i));
   });
 });

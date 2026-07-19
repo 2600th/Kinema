@@ -248,6 +248,35 @@ describe("LevelManager transactional editor JSON loading", () => {
   });
 });
 
+describe("LevelManager non-mesh GLTF physics ownership", () => {
+  it.each(["collider", "sensor"] as const)("removes the %s body when collider creation fails", async (type) => {
+    const scene = new THREE.Scene();
+    const body = { id: `${type}-body` };
+    const physicsWorld = {
+      world: {
+        createRigidBody: vi.fn(() => body),
+        createCollider: vi.fn(() => {
+          throw new Error(`${type} collider failed`);
+        }),
+      },
+      removeCollider: vi.fn(),
+      removeBody: vi.fn(),
+    };
+    const manager = new LevelManager(scene, physicsWorld as any, { emit: vi.fn() } as any);
+    const group = new THREE.Group();
+    group.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()));
+    vi.spyOn(manager.getAssetLoader(), "load").mockResolvedValue({ scene: new THREE.Group(), animations: [] } as any);
+    vi.spyOn((manager as any).meshParser, "parse").mockReturnValue([{ type, object: group, mesh: null }]);
+    vi.spyOn((manager as any).levelValidator, "validate").mockImplementation(() => {});
+
+    await expect((manager as any).loadGLTF("ownership-test")).rejects.toThrow(`${type} collider failed`);
+
+    expect(physicsWorld.removeBody).toHaveBeenCalledWith(body);
+    expect((manager as any).levelBodies).toHaveLength(0);
+    expect((manager as any).levelColliders).toHaveLength(0);
+  });
+});
+
 describe("LevelManager load timing", () => {
   it.each([
     {

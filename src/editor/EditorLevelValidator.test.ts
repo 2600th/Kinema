@@ -29,16 +29,18 @@ function levelWith(objects: SerializedObjectV2[]): LevelDataV2 {
 }
 
 describe("validateEditorLevelData", () => {
-  it.each(["group", "cube", "sphere", "cylinder", "capsule", "plane"])(
-    "accepts the supported %s primitive",
-    (primitive) => {
-      const result = validateEditorLevelData(
-        levelWith([objectWith({ type: "primitive", primitive })]),
-      );
+  it.each([
+    "group",
+    "cube",
+    "sphere",
+    "cylinder",
+    "capsule",
+    "plane",
+  ])("accepts the supported %s primitive", (primitive) => {
+    const result = validateEditorLevelData(levelWith([objectWith({ type: "primitive", primitive })]));
 
-      expect(result).toEqual({ ok: true });
-    },
-  );
+    expect(result).toEqual({ ok: true });
+  });
 
   it("accepts a known brush and a GLB with a non-empty asset path", () => {
     expect(
@@ -58,9 +60,7 @@ describe("validateEditorLevelData", () => {
     { label: "unsupported sprite", source: { type: "sprite" } },
     { label: "unknown source type", source: { type: "future" } },
   ])("rejects $label source data", ({ source }) => {
-    const result = validateEditorLevelData(
-      levelWith([objectWith(source as SerializedObjectV2["source"])]),
-    );
+    const result = validateEditorLevelData(levelWith([objectWith(source as SerializedObjectV2["source"])]));
 
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("Expected invalid source data");
@@ -68,9 +68,7 @@ describe("validateEditorLevelData", () => {
   });
 
   it("rejects an unknown brush id", () => {
-    const result = validateEditorLevelData(
-      levelWith([objectWith({ type: "brush", brush: "not-a-brush" })]),
-    );
+    const result = validateEditorLevelData(levelWith([objectWith({ type: "brush", brush: "not-a-brush" })]));
 
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("Expected unknown brush rejection");
@@ -129,24 +127,24 @@ describe("validateEditorLevelData", () => {
     expect(result.reason).toMatch(/non-uniform inherited scale/i);
   });
 
-  it.each(["dynamic", "kinematic"] as const)(
-    "rejects an axis-aligned %s child below a non-uniformly scaled parent",
-    (type) => {
-      const parent = objectWith({ type: "primitive", primitive: "group" }, "scaled-parent");
-      parent.transform.scale = [2, 1, 0.5];
-      const child = objectWith({ type: "primitive", primitive: "cube" }, `${type}-child`);
-      child.parentId = parent.id;
-      child.physics.type = type;
+  it.each([
+    "dynamic",
+    "kinematic",
+  ] as const)("rejects an axis-aligned %s child below a non-uniformly scaled parent", (type) => {
+    const parent = objectWith({ type: "primitive", primitive: "group" }, "scaled-parent");
+    parent.transform.scale = [2, 1, 0.5];
+    const child = objectWith({ type: "primitive", primitive: "cube" }, `${type}-child`);
+    child.parentId = parent.id;
+    child.physics.type = type;
 
-      const result = validateEditorLevelData(levelWith([parent, child]));
+    const result = validateEditorLevelData(levelWith([parent, child]));
 
-      expect(result.ok).toBe(false);
-      if (result.ok) throw new Error("Expected moving-body inherited scale rejection");
-      expect(result.reason).toContain(`${type}-child`);
-      expect(result.reason).toMatch(/dynamic|kinematic|moving/i);
-      expect(result.reason).toMatch(/non-uniform/i);
-    },
-  );
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("Expected moving-body inherited scale rejection");
+    expect(result.reason).toContain(`${type}-child`);
+    expect(result.reason).toMatch(/dynamic|kinematic|moving/i);
+    expect(result.reason).toMatch(/non-uniform/i);
+  });
 
   it("rejects a hidden dynamic child below non-uniform inherited scale before it can later be shown", () => {
     const parent = objectWith({ type: "primitive", primitive: "group" }, "scaled-parent");
@@ -161,10 +159,39 @@ describe("validateEditorLevelData", () => {
 
   it.each([
     ["missing objects", { version: 2, name: "bad", created: "x", modified: "x", spawnPoint: { position: [0, 2, 0] } }],
-    ["bad parent id", levelWith([{ ...objectWith({ type: "primitive", primitive: "cube" }), parentId: 42 } as unknown as SerializedObjectV2])],
-    ["bad transform tuple", levelWith([{ ...objectWith({ type: "primitive", primitive: "cube" }), transform: { position: [0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] } } as unknown as SerializedObjectV2])],
-    ["non-finite transform", levelWith([{ ...objectWith({ type: "primitive", primitive: "cube" }), transform: { position: [0, 0, 0], rotation: [0, Number.NaN, 0], scale: [1, 1, 1] } }])],
-    ["bad physics", levelWith([{ ...objectWith({ type: "primitive", primitive: "cube" }), physics: { type: "future" } } as unknown as SerializedObjectV2])],
+    [
+      "bad parent id",
+      levelWith([
+        { ...objectWith({ type: "primitive", primitive: "cube" }), parentId: 42 } as unknown as SerializedObjectV2,
+      ]),
+    ],
+    [
+      "bad transform tuple",
+      levelWith([
+        {
+          ...objectWith({ type: "primitive", primitive: "cube" }),
+          transform: { position: [0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+        } as unknown as SerializedObjectV2,
+      ]),
+    ],
+    [
+      "non-finite transform",
+      levelWith([
+        {
+          ...objectWith({ type: "primitive", primitive: "cube" }),
+          transform: { position: [0, 0, 0], rotation: [0, Number.NaN, 0], scale: [1, 1, 1] },
+        },
+      ]),
+    ],
+    [
+      "bad physics",
+      levelWith([
+        {
+          ...objectWith({ type: "primitive", primitive: "cube" }),
+          physics: { type: "future" },
+        } as unknown as SerializedObjectV2,
+      ]),
+    ],
   ])("totally rejects malformed V2 data: %s", (_label, malformed) => {
     expect(() => validateEditorLevelData(malformed as LevelDataV2)).not.toThrow();
     expect(validateEditorLevelData(malformed as LevelDataV2).ok).toBe(false);
@@ -185,7 +212,7 @@ describe("validateEditorLevelData", () => {
     expect(validateEditorLevelData(levelWith(objects))).toEqual({ ok: true });
   });
 
-  it("turns unexpected structural access errors into a validation result", () => {
+  it("turns unexpected structural access errors into a constant validation result", () => {
     let accesses = 0;
     const source = Object.defineProperty({ primitive: "cube" }, "type", {
       get: () => {
@@ -200,8 +227,33 @@ describe("validateEditorLevelData", () => {
     expect(() => {
       result = validateEditorLevelData(hostile);
     }).not.toThrow();
-    expect(result).toEqual(
-      expect.objectContaining({ ok: false, reason: expect.stringMatching(/hostile getter/i) }),
-    );
+    expect(result).toEqual({ ok: false, reason: "The level contains malformed semantic data." });
+  });
+
+  it.each([
+    Object.defineProperty(new Error("hidden"), "message", {
+      get: () => {
+        throw new Error("message must not be read");
+      },
+    }),
+    Object.defineProperty({}, "message", {
+      get: () => {
+        throw new Error("object message must not be read");
+      },
+    }),
+  ])("never reads properties from a thrown value", (hostileError) => {
+    let accesses = 0;
+    const source = Object.defineProperty({ primitive: "cube" }, "type", {
+      get: () => {
+        accesses++;
+        if (accesses === 1) return "primitive";
+        throw hostileError;
+      },
+    }) as SerializedObjectV2["source"];
+
+    expect(validateEditorLevelData(levelWith([objectWith(source)]))).toEqual({
+      ok: false,
+      reason: "The level contains malformed semantic data.",
+    });
   });
 });

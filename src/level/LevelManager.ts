@@ -15,7 +15,6 @@ import { ColliderFactory } from "@physics/ColliderFactory";
 import type { PhysicsWorld } from "@physics/PhysicsWorld";
 import type { GpuResourceMutationScheduler } from "@renderer/gpuResourceMutationQueue";
 import * as THREE from "three";
-import { clone as skeletonClone } from "three/addons/utils/SkeletonUtils.js";
 import { AssetLoader } from "./AssetLoader";
 import { LevelValidator } from "./LevelValidator";
 import { LightingSystem } from "./LightingSystem";
@@ -466,31 +465,31 @@ export class LevelManager implements Disposable {
       this.spawnPoint = createDefaultSpawnPoint();
       this.eventBus.emit("loading:progress", { progress: 0.1 });
 
-    // Apply spawn point from JSON — prefer tagged spawnPoints array, fall back to legacy
-    const playerSpawn = data.spawnPoints?.find((s) => s.tag === "player") ?? data.spawnPoints?.[0];
-    if (playerSpawn) {
-      const [x, y, z] = playerSpawn.position;
-      this.spawnPoint = {
-        position: new THREE.Vector3(x, y, z),
-        ...(playerSpawn.rotation && {
-          rotation: new THREE.Euler(playerSpawn.rotation[0], playerSpawn.rotation[1], playerSpawn.rotation[2]),
-        }),
-      };
-    } else if (data.spawnPoint?.position) {
-      const [x, y, z] = data.spawnPoint.position;
-      this.spawnPoint = { position: new THREE.Vector3(x, y, z) };
-    }
+      // Apply spawn point from JSON — prefer tagged spawnPoints array, fall back to legacy
+      const playerSpawn = data.spawnPoints?.find((s) => s.tag === "player") ?? data.spawnPoints?.[0];
+      if (playerSpawn) {
+        const [x, y, z] = playerSpawn.position;
+        this.spawnPoint = {
+          position: new THREE.Vector3(x, y, z),
+          ...(playerSpawn.rotation && {
+            rotation: new THREE.Euler(playerSpawn.rotation[0], playerSpawn.rotation[1], playerSpawn.rotation[2]),
+          }),
+        };
+      } else if (data.spawnPoint?.position) {
+        const [x, y, z] = data.spawnPoint.position;
+        this.spawnPoint = { position: new THREE.Vector3(x, y, z) };
+      }
 
       const spawnedObjects = new Map<string, SpawnedJsonObject>();
 
-    // Create each object first so hierarchy can be reconstructed before physics is built.
+      // Create each object first so hierarchy can be reconstructed before physics is built.
       for (const entry of data.objects) {
         const spawned = await this.spawnJSONObject(entry);
         if (!spawned) throw new Error(`Object "${entry.id}" could not be reconstructed.`);
         spawnedObjects.set(entry.id, spawned);
       }
 
-    // Rebuild the authored hierarchy using serialized local transforms.
+      // Rebuild the authored hierarchy using serialized local transforms.
       for (const entry of data.objects) {
         const spawned = spawnedObjects.get(entry.id);
         if (!spawned) throw new Error(`Object "${entry.id}" disappeared before hierarchy reconstruction.`);
@@ -510,7 +509,7 @@ export class LevelManager implements Disposable {
         obj.visible = entry.visible ?? true;
       }
 
-    // Finalize tracking and physics once world transforms are correct.
+      // Finalize tracking and physics once world transforms are correct.
       for (const entry of data.objects) {
         const spawned = spawnedObjects.get(entry.id);
         if (!spawned) throw new Error(`Object "${entry.id}" disappeared before physics reconstruction.`);
@@ -685,19 +684,7 @@ export class LevelManager implements Disposable {
       const sessionOwned = this.assetLoader.has(assetPath);
       if (!sessionOwned) this.importedAssetPaths.add(assetPath);
       const gltf = await this.assetLoader.load(assetPath);
-      // Clone the entire scene so multi-mesh GLBs keep all children.
-      // Deep-clone geometry and material per-mesh so disposal during unload
-      // doesn't invalidate the cached GLTF for future reloads.
-      const clone = skeletonClone(gltf.scene);
-      clone.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          child.geometry = child.geometry.clone();
-          child.material = Array.isArray(child.material)
-            ? child.material.map((m: THREE.Material) => m.clone())
-            : child.material.clone();
-        }
-      });
-      return clone;
+      return gltf.scene;
     } catch (err) {
       console.warn(`[LevelManager] Failed to load GLB "${assetPath}", using placeholder`, err);
       const geo = new THREE.BoxGeometry(1, 1, 1);
@@ -1070,7 +1057,13 @@ export class LevelManager implements Disposable {
                 Math.max(size.y / 2, 0.01),
                 Math.max(size.z / 2, 0.01),
               );
-              const collider = this.physicsWorld.world.createCollider(colliderDesc, body);
+              let collider: RAPIER.Collider;
+              try {
+                collider = this.physicsWorld.world.createCollider(colliderDesc, body);
+              } catch (error) {
+                this.physicsWorld.removeBody(body);
+                throw error;
+              }
               this.levelBodies.push(body);
               this.levelColliders.push(collider);
             }
@@ -1097,7 +1090,13 @@ export class LevelManager implements Disposable {
                 Math.max(size.y / 2, 0.01),
                 Math.max(size.z / 2, 0.01),
               ).setSensor(true);
-              const collider = this.physicsWorld.world.createCollider(colliderDesc, body);
+              let collider: RAPIER.Collider;
+              try {
+                collider = this.physicsWorld.world.createCollider(colliderDesc, body);
+              } catch (error) {
+                this.physicsWorld.removeBody(body);
+                throw error;
+              }
               this.levelBodies.push(body);
               this.levelColliders.push(collider);
             } else {

@@ -1,6 +1,8 @@
 export interface Command {
-  execute(): void;
-  undo(): void;
+  // biome-ignore lint/suspicious/noConfusingVoidType: existing commands return void; false alone rejects a transaction.
+  execute(): void | boolean;
+  // biome-ignore lint/suspicious/noConfusingVoidType: existing commands return void; false alone rejects a transaction.
+  undo(): void | boolean;
 }
 
 export class CommandHistory {
@@ -14,42 +16,43 @@ export class CommandHistory {
     private readonly onRejected: () => void = () => {},
   ) {}
 
-  push(cmd: Command): void {
+  push(cmd: Command): boolean {
     if (!this.canMutate()) {
       this.onRejected();
-      return;
+      return false;
     }
-    cmd.execute();
+    if (cmd.execute() === false) return false;
     this.undoStack.push(cmd);
-    if (this.undoStack.length > this.maxSize) {
-      this.undoStack.shift();
-    }
+    if (this.undoStack.length > this.maxSize) this.undoStack.shift();
     this.redoStack = [];
     this.onMutation();
+    return true;
   }
 
-  undo(): void {
+  undo(): boolean {
     if (!this.canMutate()) {
       this.onRejected();
-      return;
+      return false;
     }
-    const cmd = this.undoStack.pop();
-    if (!cmd) return;
-    cmd.undo();
+    const cmd = this.undoStack.at(-1);
+    if (!cmd || cmd.undo() === false) return false;
+    this.undoStack.pop();
     this.redoStack.push(cmd);
     this.onMutation();
+    return true;
   }
 
-  redo(): void {
+  redo(): boolean {
     if (!this.canMutate()) {
       this.onRejected();
-      return;
+      return false;
     }
-    const cmd = this.redoStack.pop();
-    if (!cmd) return;
-    cmd.execute();
+    const cmd = this.redoStack.at(-1);
+    if (!cmd || cmd.execute() === false) return false;
+    this.redoStack.pop();
     this.undoStack.push(cmd);
     this.onMutation();
+    return true;
   }
 
   clear(): void {

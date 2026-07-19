@@ -179,7 +179,12 @@ export class AssetLoader {
     const geometryClones = new Map<THREE.BufferGeometry, THREE.BufferGeometry>();
     const materialClones = new Map<THREE.Material, THREE.Material>();
     const textureClones = new Map<THREE.Texture, THREE.Texture>();
-    scene.traverse((child) => {
+    const sourceNodes: THREE.Object3D[] = [];
+    const ownedNodes: THREE.Object3D[] = [];
+    const skeletonClones = new Map<THREE.Skeleton, THREE.Skeleton>();
+    gltf.scene.traverse((child) => sourceNodes.push(child));
+    scene.traverse((child) => ownedNodes.push(child));
+    ownedNodes.forEach((child, index) => {
       if (!isDrawable(child)) return;
       let geometry = geometryClones.get(child.geometry);
       if (!geometry) {
@@ -190,20 +195,24 @@ export class AssetLoader {
       child.material = Array.isArray(child.material)
         ? child.material.map((material) => this.cloneMaterialForUse(material, materialClones, textureClones))
         : this.cloneMaterialForUse(child.material, materialClones, textureClones);
-      if (child instanceof THREE.SkinnedMesh && child.skeleton.boneTexture) {
-        child.skeleton.boneTexture = this.cloneTextureForUse(
-          child.skeleton.boneTexture,
-          textureClones,
-        ) as THREE.DataTexture;
+      const source = sourceNodes[index];
+      if (child instanceof THREE.SkinnedMesh && source instanceof THREE.SkinnedMesh) {
+        let skeleton = skeletonClones.get(source.skeleton);
+        if (!skeleton) {
+          skeleton = new THREE.Skeleton(
+            child.skeleton.bones,
+            source.skeleton.boneInverses.map((inverse) => inverse.clone()),
+          );
+          if (source.skeleton.boneTexture) skeleton.computeBoneTexture();
+          skeletonClones.set(source.skeleton, skeleton);
+        }
+        child.skeleton = skeleton;
       }
     });
     return { ...gltf, scene };
   }
 
-  private cloneTextureForUse(
-    texture: THREE.Texture,
-    textureClones: Map<THREE.Texture, THREE.Texture>,
-  ): THREE.Texture {
+  private cloneTextureForUse(texture: THREE.Texture, textureClones: Map<THREE.Texture, THREE.Texture>): THREE.Texture {
     let clone = textureClones.get(texture);
     if (!clone) {
       clone = texture.clone();

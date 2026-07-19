@@ -107,19 +107,17 @@ describe("syncRigidBodyToObjectWorldPose", () => {
     expect(() => getObjectWorldPhysicsPose(child)).toThrow(/non-uniform inherited scale/i);
   });
 
-  it.each(["dynamic", "kinematic"] as const)(
-    "rejects an axis-aligned %s body under non-uniform inherited parent scale",
-    (type) => {
-      const parent = new THREE.Group();
-      parent.scale.set(2, 1, 0.5);
-      const child = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
-      parent.add(child);
+  it.each([
+    "dynamic",
+    "kinematic",
+  ] as const)("rejects an axis-aligned %s body under non-uniform inherited parent scale", (type) => {
+    const parent = new THREE.Group();
+    parent.scale.set(2, 1, 0.5);
+    const child = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+    parent.add(child);
 
-      expect(validateObjectPhysicsTransform(child, type)).toEqual(
-        expect.objectContaining({ ok: false }),
-      );
-    },
-  );
+    expect(validateObjectPhysicsTransform(child, type)).toEqual(expect.objectContaining({ ok: false }));
+  });
 
   it("allows an exact static axis-aligned collider under non-uniform inherited scale", () => {
     const parent = new THREE.Group();
@@ -138,9 +136,7 @@ describe("syncRigidBodyToObjectWorldPose", () => {
     scene.add(parent, child);
     scene.updateWorldMatrix(true, true);
 
-    expect(validatePhysicsAttachment(child, parent, "dynamic")).toEqual(
-      expect.objectContaining({ ok: false }),
-    );
+    expect(validatePhysicsAttachment(child, parent, "dynamic")).toEqual(expect.objectContaining({ ok: false }));
     expect(child.parent).toBe(scene);
   });
 
@@ -178,9 +174,9 @@ describe("syncRigidBodyToObjectWorldPose", () => {
 
     const prospectiveGroupWorld = new THREE.Matrix4().makeTranslation(3, 0, 0);
 
-    expect(
-      validateWorldMatrixAttachment(rotatedChild.matrixWorld, prospectiveGroupWorld, "static"),
-    ).toEqual(expect.objectContaining({ ok: false }));
+    expect(validateWorldMatrixAttachment(rotatedChild.matrixWorld, prospectiveGroupWorld, "static")).toEqual(
+      expect.objectContaining({ ok: false }),
+    );
     expect(rotatedChild.parent).toBe(scaledParent);
   });
 
@@ -241,5 +237,112 @@ describe("syncRigidBodyToObjectWorldPose", () => {
     expect(firstBody.setTranslation).not.toHaveBeenCalled();
     expect(secondBody.setTranslation).not.toHaveBeenCalled();
     expect(commitCollider).not.toHaveBeenCalled();
+  });
+
+  it("rolls back body poses, collider tracking, and replacements when commit tracking throws", () => {
+    const root = new THREE.Group();
+    const firstMesh = new THREE.Mesh(new THREE.BoxGeometry());
+    const secondMesh = new THREE.Mesh(new THREE.BoxGeometry());
+    root.add(firstMesh, secondMesh);
+    root.position.set(8, 0, 0);
+    const makeBody = (x: number) => {
+      const state = { position: { x, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } };
+      return {
+        state,
+        translation: () => ({ ...state.position }),
+        rotation: () => ({ ...state.rotation }),
+        setTranslation: vi.fn((value: { x: number; y: number; z: number }) => {
+          state.position = { ...value };
+        }),
+        setRotation: vi.fn((value: { x: number; y: number; z: number; w: number }) => {
+          state.rotation = { ...value };
+        }),
+      };
+    };
+    const firstBody = makeBody(1);
+    const secondBody = makeBody(2);
+    const firstOld = { id: "first-old" };
+    const secondOld = { id: "second-old" };
+    const firstEntry = { mesh: firstMesh, body: firstBody, collider: firstOld };
+    const secondEntry = { mesh: secondMesh, body: secondBody, collider: secondOld };
+    const firstReplacement = { id: "first-new" };
+    const secondReplacement = { id: "second-new" };
+    const removeCollider = vi.fn();
+    const commitCollider = vi.fn((entry: typeof firstEntry, collider: typeof firstOld) => {
+      if (entry === secondEntry && collider === secondReplacement) throw new Error("tracking failed");
+      entry.collider = collider;
+    });
+
+    const result = syncPhysicsSubtreeAtomically(root, [firstEntry, secondEntry], {
+      rebuildColliders: true,
+      buildColliderDesc: (entry) => ({ mesh: entry.mesh }),
+      createCollider: vi.fn().mockReturnValueOnce(firstReplacement).mockReturnValueOnce(secondReplacement),
+      removeCollider,
+      commitCollider,
+    });
+
+    expect(result).toEqual(expect.objectContaining({ ok: false }));
+    expect(firstBody.state.position).toEqual({ x: 1, y: 0, z: 0 });
+    expect(secondBody.state.position).toEqual({ x: 2, y: 0, z: 0 });
+    expect(firstEntry.collider).toBe(firstOld);
+    expect(secondEntry.collider).toBe(secondOld);
+    expect(removeCollider).toHaveBeenCalledWith(firstReplacement);
+    expect(removeCollider).toHaveBeenCalledWith(secondReplacement);
+    expect(removeCollider).not.toHaveBeenCalledWith(firstOld);
+    expect(removeCollider).not.toHaveBeenCalledWith(secondOld);
+  });
+
+  it("restores already-retired old colliders when a later retirement throws", () => {
+    const root = new THREE.Group();
+    const firstMesh = new THREE.Mesh(new THREE.BoxGeometry());
+    const secondMesh = new THREE.Mesh(new THREE.BoxGeometry());
+    root.add(firstMesh, secondMesh);
+    const body = () => ({
+      translation: () => ({ x: 0, y: 0, z: 0 }),
+      rotation: () => ({ x: 0, y: 0, z: 0, w: 1 }),
+      setTranslation: vi.fn(),
+      setRotation: vi.fn(),
+    });
+    const firstOld = { id: "first-old" };
+    const secondOld = { id: "second-old" };
+    const firstEntry = { mesh: firstMesh, body: body(), collider: firstOld };
+    const secondEntry = { mesh: secondMesh, body: body(), collider: secondOld };
+    const firstNew = { id: "first-new" };
+    const secondNew = { id: "second-new" };
+    const restoredFirst = { id: "first-restored" };
+    const commitCollider = vi.fn((entry: typeof firstEntry, collider: typeof firstOld) => {
+      entry.collider = collider;
+    });
+    const removeCollider = vi.fn((collider: typeof firstOld) => {
+      if (collider === secondOld) throw new Error("second retirement failed");
+    });
+    const restoreFirst = vi.fn(() => restoredFirst);
+    const restoreSecond = vi.fn(() => secondOld);
+    const restoreCollider = vi.fn((entry: typeof firstEntry, old: typeof firstOld) => {
+      if (entry === firstEntry) {
+        expect(old).toBe(firstOld);
+        return restoreFirst;
+      }
+      expect(old).toBe(secondOld);
+      return restoreSecond;
+    });
+
+    const result = syncPhysicsSubtreeAtomically(root, [firstEntry, secondEntry], {
+      rebuildColliders: true,
+      buildColliderDesc: () => ({}),
+      createCollider: vi.fn().mockReturnValueOnce(firstNew).mockReturnValueOnce(secondNew),
+      removeCollider,
+      prepareColliderRestore: restoreCollider,
+      commitCollider,
+    });
+
+    expect(result).toEqual(expect.objectContaining({ ok: false }));
+    expect(restoreCollider).toHaveBeenCalledTimes(2);
+    expect(restoreFirst).toHaveBeenCalledOnce();
+    expect(restoreSecond).not.toHaveBeenCalled();
+    expect(firstEntry.collider).toBe(restoredFirst);
+    expect(secondEntry.collider).toBe(secondOld);
+    expect(removeCollider).toHaveBeenCalledWith(firstNew);
+    expect(removeCollider).toHaveBeenCalledWith(secondNew);
   });
 });

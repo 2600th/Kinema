@@ -177,21 +177,47 @@ describe("GLBPlacementTool import boundaries", () => {
     expect(disposeTransient).toHaveBeenCalledOnce();
   });
 
-  it("removes a newly created body and leaves history untouched when collider creation fails", () => {
+  it.each([
+    "descriptor",
+    "body",
+    "collider",
+    "material",
+  ] as const)("aborts and disposes the owned preview without publishing when %s finalization fails", (failure) => {
     const body = { id: "new-body" };
     const removeBody = vi.fn();
     const historyPush = vi.fn();
+    const disposeObject = vi.fn();
+    const onFinished = vi.fn();
+    const onError = vi.fn();
     const scene = new THREE.Scene();
     const preview = new THREE.Group();
-    preview.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial()));
+    const material = new THREE.MeshStandardMaterial();
+    if (failure === "material") {
+      Object.defineProperty(material, "transparent", {
+        configurable: true,
+        set: () => {
+          throw new Error("forced GLB material failure");
+        },
+      });
+    }
+    preview.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), material));
+    if (failure === "descriptor") {
+      preview.updateWorldMatrix = () => {
+        throw new Error("forced GLB descriptor failure");
+      };
+    }
     scene.add(preview);
     const context = {
       scene,
       physicsWorld: {
         world: {
-          createRigidBody: vi.fn(() => body),
+          createRigidBody: vi.fn(() => {
+            if (failure === "body") throw new Error("forced GLB body failure");
+            return body;
+          }),
           createCollider: vi.fn(() => {
-            throw new Error("forced GLB collider failure");
+            if (failure === "collider") throw new Error("forced GLB collider failure");
+            return { id: "collider" };
           }),
         },
         removeBody,
@@ -199,9 +225,10 @@ describe("GLBPlacementTool import boundaries", () => {
       history: { push: historyPush },
     } as unknown as EditorToolContext;
     const tool = new GLBPlacementTool({
-      levelManager: { getAssetLoader: () => ({ disposeObject: vi.fn() }) } as unknown as LevelManager,
-      onFinished: vi.fn(),
+      levelManager: { getAssetLoader: () => ({ disposeObject }) } as unknown as LevelManager,
+      onFinished,
       onImported: vi.fn(),
+      onError,
     });
     const internals = tool as unknown as {
       glbPreview: THREE.Group | null;
@@ -212,10 +239,16 @@ describe("GLBPlacementTool import boundaries", () => {
     internals.pendingGLBAsset = "/assets/models/failure.glb";
     internals.placementPhase = "position";
 
-    expect(() => tool.onPointerDown(context, { button: 0 } as MouseEvent)).toThrow("forced GLB collider failure");
+    expect(() => tool.onPointerDown(context, { button: 0 } as MouseEvent)).not.toThrow();
 
-    expect(removeBody).toHaveBeenCalledOnce();
-    expect(removeBody).toHaveBeenCalledWith(body);
+    if (failure === "collider" || failure === "material") expect(removeBody).toHaveBeenCalledWith(body);
+    else expect(removeBody).not.toHaveBeenCalled();
     expect(historyPush).not.toHaveBeenCalled();
+    expect(scene.children).not.toContain(preview);
+    expect(disposeObject).toHaveBeenCalledWith(preview);
+    expect(tool.isPlacing()).toBe(false);
+    expect(internals.pendingGLBAsset).toBeNull();
+    expect(onFinished).toHaveBeenCalledOnce();
+    expect(onError).toHaveBeenCalledWith(expect.stringMatching(/could not be placed/i));
   });
 });
