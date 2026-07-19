@@ -1,10 +1,18 @@
-import { COLLISION_GROUP_VEHICLE, DEFAULT_PLAYER_CONFIG, VEHICLE_DOMINANCE_GROUP } from "@core/constants";
+import { COLLISION_GROUP_VEHICLE, VEHICLE_DOMINANCE_GROUP } from "@core/constants";
 import type { InputState, SpawnPointData } from "@core/types";
 import RAPIER from "@dimforge/rapier3d-compat";
 import { toRapierQuat } from "@physics/PhysicsHelpers";
 import type { PhysicsWorld } from "@physics/PhysicsWorld";
 import * as THREE from "three";
 import type { VehicleController, VehicleDriftState, VehicleHandlingFeelState } from "./VehicleController";
+import {
+  findFirstClearVerticalExitCandidate,
+  isVehicleExitCandidateClear,
+  isVehicleExitGroundSupported,
+  isVehicleExitPathClear,
+  PLAYER_EXIT_CAPSULE_HALF_EXTENT,
+  pickFirstClearVehicleExitCandidate,
+} from "./vehicleExitSafety";
 
 const _quat = new THREE.Quaternion();
 const _targetQuat = new THREE.Quaternion();
@@ -23,16 +31,15 @@ const _contactPointSum = new THREE.Vector3();
 const _rv3A = new RAPIER.Vector3(0, 0, 0);
 const _rv3B = new RAPIER.Vector3(0, 0, 0);
 const _rqIdentity = new RAPIER.Quaternion(0, 0, 0, 1);
-const _playerExitShape = new RAPIER.Capsule(
-  DEFAULT_PLAYER_CONFIG.capsuleHalfHeight,
-  DEFAULT_PLAYER_CONFIG.capsuleRadius,
-);
 const _exitCandidates = [
   new THREE.Vector3(-1.75, 0, 0),
   new THREE.Vector3(1.75, 0, 0),
   new THREE.Vector3(0, 0, 2.8),
+  new THREE.Vector3(0, 0, -2.8),
 ] as const;
+const ENABLE_SAFE_VEHICLE_EXITS = true;
 const CAR_EXIT_CAPSULE_CLEARANCE = 1.1;
+const CAR_EXIT_ROOF_MARGIN = 0.2;
 const CAR_EXIT_GROUND_PROBE_RAY_HEIGHT = 2;
 const CAR_EXIT_GROUND_PROBE_MAX_TOI = 50;
 const ACTIVE_CAR_DOMINANCE_GROUP = 0;
@@ -297,11 +304,8 @@ function createWheelBaseCenters(ride: CarRideGeometry): readonly THREE.Vector3[]
 export function pickFirstClearCarExitCandidate(
   candidates: readonly THREE.Vector3[],
   isClear: (candidate: THREE.Vector3) => boolean,
-): THREE.Vector3 {
-  for (const candidate of candidates) {
-    if (isClear(candidate)) return candidate.clone();
-  }
-  return candidates[0]?.clone() ?? new THREE.Vector3();
+): THREE.Vector3 | null {
+  return pickFirstClearVehicleExitCandidate(candidates, isClear);
 }
 
 type WheelVisualNode = {
@@ -893,9 +897,39 @@ export class CarController implements VehicleController {
     const projectedCandidates = transformedCandidates.map((candidate) =>
       this.projectExitCandidateToGround(candidate, exitY),
     );
+    const lateralExit = pickFirstClearCarExitCandidate(
+      projectedCandidates,
+      (candidate) =>
+        this.isExitCandidateClear(candidate) &&
+        isVehicleExitPathClear(
+          this.physicsWorld,
+          basePos.clone().setY(candidate.y),
+          candidate,
+          [this.body, this.wheelQueryExcludedBody],
+        ) &&
+        isVehicleExitGroundSupported(this.physicsWorld, candidate, [this.body, this.wheelQueryExcludedBody]),
+    );
+    if (lateralExit || !ENABLE_SAFE_VEHICLE_EXITS) {
+      return { position: lateralExit ?? projectedCandidates[0] ?? basePos };
+    }
+
+    const roofStartY =
+      basePos.y +
+      this.rideGeometry.chassisColliderOffsetY +
+      this.rideGeometry.chassisHalfExtents.y +
+      PLAYER_EXIT_CAPSULE_HALF_EXTENT +
+      CAR_EXIT_ROOF_MARGIN;
+    const roofOrigin = basePos.clone().setY(roofStartY);
     return {
-      position: pickFirstClearCarExitCandidate(projectedCandidates, (candidate) =>
-        this.isExitCandidateClear(candidate),
+      position: findFirstClearVerticalExitCandidate(
+        basePos,
+        roofStartY,
+        (candidate) => this.isExitCandidateClear(candidate),
+        (candidate) =>
+          isVehicleExitPathClear(this.physicsWorld, roofOrigin, candidate, [
+            this.body,
+            this.wheelQueryExcludedBody,
+          ]),
       ),
     };
   }
@@ -1978,22 +2012,7 @@ export class CarController implements VehicleController {
   }
 
   private isExitCandidateClear(candidate: THREE.Vector3): boolean {
-    return !this.physicsWorld.intersectsShape(
-      _setCRV(_rv3A, candidate.x, candidate.y, candidate.z),
-      _rqIdentity,
-      _playerExitShape,
-      undefined,
-      undefined,
-      (collider) => {
-        if (collider.isSensor()) return false;
-        const parent = collider.parent();
-        // The car's own chassis is not an obstacle; without this exclusion,
-        // candidates overlapping the tilted chassis all read as blocked and
-        // the fallback can place the player inside the car.
-        if (parent && parent.handle === this.body.handle) return false;
-        return !(parent && this.wheelQueryExcludedBody && parent.handle === this.wheelQueryExcludedBody.handle);
-      },
-    );
+    return isVehicleExitCandidateClear(this.physicsWorld, candidate, [this.body, this.wheelQueryExcludedBody]);
   }
 
   private projectExitCandidateToGround(candidate: THREE.Vector3, fallbackY: number): THREE.Vector3 {

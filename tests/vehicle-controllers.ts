@@ -7,6 +7,7 @@ type VehicleState = {
   active: boolean;
   position: { x: number; y: number; z: number };
   velocity: { x: number; y: number; z: number };
+  rotation: { x: number; y: number; z: number; w: number };
   debug?: {
     groundedWheelCount?: number;
     frontGroundedWheelCount?: number;
@@ -51,6 +52,15 @@ async function waitForVehiclesStationReady(page: Page): Promise<void> {
   await waitForGrounded(page);
 }
 
+async function waitForFullVehiclesReady(page: Page): Promise<void> {
+  await page.goto("/?spawn=vehicles", { waitUntil: "domcontentloaded" });
+  await page.locator("canvas").waitFor({ state: "visible", timeout: 60_000 });
+  await waitForGrounded(page);
+  await page.waitForFunction(() => window.__KINEMA__.listVehicles().includes("car-1"), undefined, {
+    timeout: 60_000,
+  });
+}
+
 async function getVehicleState(page: Page, id: string): Promise<VehicleState> {
   const state = await page.evaluate((vehicleId) => window.__KINEMA__.getVehicleState(vehicleId), id);
   expect(state).not.toBeNull();
@@ -71,16 +81,19 @@ async function getVehicleSteeringTrace(page: Page, id: string): Promise<KinemaVe
 }
 
 async function enterVehicle(page: Page, id: string): Promise<void> {
-  const entered = await page.evaluate((vehicleId) => window.__KINEMA__.enterVehicle(vehicleId), id);
-  expect(entered).toBe(true);
-  await page.waitForFunction(
-    (vehicleId) => {
-      const state = window.__KINEMA__.getVehicleState(vehicleId);
-      return Boolean(state?.active);
-    },
-    id,
-    { timeout: 10_000 },
-  );
+  await expect
+    .poll(
+      () =>
+        page.evaluate((vehicleId) => {
+          const state = window.__KINEMA__.getVehicleState(vehicleId);
+          if (!state) return "missing";
+          if (state.active) return "active";
+          window.__KINEMA__.enterVehicle(vehicleId);
+          return window.__KINEMA__.getVehicleState(vehicleId)?.active ? "active" : "cooldown";
+        }, id),
+      { timeout: 10_000, intervals: [100, 250, 500] },
+    )
+    .toBe("active");
 }
 
 async function exitActiveVehicle(page: Page): Promise<void> {
@@ -488,6 +501,105 @@ test.describe("Vehicle Controllers", () => {
 
     expect(moved.ok).toBe(true);
     expect(moved.delta).toBeGreaterThan(0.14);
+  });
+
+  test("car exits wall-flush placements into capsule-clear space 20 times", async ({ page }) => {
+    await waitForFullVehiclesReady(page);
+    const spawn = await getVehicleState(page, "car-1");
+
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const wallX = attempt % 2 === 0 ? -28.1 : 28.1;
+      const forced = await page.evaluate(
+        ({ x, y, z }) => window.__KINEMA__.forceVehicleTransform("car-1", { x, y, z }, 0),
+        { x: wallX, y: spawn.position.y, z: spawn.position.z },
+      );
+      expect(forced).toBe(true);
+      await enterVehicle(page, "car-1");
+      await exitActiveVehicle(page);
+      const player = await page.evaluate(() => window.__KINEMA__.player);
+
+      expect(Number.isFinite(player.position.x)).toBe(true);
+      const distanceFromInnerWallPlane = Math.abs(Math.abs(player.position.x) - 29.5);
+      expect(distanceFromInnerWallPlane).toBeGreaterThan(0.3);
+      await page.evaluate(() => window.__KINEMA__.resetVehicle("car-1"));
+      await page.waitForFunction(() => window.__KINEMA__.player.isGrounded, undefined, { timeout: 10_000 });
+    }
+  });
+
+  test("holding keyboard crouch resets a flipped car upright within three seconds", async ({ page }) => {
+    await waitForVehiclesStationReady(page);
+    await page.evaluate(() => window.__KINEMA__.setGraphicsProfile("performance"));
+    const spawn = await getVehicleState(page, "car-1");
+    const forced = await page.evaluate(
+      ({ x, y, z }) =>
+        window.__KINEMA__.forceVehicleTransform("car-1", { x: x + 3, y: y + 0.58, z }, 0, {
+          x: 1,
+          y: 0,
+          z: 0,
+          w: 0,
+        }),
+      spawn.position,
+    );
+    expect(forced).toBe(true);
+    await enterVehicle(page, "car-1");
+
+    await page.evaluate(() => window.__KINEMA__.simulateVehicleInput({ crouch: true }, 1000));
+    await expect(page.locator("#hud-hold")).toHaveClass(/is-visible/, { timeout: 10_000 });
+    await expect(page.locator("#hud-hold .hud-hold-key")).toHaveText("C");
+    await expect(page.locator("#hud-status-lane")).toContainText("Vehicle reset", { timeout: 20_000 });
+
+    const reset = await getVehicleState(page, "car-1");
+    const upY = 1 - 2 * (reset.rotation.x * reset.rotation.x + reset.rotation.z * reset.rotation.z);
+    expect(upY).toBeGreaterThan(0.9);
+    expect(reset.active).toBe(true);
+    expect(
+      Math.hypot(
+        reset.position.x - spawn.position.x,
+        reset.position.y - spawn.position.y,
+        reset.position.z - spawn.position.z,
+      ),
+    ).toBeLessThan(0.8);
+    await page.evaluate(() => window.__KINEMA__.clearSimulatedInput());
+  });
+
+  test("gamepad B drives the reset hold ring and cancels on release", async ({ page }) => {
+    await page.addInitScript(() => {
+      const state = { active: false };
+      Object.defineProperty(window, "__KINEMA_RESET_TEST_GAMEPAD__", { value: state, configurable: true });
+      Object.defineProperty(navigator, "getGamepads", {
+        configurable: true,
+        value: () => [
+          {
+            axes: [0, 0, 0, 0],
+            buttons: Array.from({ length: 16 }, (_, index) => ({
+              pressed: state.active && index === 1,
+              touched: state.active && index === 1,
+              value: state.active && index === 1 ? 1 : 0,
+            })),
+            connected: true,
+            id: "Kinema reset test pad",
+            index: 0,
+            mapping: "standard",
+            timestamp: 0,
+          },
+        ],
+      });
+    });
+    await waitForVehiclesStationReady(page);
+    await enterVehicle(page, "car-1");
+
+    await page.evaluate(() => {
+      (window as unknown as { __KINEMA_RESET_TEST_GAMEPAD__: { active: boolean } }).__KINEMA_RESET_TEST_GAMEPAD__.active =
+        true;
+    });
+    await expect(page.locator("#hud-hold")).toHaveClass(/is-visible/, { timeout: 5_000 });
+    await expect(page.locator("#hud-hold .hud-hold-key")).toHaveText("B");
+
+    await page.evaluate(() => {
+      (window as unknown as { __KINEMA_RESET_TEST_GAMEPAD__: { active: boolean } }).__KINEMA_RESET_TEST_GAMEPAD__.active =
+        false;
+    });
+    await expect(page.locator("#hud-hold")).not.toHaveClass(/is-visible/, { timeout: 5_000 });
   });
 
   test("drone entry activates drone and forward input produces motion", async ({ page }) => {

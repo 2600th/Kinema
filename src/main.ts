@@ -628,12 +628,14 @@ async function bootstrap(): Promise<void> {
         if (!vehicle) return null;
         const pos = vehicle.body.translation();
         const vel = vehicle.body.linvel();
+        const rotation = vehicle.body.rotation();
         const debug = isCarController(vehicle) ? vehicle.getDebugState() : undefined;
         return {
           id,
           active: vehicleManager.isActive() && vehicleManager.getVehicle(id) === vehicle,
           position: { x: pos.x, y: pos.y, z: pos.z },
           velocity: { x: vel.x, y: vel.y, z: vel.z },
+          rotation: { x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w },
           debug,
         };
       },
@@ -726,11 +728,21 @@ async function bootstrap(): Promise<void> {
         await renderer.waitForGpuResourceMutations();
         return renderer.getDebugFlags().graphicsProfile;
       },
-      forceVehicleTransform(id: string, position: { x: number; y: number; z: number }, yaw = 0) {
+      forceVehicleTransform(
+        id: string,
+        position: { x: number; y: number; z: number },
+        yaw = 0,
+        rotation?: { x: number; y: number; z: number; w: number },
+      ) {
         const vehicle = vehicleManager.getVehicle(id);
         if (!vehicle) return false;
         vehicle.body.setTranslation(new RAPIER.Vector3(position.x, position.y, position.z), true);
-        vehicle.body.setRotation(new RAPIER.Quaternion(0, Math.sin(yaw * 0.5), 0, Math.cos(yaw * 0.5)), true);
+        vehicle.body.setRotation(
+          rotation
+            ? new RAPIER.Quaternion(rotation.x, rotation.y, rotation.z, rotation.w)
+            : new RAPIER.Quaternion(0, Math.sin(yaw * 0.5), 0, Math.cos(yaw * 0.5)),
+          true,
+        );
         vehicle.body.setLinvel(new RAPIER.Vector3(0, 0, 0), true);
         vehicle.body.setAngvel(new RAPIER.Vector3(0, 0, 0), true);
         return true;

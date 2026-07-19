@@ -44,6 +44,7 @@ export interface KinemaVehicleState {
   active: boolean;
   position: KinemaVector3;
   velocity: KinemaVector3;
+  rotation: KinemaQuaternion;
   debug?: KinemaVehicleDebugState;
 }
 
@@ -120,7 +121,7 @@ export interface KinemaDebugApi {
   getGraphicsProfile(): GraphicsProfile;
   getRendererDebugFlags(): Readonly<RendererDebugFlags>;
   setGraphicsProfile(profile: GraphicsProfile): Promise<GraphicsProfile>;
-  forceVehicleTransform(id: string, position: KinemaVector3, yaw?: number): boolean;
+  forceVehicleTransform(id: string, position: KinemaVector3, yaw?: number, rotation?: KinemaQuaternion): boolean;
   forceVehicleVelocity(id: string, velocity: KinemaVector3): boolean;
   enterVehicle(id: string): boolean;
   resetVehicle(id: string): boolean;

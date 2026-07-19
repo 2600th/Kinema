@@ -141,6 +141,48 @@ describe("UIManager", () => {
     ui.dispose();
   });
 
+  it("uses the crouch glyph for vehicle reset progress and restores interaction afterward", () => {
+    const listeners = new Map<string, (payload: any) => void>();
+    const on = vi.fn((event: string, handler: (payload: any) => void) => {
+      listeners.set(event, handler);
+      return () => {};
+    });
+    const ui = new UIManager({ on } as any);
+    const hud = hudInstances[0];
+
+    listeners.get("input:sourceChanged")?.({ source: "gamepad" });
+    listeners.get("vehicle:resetHoldProgress")?.({ id: "car-1", progress: 0.5 });
+    listeners.get("vehicle:resetHoldProgress")?.(null);
+    listeners.get("vehicle:reset")?.({ id: "car-1" });
+
+    expect(hud.setInteractionGlyph).toHaveBeenNthCalledWith(1, "X");
+    expect(hud.setInteractionGlyph).toHaveBeenNthCalledWith(2, "B");
+    expect(hud.setHoldProgress).toHaveBeenCalledWith(0.5);
+    expect(hud.setHoldProgress).toHaveBeenCalledWith(null);
+    expect(hud.setInteractionGlyph).toHaveBeenLastCalledWith("B");
+    expect(hud.showStatus).toHaveBeenCalledWith("Vehicle reset");
+    ui.dispose();
+  });
+
+  it("updates an active reset hold and entry hint when the input source changes", () => {
+    const listeners = new Map<string, (payload: any) => void>();
+    const on = vi.fn((event: string, handler: (payload: any) => void) => {
+      listeners.set(event, handler);
+      return () => {};
+    });
+    const ui = new UIManager({ on } as any);
+    const hud = hudInstances[0];
+
+    listeners.get("vehicle:resetHoldProgress")?.({ id: "car-1", progress: 0.25 });
+    listeners.get("input:sourceChanged")?.({ source: "gamepad" });
+    listeners.get("vehicle:resetAvailable")?.({ id: "car-1" });
+
+    expect(hud.setInteractionGlyph).toHaveBeenNthCalledWith(1, "C");
+    expect(hud.setInteractionGlyph).toHaveBeenNthCalledWith(2, "B");
+    expect(hud.showStatus).toHaveBeenCalledWith("Hold B to reset while stopped or upside-down", 2800);
+    ui.dispose();
+  });
+
   it("routes collectible count updates to the HUD collectible chip", () => {
     const listeners = new Map<string, (payload: any) => void>();
     const on = vi.fn((event: string, handler: (payload: any) => void) => {

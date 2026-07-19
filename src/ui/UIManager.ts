@@ -1,6 +1,7 @@
 import type { EventBus } from "@core/EventBus";
 import { shouldShowLandscapeHint } from "@core/mobilePlatform";
-import type { Disposable } from "@core/types";
+import type { Disposable, InputSource } from "@core/types";
+import type { InputAction } from "@input/InputGlyphs";
 import { getInputGlyph } from "@input/InputGlyphs";
 import { DeathEffect } from "./components/DeathEffect";
 import { DebugPanel } from "./components/DebugPanel";
@@ -24,6 +25,8 @@ export class UIManager implements Disposable {
   private hintEl: HTMLDivElement | null = null;
   private orientationHintEl: HTMLDivElement | null = null;
   private _onViewportMetricsChanged = this.updateOrientationHint.bind(this);
+  private inputSource: InputSource = "keyboard";
+  private holdAction: InputAction = "interact";
 
   constructor(private eventBus: EventBus) {
     let overlay = document.getElementById("ui-overlay");
@@ -63,7 +66,8 @@ export class UIManager implements Disposable {
 
     this.unsubscribers.push(
       this.eventBus.on("input:sourceChanged", ({ source }) => {
-        this.hud.setInteractionGlyph(getInputGlyph("interact", source));
+        this.inputSource = source;
+        this.updateHoldGlyph();
       }),
     );
 
@@ -71,9 +75,40 @@ export class UIManager implements Disposable {
       this.eventBus.on("interaction:holdProgress", (payload) => {
         if (!payload) {
           this.hud.setHoldProgress(null);
+          this.holdAction = "interact";
+          this.updateHoldGlyph();
           return;
         }
+        this.holdAction = "interact";
+        this.updateHoldGlyph();
         this.hud.setHoldProgress(payload.progress);
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on("vehicle:resetHoldProgress", (payload) => {
+        if (!payload) {
+          this.hud.setHoldProgress(null);
+          return;
+        }
+        this.holdAction = "crouch";
+        this.updateHoldGlyph();
+        this.hud.setHoldProgress(payload.progress);
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on("vehicle:resetAvailable", () => {
+        this.hud.showStatus(
+          `Hold ${getInputGlyph("crouch", this.inputSource)} to reset while stopped or upside-down`,
+          2800,
+        );
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on("vehicle:reset", () => {
+        this.hud.showStatus("Vehicle reset");
       }),
     );
 
@@ -249,5 +284,9 @@ export class UIManager implements Disposable {
     if (!this.orientationHintEl || typeof window === "undefined") return;
     const visible = shouldShowLandscapeHint(window.navigator, window);
     this.orientationHintEl.style.opacity = visible ? "1" : "0";
+  }
+
+  private updateHoldGlyph(): void {
+    this.hud.setInteractionGlyph(getInputGlyph(this.holdAction, this.inputSource));
   }
 }

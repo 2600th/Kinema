@@ -127,7 +127,15 @@ describe("CarController helpers", () => {
 
       const selected = pickFirstClearCarExitCandidate(candidates, (candidate) => candidate.x > 0);
 
-      expect(selected.equals(candidates[1])).toBe(true);
+      expect(selected?.equals(candidates[1])).toBe(true);
+    });
+
+    it("returns no candidate when every capsule position is blocked", () => {
+      const candidates = [new THREE.Vector3(-1, 1, 0), new THREE.Vector3(1, 1, 0)];
+
+      const selected = pickFirstClearCarExitCandidate(candidates, () => false);
+
+      expect(selected).toBeNull();
     });
   });
 

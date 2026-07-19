@@ -220,6 +220,9 @@ export interface EventMap {
   "vehicle:engineStop": undefined;
   "vehicle:speedUpdate": { speedNorm: number };
   "vehicle:handlingUpdate": VehicleHandlingFeelState | null;
+  "vehicle:resetAvailable": { id: string };
+  "vehicle:resetHoldProgress": { id: string; progress: number } | null;
+  "vehicle:reset": { id: string };
   "menu:toggle": undefined;
   "menu:opened": { screen: string };
   "menu:closed": undefined;

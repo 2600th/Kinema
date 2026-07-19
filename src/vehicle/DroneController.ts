@@ -5,13 +5,20 @@ import { toRapierQuat } from "@physics/PhysicsHelpers";
 import type { PhysicsWorld } from "@physics/PhysicsWorld";
 import * as THREE from "three";
 import type { VehicleController } from "./VehicleController";
+import {
+  findFirstClearVerticalExitCandidate,
+  isVehicleExitCandidateClear,
+  isVehicleExitGroundSupported,
+  isVehicleExitPathClear,
+  PLAYER_EXIT_CAPSULE_HALF_EXTENT,
+  pickFirstClearVehicleExitCandidate,
+} from "./vehicleExitSafety";
 
 const _forward = new THREE.Vector3();
 const _right = new THREE.Vector3();
 const _quat = new THREE.Quaternion();
 const _desiredVel = new THREE.Vector3();
 const _currVel = new THREE.Vector3();
-const _exitProbe = new THREE.Vector3();
 const _droneExitCandidates = [
   new THREE.Vector3(1.2, 0, 0), // right
   new THREE.Vector3(-1.2, 0, 0), // left
@@ -171,56 +178,40 @@ export class DroneController implements VehicleController {
     _quat.set(rot.x, rot.y, rot.z, rot.w);
     const basePos = new THREE.Vector3(pos.x, pos.y, pos.z);
 
-    // Probe exit positions with downward raycast to find ground, then add
-    // capsule clearance so the player doesn't spawn inside the floor.
-    const capsuleClearance = 1.1; // capsule half-height + radius + margin
-
-    for (const candidate of _droneExitCandidates) {
-      _exitProbe.copy(candidate).applyQuaternion(_quat).add(basePos);
-      const dx = _exitProbe.x - basePos.x;
-      const dz = _exitProbe.z - basePos.z;
-      const dist = Math.hypot(dx, dz);
-      if (dist < 0.001) continue;
-      const blocked = this.physicsWorld.castRay(
-        _setDRV(_drv3A, basePos.x, basePos.y, basePos.z),
-        _setDRV(_drv3B, dx / dist, 0, dz / dist),
-        dist,
+    const projectedCandidates = _droneExitCandidates.map((candidate) => {
+      const projected = candidate.clone().applyQuaternion(_quat).add(basePos);
+      const groundHit = this.physicsWorld.castRay(
+        _setDRV(_drv3A, projected.x, projected.y + 2, projected.z),
+        _setDRV(_drv3B, 0, -1, 0),
+        this.groundRayMax,
         undefined,
         this.body,
-        (c) => !c.isSensor(),
+        (collider) => !collider.isSensor(),
       );
-      if (!blocked || blocked.timeOfImpact >= dist - 0.1) {
-        // Find ground below exit point so the player lands properly
-        const groundHit = this.physicsWorld.castRay(
-          _setDRV(_drv3A, _exitProbe.x, _exitProbe.y + 2, _exitProbe.z),
-          _setDRV(_drv3B, 0, -1, 0),
-          50,
-          undefined,
-          this.body,
-          (c) => !c.isSensor(),
-        );
-        if (groundHit) {
-          _exitProbe.y = _exitProbe.y + 2 - groundHit.timeOfImpact + capsuleClearance;
-        }
-        return { position: _exitProbe.clone() };
-      }
-    }
-    // Fallback: all lateral candidates blocked. Probe straight down for
-    // ground so the player isn't dropped from hover altitude (the drone can
-    // hover ~20m up; spawning there means fall damage or death).
-    _exitProbe.copy(_droneExitCandidates[0]).applyQuaternion(_quat).add(basePos);
-    const fallbackGround = this.physicsWorld.castRay(
-      _setDRV(_drv3A, _exitProbe.x, _exitProbe.y + 2, _exitProbe.z),
-      _setDRV(_drv3B, 0, -1, 0),
-      this.groundRayMax,
-      undefined,
-      this.body,
-      (c) => !c.isSensor(),
+      projected.y = groundHit
+        ? projected.y + 2 - groundHit.timeOfImpact + PLAYER_EXIT_CAPSULE_HALF_EXTENT
+        : basePos.y + PLAYER_EXIT_CAPSULE_HALF_EXTENT;
+      return projected;
+    });
+    const lateralExit = pickFirstClearVehicleExitCandidate(
+      projectedCandidates,
+      (candidate) =>
+        isVehicleExitCandidateClear(this.physicsWorld, candidate, [this.body]) &&
+        isVehicleExitPathClear(this.physicsWorld, basePos.clone().setY(candidate.y), candidate, [this.body]) &&
+        isVehicleExitGroundSupported(this.physicsWorld, candidate, [this.body]),
     );
-    _exitProbe.y = fallbackGround
-      ? _exitProbe.y + 2 - fallbackGround.timeOfImpact + capsuleClearance
-      : basePos.y + capsuleClearance;
-    return { position: _exitProbe.clone() };
+    if (lateralExit) return { position: lateralExit };
+
+    const roofStartY = basePos.y + 1 + PLAYER_EXIT_CAPSULE_HALF_EXTENT;
+    const roofOrigin = basePos.clone().setY(roofStartY);
+    return {
+      position: findFirstClearVerticalExitCandidate(
+        basePos,
+        roofStartY,
+        (candidate) => isVehicleExitCandidateClear(this.physicsWorld, candidate, [this.body]),
+        (candidate) => isVehicleExitPathClear(this.physicsWorld, roofOrigin, candidate, [this.body]),
+      ),
+    };
   }
 
   /** Restore the drone to its authored spawn if it leaves the playable space.
