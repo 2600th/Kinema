@@ -1,6 +1,8 @@
 import { EventBus } from "@core/EventBus";
 import type { GamepadMenuAction } from "@core/types";
+import type { InputActivationMode } from "@core/UserSettings";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createDefaultKeyboardBindings, type KeyboardBindings } from "./InputBindings";
 import { InputManager } from "./InputManager";
 import type { TouchControlsManager } from "./TouchControlsManager";
 
@@ -9,7 +11,19 @@ type TestCanvas = FakeTarget & { requestPointerLock?: ReturnType<typeof vi.fn> }
 type TestDocument = FakeTarget & { pointerLockElement: unknown };
 type InputManagerInternals = {
   touchActive: boolean;
-  touchControls: Pick<TouchControlsManager, "dispose" | "getInputState" | "hide" | "show"> | null;
+  touchControls:
+    | (Pick<TouchControlsManager, "dispose" | "getInputState" | "hide" | "show"> &
+        Partial<Pick<TouchControlsManager, "setLookSensitivity">>)
+    | null;
+};
+
+type RuntimePreferenceInputManager = InputManager & {
+  setKeyboardBindings(bindings: KeyboardBindings): void;
+  setGamepadLookSensitivity(value: number): void;
+  setTouchLookSensitivity(value: number): void;
+  setSprintMode(mode: InputActivationMode): void;
+  setCrouchMode(mode: InputActivationMode): void;
+  setInputEnabled(enabled: boolean): void;
 };
 
 function gamepadSnapshot(axes: number[], pressedButtons: number[] = []): Gamepad {
@@ -57,6 +71,10 @@ function asCanvas(target: TestCanvas): HTMLCanvasElement {
 
 function asManagerInternals(manager: InputManager): InputManagerInternals {
   return manager as unknown as InputManagerInternals;
+}
+
+function asRuntimePreferenceManager(manager: InputManager): RuntimePreferenceInputManager {
+  return manager as RuntimePreferenceInputManager;
 }
 
 describe("InputManager", () => {
@@ -119,6 +137,19 @@ describe("InputManager", () => {
       writable: true,
     });
   });
+
+  const lockPointer = (): void => {
+    documentTarget.pointerLockElement = canvasTarget;
+    documentTarget.dispatch("pointerlockchange");
+  };
+
+  const keyDown = (code: string): void => {
+    windowTarget.dispatch("keydown", { code, preventDefault: vi.fn() });
+  };
+
+  const keyUp = (code: string): void => {
+    windowTarget.dispatch("keyup", { code });
+  };
 
   it("requests pointer lock with unadjusted movement when raw mouse is enabled", () => {
     const manager = new InputManager(new EventBus(), asCanvas(canvasTarget));
@@ -582,6 +613,345 @@ describe("InputManager", () => {
     expect(right.moveX).toBe(1);
 
     manager.dispose();
+  });
+
+  it.each([
+    ["moveForward", "KeyW", "forward"],
+    ["moveForward alternate", "ArrowUp", "forward"],
+    ["moveBackward", "KeyS", "backward"],
+    ["moveBackward alternate", "ArrowDown", "backward"],
+    ["moveLeft", "KeyA", "left"],
+    ["moveLeft alternate", "ArrowLeft", "left"],
+    ["moveRight", "KeyD", "right"],
+    ["moveRight alternate", "ArrowRight", "right"],
+    ["jump", "Space", "jump"],
+    ["interact", "KeyF", "interact"],
+    ["crouch", "KeyC", "crouch"],
+    ["crouch alternate", "ControlLeft", "crouch"],
+    ["sprint", "ShiftLeft", "sprint"],
+    ["sprint alternate", "ShiftRight", "sprint"],
+  ] as const)("maps the default keyboard %s binding", (_label, code, field) => {
+    const manager = new InputManager(new EventBus(), asCanvas(canvasTarget));
+    lockPointer();
+
+    keyDown(code);
+
+    expect(manager.poll()[field]).toBe(true);
+    manager.dispose();
+  });
+
+  it("applies remapped primary and alternate slots from a defensively cloned binding map", () => {
+    const manager = new InputManager(new EventBus(), asCanvas(canvasTarget));
+    const runtime = asRuntimePreferenceManager(manager);
+    const bindings = createDefaultKeyboardBindings();
+    bindings.moveForward = ["KeyZ", "KeyX"];
+    expect(runtime.setKeyboardBindings).toBeTypeOf("function");
+    runtime.setKeyboardBindings?.(bindings);
+    bindings.moveForward[0] = "KeyV";
+    lockPointer();
+
+    keyDown("KeyZ");
+    expect(manager.poll().forward).toBe(true);
+    keyUp("KeyZ");
+    keyDown("KeyX");
+    expect(manager.poll().forward).toBe(true);
+    keyUp("KeyX");
+    keyDown("KeyW");
+    expect(manager.poll().forward).toBe(false);
+    manager.dispose();
+  });
+
+  it("sanitizes malformed bindings at the runtime setter boundary", () => {
+    const manager = new InputManager(new EventBus(), asCanvas(canvasTarget));
+    const runtime = asRuntimePreferenceManager(manager);
+    expect(runtime.setKeyboardBindings).toBeTypeOf("function");
+    runtime.setKeyboardBindings?.({
+      ...createDefaultKeyboardBindings(),
+      jump: ["Escape"],
+      interact: ["not-a-code"],
+    });
+    lockPointer();
+
+    keyDown("Space");
+    expect(manager.poll().jump).toBe(true);
+    keyUp("Space");
+    keyDown("KeyF");
+    expect(manager.poll().interact).toBe(true);
+    manager.dispose();
+  });
+
+  it.each([
+    [undefined, 9],
+    [6, 3],
+    [30, 15],
+  ] as const)("applies exact gamepad look output at sensitivity %s", (sensitivity, expected) => {
+    Object.defineProperty(globalThis, "navigator", {
+      value: { getGamepads: vi.fn(() => [gamepadSnapshot([0, 0, 1, -1])]), maxTouchPoints: 0 },
+      configurable: true,
+    });
+    const manager = new InputManager(new EventBus(), asCanvas(canvasTarget));
+    const runtime = asRuntimePreferenceManager(manager);
+    if (sensitivity !== undefined) {
+      expect(runtime.setGamepadLookSensitivity).toBeTypeOf("function");
+      runtime.setGamepadLookSensitivity?.(sensitivity);
+    }
+
+    expect(manager.pollLook(0.5)).toEqual({ lookDX: expected, lookDY: -expected, wheelDelta: 0 });
+    manager.dispose();
+  });
+
+  it("clamps invalid runtime sensitivity values through the settings ranges", () => {
+    Object.defineProperty(globalThis, "navigator", {
+      value: { getGamepads: vi.fn(() => [gamepadSnapshot([0, 0, 1, 0])]), maxTouchPoints: 0 },
+      configurable: true,
+    });
+    const manager = new InputManager(new EventBus(), asCanvas(canvasTarget));
+    const runtime = asRuntimePreferenceManager(manager);
+    expect(runtime.setGamepadLookSensitivity).toBeTypeOf("function");
+    runtime.setGamepadLookSensitivity?.(999);
+    expect(manager.pollLook(1).lookDX).toBe(30);
+    runtime.setGamepadLookSensitivity?.(Number.NaN);
+    expect(manager.pollLook(1).lookDX).toBe(18);
+    manager.dispose();
+  });
+
+  it("applies sanitized touch sensitivity immediately to existing touch controls", () => {
+    const manager = new InputManager(new EventBus(), asCanvas(canvasTarget));
+    const setLookSensitivity = vi.fn();
+    asManagerInternals(manager).touchControls = {
+      dispose: vi.fn(),
+      hide: vi.fn(),
+      show: vi.fn(),
+      getInputState: vi.fn(),
+      setLookSensitivity,
+    };
+    const runtime = asRuntimePreferenceManager(manager);
+    expect(runtime.setTouchLookSensitivity).toBeTypeOf("function");
+    runtime.setTouchLookSensitivity?.(999);
+    runtime.setTouchLookSensitivity?.(Number.NaN);
+
+    expect(setLookSensitivity.mock.calls).toEqual([[8], [4]]);
+    manager.dispose();
+  });
+
+  it("preserves hold behavior for crouch and sprint", () => {
+    const manager = new InputManager(new EventBus(), asCanvas(canvasTarget));
+    lockPointer();
+
+    keyDown("KeyC");
+    keyDown("ShiftLeft");
+    expect(manager.poll()).toMatchObject({ crouch: true, crouchPressed: true, sprint: true });
+    expect(manager.poll()).toMatchObject({ crouch: true, crouchPressed: false, sprint: true });
+    keyUp("KeyC");
+    keyUp("ShiftLeft");
+    expect(manager.poll()).toMatchObject({ crouch: false, crouchPressed: false, sprint: false });
+    manager.dispose();
+  });
+
+  it("toggles crouch only on merged rising edges and emits pressed only when toggling on", () => {
+    const manager = new InputManager(new EventBus(), asCanvas(canvasTarget));
+    const runtime = asRuntimePreferenceManager(manager);
+    expect(runtime.setCrouchMode).toBeTypeOf("function");
+    runtime.setCrouchMode?.("toggle");
+    lockPointer();
+
+    keyDown("KeyC");
+    expect(manager.poll()).toMatchObject({ crouch: true, crouchPressed: true });
+    expect(manager.poll()).toMatchObject({ crouch: true, crouchPressed: false });
+    keyUp("KeyC");
+    expect(manager.poll()).toMatchObject({ crouch: true, crouchPressed: false });
+    keyDown("KeyC");
+    expect(manager.poll()).toMatchObject({ crouch: false, crouchPressed: false });
+    keyUp("KeyC");
+    manager.poll();
+    keyDown("KeyC");
+    expect(manager.poll()).toMatchObject({ crouch: true, crouchPressed: true });
+    manager.dispose();
+  });
+
+  it("toggles sprint only on rising edges", () => {
+    const manager = new InputManager(new EventBus(), asCanvas(canvasTarget));
+    const runtime = asRuntimePreferenceManager(manager);
+    expect(runtime.setSprintMode).toBeTypeOf("function");
+    runtime.setSprintMode?.("toggle");
+    lockPointer();
+
+    keyDown("ShiftLeft");
+    expect(manager.poll().sprint).toBe(true);
+    expect(manager.poll().sprint).toBe(true);
+    keyUp("ShiftLeft");
+    expect(manager.poll().sprint).toBe(true);
+    keyDown("ShiftLeft");
+    expect(manager.poll().sprint).toBe(false);
+    manager.dispose();
+  });
+
+  it("recognizes consecutive short toggle taps consumed on adjacent polls", () => {
+    const manager = new InputManager(new EventBus(), asCanvas(canvasTarget));
+    asRuntimePreferenceManager(manager).setCrouchMode?.("toggle");
+    lockPointer();
+
+    keyDown("KeyC");
+    keyUp("KeyC");
+    expect(manager.poll()).toMatchObject({ crouch: true, crouchPressed: true });
+    keyDown("KeyC");
+    keyUp("KeyC");
+    expect(manager.poll()).toMatchObject({ crouch: false, crouchPressed: false });
+    manager.dispose();
+  });
+
+  it("shares one crouch rising edge across keyboard, gamepad, and touch sources", () => {
+    let pads: Gamepad[] = [gamepadSnapshot([0, 0, 0, 0])];
+    let touchCrouch = false;
+    Object.defineProperty(globalThis, "navigator", {
+      value: { getGamepads: vi.fn(() => pads), maxTouchPoints: 0 },
+      configurable: true,
+    });
+    const manager = new InputManager(new EventBus(), asCanvas(canvasTarget));
+    const runtime = asRuntimePreferenceManager(manager);
+    runtime.setCrouchMode?.("toggle");
+    asManagerInternals(manager).touchControls = {
+      dispose: vi.fn(),
+      hide: vi.fn(),
+      show: vi.fn(),
+      getInputState: vi.fn(() => ({
+        moveX: 0,
+        moveY: 0,
+        lookDX: 0,
+        lookDY: 0,
+        vehicleVertical: 0,
+        jump: false,
+        jumpPressed: false,
+        interact: false,
+        interactPressed: false,
+        crouch: touchCrouch,
+        crouchPressed: touchCrouch,
+        sprint: false,
+        active: touchCrouch,
+      })),
+    };
+    asManagerInternals(manager).touchActive = true;
+    lockPointer();
+
+    keyDown("KeyC");
+    expect(manager.poll().crouch).toBe(true);
+    pads = [gamepadSnapshot([0, 0, 0, 0], [1])];
+    expect(manager.poll().crouch).toBe(true);
+    keyUp("KeyC");
+    touchCrouch = true;
+    expect(manager.poll().crouch).toBe(true);
+    pads = [gamepadSnapshot([0, 0, 0, 0])];
+    expect(manager.poll().crouch).toBe(true);
+    touchCrouch = false;
+    expect(manager.poll().crouch).toBe(true);
+    touchCrouch = true;
+    expect(manager.poll()).toMatchObject({ crouch: false, crouchPressed: false });
+    manager.dispose();
+  });
+
+  it.each([
+    "editor:opened",
+    "player:respawned",
+    "run:restartRequested",
+  ] as const)("clears traversal toggles on %s", (event) => {
+    const eventBus = new EventBus();
+    const manager = new InputManager(eventBus, asCanvas(canvasTarget));
+    const runtime = asRuntimePreferenceManager(manager);
+    runtime.setCrouchMode?.("toggle");
+    lockPointer();
+    keyDown("KeyC");
+    expect(manager.poll().crouch).toBe(true);
+
+    if (event === "editor:opened") eventBus.emit(event, undefined);
+    if (event === "player:respawned") eventBus.emit(event, { reason: "test" });
+    if (event === "run:restartRequested") eventBus.emit(event, { reason: "health-depleted" });
+    keyUp("KeyC");
+
+    expect(manager.poll().crouch).toBe(false);
+    manager.dispose();
+  });
+
+  it("clears traversal toggles when a menu opens and when input is explicitly disabled", () => {
+    const eventBus = new EventBus();
+    const manager = new InputManager(eventBus, asCanvas(canvasTarget));
+    const runtime = asRuntimePreferenceManager(manager);
+    runtime.setCrouchMode?.("toggle");
+    lockPointer();
+    keyDown("KeyC");
+    expect(manager.poll().crouch).toBe(true);
+
+    eventBus.emit("menu:opened", { screen: "pause" });
+    keyUp("KeyC");
+    eventBus.emit("menu:closed", undefined);
+    expect(manager.poll().crouch).toBe(false);
+    keyDown("KeyC");
+    expect(manager.poll().crouch).toBe(true);
+
+    expect(runtime.setInputEnabled).toBeTypeOf("function");
+    runtime.setInputEnabled?.(false);
+    keyUp("KeyC");
+    runtime.setInputEnabled?.(true);
+    expect(manager.poll().crouch).toBe(false);
+    manager.dispose();
+  });
+
+  it("clears traversal toggles on pointer-lock loss", () => {
+    const manager = new InputManager(new EventBus(), asCanvas(canvasTarget));
+    asRuntimePreferenceManager(manager).setCrouchMode?.("toggle");
+    lockPointer();
+    keyDown("KeyC");
+    expect(manager.poll().crouch).toBe(true);
+
+    documentTarget.pointerLockElement = null;
+    documentTarget.dispatch("pointerlockchange");
+    lockPointer();
+
+    expect(manager.poll().crouch).toBe(false);
+    manager.dispose();
+  });
+
+  it("keeps vehicle crouch and sprint hold-based and does not restore character latches on exit", () => {
+    const eventBus = new EventBus();
+    const manager = new InputManager(eventBus, asCanvas(canvasTarget));
+    const runtime = asRuntimePreferenceManager(manager);
+    runtime.setCrouchMode?.("toggle");
+    runtime.setSprintMode?.("toggle");
+    lockPointer();
+    keyDown("KeyC");
+    keyDown("ShiftLeft");
+    expect(manager.poll()).toMatchObject({ crouch: true, sprint: true });
+
+    eventBus.emit("vehicle:enter", { vehicle: {} as never });
+    expect(manager.poll()).toMatchObject({ crouch: true, sprint: true });
+    keyUp("KeyC");
+    keyUp("ShiftLeft");
+    expect(manager.poll()).toMatchObject({ crouch: false, sprint: false });
+    eventBus.emit("vehicle:exit", { position: {} as never });
+    expect(manager.poll()).toMatchObject({ crouch: false, sprint: false });
+    keyDown("KeyC");
+    keyDown("ShiftLeft");
+    expect(manager.poll()).toMatchObject({ crouch: true, crouchPressed: true, sprint: true });
+    manager.dispose();
+  });
+
+  it("removes all DOM and event-bus listeners on dispose", () => {
+    const eventBus = new EventBus();
+    const manager = new InputManager(eventBus, asCanvas(canvasTarget));
+    const listeners = (eventBus as unknown as { listeners: Map<string, Set<unknown>> }).listeners;
+    expect([...listeners.values()].reduce((count, set) => count + set.size, 0)).toBeGreaterThan(0);
+
+    manager.dispose();
+
+    expect(windowTarget.listenerCount("keydown")).toBe(0);
+    expect(windowTarget.listenerCount("keyup")).toBe(0);
+    expect(windowTarget.listenerCount("mouseup")).toBe(0);
+    expect(documentTarget.listenerCount("mousemove")).toBe(0);
+    expect(documentTarget.listenerCount("click")).toBe(0);
+    expect(documentTarget.listenerCount("pointerlockchange")).toBe(0);
+    expect(documentTarget.listenerCount("touchstart")).toBe(0);
+    expect(canvasTarget.listenerCount("mousedown")).toBe(0);
+    expect(canvasTarget.listenerCount("wheel")).toBe(0);
+    expect([...listeners.values()].reduce((count, set) => count + set.size, 0)).toBe(0);
   });
 
   it("treats mobile user agents as touch-capable even when coarse-pointer APIs are unavailable", () => {

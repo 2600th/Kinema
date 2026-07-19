@@ -128,6 +128,11 @@ async function bootstrap(): Promise<void> {
   const inputManager = new InputManager(eventBus, renderer.canvas);
   inputManager.setRawMouseInput(settings.value.rawMouseInput);
   inputManager.setGamepadTuning(settings.value.gamepadDeadzone, settings.value.gamepadCurve);
+  inputManager.setKeyboardBindings(settings.value.keyboardBindings);
+  inputManager.setGamepadLookSensitivity(settings.value.gamepadLookSensitivity);
+  inputManager.setTouchLookSensitivity(settings.value.touchLookSensitivity);
+  inputManager.setSprintMode(settings.value.sprintMode);
+  inputManager.setCrouchMode(settings.value.crouchMode);
   inputManager.initTouchControls();
   const levelManager = new LevelManager(
     renderer.scene,

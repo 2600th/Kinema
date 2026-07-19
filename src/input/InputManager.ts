@@ -1,17 +1,26 @@
 import type { EventBus } from "@core/EventBus";
 import type { Disposable, GamepadMenuAction, InputSource, InputState } from "@core/types";
 import { NULL_INPUT } from "@core/types";
+import { DEFAULT_USER_SETTINGS, type InputActivationMode, USER_SETTINGS_RANGES } from "@core/UserSettings";
+import {
+  createDefaultKeyboardBindings,
+  type KeyboardBindingAction,
+  type KeyboardBindings,
+  sanitizeKeyboardBindings,
+} from "./InputBindings";
 import { getPointerLockRequest } from "./pointerLock";
 import type { TouchControlsManager } from "./TouchControlsManager";
 
 const GAMEPAD_MOVE_THRESHOLD = 0.25;
 const GAMEPAD_SOURCE_HYSTERESIS = 0.08;
-const GAMEPAD_LOOK_SPEED = 18;
 const GAMEPAD_MENU_STICK_THRESHOLD = 0.5;
 const GAMEPAD_MENU_INITIAL_REPEAT_MS = 400;
 const GAMEPAD_MENU_REPEAT_MS = 150;
 
 type GamepadMenuDirection = Extract<GamepadMenuAction, "up" | "down" | "left" | "right">;
+type TraversalAction = Extract<KeyboardBindingAction, "crouch" | "sprint">;
+
+const TRAVERSAL_ACTIONS: readonly TraversalAction[] = ["crouch", "sprint"];
 
 /** Look deltas consumed per render frame for high-refresh-rate responsiveness. */
 export interface LookState {
@@ -65,7 +74,6 @@ export class InputManager implements Disposable {
   private latchedKeys = new Set<string>();
   private prevInteract = false;
   private prevJump = false;
-  private prevCrouch = false;
   private prevPrimary = false;
   private mouseDX = 0;
   private mouseDY = 0;
@@ -76,6 +84,17 @@ export class InputManager implements Disposable {
   private rawMouseInput = true;
   private gamepadDeadzone = 0.12;
   private gamepadCurve = 1.4;
+  private gamepadLookSensitivity = DEFAULT_USER_SETTINGS.gamepadLookSensitivity;
+  private touchLookSensitivity = DEFAULT_USER_SETTINGS.touchLookSensitivity;
+  private keyboardBindings = createDefaultKeyboardBindings();
+  private traversalModes: Record<TraversalAction, InputActivationMode> = {
+    crouch: DEFAULT_USER_SETTINGS.crouchMode,
+    sprint: DEFAULT_USER_SETTINGS.sprintMode,
+  };
+  private traversalLatches: Record<TraversalAction, boolean> = { crouch: false, sprint: false };
+  private traversalRawActive: Record<TraversalAction, boolean> = { crouch: false, sprint: false };
+  private vehicleContext = false;
+  private inputEnabled = true;
   private inputSuppressed = false;
   private editorActive = false;
   private touchControls: TouchControlsManager | null = null;
@@ -126,12 +145,13 @@ export class InputManager implements Disposable {
       this.eventBus.on("menu:opened", () => {
         this.menuOpen = true;
         this.inputSuppressed = true;
+        this.resetTraversalActions();
         this.applyTouchControlsVisibility(false);
         this.startMenuGamepadLoop();
       }),
       this.eventBus.on("menu:closed", () => {
         this.menuOpen = false;
-        this.inputSuppressed = false;
+        this.inputSuppressed = !this.inputEnabled;
         this.gamepadGameplayReleaseGate = true;
         this.stopMenuGamepadLoop();
         this.resetMenuDirectionRepeat();
@@ -139,9 +159,20 @@ export class InputManager implements Disposable {
       }),
       this.eventBus.on("editor:opened", () => {
         this.editorActive = true;
+        this.resetTraversalActions();
       }),
       this.eventBus.on("editor:closed", () => {
         this.editorActive = false;
+      }),
+      this.eventBus.on("player:respawned", () => this.resetTraversalActions()),
+      this.eventBus.on("run:restartRequested", () => this.resetTraversalActions()),
+      this.eventBus.on("vehicle:enter", () => {
+        this.vehicleContext = true;
+        this.resetTraversalActions();
+      }),
+      this.eventBus.on("vehicle:exit", () => {
+        this.vehicleContext = false;
+        this.resetTraversalActions();
       }),
     );
   }
@@ -154,8 +185,8 @@ export class InputManager implements Disposable {
       // cause a ghost "pressed" event on the first poll after resuming.
       this.prevJump = false;
       this.prevInteract = false;
-      this.prevCrouch = false;
       this.prevPrimary = false;
+      this.resetTraversalActions();
       this.latchedKeys.clear();
       this.eventBus.emit("input:state", NULL_INPUT);
       return NULL_INPUT;
@@ -167,20 +198,26 @@ export class InputManager implements Disposable {
 
     // Use latchedKeys for edge detection so short keypresses (down+up between
     // two polls) aren't missed. Held state still comes from live keys set.
-    const crouch =
-      (this.locked && (this.keys.has("KeyC") || this.keys.has("ControlLeft"))) ||
-      gamepad.crouch ||
-      (touch?.crouch ?? false);
-    const crouchPressed =
-      ((crouch || (this.locked && (this.latchedKeys.has("KeyC") || this.latchedKeys.has("ControlLeft")))) &&
-        !this.prevCrouch) ||
-      (touch?.crouchPressed ?? false);
+    const rawCrouch =
+      (this.locked && this.isKeyboardActionHeld("crouch")) || gamepad.crouch || (touch?.crouch ?? false);
+    const crouchInput = this.resolveTraversalAction(
+      "crouch",
+      rawCrouch,
+      rawCrouch || (this.locked && this.isKeyboardActionLatched("crouch")),
+    );
+    const rawSprint =
+      (this.locked && this.isKeyboardActionHeld("sprint")) || gamepad.sprint || (touch?.sprint ?? false);
+    const sprintInput = this.resolveTraversalAction(
+      "sprint",
+      rawSprint,
+      rawSprint || (this.locked && this.isKeyboardActionLatched("sprint")),
+    );
     const jump =
-      (this.locked && (this.keys.has("Space") || this.latchedKeys.has("Space"))) ||
+      (this.locked && (this.isKeyboardActionHeld("jump") || this.isKeyboardActionLatched("jump"))) ||
       gamepad.jump ||
       (touch?.jump ?? false);
     const interact =
-      (this.locked && (this.keys.has("KeyF") || this.latchedKeys.has("KeyF"))) ||
+      (this.locked && (this.isKeyboardActionHeld("interact") || this.isKeyboardActionLatched("interact"))) ||
       gamepad.interact ||
       (touch?.interact ?? false);
     const primary = (this.locked && this.mousePrimary) || gamepad.primary;
@@ -193,7 +230,6 @@ export class InputManager implements Disposable {
         : gamepad.vehicleVertical !== 0
           ? gamepad.vehicleVertical
           : keyboardVehicleVertical;
-    this.prevCrouch = crouch;
     const jumpPressed = (jump && !this.prevJump) || (touch?.jumpPressed ?? false);
     const interactPressed = (interact && !this.prevInteract) || (touch?.interactPressed ?? false);
     const primaryPressed = primary && !this.prevPrimary;
@@ -205,11 +241,11 @@ export class InputManager implements Disposable {
 
     // Compute analog move axes — touch overrides if active
     const kbX =
-      (this.locked && (this.keys.has("KeyD") || this.keys.has("ArrowRight")) ? 1 : 0) -
-      (this.locked && (this.keys.has("KeyA") || this.keys.has("ArrowLeft")) ? 1 : 0);
+      (this.locked && this.isKeyboardActionHeld("moveRight") ? 1 : 0) -
+      (this.locked && this.isKeyboardActionHeld("moveLeft") ? 1 : 0);
     const kbY =
-      (this.locked && (this.keys.has("KeyW") || this.keys.has("ArrowUp")) ? 1 : 0) -
-      (this.locked && (this.keys.has("KeyS") || this.keys.has("ArrowDown")) ? 1 : 0);
+      (this.locked && this.isKeyboardActionHeld("moveForward") ? 1 : 0) -
+      (this.locked && this.isKeyboardActionHeld("moveBackward") ? 1 : 0);
     const touchMoveX = touch?.moveX ?? 0;
     const touchMoveY = touch?.moveY ?? 0;
     const rawMoveX = touchMoveX !== 0 ? touchMoveX : gamepad.moveX !== 0 ? gamepad.moveX : kbX;
@@ -225,13 +261,12 @@ export class InputManager implements Disposable {
     }
 
     const state: InputState = Object.freeze({
-      forward: (this.locked && (this.keys.has("KeyW") || this.keys.has("ArrowUp"))) || gamepad.forward || moveY > 0.25,
-      backward:
-        (this.locked && (this.keys.has("KeyS") || this.keys.has("ArrowDown"))) || gamepad.backward || moveY < -0.25,
-      left: (this.locked && (this.keys.has("KeyA") || this.keys.has("ArrowLeft"))) || gamepad.left || moveX < -0.25,
-      right: (this.locked && (this.keys.has("KeyD") || this.keys.has("ArrowRight"))) || gamepad.right || moveX > 0.25,
-      crouch,
-      crouchPressed,
+      forward: (this.locked && this.isKeyboardActionHeld("moveForward")) || gamepad.forward || moveY > 0.25,
+      backward: (this.locked && this.isKeyboardActionHeld("moveBackward")) || gamepad.backward || moveY < -0.25,
+      left: (this.locked && this.isKeyboardActionHeld("moveLeft")) || gamepad.left || moveX < -0.25,
+      right: (this.locked && this.isKeyboardActionHeld("moveRight")) || gamepad.right || moveX > 0.25,
+      crouch: crouchInput.active,
+      crouchPressed: crouchInput.pressed,
       jump,
       jumpPressed,
       interact,
@@ -243,10 +278,7 @@ export class InputManager implements Disposable {
       vehicleVertical,
       moveX,
       moveY,
-      sprint:
-        (this.locked && (this.keys.has("ShiftLeft") || this.keys.has("ShiftRight"))) ||
-        gamepad.sprint ||
-        (touch?.sprint ?? false),
+      sprint: sprintInput.active,
       // Look deltas are now consumed via pollLook() in the render loop.
       // Kept at 0 here for backward compatibility with InputState consumers.
       mouseDeltaX: 0,
@@ -271,8 +303,8 @@ export class InputManager implements Disposable {
     }
 
     const gamepad = this.readGamepadState();
-    const lookDX = this.mouseDX + gamepad.lookX * GAMEPAD_LOOK_SPEED * dt;
-    const lookDY = this.mouseDY + gamepad.lookY * GAMEPAD_LOOK_SPEED * dt;
+    const lookDX = this.mouseDX + gamepad.lookX * this.gamepadLookSensitivity * dt;
+    const lookDY = this.mouseDY + gamepad.lookY * this.gamepadLookSensitivity * dt;
     const wheelDelta = this.mouseWheel;
 
     // Reset accumulated deltas after consumption
@@ -347,6 +379,41 @@ export class InputManager implements Disposable {
     }
   }
 
+  setKeyboardBindings(bindings: KeyboardBindings): void {
+    this.keyboardBindings = sanitizeKeyboardBindings(bindings);
+  }
+
+  setGamepadLookSensitivity(value: number): void {
+    this.gamepadLookSensitivity = this.sanitizeRangeValue(
+      value,
+      USER_SETTINGS_RANGES.gamepadLookSensitivity,
+      DEFAULT_USER_SETTINGS.gamepadLookSensitivity,
+    );
+  }
+
+  setTouchLookSensitivity(value: number): void {
+    this.touchLookSensitivity = this.sanitizeRangeValue(
+      value,
+      USER_SETTINGS_RANGES.touchLookSensitivity,
+      DEFAULT_USER_SETTINGS.touchLookSensitivity,
+    );
+    this.touchControls?.setLookSensitivity(this.touchLookSensitivity);
+  }
+
+  setSprintMode(mode: InputActivationMode): void {
+    this.setTraversalMode("sprint", mode);
+  }
+
+  setCrouchMode(mode: InputActivationMode): void {
+    this.setTraversalMode("crouch", mode);
+  }
+
+  setInputEnabled(enabled: boolean): void {
+    this.inputEnabled = enabled;
+    this.inputSuppressed = this.menuOpen || !enabled;
+    if (!enabled) this.resetTraversalActions();
+  }
+
   async requestPointerLock(options?: { preferRaw?: boolean }): Promise<void> {
     if (this.editorActive || this.locked || this.touchActive) return;
 
@@ -379,7 +446,7 @@ export class InputManager implements Disposable {
     this.latchedKeys.add(e.code);
 
     // Prevent default for game keys
-    if (["Space", "KeyW", "KeyA", "KeyS", "KeyD", "KeyE", "KeyF", "KeyQ", "KeyC", "ControlLeft"].includes(e.code)) {
+    if (this.isKeyboardBoundCode(e.code) || e.code === "KeyE" || e.code === "KeyQ") {
       e.preventDefault();
     }
     if (e.code === "Escape") {
@@ -445,8 +512,8 @@ export class InputManager implements Disposable {
       this.latchedKeys.clear();
       this.prevInteract = false;
       this.prevJump = false;
-      this.prevCrouch = false;
       this.prevPrimary = false;
+      this.resetTraversalActions();
       this.mousePrimary = false;
       this.mouseDown = false;
       // Reset accumulated deltas to prevent camera snap on next lock
@@ -653,6 +720,57 @@ export class InputManager implements Disposable {
     return sign * curved;
   }
 
+  private isKeyboardActionHeld(action: KeyboardBindingAction): boolean {
+    return this.keyboardBindings[action].some((code) => this.keys.has(code));
+  }
+
+  private isKeyboardActionLatched(action: KeyboardBindingAction): boolean {
+    return this.keyboardBindings[action].some((code) => this.latchedKeys.has(code));
+  }
+
+  private isKeyboardBoundCode(code: string): boolean {
+    return Object.values(this.keyboardBindings).some((codes) => codes.includes(code));
+  }
+
+  private resolveTraversalAction(
+    action: TraversalAction,
+    rawHeld: boolean,
+    rawActive: boolean,
+  ): { active: boolean; pressed: boolean } {
+    const rising = rawActive && !this.traversalRawActive[action];
+    this.traversalRawActive[action] = rawHeld;
+    if (this.vehicleContext || this.traversalModes[action] === "hold") {
+      return { active: rawHeld, pressed: rising };
+    }
+    if (rising) this.traversalLatches[action] = !this.traversalLatches[action];
+    return {
+      active: this.traversalLatches[action],
+      pressed: rising && this.traversalLatches[action],
+    };
+  }
+
+  private setTraversalMode(action: TraversalAction, mode: InputActivationMode): void {
+    this.traversalModes[action] = mode === "toggle" ? "toggle" : "hold";
+    this.traversalLatches[action] = false;
+    this.traversalRawActive[action] = false;
+  }
+
+  private resetTraversalActions(): void {
+    for (const action of TRAVERSAL_ACTIONS) {
+      this.traversalLatches[action] = false;
+      this.traversalRawActive[action] = false;
+    }
+  }
+
+  private sanitizeRangeValue(
+    value: number,
+    range: { readonly min: number; readonly max: number },
+    fallback: number,
+  ): number {
+    if (!Number.isFinite(value)) return fallback;
+    return Math.max(range.min, Math.min(range.max, value));
+  }
+
   private setLastInputSource(source: InputSource): void {
     if (source === this._lastInputSource) return;
     this._lastInputSource = source;
@@ -666,6 +784,7 @@ export class InputManager implements Disposable {
         const overlay = document.getElementById("ui-overlay");
         if (!overlay || this.touchControls) return;
         this.touchControls = new TouchControlsManager(overlay);
+        this.touchControls.setLookSensitivity(this.touchLookSensitivity);
         this.applyTouchControlsVisibility(this.desiredTouchEnabled && !this.menuOpen);
       })
       .finally(() => {
@@ -720,6 +839,7 @@ export class InputManager implements Disposable {
 
   dispose(): void {
     this.stopMenuGamepadLoop();
+    this.resetTraversalActions();
     for (const unsub of this.unsubs) unsub();
     this.unsubs.length = 0;
     this.touchControls?.dispose();

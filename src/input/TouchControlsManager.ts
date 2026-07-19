@@ -1,4 +1,5 @@
 import type { Disposable } from "@core/types";
+import { DEFAULT_USER_SETTINGS, USER_SETTINGS_RANGES } from "@core/UserSettings";
 import { TouchButton } from "./TouchButton";
 import { VirtualJoystick } from "./VirtualJoystick";
 import "./touch-controls.css";
@@ -20,8 +21,6 @@ export interface TouchInputState {
   active: boolean;
 }
 
-const TOUCH_LOOK_SENSITIVITY = 4;
-
 /**
  * Orchestrator that creates and manages all touch widgets.
  * Lays out movement joystick (left), look joystick (right),
@@ -39,6 +38,7 @@ export class TouchControlsManager implements Disposable {
   private prevJump = false;
   private prevInteract = false;
   private prevCrouch = false;
+  private lookSensitivity = DEFAULT_USER_SETTINGS.touchLookSensitivity;
 
   constructor(container: HTMLElement) {
     // Create a fixed overlay container for all touch controls
@@ -142,8 +142,8 @@ export class TouchControlsManager implements Disposable {
       // Invert Y: joystick down (positive y) = backward (negative moveY)
       moveX: move.x,
       moveY: -move.y,
-      lookDX: look.x * TOUCH_LOOK_SENSITIVITY,
-      lookDY: look.y * TOUCH_LOOK_SENSITIVITY,
+      lookDX: look.x * this.lookSensitivity,
+      lookDY: look.y * this.lookSensitivity,
       vehicleVertical: -look.y,
       jump: jumpHeld,
       jumpPressed,
@@ -154,6 +154,15 @@ export class TouchControlsManager implements Disposable {
       sprint: sprintHeld,
       active,
     };
+  }
+
+  setLookSensitivity(value: number): void {
+    this.lookSensitivity = Number.isFinite(value)
+      ? Math.max(
+          USER_SETTINGS_RANGES.touchLookSensitivity.min,
+          Math.min(USER_SETTINGS_RANGES.touchLookSensitivity.max, value),
+        )
+      : DEFAULT_USER_SETTINGS.touchLookSensitivity;
   }
 
   /** Show all touch controls. */
