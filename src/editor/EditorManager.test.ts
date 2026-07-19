@@ -6,8 +6,10 @@ import { LevelManager } from "../level/LevelManager";
 import type { PhysicsWorld } from "../physics/PhysicsWorld";
 import { CommandHistory } from "./CommandHistory";
 import { EditorDocument } from "./EditorDocument";
+import { type EditorLoadToken, EditorLoadTransaction } from "./EditorLoadTransaction";
 import { EditorManager } from "./EditorManager";
 import type { EditorObject } from "./EditorObject";
+import type { LevelData } from "./LevelSerializer";
 
 type TransformTuple = {
   position: [number, number, number];
@@ -75,9 +77,17 @@ interface DeleteManagerHarness {
   showPhysicsMutationError: ReturnType<typeof vi.fn>;
   markDirty: ReturnType<typeof vi.fn>;
   history: CommandHistory;
+  loadTransaction: EditorLoadTransaction;
+  documentState: { markClean: ReturnType<typeof vi.fn> };
+  toolbarPanel: { showSaveError: ReturnType<typeof vi.fn>; clearSaveError: ReturnType<typeof vi.fn> };
   deleteSubtree(rootId: string): boolean;
   deleteById(id: string): void;
   deleteSelection(): void;
+  applyLoadedLevelContents(
+    data: LevelData,
+    intent: "user-load" | "playtest-restore",
+    loadToken: EditorLoadToken,
+  ): Promise<"completed" | "failed" | "superseded">;
 }
 
 type DeleteHarness = ReturnType<typeof makeDeleteHarness>;
@@ -204,6 +214,9 @@ function makeDeleteHarness() {
     showPhysicsMutationError: vi.fn(),
     markDirty,
     history: new CommandHistory(markDirty),
+    loadTransaction: new EditorLoadTransaction(),
+    documentState: { markClean: vi.fn() },
+    toolbarPanel: { showSaveError: vi.fn(), clearSaveError: vi.fn() },
   });
 
   return {
@@ -239,6 +252,17 @@ function projectDeleteManager({ document, levelManager }: DeleteHarness) {
     selected: document.selected?.id ?? null,
     levelObjects: levelManager.getLevelObjects().map((mesh) => objectByMesh.get(mesh)),
     dynamicBodies: levelManager.getDynamicBodies().map(({ mesh }) => objectByMesh.get(mesh)),
+  };
+}
+
+function emptyLevelData(name = "replacement"): LevelData {
+  return {
+    version: 2,
+    name,
+    created: "2026-07-20T00:00:00.000Z",
+    modified: "2026-07-20T00:00:00.000Z",
+    spawnPoint: { position: [0, 2, 0] },
+    objects: [],
   };
 }
 
@@ -613,6 +637,38 @@ describe("EditorManager subtree delete transactions", () => {
     expect(projectDeleteManager(harness)).toEqual(before);
   });
 
+  it("keeps a failed redo on the redo stack and rolls its partial detach back", () => {
+    const harness = makeDeleteHarness();
+    const { manager, levelManager, root } = harness;
+    const before = projectDeleteManager(harness);
+    expect(manager.deleteSubtree(root.id)).toBe(true);
+    expect(manager.history.undo()).toBe(true);
+    expect(projectDeleteManager(harness)).toEqual(before);
+    expect(harness.markDirty).toHaveBeenCalledTimes(2);
+
+    const removeLevelObject = levelManager.removeLevelObject.bind(levelManager);
+    let removalCount = 0;
+    const removeSpy = vi.spyOn(levelManager, "removeLevelObject").mockImplementation((mesh, options) => {
+      removalCount += 1;
+      if (removalCount === 2) throw new Error("redo mid-detach failure");
+      return removeLevelObject(mesh, options);
+    });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(manager.history.redo()).toBe(false);
+
+      expect(projectDeleteManager(harness)).toEqual(before);
+      expect(harness.markDirty).toHaveBeenCalledTimes(2);
+
+      removeSpy.mockImplementation(removeLevelObject);
+      expect(manager.history.redo()).toBe(true);
+      expect(harness.markDirty).toHaveBeenCalledTimes(3);
+      manager.history.clear();
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it("does not destroy restored live physics when an undone delete leaves history", () => {
     const harness = makeDeleteHarness();
     const { manager, root } = harness;
@@ -623,6 +679,42 @@ describe("EditorManager subtree delete transactions", () => {
 
     expect(harness.removeBody).not.toHaveBeenCalled();
     expect(harness.removeCollider).not.toHaveBeenCalled();
+  });
+
+  it("retires all ownership after a collider cleanup failure and reports the first error once", () => {
+    const harness = makeDeleteHarness();
+    const { manager, levelManager, root } = harness;
+    const cleanupError = new Error("root collider cleanup failed");
+    harness.removeCollider.mockImplementation((collider) => {
+      if (collider === root.collider) throw cleanupError;
+    });
+    expect(manager.deleteSubtree(root.id)).toBe(true);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      manager.history.clear();
+
+      expect(harness.removeBody).toHaveBeenCalledWith(root.body);
+      expect(levelManager.getLevelObjectTracking(root.mesh).physics).toBeUndefined();
+      const internals = levelManager as unknown as {
+        levelBodies: unknown[];
+        levelColliders: unknown[];
+        objectPhysics: Map<THREE.Object3D, unknown>;
+      };
+      expect(internals.levelBodies).not.toContain(root.body);
+      expect(internals.levelColliders).not.toContain(root.collider);
+      expect(internals.objectPhysics.has(root.mesh)).toBe(false);
+      expect(consoleError).toHaveBeenCalledWith("[Editor] Command cleanup failed:", cleanupError);
+
+      const bodyCleanupCount = harness.removeBody.mock.calls.length;
+      const colliderCleanupCount = harness.removeCollider.mock.calls.length;
+      manager.history.clear();
+      expect(harness.removeBody).toHaveBeenCalledTimes(bodyCleanupCount);
+      expect(harness.removeCollider).toHaveBeenCalledTimes(colliderCleanupCount);
+      expect(consoleError).toHaveBeenCalledOnce();
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it("rejects a missing root without dirtying or retaining history", () => {
@@ -644,5 +736,46 @@ describe("EditorManager subtree delete transactions", () => {
     manager.deleteSelection();
 
     expect(deleteSubtree.mock.calls).toEqual([[root.id], [root.id]]);
+  });
+});
+
+describe("EditorManager delete ownership at user-load boundaries", () => {
+  it("finalizes an applied delete before unloading a validated replacement", async () => {
+    const harness = makeDeleteHarness();
+    const { manager, root, child, grandchild } = harness;
+    expect(manager.deleteSubtree(root.id)).toBe(true);
+    const loadToken = manager.loadTransaction.begin("user-load");
+    if (!loadToken) throw new Error("Expected the user-load token to start.");
+
+    await expect(manager.applyLoadedLevelContents(emptyLevelData(), "user-load", loadToken)).resolves.toBe(
+      "completed",
+    );
+    manager.history.clear();
+
+    for (const collider of [root.collider, child.collider, grandchild.collider]) {
+      expect(harness.removeCollider.mock.calls.filter(([removed]) => removed === collider)).toHaveLength(1);
+    }
+    for (const body of [root.body, child.body]) {
+      expect(harness.removeBody.mock.calls.filter(([removed]) => removed === body)).toHaveLength(1);
+    }
+  });
+
+  it("leaves an applied delete and its retained resources untouched when validation rejects a load", async () => {
+    const harness = makeDeleteHarness();
+    const { manager, root } = harness;
+    expect(manager.deleteSubtree(root.id)).toBe(true);
+    const before = projectDeleteManager(harness);
+    const loadToken = manager.loadTransaction.begin("user-load");
+    if (!loadToken) throw new Error("Expected the user-load token to start.");
+    const invalid = { ...emptyLevelData(), version: 1 } as unknown as LevelData;
+
+    await expect(manager.applyLoadedLevelContents(invalid, "user-load", loadToken)).resolves.toBe("failed");
+
+    expect(projectDeleteManager(harness)).toEqual(before);
+    expect(harness.removeBody).not.toHaveBeenCalled();
+    expect(harness.removeCollider).not.toHaveBeenCalled();
+    manager.history.clear();
+    expect(harness.removeBody).toHaveBeenCalledWith(root.body);
+    expect(harness.removeCollider).toHaveBeenCalledWith(root.collider);
   });
 });

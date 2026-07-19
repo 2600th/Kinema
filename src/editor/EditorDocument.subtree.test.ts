@@ -106,4 +106,32 @@ describe("EditorDocument subtree primitives", () => {
     expect(document.restoreSubtree(snapshot)).toBe(true);
     expect(projectDocument(document)).toEqual(before);
   });
+
+  it("restores the external Three sibling index and interleaved document order", () => {
+    const scene = new THREE.Scene();
+    const document = new EditorDocument(scene, {} as PhysicsWorld);
+    const externalBefore = new THREE.Object3D();
+    const externalAfter = new THREE.Object3D();
+    const documentBefore = makeObject("document-before", null, [], [1, 0, 0]);
+    const root = makeObject("root", null, ["child"], [2, 0, 0]);
+    const documentMiddle = makeObject("document-middle", null, [], [3, 0, 0]);
+    const child = makeObject("child", root.id, [], [4, 0, 0]);
+    const documentAfter = makeObject("document-after", null, [], [5, 0, 0]);
+
+    scene.add(externalBefore, root.mesh, externalAfter);
+    scene.add(documentBefore.mesh, documentMiddle.mesh, documentAfter.mesh);
+    root.mesh.add(child.mesh);
+    document.objects = [documentBefore, root, documentMiddle, child, documentAfter];
+    const documentOrder = [...document.objects];
+    const sceneOrder = [...scene.children];
+    const snapshot = document.captureSubtree(root.id);
+    if (!snapshot) throw new Error("Expected the subtree snapshot to exist.");
+
+    expect(document.removeSubtree(snapshot)).toBe(true);
+    expect(document.restoreSubtree(snapshot)).toBe(true);
+
+    expect(document.objects).toEqual(documentOrder);
+    expect(scene.children).toEqual(sceneOrder);
+    expect(root.mesh.children).toEqual([child.mesh]);
+  });
 });

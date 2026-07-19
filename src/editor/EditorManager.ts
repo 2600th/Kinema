@@ -2033,6 +2033,8 @@ export class EditorManager {
         return "failed";
       }
     }
+    if (!this.loadTransaction.isCurrent(loadToken)) return "superseded";
+    if (intent === "user-load") this.history.clear();
 
     try {
       const levelTrackedMeshes = new Set(this.levelManager.getLevelObjects());
@@ -2139,7 +2141,6 @@ export class EditorManager {
 
     if (!this.loadTransaction.isCurrent(loadToken)) return "superseded";
     if (intent === "user-load") {
-      this.history.clear();
       this.documentState.markClean(data.name);
       this.toolbarPanel.clearSaveError();
     }

@@ -787,6 +787,43 @@ describe("LevelManager rotated body creation", () => {
     expect(physicsWorld.removeBody).toHaveBeenCalledWith(body);
   });
 
+  it("retires tracking and attempts body cleanup when collider cleanup throws", () => {
+    const scene = new THREE.Scene();
+    const cleanupError = new Error("collider cleanup failed");
+    const removeCollider = vi.fn(() => {
+      throw cleanupError;
+    });
+    const removeBody = vi.fn();
+    const manager = new LevelManager(
+      scene,
+      { world: {}, removeCollider, removeBody } as unknown as PhysicsWorld,
+      { emit: vi.fn() } as unknown as EventBus,
+    );
+    const mesh = new THREE.Group();
+    const collider = { setEnabled: vi.fn() } as unknown as RAPIER.Collider;
+    const body = { setEnabled: vi.fn() } as unknown as RAPIER.RigidBody;
+    manager.addLevelObject(mesh, { physics: { body, collider } });
+
+    expect(() => manager.removeLevelObject(mesh, { removePhysics: true })).toThrow(cleanupError);
+
+    expect(removeCollider).toHaveBeenCalledOnce();
+    expect(removeBody).toHaveBeenCalledWith(body);
+    expect(manager.getLevelObjects()).not.toContain(mesh);
+    expect(manager.getLevelObjectTracking(mesh).physics).toBeUndefined();
+    const internals = manager as unknown as {
+      levelBodies: unknown[];
+      levelColliders: unknown[];
+      objectPhysics: Map<THREE.Object3D, unknown>;
+    };
+    expect(internals.levelBodies).not.toContain(body);
+    expect(internals.levelColliders).not.toContain(collider);
+    expect(internals.objectPhysics.has(mesh)).toBe(false);
+
+    manager.removeLevelObject(mesh, { removePhysics: true });
+    expect(removeCollider).toHaveBeenCalledOnce();
+    expect(removeBody).toHaveBeenCalledOnce();
+  });
+
   it("re-enables tracked static physics when an editor undo restores the object", () => {
     const scene = new THREE.Scene();
     const collider = { setEnabled: vi.fn() };

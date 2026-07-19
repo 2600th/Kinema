@@ -215,16 +215,28 @@ export class LevelManager implements Disposable {
     this.dynamicBodies = this.dynamicBodies.filter((d) => (d as { mesh: THREE.Object3D }).mesh !== mesh);
 
     if (options.removePhysics && physics) {
+      let cleanupFailure: unknown;
       if (physics.collider) {
-        this.physicsWorld.removeCollider(physics.collider);
-        this.levelColliders = this.levelColliders.filter((collider) => collider !== physics.collider);
+        try {
+          this.physicsWorld.removeCollider(physics.collider);
+        } catch (error) {
+          cleanupFailure = error;
+        } finally {
+          this.levelColliders = this.levelColliders.filter((collider) => collider !== physics.collider);
+        }
       }
       if (physics.body) {
-        this.physicsWorld.removeBody(physics.body);
-        this.levelBodies = this.levelBodies.filter((body) => body !== physics.body);
+        try {
+          this.physicsWorld.removeBody(physics.body);
+        } catch (error) {
+          cleanupFailure ??= error;
+        } finally {
+          this.levelBodies = this.levelBodies.filter((body) => body !== physics.body);
+        }
       }
       this.objectPhysics.delete(mesh);
       this.setLevelObjectPhysicsMetadata(mesh, undefined);
+      if (cleanupFailure) throw cleanupFailure;
       return { dynamicBody };
     }
 
