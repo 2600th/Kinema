@@ -46,9 +46,12 @@ describe("LevelManager spawn handling", () => {
     (manager as any).spawnPoint = { position: new THREE.Vector3(4, 7, -2) };
     (manager as any).currentLevelName = "custom-level";
 
+    expect(manager.getCurrentLevelName()).toBe("custom-level");
+
     manager.unload();
 
     expect(manager.getSpawnPoint().position.equals(defaultSpawn)).toBe(true);
+    expect(manager.getCurrentLevelName()).toBeNull();
   });
 });
 

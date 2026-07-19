@@ -86,6 +86,7 @@ test("explains session-only and missing GLB models", async ({ page }) => {
   await page.locator(".loading-screen").waitFor({ state: "hidden", timeout: 120_000 });
   await page.keyboard.press("F1");
   await page.waitForFunction(() => window.__KINEMA__.isEditorActive(), undefined, { timeout: 60_000 });
+  await expect(page.locator(".ke-document-title")).toHaveText("kin021-session-model");
 
   const warningLabel = "GLB unavailable; placeholder shown.";
   const hierarchyWarning = page.locator(`.ke-tree-row-warning[aria-label="${warningLabel}"]`);
@@ -138,8 +139,60 @@ test("protects unsaved editor work and saves through Ctrl+S", async ({ page }) =
   await expect.poll(() => page.evaluate(() => window.__KINEMA__.isPlayTesting())).toBe(true);
   expect(await page.evaluate(() => window.__KINEMA__.getEditorDocumentState().dirty)).toBe(true);
   expect(await page.evaluate(() => window.__KINEMA__.getEditorUnloadProtectionState().registered)).toBe(true);
-  await page.evaluate(() => window.__KINEMA__.stopPlayTest());
+  const stopBoundary = await page.evaluate(async () => {
+    const stopPromise = window.__KINEMA__.stopPlayTest();
+    const event = new Event("beforeunload", { cancelable: true });
+    const dispatched = window.dispatchEvent(event);
+    const during = {
+      dispatched,
+      defaultPrevented: event.defaultPrevented,
+      debug: window.__KINEMA__.getEditorUnloadProtectionState(),
+    };
+    await stopPromise;
+    return { during };
+  });
+  expect(stopBoundary.during).toEqual({
+    dispatched: false,
+    defaultPrevented: true,
+    debug: { registered: true, lastPrevented: true },
+  });
   await expect.poll(() => page.evaluate(() => window.__KINEMA__.isEditorActive())).toBe(true);
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorDocumentState())).toEqual({
+    name: "Untitled",
+    dirty: true,
+  });
+
+  const invalidLoadChooserPromise = page.waitForEvent("filechooser");
+  await page.getByTitle("Load", { exact: true }).click();
+  const invalidLoadChooser = await invalidLoadChooserPromise;
+  await invalidLoadChooser.setFiles({
+    name: "invalid-level.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(
+      JSON.stringify({
+        version: 2,
+        name: "must-not-replace-current-document",
+        created: "2026-07-19T00:00:00.000Z",
+        modified: "2026-07-19T00:00:00.000Z",
+        spawnPoint: { position: [0, 2, 0] },
+        objects: [
+          {
+            id: "unsupported-object",
+            name: "Unsupported",
+            parentId: null,
+            source: { type: "sprite" },
+            transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+            physics: { type: "static" },
+          },
+        ],
+      }),
+    ),
+  });
+  await expect(page.locator(".ke-save-error")).toHaveText(
+    "Load rejected — one or more objects or hierarchy links could not be reconstructed.",
+  );
+  await expect(page.locator(".ke-save-error")).toBeVisible();
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorObjectCount())).toBe(initialObjectCount + 1);
   expect(await page.evaluate(() => window.__KINEMA__.getEditorDocumentState())).toEqual({
     name: "Untitled",
     dirty: true,

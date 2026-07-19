@@ -16,8 +16,10 @@ import { EditorDocument } from "./EditorDocument";
 import {
   type EditorDocumentSnapshot,
   EditorDocumentState,
+  normalizeEditorDocumentName,
   shouldProtectEditorUnload,
 } from "./EditorDocumentState";
+import { validateEditorLevelData } from "./EditorLevelValidator";
 import type { EditorObject } from "./EditorObject";
 import { FreeCamera } from "./FreeCamera";
 import { type LevelData, LevelSerializer } from "./LevelSerializer";
@@ -49,6 +51,7 @@ export class EditorManager {
 
   /* ---- Play-test state ---- */
   private playTestActive = false;
+  private restoringPlayTest = false;
   private playTestSnapshot: string | null = null;
   private playTestCameraState: { position: THREE.Vector3; quaternion: THREE.Quaternion } | null = null;
   private playTestStopButton: HTMLElement | null = null;
@@ -222,11 +225,13 @@ export class EditorManager {
     this.tools.set(this.glbPlacementTool.id, this.glbPlacementTool);
     this.activeTool = this.selectionTool;
 
+    this.documentState.markClean(normalizeEditorDocumentName(this.levelManager.getCurrentLevelName()));
+
     this.unsubs.push(this.eventBus.on("editor:toggle", () => this.toggle()));
     this.unsubs.push(
       this.eventBus.on("level:loaded", ({ name }) => {
         this.history.clear();
-        this.documentState.markClean(name === "procedural" || name.startsWith("station:") ? "Untitled" : name);
+        this.documentState.markClean(normalizeEditorDocumentName(name));
       }),
     );
 
@@ -290,7 +295,12 @@ export class EditorManager {
   }
 
   shouldWarnBeforeUnload(): boolean {
-    return shouldProtectEditorUnload(this.documentState.value.dirty, this.active, this.playTestActive);
+    return shouldProtectEditorUnload(
+      this.documentState.value.dirty,
+      this.active,
+      this.playTestActive,
+      this.restoringPlayTest,
+    );
   }
 
   undo(): void {
@@ -578,37 +588,55 @@ export class EditorManager {
 
     const snapshot = this.playTestSnapshot;
     const cameraState = this.playTestCameraState;
+    this.restoringPlayTest = true;
+    this.syncUnloadProtection();
     this.clearPlayTestState();
 
-    // ── Step 1: Restore scene from snapshot BEFORE re-entering editor ──
-    // Await to ensure all objects are fully spawned before entering editor.
-    if (snapshot) {
-      try {
+    try {
+      // ── Step 1: Restore scene from snapshot BEFORE re-entering editor ──
+      // Await to ensure all objects are fully spawned before entering editor.
+      if (snapshot) {
         const data = JSON.parse(snapshot) as LevelData;
-        await this.applyLoadedLevel(data, "playtest-restore");
-      } catch (err) {
-        console.error("[Editor] Failed to restore play-test snapshot:", err);
-        return;
+        const restored = await this.applyLoadedLevel(data, "playtest-restore");
+        if (!restored) throw new Error("Snapshot reconstruction was incomplete.");
+      } else {
+        throw new Error("Play-test snapshot was unavailable.");
       }
-    } else {
-      return;
+
+      // ── Step 2: Re-enter editor mode (skip buildEditorObjects — objects
+      //    are already populated by applyLoadedLevel) ──
+      this.enter(false);
+
+      // ── Step 3: Restore camera state ──
+      if (cameraState) {
+        this.renderer.camera.position.copy(cameraState.position);
+        this.renderer.camera.quaternion.copy(cameraState.quaternion);
+        this.freeCamera.disable();
+        this.freeCamera.enable();
+      }
+
+      // Clear selection and sync UI
+      this.setSelection(null);
+      this.syncHierarchy();
+    } catch (err) {
+      console.error("[Editor] Failed to restore play-test snapshot:", err);
+      this.markDirty();
+      if (!this.active) {
+        try {
+          this.enter(false);
+        } catch (recoveryError) {
+          console.error("[Editor] Failed to re-enter the editor after restore failure:", recoveryError);
+        }
+      }
+      this.setSelection(null);
+      this.syncHierarchy();
+      this.toolbarPanel.showSaveError(
+        "Play-test restore failed — the recovered document has unsaved changes and remains protected.",
+      );
+    } finally {
+      this.restoringPlayTest = false;
+      this.syncUnloadProtection();
     }
-
-    // ── Step 2: Re-enter editor mode (skip buildEditorObjects — objects
-    //    are already populated by applyLoadedLevel) ──
-    this.enter(false);
-
-    // ── Step 3: Restore camera state ──
-    if (cameraState) {
-      this.renderer.camera.position.copy(cameraState.position);
-      this.renderer.camera.quaternion.copy(cameraState.quaternion);
-      this.freeCamera.disable();
-      this.freeCamera.enable();
-    }
-
-    // Clear selection and sync UI
-    this.setSelection(null);
-    this.syncHierarchy();
   }
 
   abortPlayTest(): void {
@@ -1484,88 +1512,120 @@ export class EditorManager {
     input.click();
   }
 
-  private async applyLoadedLevel(data: LevelData, intent: "user-load" | "playtest-restore"): Promise<void> {
-    const levelTrackedMeshes = new Set(this.levelManager.getLevelObjects());
-    this.levelManager.unload();
-
-    // Phase 1: remove editor document objects not already owned by LevelManager.
-    for (const obj of this.document.objects) {
-      if (obj.mesh.parent) {
-        obj.mesh.parent.remove(obj.mesh);
-      }
-      if (!levelTrackedMeshes.has(obj.mesh) && obj.body) {
-        this.physicsWorld.removeBody(obj.body);
-        obj.body = undefined;
-        obj.collider = undefined;
-      } else if (!levelTrackedMeshes.has(obj.mesh) && obj.collider) {
-        this.physicsWorld.removeCollider(obj.collider);
-        obj.collider = undefined;
-      }
-      if (levelTrackedMeshes.has(obj.mesh)) {
-        obj.body = undefined;
-        obj.collider = undefined;
+  private async applyLoadedLevel(
+    data: LevelData,
+    intent: "user-load" | "playtest-restore",
+  ): Promise<boolean> {
+    if (intent === "user-load") {
+      const validation = validateEditorLevelData(data);
+      if (!validation.ok) {
+        console.warn(`[Editor] Rejected level load: ${validation.reason}`);
+        this.toolbarPanel.showSaveError(
+          "Load rejected — one or more objects or hierarchy links could not be reconstructed.",
+        );
+        return false;
       }
     }
-    this.document.objects = [];
 
-    // Phase 2: remove any remaining level-loaded objects from the scene.
-    // These are meshes that were loaded by LevelManager.loadFromJSON but are
-    // NOT tracked in document.objects (e.g., after levelManager arrays were
-    // already cleared by a previous restore).
-    for (const mesh of [...this.levelManager.getLevelObjects()]) {
-      this.renderer.scene.remove(mesh);
-      this.levelManager.removeLevelObject(mesh, { removePhysics: true });
-    }
+    try {
+      const levelTrackedMeshes = new Set(this.levelManager.getLevelObjects());
+      this.levelManager.unload();
 
-    // Phase 3: remove any orphaned editor objects from scene.
-    // Safety sweep: catches GLB Groups, Meshes, or any Object3D tagged with
-    // editorSource that survived previous restores. Only collect roots (objects
-    // whose parent is NOT also tagged) to avoid removing children twice.
-    const orphanedRoots: THREE.Object3D[] = [];
-    this.renderer.scene.traverse((child) => {
-      if (child.userData?.editorSource && !child.parent?.userData?.editorSource) {
-        orphanedRoots.push(child);
+      // Phase 1: remove editor document objects not already owned by LevelManager.
+      for (const obj of this.document.objects) {
+        if (obj.mesh.parent) {
+          obj.mesh.parent.remove(obj.mesh);
+        }
+        if (!levelTrackedMeshes.has(obj.mesh) && obj.body) {
+          this.physicsWorld.removeBody(obj.body);
+          obj.body = undefined;
+          obj.collider = undefined;
+        } else if (!levelTrackedMeshes.has(obj.mesh) && obj.collider) {
+          this.physicsWorld.removeCollider(obj.collider);
+          obj.collider = undefined;
+        }
+        if (levelTrackedMeshes.has(obj.mesh)) {
+          obj.body = undefined;
+          obj.collider = undefined;
+        }
       }
-    });
-    for (const node of orphanedRoots) {
-      node.parent?.remove(node);
-    }
+      this.document.objects = [];
 
-    // ── Phase 4: Spawn fresh objects from the snapshot ──
-    for (const entry of data.objects) {
-      await this.spawnSerializedObject(entry);
-    }
+      // Phase 2: remove any remaining level-loaded objects from the scene.
+      // These are meshes that were loaded by LevelManager.loadFromJSON but are
+      // NOT tracked in document.objects (e.g., after levelManager arrays were
+      // already cleared by a previous restore).
+      for (const mesh of [...this.levelManager.getLevelObjects()]) {
+        this.renderer.scene.remove(mesh);
+        this.levelManager.removeLevelObject(mesh, { removePhysics: true });
+      }
 
-    // ── Phase 5: Reconstruct parent-child hierarchy ──
-    // spawnSerializedObject adds all objects as direct scene children.
-    // Resolve parentId references and re-attach children to their parents.
-    for (const obj of this.document.objects) {
-      obj.children = [];
-    }
-    for (const obj of this.document.objects) {
-      if (!obj.parentId) continue;
-      const parent = this.document.findById(obj.parentId);
-      if (!parent) {
-        obj.parentId = null;
-        continue;
+      // Phase 3: remove any orphaned editor objects from scene.
+      // Safety sweep: catches GLB Groups, Meshes, or any Object3D tagged with
+      // editorSource that survived previous restores. Only collect roots (objects
+      // whose parent is NOT also tagged) to avoid removing children twice.
+      const orphanedRoots: THREE.Object3D[] = [];
+      this.renderer.scene.traverse((child) => {
+        if (child.userData?.editorSource && !child.parent?.userData?.editorSource) {
+          orphanedRoots.push(child);
+        }
+      });
+      for (const node of orphanedRoots) {
+        node.parent?.remove(node);
       }
-      parent.mesh.add(obj.mesh);
-      if (!parent.children) parent.children = [];
-      if (!parent.children.includes(obj.id)) {
-        parent.children.push(obj.id);
+
+      // ── Phase 4: Spawn fresh objects from the snapshot ──
+      for (const entry of data.objects) {
+        if (!(await this.spawnSerializedObject(entry))) {
+          throw new Error(`Object "${entry.id}" could not be reconstructed.`);
+        }
       }
-      this.updateEditorObjectTransform(obj);
+
+      // ── Phase 5: Reconstruct parent-child hierarchy ──
+      // spawnSerializedObject adds all objects as direct scene children.
+      // Resolve parentId references and re-attach children to their parents.
+      for (const obj of this.document.objects) {
+        obj.children = [];
+      }
+      for (const obj of this.document.objects) {
+        if (!obj.parentId) continue;
+        const parent = this.document.findById(obj.parentId);
+        if (!parent) {
+          throw new Error(`Parent "${obj.parentId}" for object "${obj.id}" was not reconstructed.`);
+        }
+        parent.mesh.add(obj.mesh);
+        if (obj.mesh.parent !== parent.mesh) {
+          throw new Error(`Hierarchy edge "${obj.parentId}" -> "${obj.id}" could not be reconstructed.`);
+        }
+        if (!parent.children) parent.children = [];
+        if (!parent.children.includes(obj.id)) {
+          parent.children.push(obj.id);
+        }
+        this.updateEditorObjectTransform(obj);
+      }
+    } catch (err) {
+      console.error(`[Editor] ${intent === "user-load" ? "Level load" : "Play-test restore"} failed:`, err);
+      this.markDirty();
+      this.syncHierarchy();
+      this.toolbarPanel.showSaveError(
+        intent === "user-load"
+          ? "Load failed — the recovered document has unsaved changes and remains protected."
+          : "Play-test restore failed — the recovered document has unsaved changes and remains protected.",
+      );
+      return false;
     }
 
     if (intent === "user-load") {
       this.history.clear();
       this.documentState.markClean(data.name);
+      this.toolbarPanel.clearSaveError();
     }
     this.syncHierarchy();
     this.eventBus.emit("editor:loaded", { name: data.name });
+    return true;
   }
 
-  private async spawnSerializedObject(entry: LevelData["objects"][number]): Promise<void> {
+  private async spawnSerializedObject(entry: LevelData["objects"][number]): Promise<boolean> {
     let obj: THREE.Object3D | null = null;
     if (entry.source.type === "primitive" && entry.source.primitive) {
       const p = entry.source.primitive;
@@ -1620,7 +1680,7 @@ export class EditorManager {
         obj.userData.editorMissingAssetPath = entry.source.asset;
       }
     }
-    if (!obj) return;
+    if (!obj) return false;
 
     obj.position.set(entry.transform.position[0], entry.transform.position[1], entry.transform.position[2]);
     obj.rotation.set(entry.transform.rotation[0], entry.transform.rotation[1], entry.transform.rotation[2]);
@@ -1629,6 +1689,7 @@ export class EditorManager {
     obj.userData.editorSource = entry.source;
 
     const editorObj = this.buildEditorObject(obj);
+    editorObj.id = entry.id;
     editorObj.name = entry.name;
     editorObj.source = entry.source;
     editorObj.parentId = entry.parentId ?? null;
@@ -1731,5 +1792,6 @@ export class EditorManager {
     }
 
     this.addTrackedEditorObject(editorObj, this.renderer.scene);
+    return this.document.findById(entry.id) === editorObj && obj.parent === this.renderer.scene;
   }
 }

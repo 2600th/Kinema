@@ -3,8 +3,17 @@ export interface EditorDocumentSnapshot {
   dirty: boolean;
 }
 
-export function shouldProtectEditorUnload(dirty: boolean, active: boolean, playTesting: boolean): boolean {
-  return dirty && (active || playTesting);
+export function normalizeEditorDocumentName(loadedName: string | null): string {
+  return !loadedName || loadedName === "procedural" || loadedName.startsWith("station:") ? "Untitled" : loadedName;
+}
+
+export function shouldProtectEditorUnload(
+  dirty: boolean,
+  active: boolean,
+  playTesting: boolean,
+  restoring: boolean,
+): boolean {
+  return dirty && (active || playTesting || restoring);
 }
 
 export class EditorDocumentState {

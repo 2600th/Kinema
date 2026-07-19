@@ -167,6 +167,11 @@ export class LevelManager implements Disposable {
     return this.spawnPoint;
   }
 
+  /** Read-only name of the level currently loaded into the runtime. */
+  getCurrentLevelName(): string | null {
+    return this.currentLevelName;
+  }
+
   /** Ladder trigger volumes for climb assist. */
   getLadderZones(): readonly THREE.Box3[] {
     return this.ladderZones;
