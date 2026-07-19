@@ -65,6 +65,18 @@ type RuntimeTouchControls = TouchControlsManager & {
   setLookSensitivity(value: number): void;
 };
 
+function gamepadSnapshot(pressedButtons: number[]): Gamepad {
+  return {
+    connected: true,
+    axes: [0, 0, 0, 0],
+    buttons: Array.from({ length: 17 }, (_, index) => ({
+      pressed: pressedButtons.includes(index),
+      touched: pressedButtons.includes(index),
+      value: pressedButtons.includes(index) ? 1 : 0,
+    })),
+  } as unknown as Gamepad;
+}
+
 describe("TouchControlsManager runtime preferences", () => {
   let windowTarget: FakeElement;
   let documentTarget: FakeElement & { createElement: () => FakeElement; pointerLockElement: unknown };
@@ -186,6 +198,56 @@ describe("TouchControlsManager runtime preferences", () => {
     sprintButton.dispatch("click", { detail: 0 });
     crouchButton.dispatch("click", { detail: 0 });
     expect(inputManager.poll()).toMatchObject({ crouch: false, crouchPressed: false, sprint: false });
+    inputManager.dispose();
+  });
+
+  it.each([
+    ["crouch", 3, 2],
+    ["sprint", 1, 0],
+  ] as const)("toggles two physical %s taps when release is not polled", (action, zoneIndex, buttonIndex) => {
+    const container = new FakeElement();
+    const touchControls = new TouchControlsManager(container as unknown as HTMLElement);
+    const inputManager = new InputManager(new EventBus(), new FakeElement() as unknown as HTMLCanvasElement);
+    const inputInternals = inputManager as unknown as {
+      touchActive: boolean;
+      touchControls: TouchControlsManager;
+    };
+    inputInternals.touchActive = true;
+    inputInternals.touchControls = touchControls;
+    if (action === "crouch") inputManager.setCrouchMode("toggle");
+    if (action === "sprint") inputManager.setSprintMode("toggle");
+    const button = container.children[0].children[zoneIndex].children[buttonIndex];
+
+    button.dispatch("touchstart", { preventDefault: vi.fn(), changedTouches: [{ identifier: 1 }] });
+    expect(inputManager.poll()[action]).toBe(true);
+    windowTarget.dispatch("touchend", { changedTouches: [{ identifier: 1 }] });
+    button.dispatch("touchstart", { preventDefault: vi.fn(), changedTouches: [{ identifier: 2 }] });
+
+    expect(inputManager.poll()[action]).toBe(false);
+    inputManager.dispose();
+  });
+
+  it("does not double-toggle a physical touch pulse while gamepad crouch remains held", () => {
+    Object.defineProperty(globalThis, "navigator", {
+      value: { getGamepads: vi.fn(() => [gamepadSnapshot([1])]), maxTouchPoints: 1 },
+      configurable: true,
+    });
+    const container = new FakeElement();
+    const touchControls = new TouchControlsManager(container as unknown as HTMLElement);
+    const inputManager = new InputManager(new EventBus(), new FakeElement() as unknown as HTMLCanvasElement);
+    const inputInternals = inputManager as unknown as {
+      touchActive: boolean;
+      touchControls: TouchControlsManager;
+    };
+    inputInternals.touchActive = true;
+    inputInternals.touchControls = touchControls;
+    inputManager.setCrouchMode("toggle");
+    expect(inputManager.poll().crouch).toBe(true);
+    const crouchButton = container.children[0].children[3].children[2];
+
+    crouchButton.dispatch("touchstart", { preventDefault: vi.fn(), changedTouches: [{ identifier: 1 }] });
+
+    expect(inputManager.poll().crouch).toBe(true);
     inputManager.dispose();
   });
 });

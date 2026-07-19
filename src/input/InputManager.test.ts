@@ -877,6 +877,7 @@ describe("InputManager", () => {
   it("shares one crouch rising edge across keyboard, gamepad, and touch sources", () => {
     let pads: Gamepad[] = [gamepadSnapshot([0, 0, 0, 0])];
     let touchCrouch = false;
+    let touchCrouchPressed = false;
     Object.defineProperty(globalThis, "navigator", {
       value: { getGamepads: vi.fn(() => pads), maxTouchPoints: 0 },
       configurable: true,
@@ -888,22 +889,26 @@ describe("InputManager", () => {
       dispose: vi.fn(),
       hide: vi.fn(),
       show: vi.fn(),
-      getInputState: vi.fn(() => ({
-        moveX: 0,
-        moveY: 0,
-        lookDX: 0,
-        lookDY: 0,
-        vehicleVertical: 0,
-        jump: false,
-        jumpPressed: false,
-        interact: false,
-        interactPressed: false,
-        crouch: touchCrouch,
-        crouchPressed: touchCrouch,
-        sprint: false,
-        sprintPressed: false,
-        active: touchCrouch,
-      })),
+      getInputState: vi.fn(() => {
+        const crouchPressed = touchCrouchPressed;
+        touchCrouchPressed = false;
+        return {
+          moveX: 0,
+          moveY: 0,
+          lookDX: 0,
+          lookDY: 0,
+          vehicleVertical: 0,
+          jump: false,
+          jumpPressed: false,
+          interact: false,
+          interactPressed: false,
+          crouch: touchCrouch,
+          crouchPressed,
+          sprint: false,
+          sprintPressed: false,
+          active: touchCrouch,
+        };
+      }),
     };
     asManagerInternals(manager).touchActive = true;
     lockPointer();
@@ -914,12 +919,14 @@ describe("InputManager", () => {
     expect(manager.poll().crouch).toBe(true);
     keyUp("KeyC");
     touchCrouch = true;
+    touchCrouchPressed = true;
     expect(manager.poll().crouch).toBe(true);
     pads = [gamepadSnapshot([0, 0, 0, 0])];
     expect(manager.poll().crouch).toBe(true);
     touchCrouch = false;
     expect(manager.poll().crouch).toBe(true);
     touchCrouch = true;
+    touchCrouchPressed = true;
     expect(manager.poll()).toMatchObject({ crouch: false, crouchPressed: false });
     manager.dispose();
   });

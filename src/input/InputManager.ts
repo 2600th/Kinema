@@ -198,19 +198,27 @@ export class InputManager implements Disposable {
 
     // Use latchedKeys for edge detection so short keypresses (down+up between
     // two polls) aren't missed. Held state still comes from live keys set.
-    const rawCrouch =
-      (this.locked && this.isKeyboardActionHeld("crouch")) || gamepad.crouch || (touch?.crouch ?? false);
+    const nonTouchCrouchHeld = (this.locked && this.isKeyboardActionHeld("crouch")) || gamepad.crouch;
+    const touchCrouchHeld = touch?.crouch ?? false;
+    const touchCrouchPressed = touch?.crouchPressed ?? false;
+    const rawCrouch = nonTouchCrouchHeld || touchCrouchHeld;
     const crouchInput = this.resolveTraversalAction(
       "crouch",
       rawCrouch,
-      rawCrouch || (touch?.crouchPressed ?? false) || (this.locked && this.isKeyboardActionLatched("crouch")),
+      rawCrouch || touchCrouchPressed || (this.locked && this.isKeyboardActionLatched("crouch")),
+      touchCrouchPressed,
+      nonTouchCrouchHeld,
     );
-    const rawSprint =
-      (this.locked && this.isKeyboardActionHeld("sprint")) || gamepad.sprint || (touch?.sprint ?? false);
+    const nonTouchSprintHeld = (this.locked && this.isKeyboardActionHeld("sprint")) || gamepad.sprint;
+    const touchSprintHeld = touch?.sprint ?? false;
+    const touchSprintPressed = touch?.sprintPressed ?? false;
+    const rawSprint = nonTouchSprintHeld || touchSprintHeld;
     const sprintInput = this.resolveTraversalAction(
       "sprint",
       rawSprint,
-      rawSprint || (touch?.sprintPressed ?? false) || (this.locked && this.isKeyboardActionLatched("sprint")),
+      rawSprint || touchSprintPressed || (this.locked && this.isKeyboardActionLatched("sprint")),
+      touchSprintPressed,
+      nonTouchSprintHeld,
     );
     const jump =
       (this.locked && (this.isKeyboardActionHeld("jump") || this.isKeyboardActionLatched("jump"))) ||
@@ -738,8 +746,10 @@ export class InputManager implements Disposable {
     action: TraversalAction,
     rawHeld: boolean,
     rawActive: boolean,
+    freshSourcePulse = false,
+    continuousOtherSource = false,
   ): { active: boolean; pressed: boolean } {
-    const rising = rawActive && !this.traversalRawActive[action];
+    const rising = (rawActive && !this.traversalRawActive[action]) || (freshSourcePulse && !continuousOtherSource);
     this.traversalRawActive[action] = rawHeld;
     if (this.vehicleContext || this.traversalModes[action] === "hold") {
       return { active: rawHeld, pressed: rising };
