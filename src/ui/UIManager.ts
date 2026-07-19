@@ -217,6 +217,10 @@ export class UIManager implements Disposable {
     );
   }
 
+  setDamageFlashIntensity(value: number): void {
+    this.hud.setDamageFlashIntensity(value);
+  }
+
   dispose(): void {
     for (const unsub of this.unsubscribers) {
       unsub();

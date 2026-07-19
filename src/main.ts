@@ -73,6 +73,7 @@ async function bootstrap(): Promise<void> {
     { OrbitFollowCamera },
     { InteractionManager },
     { UIManager },
+    { ComfortPreferencesController },
     { UserSettingsStore },
     { AudioManager, createSilentAudioController },
     { VehicleManager },
@@ -92,6 +93,7 @@ async function bootstrap(): Promise<void> {
     import("@camera/OrbitFollowCamera"),
     import("@interaction/InteractionManager"),
     import("@ui/UIManager"),
+    import("@ui/ComfortPreferencesController"),
     import("@core/UserSettings"),
     import("@audio/AudioManager"),
     import("@vehicle/VehicleManager"),
@@ -156,6 +158,13 @@ async function bootstrap(): Promise<void> {
     getInputGlyph("interact", inputManager.lastInputSource, settings.value.keyboardBindings),
   );
   const uiManager = new UIManager(eventBus, () => settings.value.keyboardBindings);
+  const comfortPreferences = new ComfortPreferencesController({
+    camera,
+    hud: uiManager,
+    root: document.documentElement,
+    matchMedia: (query) => window.matchMedia(query),
+  });
+  comfortPreferences.apply(settings.value);
   let audioManager: import("@audio/AudioManager").AudioController;
   try {
     audioManager = new AudioManager(eventBus, playerController, inputManager, settings);
@@ -918,6 +927,7 @@ async function bootstrap(): Promise<void> {
     inputManager,
     camera,
     audioManager,
+    comfortPreferences,
     startGame,
     startSavedLevel,
     returnToMainMenu,
@@ -927,6 +937,7 @@ async function bootstrap(): Promise<void> {
   const registerUnload = (): void => {
     window.addEventListener("beforeunload", () => {
       gameLoop.stop();
+      comfortPreferences.dispose();
       game.dispose();
       menuManager.dispose();
     });

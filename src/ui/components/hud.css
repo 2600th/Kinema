@@ -316,7 +316,7 @@
   inset: 0;
   pointer-events: none;
   z-index: 999;
-  opacity: 0;
+  opacity: var(--damage-flash-intensity, 1);
 }
 
 .hud-damage-overlay::before,
@@ -344,11 +344,11 @@
 }
 
 .hud-damage-overlay.is-hit::before {
-  animation: hud-damage-flash-sustained 2.5s ease forwards;
+  animation: hud-damage-flash-sustained var(--damage-flash-outer-duration, 2.5s) ease forwards;
 }
 
 .hud-damage-overlay.is-hit::after {
-  animation: hud-damage-core-sustained 2.5s ease forwards;
+  animation: hud-damage-core-sustained var(--damage-flash-core-duration, 2.5s) ease forwards;
 }
 
 .hud-damage-overlay.is-fall::before {
@@ -362,11 +362,11 @@
 }
 
 .hud-damage-overlay.is-fall.is-hit::before {
-  animation: hud-damage-flash 0.42s ease;
+  animation: hud-damage-flash var(--damage-flash-outer-duration, 0.42s) ease;
 }
 
 .hud-damage-overlay.is-fall.is-hit::after {
-  animation: hud-damage-core 0.32s ease;
+  animation: hud-damage-core var(--damage-flash-core-duration, 0.32s) ease;
 }
 
 .hud-stat-chip {
@@ -830,7 +830,10 @@
   .hud-objective-region {
     top: max(env(safe-area-inset-top), clamp(70px, 11dvh, 104px));
     right: max(env(safe-area-inset-right), 12px);
-    width: min(320px, calc(100dvw - max(env(safe-area-inset-left), 12px) - max(env(safe-area-inset-right), 12px) - 24px));
+    width: min(
+      320px,
+      calc(100dvw - max(env(safe-area-inset-left), 12px) - max(env(safe-area-inset-right), 12px) - 24px)
+    );
   }
 
   .hud-prompt {
@@ -842,33 +845,62 @@
   }
 }
 
+:root[data-reduced-motion="reduce"] .hud-hold-track.is-complete,
+:root[data-reduced-motion="reduce"] .hud-damage-overlay.is-hit::before,
+:root[data-reduced-motion="reduce"] .hud-damage-overlay.is-hit::after,
+:root[data-reduced-motion="reduce"] .hud-health-chip.is-hit,
+:root[data-reduced-motion="reduce"] .hud-health-chip.is-restored,
+:root[data-reduced-motion="reduce"] .hud-collectible-chip.is-boosted,
+:root[data-reduced-motion="reduce"] .hud-collectible-chip.is-celebrating,
+:root[data-reduced-motion="reduce"] .hud-heart.is-lost,
+:root[data-reduced-motion="reduce"] .hud-heart.is-alert,
+:root[data-reduced-motion="reduce"] .hud-heart.is-refilled,
+:root[data-reduced-motion="reduce"] .hud-objective-card.is-updated,
+:root[data-reduced-motion="reduce"] .hud-objective-card.is-complete,
+:root[data-reduced-motion="reduce"] .kinema-ui-hint {
+  animation-duration: 0.01ms;
+  animation-iteration-count: 1;
+}
+
+:root[data-reduced-motion="reduce"] .hud-floating-delta.is-visible,
+:root[data-reduced-motion="reduce"] .hud-status-card,
+:root[data-reduced-motion="reduce"] .hud-prompt,
+:root[data-reduced-motion="reduce"] .hud-hold-track,
+:root[data-reduced-motion="reduce"] .hud-hold-fill,
+:root[data-reduced-motion="reduce"] .hud-objective-card,
+:root[data-reduced-motion="reduce"] .hud-stat-chip,
+:root[data-reduced-motion="reduce"] .collectible-count,
+:root[data-reduced-motion="reduce"] .hud-heart {
+  transition-duration: 0.01ms;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .hud-hold-track.is-complete,
-  .hud-damage-overlay.is-hit::before,
-  .hud-damage-overlay.is-hit::after,
-  .hud-health-chip.is-hit,
-  .hud-health-chip.is-restored,
-  .hud-collectible-chip.is-boosted,
-  .hud-collectible-chip.is-celebrating,
-  .hud-heart.is-lost,
-  .hud-heart.is-alert,
-  .hud-heart.is-refilled,
-  .hud-objective-card.is-updated,
-  .hud-objective-card.is-complete,
-  .kinema-ui-hint {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
+  :root:not([data-reduced-motion="normal"]) .hud-hold-track.is-complete,
+  :root:not([data-reduced-motion="normal"]) .hud-damage-overlay.is-hit::before,
+  :root:not([data-reduced-motion="normal"]) .hud-damage-overlay.is-hit::after,
+  :root:not([data-reduced-motion="normal"]) .hud-health-chip.is-hit,
+  :root:not([data-reduced-motion="normal"]) .hud-health-chip.is-restored,
+  :root:not([data-reduced-motion="normal"]) .hud-collectible-chip.is-boosted,
+  :root:not([data-reduced-motion="normal"]) .hud-collectible-chip.is-celebrating,
+  :root:not([data-reduced-motion="normal"]) .hud-heart.is-lost,
+  :root:not([data-reduced-motion="normal"]) .hud-heart.is-alert,
+  :root:not([data-reduced-motion="normal"]) .hud-heart.is-refilled,
+  :root:not([data-reduced-motion="normal"]) .hud-objective-card.is-updated,
+  :root:not([data-reduced-motion="normal"]) .hud-objective-card.is-complete,
+  :root:not([data-reduced-motion="normal"]) .kinema-ui-hint {
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
   }
 
-  .hud-floating-delta.is-visible,
-  .hud-status-card,
-  .hud-prompt,
-  .hud-hold-track,
-  .hud-hold-fill,
-  .hud-objective-card,
-  .hud-stat-chip,
-  .collectible-count,
-  .hud-heart {
-    transition-duration: 0.01ms !important;
+  :root:not([data-reduced-motion="normal"]) .hud-floating-delta.is-visible,
+  :root:not([data-reduced-motion="normal"]) .hud-status-card,
+  :root:not([data-reduced-motion="normal"]) .hud-prompt,
+  :root:not([data-reduced-motion="normal"]) .hud-hold-track,
+  :root:not([data-reduced-motion="normal"]) .hud-hold-fill,
+  :root:not([data-reduced-motion="normal"]) .hud-objective-card,
+  :root:not([data-reduced-motion="normal"]) .hud-stat-chip,
+  :root:not([data-reduced-motion="normal"]) .collectible-count,
+  :root:not([data-reduced-motion="normal"]) .hud-heart {
+    transition-duration: 0.01ms;
   }
 }

@@ -7,6 +7,7 @@ import type { UserSettingsStore } from "@core/UserSettings";
 import type { InputManager } from "@input/InputManager";
 import { exitPointerLockIfSupported } from "@input/pointerLock";
 import type { RendererManager } from "@renderer/RendererManager";
+import type { ComfortPreferencesController } from "../ComfortPreferencesController";
 import { HelpMenu } from "./HelpMenu";
 import { LevelSelectMenu } from "./LevelSelectMenu";
 import { MainMenu } from "./MainMenu";
@@ -27,7 +28,7 @@ const FOCUSABLE_SELECTOR = [
   "input:not([disabled])",
   "select:not([disabled])",
   "textarea:not([disabled])",
-  'a[href]',
+  "a[href]",
   '[tabindex]:not([tabindex="-1"])',
 ].join(",");
 
@@ -57,6 +58,7 @@ export class MenuManager {
     private inputManager: InputManager,
     camera: OrbitFollowCamera,
     audioManager: AudioController,
+    comfortController: ComfortPreferencesController,
     private onPlay: () => Promise<void>,
     private onPlayLevel: (key: string) => Promise<void>,
     private onReturnToMainMenu: () => Promise<void>,
@@ -98,6 +100,7 @@ export class MenuManager {
       renderer: this.renderer,
       audioManager,
       eventBus: this.eventBus,
+      comfortController,
       onBack: () => this.pop(),
     });
     this.levelSelectMenu = new LevelSelectMenu({

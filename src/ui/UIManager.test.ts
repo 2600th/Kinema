@@ -19,6 +19,7 @@ vi.mock("./components/HUD", () => ({
     celebrateCollectible = vi.fn();
     updateHealth = vi.fn();
     flashDamage = vi.fn();
+    setDamageFlashIntensity = vi.fn();
     showGameHUD = vi.fn();
     hideGameHUD = vi.fn();
     setGameplayAccessibilitySuppressed = vi.fn();
@@ -259,6 +260,16 @@ describe("UIManager", () => {
     listeners.get("health:changed")?.({ current: 2, max: 3 });
 
     expect(hud.updateHealth).toHaveBeenCalledWith(2, 3);
+    ui.dispose();
+  });
+
+  it("exposes the HUD damage intensity target", () => {
+    const ui = new UIManager({ on: vi.fn(() => () => {}) } as any);
+    const hud = hudInstances[0];
+
+    ui.setDamageFlashIntensity(0.45);
+
+    expect(hud.setDamageFlashIntensity).toHaveBeenCalledExactlyOnceWith(0.45);
     ui.dispose();
   });
 

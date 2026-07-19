@@ -26,7 +26,9 @@ export class HUD implements Disposable {
   private heartTimers = new Map<HTMLSpanElement, ReturnType<typeof setTimeout>>();
   private elementTimers = new Map<HTMLElement, ReturnType<typeof setTimeout>>();
   private healthHitTimer: ReturnType<typeof setTimeout> | null = null;
+  private damageFlashTimer: ReturnType<typeof setTimeout> | null = null;
   private holdResetTimer: ReturnType<typeof setTimeout> | null = null;
+  private damageFlashIntensity = 1;
   private accessibilitySuppressed = false;
   private gameHudVisible = false;
 
@@ -98,6 +100,7 @@ export class HUD implements Disposable {
     this.damageOverlay = document.createElement("div");
     this.damageOverlay.className = "hud-damage-overlay";
     this.damageOverlay.setAttribute("aria-hidden", "true");
+    this.damageOverlay.style.setProperty("--damage-flash-intensity", "1");
     parent.appendChild(this.damageOverlay);
 
     this.createCollectibleCounter();
@@ -323,8 +326,29 @@ export class HUD implements Disposable {
   }
 
   flashDamage(reason: "spike" | "fall"): void {
+    if (this.damageFlashIntensity === 0) return;
+    this.clearDamageFlash();
     this.damageOverlay.classList.toggle("is-fall", reason === "fall");
-    this.triggerPulse(this.damageOverlay, "is-hit", reason === "fall" ? 420 : 2500);
+    const outerDuration = (reason === "fall" ? 420 : 2500) * this.damageFlashIntensity;
+    const coreDuration = (reason === "fall" ? 320 : 2500) * this.damageFlashIntensity;
+    this.damageOverlay.style.setProperty("--damage-flash-outer-duration", `${outerDuration}ms`);
+    this.damageOverlay.style.setProperty("--damage-flash-core-duration", `${coreDuration}ms`);
+    void this.damageOverlay.offsetWidth;
+    this.damageOverlay.classList.add("is-hit");
+    this.damageFlashTimer = setTimeout(
+      () => {
+        this.damageOverlay.classList.remove("is-hit", "is-fall");
+        this.damageFlashTimer = null;
+      },
+      Math.max(outerDuration, coreDuration),
+    );
+  }
+
+  setDamageFlashIntensity(value: number): void {
+    const intensity = Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 1;
+    if (intensity !== this.damageFlashIntensity) this.clearDamageFlash();
+    this.damageFlashIntensity = intensity;
+    this.damageOverlay.style.setProperty("--damage-flash-intensity", String(intensity));
   }
 
   showGameHUD(): void {
@@ -384,6 +408,7 @@ export class HUD implements Disposable {
       clearTimeout(this.healthHitTimer);
       this.healthHitTimer = null;
     }
+    this.clearDamageFlash();
     if (this.holdResetTimer) {
       clearTimeout(this.holdResetTimer);
       this.holdResetTimer = null;
@@ -436,6 +461,14 @@ export class HUD implements Disposable {
       this.elementTimers.delete(element);
     }, durationMs);
     this.elementTimers.set(element, timer);
+  }
+
+  private clearDamageFlash(): void {
+    if (this.damageFlashTimer) {
+      clearTimeout(this.damageFlashTimer);
+      this.damageFlashTimer = null;
+    }
+    this.damageOverlay.classList.remove("is-hit", "is-fall");
   }
 
   private setAccessibilityVisibility(element: HTMLElement, visible: boolean): void {

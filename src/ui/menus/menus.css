@@ -846,6 +846,40 @@
   border-top: none;
 }
 
+:root[data-reduced-motion="reduce"]
+  :is(
+    .menu-backdrop-pane,
+    .menu-backdrop-glow,
+    .menu-backdrop-ribbon,
+    .menu-backdrop-particle,
+    .menu-backdrop-contour,
+    .menu-section
+  ) {
+  animation: none;
+}
+
+:root[data-reduced-motion="reduce"] :is(.menu-overlay, .menu-screen) {
+  transition-duration: 0.01ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-reduced-motion="normal"])
+    :is(
+      .menu-backdrop-pane,
+      .menu-backdrop-glow,
+      .menu-backdrop-ribbon,
+      .menu-backdrop-particle,
+      .menu-backdrop-contour,
+      .menu-section
+    ) {
+    animation: none;
+  }
+
+  :root:not([data-reduced-motion="normal"]) :is(.menu-overlay, .menu-screen) {
+    transition-duration: 0.01ms;
+  }
+}
+
 .binding-list {
   display: grid;
   gap: 8px;

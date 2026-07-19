@@ -5,6 +5,7 @@ import {
   type AntiAliasingMode,
   type GraphicsProfile,
   type InputActivationMode,
+  type ReducedMotionPreference,
   type ShadowQualityTier,
   USER_SETTINGS_RANGES,
   type UserSettingsStore,
@@ -21,6 +22,7 @@ import {
 } from "@input/InputBindings";
 import type { InputManager } from "@input/InputManager";
 import type { RendererManager } from "@renderer/RendererManager";
+import type { ComfortPreferencesController } from "../ComfortPreferencesController";
 
 interface SettingsMenuOptions {
   settings: UserSettingsStore;
@@ -29,6 +31,10 @@ interface SettingsMenuOptions {
   renderer: RendererManager;
   audioManager: AudioController;
   eventBus: EventBus;
+  comfortController: Pick<
+    ComfortPreferencesController,
+    "setCameraEffectsIntensity" | "setDamageFlashIntensity" | "setReducedMotion"
+  >;
   onBack: () => void;
 }
 
@@ -217,6 +223,38 @@ export class SettingsMenu {
     this.controlsSection.appendChild(this.createSectionHeader("Comfort"));
     this.controlsSection.appendChild(
       this.createSlider(
+        "Camera effects intensity",
+        settings.value.cameraEffectsIntensity,
+        USER_SETTINGS_RANGES.cameraEffectsIntensity.min,
+        USER_SETTINGS_RANGES.cameraEffectsIntensity.max,
+        USER_SETTINGS_RANGES.cameraEffectsIntensity.step,
+        (value) => {
+          const saved = settings.update({ cameraEffectsIntensity: value });
+          this.options.comfortController.setCameraEffectsIntensity(saved.cameraEffectsIntensity);
+        },
+      ),
+    );
+    this.controlsSection.appendChild(
+      this.createSlider(
+        "Damage flash intensity",
+        settings.value.damageFlashIntensity,
+        USER_SETTINGS_RANGES.damageFlashIntensity.min,
+        USER_SETTINGS_RANGES.damageFlashIntensity.max,
+        USER_SETTINGS_RANGES.damageFlashIntensity.step,
+        (value) => {
+          const saved = settings.update({ damageFlashIntensity: value });
+          this.options.comfortController.setDamageFlashIntensity(saved.damageFlashIntensity);
+        },
+      ),
+    );
+    this.controlsSection.appendChild(
+      this.createSelect("Reduced motion", settings.value.reducedMotion, ["system", "on", "off"], (value) => {
+        const saved = settings.update({ reducedMotion: value as ReducedMotionPreference });
+        this.options.comfortController.setReducedMotion(saved.reducedMotion);
+      }),
+    );
+    this.controlsSection.appendChild(
+      this.createSlider(
         "Gamepad look sensitivity",
         settings.value.gamepadLookSensitivity,
         USER_SETTINGS_RANGES.gamepadLookSensitivity.min,
@@ -347,7 +385,9 @@ export class SettingsMenu {
         "Post-processing",
         settings.value.postProcessingEnabled,
         (value) => eventBus.emit("debug:postProcessing", value),
-        capabilities.postProcessingEnabled ? undefined : "Unavailable: active renderer has no post-processing pipeline.",
+        capabilities.postProcessingEnabled
+          ? undefined
+          : "Unavailable: active renderer has no post-processing pipeline.",
       ),
     );
     this.graphicsSection.appendChild(
