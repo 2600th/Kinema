@@ -525,6 +525,9 @@ async function bootstrap(): Promise<void> {
         game.testInputOverride = crouchInput;
         game.testInputFrames = 1;
       },
+      simulateGamepadMenuInput(action) {
+        inputManager.simulateGamepadMenuInput(action);
+      },
       /** Set camera look angles for headless screenshot capture. */
       setCameraLook(pitch: number, yaw: number) {
         camera.snapToAngle(yaw, pitch);

@@ -173,6 +173,8 @@ export interface SpawnPointData {
 }
 
 /** Event map — every event name and its payload type */
+export type GamepadMenuAction = "up" | "down" | "left" | "right" | "activate" | "back" | "start";
+
 export interface EventMap {
   "input:state": InputState;
   "input:sourceChanged": { source: InputSource };
@@ -224,6 +226,7 @@ export interface EventMap {
   "vehicle:resetHoldProgress": { id: string; progress: number } | null;
   "vehicle:reset": { id: string };
   "menu:toggle": undefined;
+  "menu:gamepadInput": { action: Exclude<GamepadMenuAction, "start"> };
   "menu:opened": { screen: string };
   "menu:closed": undefined;
   "debug:toggle": undefined;

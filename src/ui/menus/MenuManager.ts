@@ -2,6 +2,7 @@ import type { AudioController } from "@audio/AudioManager";
 import type { OrbitFollowCamera } from "@camera/OrbitFollowCamera";
 import type { EventBus } from "@core/EventBus";
 import type { GameLoop } from "@core/GameLoop";
+import type { GamepadMenuAction } from "@core/types";
 import type { UserSettingsStore } from "@core/UserSettings";
 import type { InputManager } from "@input/InputManager";
 import { exitPointerLockIfSupported } from "@input/pointerLock";
@@ -45,6 +46,7 @@ export class MenuManager {
   private levelSelectMenu: LevelSelectMenu;
   private helpMenu: HelpMenu;
   private _onOverlayClick = this.handleOverlayClick.bind(this);
+  private _onOverlayPointerDown = this.leaveGamepadNavigationMode.bind(this);
   private _onOverlayKeyDown = this.handleOverlayKeyDown.bind(this);
 
   constructor(
@@ -63,6 +65,7 @@ export class MenuManager {
     this.overlay = document.createElement("div");
     this.overlay.className = "menu-overlay";
     this.overlay.addEventListener("click", this._onOverlayClick);
+    this.overlay.addEventListener("pointerdown", this._onOverlayPointerDown);
     document.addEventListener("keydown", this._onOverlayKeyDown);
     document.body.appendChild(this.overlay);
     this.addCosmicBackground();
@@ -111,6 +114,7 @@ export class MenuManager {
 
     this.unsubs.push(
       this.eventBus.on("menu:toggle", () => {
+        if (this.inputManager.lastInputSource === "gamepad") this.enterGamepadNavigationMode();
         if (!this.stack.length) {
           if (this.gameLoop.isRunning()) {
             this.push(this.pauseMenu);
@@ -120,6 +124,9 @@ export class MenuManager {
         const top = this.stack[this.stack.length - 1];
         if (top.id === "main") return;
         this.pop();
+      }),
+      this.eventBus.on("menu:gamepadInput", ({ action }) => {
+        this.handleGamepadMenuInput(action);
       }),
     );
   }
@@ -146,6 +153,7 @@ export class MenuManager {
     this.levelSelectMenu.dispose();
     this.helpMenu.dispose();
     this.overlay.removeEventListener("click", this._onOverlayClick);
+    this.overlay.removeEventListener("pointerdown", this._onOverlayPointerDown);
     document.removeEventListener("keydown", this._onOverlayKeyDown);
     this.overlay.remove();
     this.stopBackgroundLoop();
@@ -326,6 +334,7 @@ export class MenuManager {
 
   private handleOverlayKeyDown(event: KeyboardEvent): void {
     if (this.stack.length === 0) return;
+    this.leaveGamepadNavigationMode();
 
     if (event.key === "Escape") {
       const top = this.stack[this.stack.length - 1];
@@ -356,6 +365,82 @@ export class MenuManager {
       event.preventDefault();
       first.focus({ preventScroll: true });
     }
+  }
+
+  private handleGamepadMenuInput(action: Exclude<GamepadMenuAction, "start">): void {
+    const top = this.stack[this.stack.length - 1];
+    if (!top) return;
+    this.enterGamepadNavigationMode();
+    if (action === "back") {
+      if (top.id !== "main") this.pop();
+      return;
+    }
+
+    const focusable = this.getFocusableControls(top.root);
+    if (focusable.length === 0) {
+      top.root.focus({ preventScroll: true });
+      return;
+    }
+    const activeElement = document.activeElement;
+    const activeIndex = activeElement instanceof HTMLElement ? focusable.indexOf(activeElement) : -1;
+
+    if (action === "up" || action === "down") {
+      const offset = action === "up" ? -1 : 1;
+      const startIndex = activeIndex >= 0 ? activeIndex : action === "up" ? 0 : -1;
+      const nextIndex = (startIndex + offset + focusable.length) % focusable.length;
+      this.focusGamepadControl(focusable[nextIndex]);
+      return;
+    }
+
+    if (action === "left" || action === "right") {
+      const direction = action === "left" ? -1 : 1;
+      if (activeElement instanceof HTMLInputElement && activeElement.type === "range") {
+        this.adjustRange(activeElement, direction);
+      } else if (activeElement instanceof HTMLSelectElement) {
+        this.adjustSelect(activeElement, direction);
+      }
+      return;
+    }
+
+    if (action === "activate") {
+      const control = activeIndex >= 0 ? focusable[activeIndex] : focusable[0];
+      if (activeIndex < 0) this.focusGamepadControl(control);
+      control.click();
+    }
+  }
+
+  private focusGamepadControl(control: HTMLElement): void {
+    control.focus({ preventScroll: true });
+    control.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+
+  private enterGamepadNavigationMode(): void {
+    this.overlay.classList.add("is-gamepad-navigation");
+  }
+
+  private leaveGamepadNavigationMode(): void {
+    this.overlay.classList.remove("is-gamepad-navigation");
+  }
+
+  private adjustRange(input: HTMLInputElement, direction: -1 | 1): void {
+    const current = input.valueAsNumber;
+    const parsedStep = Number(input.step);
+    const step = Number.isFinite(parsedStep) && parsedStep > 0 ? parsedStep : 1;
+    const parsedMin = Number(input.min);
+    const parsedMax = Number(input.max);
+    const min = Number.isFinite(parsedMin) ? parsedMin : Number.NEGATIVE_INFINITY;
+    const max = Number.isFinite(parsedMax) ? parsedMax : Number.POSITIVE_INFINITY;
+    const next = Math.min(max, Math.max(min, current + direction * step));
+    if (!Number.isFinite(current) || next === current) return;
+    input.valueAsNumber = next;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  private adjustSelect(select: HTMLSelectElement, direction: -1 | 1): void {
+    const nextIndex = Math.min(select.options.length - 1, Math.max(0, select.selectedIndex + direction));
+    if (nextIndex === select.selectedIndex) return;
+    select.selectedIndex = nextIndex;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
   private prepareDialog(screen: MenuScreen): void {

@@ -640,12 +640,14 @@
   outline: none;
 }
 
-.menu-field input[type="range"]:focus-visible::-webkit-slider-thumb {
+.menu-field input[type="range"]:focus-visible::-webkit-slider-thumb,
+.menu-overlay.is-gamepad-navigation .menu-field input[type="range"]:focus::-webkit-slider-thumb {
   box-shadow: 0 0 0 4px rgba(123, 108, 255, 0.28);
   border-color: #fff;
 }
 
-.menu-field input[type="range"]:focus-visible::-moz-range-thumb {
+.menu-field input[type="range"]:focus-visible::-moz-range-thumb,
+.menu-overlay.is-gamepad-navigation .menu-field input[type="range"]:focus::-moz-range-thumb {
   box-shadow: 0 0 0 4px rgba(123, 108, 255, 0.28);
   border-color: #fff;
 }
@@ -804,7 +806,12 @@
 .menu-tab:focus-visible,
 .menu-button-small:focus-visible,
 .menu-button-danger:focus-visible,
-.menu-field input[type="checkbox"]:focus-visible {
+.menu-field input[type="checkbox"]:focus-visible,
+.menu-overlay.is-gamepad-navigation .menu-button:focus,
+.menu-overlay.is-gamepad-navigation .menu-tab:focus,
+.menu-overlay.is-gamepad-navigation .menu-button-small:focus,
+.menu-overlay.is-gamepad-navigation .menu-button-danger:focus,
+.menu-overlay.is-gamepad-navigation .menu-field input[type="checkbox"]:focus {
   outline: 2px solid var(--menu-accent-cyan);
   outline-offset: 2px;
   transition: none;

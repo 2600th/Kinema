@@ -1,4 +1,5 @@
 import { EventBus } from "@core/EventBus";
+import type { GamepadMenuAction } from "@core/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { InputManager } from "./InputManager";
 import type { TouchControlsManager } from "./TouchControlsManager";
@@ -15,7 +16,7 @@ function gamepadSnapshot(axes: number[], pressedButtons: number[] = []): Gamepad
   return {
     connected: true,
     axes,
-    buttons: Array.from({ length: 12 }, (_, index) => ({
+    buttons: Array.from({ length: 17 }, (_, index) => ({
       pressed: pressedButtons.includes(index),
       touched: pressedButtons.includes(index),
       value: pressedButtons.includes(index) ? 1 : 0,
@@ -62,9 +63,30 @@ describe("InputManager", () => {
   let windowTarget: FakeTarget;
   let documentTarget: TestDocument;
   let canvasTarget: TestCanvas;
+  let animationFrames: Map<number, FrameRequestCallback>;
+  let nextAnimationFrameId: number;
+
+  const runAnimationFrame = (timestamp: number): void => {
+    const entry = animationFrames.entries().next().value as [number, FrameRequestCallback] | undefined;
+    if (!entry) throw new Error("No animation frame was scheduled");
+    animationFrames.delete(entry[0]);
+    entry[1](timestamp);
+  };
 
   beforeEach(() => {
     windowTarget = new FakeTarget();
+    animationFrames = new Map();
+    nextAnimationFrameId = 1;
+    Object.assign(windowTarget, {
+      requestAnimationFrame: vi.fn((callback: FrameRequestCallback) => {
+        const id = nextAnimationFrameId++;
+        animationFrames.set(id, callback);
+        return id;
+      }),
+      cancelAnimationFrame: vi.fn((id: number) => {
+        animationFrames.delete(id);
+      }),
+    });
     documentTarget = Object.assign(new FakeTarget(), { pointerLockElement: null });
     canvasTarget = Object.assign(new FakeTarget(), { requestPointerLock: vi.fn() });
 
@@ -239,6 +261,201 @@ describe("InputManager", () => {
     manager.pollInputSource();
     expect(manager.lastInputSource).toBe("gamepad");
     expect(sources).toEqual(["gamepad", "keyboard", "gamepad"]);
+    manager.dispose();
+  });
+
+  it("maps menu directions with a 400ms initial delay and 150ms repeat", () => {
+    let pads: Gamepad[] = [gamepadSnapshot([0, 0.49, 0, 0])];
+    Object.defineProperty(globalThis, "navigator", {
+      value: { getGamepads: vi.fn(() => pads), maxTouchPoints: 0 },
+      configurable: true,
+    });
+    const eventBus = new EventBus();
+    const actions: GamepadMenuAction[] = [];
+    eventBus.on("menu:gamepadInput", ({ action }) => actions.push(action));
+    const manager = new InputManager(eventBus, asCanvas(canvasTarget));
+
+    eventBus.emit("menu:opened", { screen: "main" });
+    runAnimationFrame(0);
+    expect(actions).toEqual([]);
+    pads = [gamepadSnapshot([0, 0.7, 0, 0])];
+    runAnimationFrame(1);
+    expect(actions).toEqual(["down"]);
+
+    runAnimationFrame(400);
+    expect(actions).toEqual(["down"]);
+    runAnimationFrame(401);
+    expect(actions).toEqual(["down", "down"]);
+    runAnimationFrame(550);
+    expect(actions).toEqual(["down", "down"]);
+    runAnimationFrame(551);
+    expect(actions).toEqual(["down", "down", "down"]);
+
+    pads = [gamepadSnapshot([0, 0, 0, 0])];
+    runAnimationFrame(552);
+    pads = [gamepadSnapshot([0, 0, 0, 0], [12])];
+    runAnimationFrame(553);
+    expect(actions.at(-1)).toBe("up");
+    pads = [gamepadSnapshot([0, 0, 0, 0])];
+    runAnimationFrame(554);
+    pads = [gamepadSnapshot([0, 0, 0, 0], [14])];
+    runAnimationFrame(555);
+    expect(actions.at(-1)).toBe("left");
+    pads = [gamepadSnapshot([0, 0, 0, 0])];
+    runAnimationFrame(556);
+    pads = [gamepadSnapshot([0, 0, 0, 0], [15])];
+    runAnimationFrame(557);
+    expect(actions.at(-1)).toBe("right");
+    manager.dispose();
+  });
+
+  it("emits menu activation and back only on fresh gamepad button edges", () => {
+    let pads: Gamepad[] = [gamepadSnapshot([0, 0, 0, 0])];
+    Object.defineProperty(globalThis, "navigator", {
+      value: { getGamepads: vi.fn(() => pads), maxTouchPoints: 0 },
+      configurable: true,
+    });
+    const eventBus = new EventBus();
+    const actions: GamepadMenuAction[] = [];
+    eventBus.on("menu:gamepadInput", ({ action }) => actions.push(action));
+    const manager = new InputManager(eventBus, asCanvas(canvasTarget));
+
+    eventBus.emit("menu:opened", { screen: "settings" });
+    runAnimationFrame(0);
+    pads = [gamepadSnapshot([0, 0, 0, 0], [0])];
+    runAnimationFrame(16);
+    runAnimationFrame(32);
+    expect(actions).toEqual(["activate"]);
+
+    pads = [gamepadSnapshot([0, 0, 0, 0])];
+    runAnimationFrame(48);
+    pads = [gamepadSnapshot([0, 0, 0, 0], [1])];
+    runAnimationFrame(64);
+    runAnimationFrame(80);
+    expect(actions).toEqual(["activate", "back"]);
+    manager.dispose();
+  });
+
+  it("maps fresh Start edges to menu toggle during gameplay and menus", () => {
+    let pads: Gamepad[] = [gamepadSnapshot([0, 0, 0, 0])];
+    Object.defineProperty(globalThis, "navigator", {
+      value: { getGamepads: vi.fn(() => pads), maxTouchPoints: 0 },
+      configurable: true,
+    });
+    const eventBus = new EventBus();
+    const toggles = vi.fn();
+    eventBus.on("menu:toggle", toggles);
+    const manager = new InputManager(eventBus, asCanvas(canvasTarget));
+
+    manager.poll();
+    pads = [gamepadSnapshot([0, 0, 0, 0], [9])];
+    manager.poll();
+    manager.poll();
+    expect(toggles).toHaveBeenCalledTimes(1);
+
+    pads = [gamepadSnapshot([0, 0, 0, 0])];
+    manager.poll();
+    eventBus.emit("menu:opened", { screen: "pause" });
+    runAnimationFrame(0);
+    pads = [gamepadSnapshot([0, 0, 0, 0], [9])];
+    runAnimationFrame(16);
+    runAnimationFrame(32);
+    expect(toggles).toHaveBeenCalledTimes(2);
+    manager.dispose();
+  });
+
+  it("routes the DEV simulation seam through the same semantic menu actions", () => {
+    const eventBus = new EventBus();
+    const actions: GamepadMenuAction[] = [];
+    const toggles = vi.fn();
+    eventBus.on("menu:gamepadInput", ({ action }) => actions.push(action));
+    eventBus.on("menu:toggle", toggles);
+    const manager = new InputManager(eventBus, asCanvas(canvasTarget));
+
+    eventBus.emit("menu:opened", { screen: "main" });
+    manager.simulateGamepadMenuInput("down");
+    manager.simulateGamepadMenuInput("activate");
+    manager.simulateGamepadMenuInput("start");
+
+    expect(actions).toEqual(["down", "activate"]);
+    expect(toggles).toHaveBeenCalledTimes(1);
+    manager.dispose();
+  });
+
+  it("keeps menu-used controls neutral in gameplay until the controller is released", () => {
+    let pads: Gamepad[] = [gamepadSnapshot([0, 0, 0, 0], [0])];
+    Object.defineProperty(globalThis, "navigator", {
+      value: { getGamepads: vi.fn(() => pads), maxTouchPoints: 0 },
+      configurable: true,
+    });
+    const eventBus = new EventBus();
+    const manager = new InputManager(eventBus, asCanvas(canvasTarget));
+
+    eventBus.emit("menu:opened", { screen: "pause" });
+    runAnimationFrame(0);
+    eventBus.emit("menu:closed", undefined);
+    expect(manager.poll().jump).toBe(false);
+    expect(manager.poll().jumpPressed).toBe(false);
+
+    pads = [gamepadSnapshot([0, 0, 0, 0])];
+    expect(manager.poll().jump).toBe(false);
+    pads = [gamepadSnapshot([0, 0, 0, 0], [0])];
+    const freshPress = manager.poll();
+    expect(freshPress.jump).toBe(true);
+    expect(freshPress.jumpPressed).toBe(true);
+    manager.dispose();
+  });
+
+  it("keeps a menu-used stick gated below the menu threshold until it reaches the gameplay deadzone", () => {
+    let pads: Gamepad[] = [gamepadSnapshot([0, 0.7, 0, 0])];
+    Object.defineProperty(globalThis, "navigator", {
+      value: { getGamepads: vi.fn(() => pads), maxTouchPoints: 0 },
+      configurable: true,
+    });
+    const eventBus = new EventBus();
+    const manager = new InputManager(eventBus, asCanvas(canvasTarget));
+
+    eventBus.emit("menu:opened", { screen: "pause" });
+    runAnimationFrame(0);
+    eventBus.emit("menu:closed", undefined);
+    pads = [gamepadSnapshot([0, 0.45, 0, 0])];
+    expect(manager.poll().moveY).toBe(0);
+
+    pads = [gamepadSnapshot([0, 0.1, 0, 0])];
+    expect(manager.poll().moveY).toBe(0);
+    pads = [gamepadSnapshot([0, 0.45, 0, 0])];
+    expect(manager.poll().moveY).toBeLessThan(0);
+    manager.dispose();
+  });
+
+  it("cancels menu gamepad polling when disposed", () => {
+    const eventBus = new EventBus();
+    const manager = new InputManager(eventBus, asCanvas(canvasTarget));
+
+    eventBus.emit("menu:opened", { screen: "pause" });
+    eventBus.emit("menu:opened", { screen: "settings" });
+    expect(animationFrames.size).toBe(1);
+    manager.dispose();
+
+    expect(animationFrames.size).toBe(0);
+  });
+
+  it("does not reschedule menu polling when an action synchronously closes the menu", () => {
+    const pad = gamepadSnapshot([0, 0, 0, 0], [0]);
+    Object.defineProperty(globalThis, "navigator", {
+      value: { getGamepads: vi.fn(() => [pad]), maxTouchPoints: 0 },
+      configurable: true,
+    });
+    const eventBus = new EventBus();
+    eventBus.on("menu:gamepadInput", ({ action }) => {
+      if (action === "activate") eventBus.emit("menu:closed", undefined);
+    });
+    const manager = new InputManager(eventBus, asCanvas(canvasTarget));
+
+    eventBus.emit("menu:opened", { screen: "pause" });
+    runAnimationFrame(0);
+
+    expect(animationFrames.size).toBe(0);
     manager.dispose();
   });
 

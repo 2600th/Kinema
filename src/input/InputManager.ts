@@ -1,5 +1,5 @@
 import type { EventBus } from "@core/EventBus";
-import type { Disposable, InputSource, InputState } from "@core/types";
+import type { Disposable, GamepadMenuAction, InputSource, InputState } from "@core/types";
 import { NULL_INPUT } from "@core/types";
 import { getPointerLockRequest } from "./pointerLock";
 import type { TouchControlsManager } from "./TouchControlsManager";
@@ -7,6 +7,11 @@ import type { TouchControlsManager } from "./TouchControlsManager";
 const GAMEPAD_MOVE_THRESHOLD = 0.25;
 const GAMEPAD_SOURCE_HYSTERESIS = 0.08;
 const GAMEPAD_LOOK_SPEED = 18;
+const GAMEPAD_MENU_STICK_THRESHOLD = 0.5;
+const GAMEPAD_MENU_INITIAL_REPEAT_MS = 400;
+const GAMEPAD_MENU_REPEAT_MS = 150;
+
+type GamepadMenuDirection = Extract<GamepadMenuAction, "up" | "down" | "left" | "right">;
 
 /** Look deltas consumed per render frame for high-refresh-rate responsiveness. */
 export interface LookState {
@@ -78,6 +83,13 @@ export class InputManager implements Disposable {
   private touchInputActive = false;
   private desiredTouchEnabled = false;
   private menuOpen = false;
+  private menuGamepadFrame: number | null = null;
+  private menuGamepadDirection: GamepadMenuDirection | null = null;
+  private menuGamepadRepeatAt = 0;
+  private previousMenuActivate = false;
+  private previousMenuBack = false;
+  private previousMenuStart = false;
+  private gamepadGameplayReleaseGate = false;
   private touchControlsLoad: Promise<void> | null = null;
   private rawPointerLockAvailable = true;
   private _lastInputSource: InputSource = "keyboard";
@@ -94,6 +106,7 @@ export class InputManager implements Disposable {
   private _onClick = this.handleClick.bind(this);
   private _onPointerLockChange = this.handlePointerLockChange.bind(this);
   private _onTouchStart = this.handleTouchStart.bind(this);
+  private _onMenuGamepadFrame = this.handleMenuGamepadFrame.bind(this);
 
   constructor(
     private eventBus: EventBus,
@@ -114,10 +127,14 @@ export class InputManager implements Disposable {
         this.menuOpen = true;
         this.inputSuppressed = true;
         this.applyTouchControlsVisibility(false);
+        this.startMenuGamepadLoop();
       }),
       this.eventBus.on("menu:closed", () => {
         this.menuOpen = false;
         this.inputSuppressed = false;
+        this.gamepadGameplayReleaseGate = true;
+        this.stopMenuGamepadLoop();
+        this.resetMenuDirectionRepeat();
         this.applyTouchControlsVisibility(this.desiredTouchEnabled);
       }),
       this.eventBus.on("editor:opened", () => {
@@ -131,6 +148,7 @@ export class InputManager implements Disposable {
 
   /** Snapshot current input state, reset deltas, emit event. */
   poll(): InputState {
+    this.pollGamepadMenuControls(performance.now());
     if (this.inputSuppressed) {
       // Reset edge-trigger state so a key released while suppressed doesn't
       // cause a ghost "pressed" event on the first poll after resuming.
@@ -275,8 +293,13 @@ export class InputManager implements Disposable {
 
   /** Sample device activity while gameplay polling is paused (for example, in Help). */
   pollInputSource(): InputSource {
-    this.updateGamepadInputSource(this.getConnectedGamepad());
+    if (!this.menuOpen) this.updateGamepadInputSource(this.getConnectedGamepad());
     return this._lastInputSource;
+  }
+
+  /** Development automation seam that shares the real controller action dispatcher. */
+  simulateGamepadMenuInput(action: GamepadMenuAction): void {
+    this.dispatchGamepadMenuAction(action);
   }
 
   /** Initialize touch controls when a touch-capable device is detected. */
@@ -441,6 +464,10 @@ export class InputManager implements Disposable {
     const pad = this.getConnectedGamepad();
     this.updateGamepadInputSource(pad);
     if (!pad) return NULL_GAMEPAD_SNAPSHOT;
+    if (this.gamepadGameplayReleaseGate) {
+      if (!this.areMenuControlsNeutral(pad)) return NULL_GAMEPAD_SNAPSHOT;
+      this.gamepadGameplayReleaseGate = false;
+    }
 
     const gpMoveX = this.applyDeadzoneCurve(pad.axes[0] ?? 0);
     const gpMoveY = this.applyDeadzoneCurve(pad.axes[1] ?? 0);
@@ -479,6 +506,109 @@ export class InputManager implements Disposable {
       if (pad?.connected) return pad;
     }
     return null;
+  }
+
+  private handleMenuGamepadFrame(timestamp: number): void {
+    this.menuGamepadFrame = null;
+    if (!this.menuOpen) return;
+    this.pollGamepadMenuControls(timestamp);
+    if (this.menuOpen) this.startMenuGamepadLoop();
+  }
+
+  private startMenuGamepadLoop(): void {
+    if (this.menuGamepadFrame !== null) return;
+    this.menuGamepadFrame = window.requestAnimationFrame(this._onMenuGamepadFrame);
+  }
+
+  private stopMenuGamepadLoop(): void {
+    if (this.menuGamepadFrame === null) return;
+    window.cancelAnimationFrame(this.menuGamepadFrame);
+    this.menuGamepadFrame = null;
+  }
+
+  private pollGamepadMenuControls(timestamp: number): void {
+    const pad = this.getConnectedGamepad();
+    this.updateGamepadInputSource(pad);
+    const activate = this.isGamepadButtonPressed(pad, 0);
+    const back = this.isGamepadButtonPressed(pad, 1);
+    const start = this.isGamepadButtonPressed(pad, 9);
+    const menuWasOpen = this.menuOpen;
+
+    if (start && !this.previousMenuStart) {
+      this.dispatchGamepadMenuAction("start");
+    } else if (menuWasOpen) {
+      if (activate && !this.previousMenuActivate) {
+        this.dispatchGamepadMenuAction("activate");
+      } else if (back && !this.previousMenuBack) {
+        this.dispatchGamepadMenuAction("back");
+      }
+      if (this.menuOpen) this.processMenuDirection(this.readMenuDirection(pad), timestamp);
+    } else {
+      this.resetMenuDirectionRepeat();
+    }
+
+    this.previousMenuActivate = activate;
+    this.previousMenuBack = back;
+    this.previousMenuStart = start;
+  }
+
+  private processMenuDirection(direction: GamepadMenuDirection | null, timestamp: number): void {
+    if (!direction) {
+      this.resetMenuDirectionRepeat();
+      return;
+    }
+    if (direction !== this.menuGamepadDirection) {
+      this.menuGamepadDirection = direction;
+      this.menuGamepadRepeatAt = timestamp + GAMEPAD_MENU_INITIAL_REPEAT_MS;
+      this.dispatchGamepadMenuAction(direction);
+      return;
+    }
+    if (timestamp < this.menuGamepadRepeatAt) return;
+    this.menuGamepadRepeatAt = timestamp + GAMEPAD_MENU_REPEAT_MS;
+    this.dispatchGamepadMenuAction(direction);
+  }
+
+  private readMenuDirection(pad: Gamepad | null): GamepadMenuDirection | null {
+    if (this.isGamepadButtonPressed(pad, 12)) return "up";
+    if (this.isGamepadButtonPressed(pad, 13)) return "down";
+    if (this.isGamepadButtonPressed(pad, 14)) return "left";
+    if (this.isGamepadButtonPressed(pad, 15)) return "right";
+    const stickY = pad?.axes[1] ?? 0;
+    if (stickY < -GAMEPAD_MENU_STICK_THRESHOLD) return "up";
+    if (stickY > GAMEPAD_MENU_STICK_THRESHOLD) return "down";
+    return null;
+  }
+
+  private dispatchGamepadMenuAction(action: GamepadMenuAction): void {
+    this.setLastInputSource("gamepad");
+    if (action === "start") {
+      this.eventBus.emit("menu:toggle", undefined);
+      return;
+    }
+    if (this.menuOpen) this.eventBus.emit("menu:gamepadInput", { action });
+  }
+
+  private isGamepadButtonPressed(pad: Gamepad | null, index: number): boolean {
+    const button = pad?.buttons[index];
+    return !!button && (button.pressed || button.value > 0.5);
+  }
+
+  private areMenuControlsNeutral(pad: Gamepad): boolean {
+    return (
+      !this.isGamepadButtonPressed(pad, 0) &&
+      !this.isGamepadButtonPressed(pad, 1) &&
+      !this.isGamepadButtonPressed(pad, 9) &&
+      !this.isGamepadButtonPressed(pad, 12) &&
+      !this.isGamepadButtonPressed(pad, 13) &&
+      !this.isGamepadButtonPressed(pad, 14) &&
+      !this.isGamepadButtonPressed(pad, 15) &&
+      Math.abs(pad.axes[1] ?? 0) <= this.gamepadDeadzone
+    );
+  }
+
+  private resetMenuDirectionRepeat(): void {
+    this.menuGamepadDirection = null;
+    this.menuGamepadRepeatAt = 0;
   }
 
   private updateGamepadInputSource(pad: Gamepad | null): void {
@@ -589,6 +719,7 @@ export class InputManager implements Disposable {
   }
 
   dispose(): void {
+    this.stopMenuGamepadLoop();
     for (const unsub of this.unsubs) unsub();
     this.unsubs.length = 0;
     this.touchControls?.dispose();

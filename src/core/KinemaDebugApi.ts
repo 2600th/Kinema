@@ -1,6 +1,6 @@
 import type { PlayerController } from "@character/PlayerController";
 import type { FrameStats } from "@core/GameLoop";
-import type { InputState } from "@core/types";
+import type { GamepadMenuAction, InputState } from "@core/types";
 import type { GraphicsProfile } from "@core/UserSettings";
 import type { LoadStats } from "@level/LevelManager";
 import type { RendererDebugFlags } from "@renderer/rendererState";
@@ -96,6 +96,7 @@ export interface KinemaDebugApi {
   readonly config: Readonly<PlayerController["config"]>;
   simulateJump(): void;
   simulateCrouch(): void;
+  simulateGamepadMenuInput(action: GamepadMenuAction): void;
   setCameraLook(pitch: number, yaw: number): void;
   getCameraPose(): KinemaCameraPose;
   freezeForCapture(): Promise<void>;

@@ -1,6 +1,20 @@
 import { expect, test } from "@playwright/test";
+import type { GamepadMenuAction } from "../src/core/types";
 
 const EVIDENCE_DIR = "docs/audits/evidence";
+
+declare global {
+  interface Window {
+    __KINEMA__: import("../src/core/KinemaDebugApi").KinemaDebugApi;
+  }
+}
+
+async function simulateGamepadMenuInput(
+  page: import("@playwright/test").Page,
+  action: GamepadMenuAction,
+): Promise<void> {
+  await page.evaluate((input) => window.__KINEMA__.simulateGamepadMenuInput(input), action);
+}
 
 async function expectVisibleFocusRing(locator: import("@playwright/test").Locator): Promise<void> {
   const outline = await locator.evaluate((element) => {
@@ -8,19 +22,18 @@ async function expectVisibleFocusRing(locator: import("@playwright/test").Locato
     return {
       color: style.outlineColor,
       focusVisible: element.matches(":focus-visible"),
+      gamepadFocus: element.closest(".menu-overlay")?.classList.contains("is-gamepad-navigation") ?? false,
       offset: style.outlineOffset,
       style: style.outlineStyle,
       width: style.outlineWidth,
     };
   });
 
-  expect(outline).toEqual({
-    color: "rgb(98, 230, 255)",
-    focusVisible: true,
-    offset: "2px",
-    style: "solid",
-    width: "2px",
-  });
+  expect(outline.focusVisible || outline.gamepadFocus).toBe(true);
+  expect(outline.color).toBe("rgb(98, 230, 255)");
+  expect(outline.offset).toBe("2px");
+  expect(outline.style).toBe("solid");
+  expect(outline.width).toBe("2px");
 }
 
 const VIEWPORTS = [
@@ -181,6 +194,56 @@ test.describe("menu accessibility", () => {
     await expect(settingsDialog).toHaveAttribute("aria-hidden", "true");
     await expect(mainDialog).toHaveAttribute("aria-hidden", "false");
     await expect(settingsButton).toBeFocused();
+  });
+
+  test("completes the menu, settings, play, pause, and resume journey with simulated gamepad input", async ({
+    page,
+  }) => {
+    test.setTimeout(240_000);
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("dialog", { name: "Kinema" })).toBeVisible({ timeout: 60_000 });
+
+    await page.getByRole("heading", { name: "Kinema" }).click();
+    await simulateGamepadMenuInput(page, "down");
+    await expect(page.getByRole("button", { name: "Play" })).toBeFocused();
+    await expectVisibleFocusRing(page.getByRole("button", { name: "Play" }));
+    await simulateGamepadMenuInput(page, "down");
+    await expect(page.getByRole("button", { name: "Level Select" })).toBeFocused();
+    await simulateGamepadMenuInput(page, "down");
+    await expect(page.getByRole("button", { name: "Create Level" })).toBeFocused();
+    await simulateGamepadMenuInput(page, "down");
+    const settingsButton = page.getByRole("button", { name: "Settings" });
+    await expect(settingsButton).toBeFocused();
+    await expectVisibleFocusRing(settingsButton);
+    await page.screenshot({ path: `${EVIDENCE_DIR}/25-focus-menu-gamepad.png` });
+
+    await simulateGamepadMenuInput(page, "activate");
+    await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Controls" })).toBeFocused();
+
+    await simulateGamepadMenuInput(page, "down");
+    await simulateGamepadMenuInput(page, "down");
+    await simulateGamepadMenuInput(page, "down");
+    const sensitivity = page.getByRole("slider", { name: /Mouse sensitivity/ });
+    await expect(sensitivity).toBeFocused();
+    const previousSensitivity = Number(await sensitivity.inputValue());
+    await simulateGamepadMenuInput(page, "right");
+    await expect.poll(async () => Number(await sensitivity.inputValue())).toBeGreaterThan(previousSensitivity);
+
+    await simulateGamepadMenuInput(page, "back");
+    await expect(page.getByRole("dialog", { name: "Kinema" })).toBeVisible();
+    await expect(settingsButton).toBeFocused();
+    await simulateGamepadMenuInput(page, "up");
+    await simulateGamepadMenuInput(page, "up");
+    await simulateGamepadMenuInput(page, "up");
+    await expect(page.getByRole("button", { name: "Play" })).toBeFocused();
+    await simulateGamepadMenuInput(page, "activate");
+
+    await page.locator(".loading-screen").waitFor({ state: "hidden", timeout: 180_000 });
+    await simulateGamepadMenuInput(page, "start");
+    await expect(page.getByRole("dialog", { name: "Paused" })).toBeVisible({ timeout: 30_000 });
+    await simulateGamepadMenuInput(page, "start");
+    await expect(page.locator(".menu-overlay.active")).toHaveCount(0);
   });
 
   test("keeps hidden HUD content out of the accessibility tree and exposes polite status regions", async ({ page }) => {
