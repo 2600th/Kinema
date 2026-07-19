@@ -144,6 +144,7 @@ describe("InputBindings", () => {
 
   it.each([
     "F13",
+    "F24",
     "AudioVolumeUp",
     "BrowserBack",
     "Lang1",
@@ -151,5 +152,11 @@ describe("InputBindings", () => {
     const rebound = rebindKeyboardAction(createDefaultKeyboardBindings(), "interact", code);
 
     expect(rebound.interact).toEqual([code]);
+  });
+
+  it.each(["F25", "F999"])("rejects the out-of-range function code %s", (code) => {
+    const rebound = rebindKeyboardAction(createDefaultKeyboardBindings(), "interact", code);
+
+    expect(rebound.interact).toEqual(["KeyF"]);
   });
 });

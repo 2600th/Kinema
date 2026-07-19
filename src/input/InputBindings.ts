@@ -203,7 +203,7 @@ function isKeyboardEventCode(value: unknown): value is string {
     /^(?:Key[A-Z]|Digit[0-9]|Arrow(?:Up|Down|Left|Right))$/.test(value) ||
     /^(?:(?:Shift|Control|Alt|Meta)(?:Left|Right))$/.test(value) ||
     /^Numpad(?:[0-9]|Add|Subtract|Multiply|Divide|Decimal|Enter|Equal|Comma)$/.test(value) ||
-    /^F[1-9][0-9]*$/.test(value) ||
+    /^F(?:[1-9]|1[0-9]|2[0-4])$/.test(value) ||
     /^Lang[1-5]$/.test(value)
   );
 }
