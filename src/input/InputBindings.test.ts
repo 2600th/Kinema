@@ -114,6 +114,13 @@ describe("InputBindings", () => {
     expect(new Set(allCodes).size).toBe(allCodes.length);
   });
 
+  it("swaps another action's conflicting primary with the target primary", () => {
+    const rebound = rebindKeyboardAction(createDefaultKeyboardBindings(), "jump", "KeyF");
+
+    expect(rebound.jump).toEqual(["KeyF"]);
+    expect(rebound.interact).toEqual(["Space"]);
+  });
+
   it("swaps a target action's own alternate into its primary slot", () => {
     const rebound = rebindKeyboardAction(createDefaultKeyboardBindings(), "moveForward", "ArrowUp");
 
@@ -133,5 +140,16 @@ describe("InputBindings", () => {
 
     expect(rebound.interact).toEqual(["KeyZ"]);
     expect(Object.values(rebound).flat()).not.toContain("KeyF");
+  });
+
+  it.each([
+    "F13",
+    "AudioVolumeUp",
+    "BrowserBack",
+    "Lang1",
+  ])("accepts the standard KeyboardEvent.code value %s", (code) => {
+    const rebound = rebindKeyboardAction(createDefaultKeyboardBindings(), "interact", code);
+
+    expect(rebound.interact).toEqual([code]);
   });
 });

@@ -231,6 +231,19 @@ describe("UserSettingsStore", () => {
     expect(DEFAULT_USER_SETTINGS.keyboardBindings).toEqual(DEFAULT_KEYBOARD_BINDINGS);
   });
 
+  it("round-trips updated keyboard bindings through localStorage", () => {
+    const settings = UserSettingsStore.load();
+    const keyboardBindings = createDefaultKeyboardBindings();
+    keyboardBindings.interact[0] = "KeyZ";
+
+    settings.update({ keyboardBindings });
+
+    expect(UserSettingsStore.load().value.keyboardBindings.interact).toEqual(["KeyZ"]);
+    expect(JSON.parse(globalThis.localStorage.getItem(STORAGE_KEY) ?? "{}").keyboardBindings.interact).toEqual([
+      "KeyZ",
+    ]);
+  });
+
   it("cycles graphics profiles in order", () => {
     const settings = UserSettingsStore.load();
     settings.update({ graphicsProfile: "performance" });
