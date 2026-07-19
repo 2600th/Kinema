@@ -582,6 +582,16 @@ export class SettingsMenu {
   private handleCaptureKeyDown(event: KeyboardEvent): void {
     const capture = this.activeCapture;
     if (!capture) return;
+
+    if (event.code === "Tab") return;
+    if (
+      (event.code === "Enter" || event.code === "Space") &&
+      event.target instanceof HTMLButtonElement &&
+      event.target.classList.contains("menu-tab")
+    ) {
+      this.stopBindingCapture(undefined, false);
+      return;
+    }
     event.preventDefault();
     event.stopImmediatePropagation();
 
