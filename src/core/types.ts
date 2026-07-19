@@ -207,6 +207,7 @@ export interface EventMap {
   "checkpoint:activated": { id: string; position: { x: number; y: number; z: number } };
   "objective:set": { id: string; text: string };
   "objective:completed": { id: string; text: string };
+  "level:willUnload": undefined;
   "level:loaded": { name: string };
   "level:unloaded": { name: string };
   "loading:progress": { progress: number };

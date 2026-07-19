@@ -338,6 +338,7 @@ export class EditorManager {
     this.documentState.markClean(normalizeEditorDocumentName(this.levelManager.getCurrentLevelIdentity()));
 
     this.unsubs.push(this.eventBus.on("editor:toggle", () => this.toggle()));
+    this.unsubs.push(this.eventBus.on("level:willUnload", () => this.history.clear()));
     this.unsubs.push(
       this.eventBus.on("level:loaded", ({ name }) => {
         this.loadTransaction.invalidate();

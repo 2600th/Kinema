@@ -787,13 +787,16 @@ describe("LevelManager rotated body creation", () => {
     expect(physicsWorld.removeBody).toHaveBeenCalledWith(body);
   });
 
-  it("retires tracking and attempts body cleanup when collider cleanup throws", () => {
+  it("retires tracking and preserves the collider error when collider and body cleanup both throw", () => {
     const scene = new THREE.Scene();
-    const cleanupError = new Error("collider cleanup failed");
+    const colliderCleanupError = new Error("collider cleanup failed");
+    const bodyCleanupError = new Error("body cleanup failed");
     const removeCollider = vi.fn(() => {
-      throw cleanupError;
+      throw colliderCleanupError;
     });
-    const removeBody = vi.fn();
+    const removeBody = vi.fn(() => {
+      throw bodyCleanupError;
+    });
     const manager = new LevelManager(
       scene,
       { world: {}, removeCollider, removeBody } as unknown as PhysicsWorld,
@@ -804,7 +807,7 @@ describe("LevelManager rotated body creation", () => {
     const body = { setEnabled: vi.fn() } as unknown as RAPIER.RigidBody;
     manager.addLevelObject(mesh, { physics: { body, collider } });
 
-    expect(() => manager.removeLevelObject(mesh, { removePhysics: true })).toThrow(cleanupError);
+    expect(() => manager.removeLevelObject(mesh, { removePhysics: true })).toThrow(colliderCleanupError);
 
     expect(removeCollider).toHaveBeenCalledOnce();
     expect(removeBody).toHaveBeenCalledWith(body);

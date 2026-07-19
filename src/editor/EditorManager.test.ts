@@ -1,7 +1,7 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
-import type { EventBus } from "../core/EventBus";
+import { EventBus } from "../core/EventBus";
 import { LevelManager } from "../level/LevelManager";
 import type { PhysicsWorld } from "../physics/PhysicsWorld";
 import { CommandHistory } from "./CommandHistory";
@@ -148,16 +148,12 @@ function makeTrackedObject(
   };
 }
 
-function makeDeleteHarness() {
+function makeDeleteHarness(eventBus = new EventBus()) {
   const scene = new THREE.Scene();
   const removeBody = vi.fn();
   const removeCollider = vi.fn();
   const physicsWorld = { removeBody, removeCollider };
-  const levelManager = new LevelManager(
-    scene,
-    physicsWorld as unknown as PhysicsWorld,
-    { emit: vi.fn() } as unknown as EventBus,
-  );
+  const levelManager = new LevelManager(scene, physicsWorld as unknown as PhysicsWorld, eventBus);
   const document = new EditorDocument(scene, physicsWorld as unknown as PhysicsWorld);
   const rootBody = { setEnabled: vi.fn() };
   const rootCollider = { setEnabled: vi.fn() };
@@ -203,7 +199,7 @@ function makeDeleteHarness() {
     physicsWorld,
     levelManager,
     renderer: { scene },
-    eventBus: { emit: vi.fn() },
+    eventBus,
     gizmo: { attach: vi.fn() },
     inspectorPanel: { setSelection: vi.fn() },
     hierarchyPanel: { setSelection: vi.fn(), setObjects: vi.fn() },
@@ -740,6 +736,33 @@ describe("EditorManager subtree delete transactions", () => {
 });
 
 describe("EditorManager delete ownership at user-load boundaries", () => {
+  it("finalizes an applied delete before an external LevelManager load unloads runtime resources", async () => {
+    const eventBus = new EventBus();
+    const harness = makeDeleteHarness(eventBus);
+    const { manager, levelManager, root, child, grandchild } = harness;
+    const levelManagerInternals = levelManager as unknown as {
+      loadGLTF(name: string): Promise<void>;
+      addLighting(): void;
+    };
+    vi.spyOn(levelManagerInternals, "loadGLTF").mockResolvedValue(undefined);
+    vi.spyOn(levelManagerInternals, "addLighting").mockImplementation(() => {});
+    eventBus.on("level:willUnload", () => manager.history.clear());
+    eventBus.on("level:loaded", () => manager.history.clear());
+    await levelManager.load("current");
+
+    expect(manager.deleteSubtree(root.id)).toBe(true);
+    await levelManager.load("replacement");
+    manager.history.clear();
+
+    for (const collider of [root.collider, child.collider, grandchild.collider]) {
+      expect(harness.removeCollider.mock.calls.filter(([removed]) => removed === collider)).toHaveLength(1);
+    }
+    for (const body of [root.body, child.body]) {
+      expect(harness.removeBody.mock.calls.filter(([removed]) => removed === body)).toHaveLength(1);
+    }
+    expect(manager.history.undo()).toBe(false);
+  });
+
   it("finalizes an applied delete before unloading a validated replacement", async () => {
     const harness = makeDeleteHarness();
     const { manager, root, child, grandchild } = harness;
@@ -774,6 +797,31 @@ describe("EditorManager delete ownership at user-load boundaries", () => {
     expect(projectDeleteManager(harness)).toEqual(before);
     expect(harness.removeBody).not.toHaveBeenCalled();
     expect(harness.removeCollider).not.toHaveBeenCalled();
+    manager.history.clear();
+    expect(harness.removeBody).toHaveBeenCalledWith(root.body);
+    expect(harness.removeCollider).toHaveBeenCalledWith(root.collider);
+  });
+
+  it("leaves a valid stale load token without document, selection, physics, or history mutation", async () => {
+    const harness = makeDeleteHarness();
+    const { manager, document, levelManager, root, sibling } = harness;
+    expect(manager.deleteSubtree(root.id)).toBe(true);
+    document.selected = sibling;
+    const before = projectDeleteManager(harness);
+    const loadToken = manager.loadTransaction.begin("user-load");
+    if (!loadToken) throw new Error("Expected the user-load token to start.");
+    manager.loadTransaction.invalidate();
+    const unload = vi.spyOn(levelManager, "unload");
+
+    await expect(manager.applyLoadedLevelContents(emptyLevelData(), "user-load", loadToken)).resolves.toBe(
+      "superseded",
+    );
+
+    expect(projectDeleteManager(harness)).toEqual(before);
+    expect(unload).not.toHaveBeenCalled();
+    expect(harness.removeBody).not.toHaveBeenCalled();
+    expect(harness.removeCollider).not.toHaveBeenCalled();
+    expect(manager.documentState.markClean).not.toHaveBeenCalled();
     manager.history.clear();
     expect(harness.removeBody).toHaveBeenCalledWith(root.body);
     expect(harness.removeCollider).toHaveBeenCalledWith(root.collider);

@@ -733,6 +733,7 @@ export class LevelManager implements Disposable {
 
   /** Unload all current level resources. */
   unload(): void {
+    this.eventBus.emit("level:willUnload", undefined);
     this._loadGeneration.value++;
     const name = this.currentLevelName;
 
