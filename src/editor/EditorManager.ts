@@ -13,7 +13,11 @@ import { clone as skeletonClone } from "three/addons/utils/SkeletonUtils.js";
 import { BRUSH_REGISTRY, getBrushById } from "./brushes/index";
 import { CommandHistory } from "./CommandHistory";
 import { EditorDocument } from "./EditorDocument";
-import { type EditorDocumentSnapshot, EditorDocumentState } from "./EditorDocumentState";
+import {
+  type EditorDocumentSnapshot,
+  EditorDocumentState,
+  shouldProtectEditorUnload,
+} from "./EditorDocumentState";
 import type { EditorObject } from "./EditorObject";
 import { FreeCamera } from "./FreeCamera";
 import { type LevelData, LevelSerializer } from "./LevelSerializer";
@@ -48,6 +52,7 @@ export class EditorManager {
   private playTestSnapshot: string | null = null;
   private playTestCameraState: { position: THREE.Vector3; quaternion: THREE.Quaternion } | null = null;
   private playTestStopButton: HTMLElement | null = null;
+  private unloadProtectionEnabled = false;
 
   /* ---- Subsystems ---- */
   private gizmo: TransformGizmo;
@@ -217,6 +222,12 @@ export class EditorManager {
     this.activeTool = this.selectionTool;
 
     this.unsubs.push(this.eventBus.on("editor:toggle", () => this.toggle()));
+    this.unsubs.push(
+      this.eventBus.on("level:loaded", ({ name }) => {
+        this.history.clear();
+        this.documentState.markClean(name === "procedural" || name.startsWith("station:") ? "Untitled" : name);
+      }),
+    );
 
     // Hide editor panels + play-test stop button when menu overlay opens
     this.unsubs.push(
@@ -275,6 +286,10 @@ export class EditorManager {
 
   getDocumentState(): Readonly<EditorDocumentSnapshot> {
     return this.documentState.value;
+  }
+
+  shouldWarnBeforeUnload(): boolean {
+    return shouldProtectEditorUnload(this.documentState.value.dirty, this.active, this.playTestActive);
   }
 
   undo(): void {
@@ -434,6 +449,7 @@ export class EditorManager {
     this.bindEditorInput();
     this.renderer.canvas.addEventListener("dragover", this.onDragOver);
     this.renderer.canvas.addEventListener("drop", this.onDrop);
+    this.syncUnloadProtection();
   }
 
   private exit(): void {
@@ -455,6 +471,7 @@ export class EditorManager {
     this.renderer.canvas.removeEventListener("drop", this.onDrop);
     this.unbindEditorInput();
     this.gizmo.attach(null);
+    this.syncUnloadProtection();
   }
 
   /* ==================================================================
@@ -487,6 +504,7 @@ export class EditorManager {
     };
 
     this.playTestActive = true;
+    this.syncUnloadProtection();
 
     // Exit editor mode -- enables game simulation, player, etc.
     this.exit();
@@ -566,7 +584,7 @@ export class EditorManager {
     if (snapshot) {
       try {
         const data = JSON.parse(snapshot) as LevelData;
-        await this.applyLoadedLevel(data);
+        await this.applyLoadedLevel(data, "playtest-restore");
       } catch (err) {
         console.error("[Editor] Failed to restore play-test snapshot:", err);
         return;
@@ -602,6 +620,7 @@ export class EditorManager {
     this.playTestStopButton = null;
     this.playTestSnapshot = null;
     this.playTestCameraState = null;
+    this.syncUnloadProtection();
   }
 
   /* ==================================================================
@@ -644,13 +663,19 @@ export class EditorManager {
   private onKeyDown = (e: KeyboardEvent): void => {
     if (!this.active) return;
 
+    const cmd = e.ctrlKey || e.metaKey;
+    if (e.code === "KeyS" && cmd) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (!e.repeat) void this.saveLevel();
+      return;
+    }
+
     // Ignore keyboard shortcuts when typing in an input or contenteditable
     const target = e.target as HTMLElement;
     const tag = target?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
     if (target?.isContentEditable) return;
-
-    const cmd = navigator.platform.toUpperCase().includes("MAC") ? e.metaKey : e.ctrlKey;
 
     if (e.code === "KeyP" && cmd) {
       e.preventDefault();
@@ -1241,6 +1266,14 @@ export class EditorManager {
 
   private onDocumentStateChanged(state: Readonly<EditorDocumentSnapshot>): void {
     this.toolbarPanel.setDocumentState(state.name, state.dirty);
+    this.syncUnloadProtection();
+  }
+
+  private syncUnloadProtection(): void {
+    const enabled = this.shouldWarnBeforeUnload();
+    if (enabled === this.unloadProtectionEnabled) return;
+    this.unloadProtectionEnabled = enabled;
+    this.eventBus.emit("editor:unloadProtectionChanged", enabled);
   }
 
   /* ==================================================================
@@ -1403,11 +1436,16 @@ export class EditorManager {
    * ================================================================== */
 
   private async saveLevel(): Promise<void> {
-    const name = window.prompt("Level name:", "custom");
+    const currentName = this.documentState.value.name;
+    const name = window.prompt("Level name:", currentName === "Untitled" ? "custom" : currentName)?.trim();
     if (!name) return;
     // Preserve the original created timestamp when overwriting an existing level
     const existingLevels = LevelSaveStore.list();
     const existingMeta = existingLevels.find((m) => m.name === name);
+    if (existingMeta) {
+      const overwrite = window.confirm(`A level named "${name}" already exists. Overwrite it?`);
+      if (!overwrite) return;
+    }
     let existingCreated: string | undefined;
     if (existingMeta) {
       const existingData = LevelSaveStore.load(existingMeta.key);
@@ -1424,6 +1462,7 @@ export class EditorManager {
       this.toolbarPanel.showSaveError(message);
       return;
     }
+    this.documentState.markClean(data.name);
     this.toolbarPanel.clearSaveError();
     this.eventBus.emit("editor:saved", { name: data.name });
   }
@@ -1437,12 +1476,12 @@ export class EditorManager {
       if (!file) return;
       const data = await LevelSerializer.loadFromFile(file);
       if (!data) return;
-      void this.applyLoadedLevel(data);
+      void this.applyLoadedLevel(data, "user-load");
     });
     input.click();
   }
 
-  private async applyLoadedLevel(data: LevelData): Promise<void> {
+  private async applyLoadedLevel(data: LevelData, intent: "user-load" | "playtest-restore"): Promise<void> {
     const levelTrackedMeshes = new Set(this.levelManager.getLevelObjects());
     this.levelManager.unload();
 
@@ -1515,6 +1554,10 @@ export class EditorManager {
       this.updateEditorObjectTransform(obj);
     }
 
+    if (intent === "user-load") {
+      this.history.clear();
+      this.documentState.markClean(data.name);
+    }
     this.syncHierarchy();
     this.eventBus.emit("editor:loaded", { name: data.name });
   }

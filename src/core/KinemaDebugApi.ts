@@ -141,6 +141,8 @@ export interface KinemaDebugApi {
   isPlayTesting(): boolean;
   getEditorObjectCount(): number;
   getEditorSaveEventCount(): number;
+  getEditorDocumentState(): { name: string; dirty: boolean };
+  getEditorUnloadProtectionState(): { registered: boolean; lastPrevented: boolean };
   getInteractionEvents(): KinemaInteractionEvent[];
   clearInteractionEvents(): void;
   editorUndo(): void;

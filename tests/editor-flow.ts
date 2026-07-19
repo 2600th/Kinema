@@ -25,6 +25,172 @@ async function placeBlock(page: import("@playwright/test").Page): Promise<void> 
   });
 }
 
+test("protects unsaved editor work and saves through Ctrl+S", async ({ page }) => {
+  test.setTimeout(300_000);
+  await page.addInitScript(() => {
+    localStorage.setItem("kinema.user-settings.v1", JSON.stringify({ graphicsProfile: "performance" }));
+  });
+  await page.goto("/?station=steps", { waitUntil: "domcontentloaded" });
+  await waitForKinema(page);
+  await waitForGrounded(page);
+  await openEditor(page);
+
+  const initialObjectCount = await page.evaluate(() => window.__KINEMA__.getEditorObjectCount());
+  await placeBlock(page);
+  await expect.poll(() => page.evaluate(() => window.__KINEMA__.getEditorObjectCount())).toBe(initialObjectCount + 1);
+  await expect(page.locator(".ke-dirty-dot")).toBeVisible();
+  await expect(page.locator(".ke-document-title")).toHaveText("Untitled*");
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorDocumentState())).toEqual({
+    name: "Untitled",
+    dirty: true,
+  });
+  expect(
+    await page.evaluate(() => {
+      const event = new Event("beforeunload", { cancelable: true });
+      const dispatched = window.dispatchEvent(event);
+      return {
+        dispatched,
+        defaultPrevented: event.defaultPrevented,
+        debug: window.__KINEMA__.getEditorUnloadProtectionState(),
+      };
+    }),
+  ).toEqual({
+    dispatched: false,
+    defaultPrevented: true,
+    debug: { registered: true, lastPrevented: true },
+  });
+
+  await page.evaluate(() => window.__KINEMA__.startPlayTest());
+  await expect.poll(() => page.evaluate(() => window.__KINEMA__.isPlayTesting())).toBe(true);
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorDocumentState().dirty)).toBe(true);
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorUnloadProtectionState().registered)).toBe(true);
+  await page.evaluate(() => window.__KINEMA__.stopPlayTest());
+  await expect.poll(() => page.evaluate(() => window.__KINEMA__.isEditorActive())).toBe(true);
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorDocumentState())).toEqual({
+    name: "Untitled",
+    dirty: true,
+  });
+  await page.screenshot({ path: "docs/audits/evidence/28-editor-dirty.png" });
+
+  let downloadCount = 0;
+  page.on("download", () => {
+    downloadCount++;
+  });
+  page.once("dialog", (dialog) => void dialog.accept("trust-flow"));
+  const firstDownloadPromise = page.waitForEvent("download");
+  await page.locator(".ke-tree-row").last().click();
+  await page.locator(".ke-inspector input").first().focus();
+  await page.keyboard.press("Control+S");
+  const firstDownload = await firstDownloadPromise;
+  expect(firstDownload.suggestedFilename()).toBe("trust-flow.json");
+  await expect(page.locator(".ke-dirty-dot")).toBeHidden();
+  await expect(page.locator(".ke-document-title")).toHaveText("trust-flow");
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorDocumentState())).toEqual({
+    name: "trust-flow",
+    dirty: false,
+  });
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorUnloadProtectionState().registered)).toBe(false);
+  const firstSave = await page.evaluate(() => {
+    const index = JSON.parse(localStorage.getItem("kinema_level_index") ?? "[]") as Array<{
+      key: string;
+      name: string;
+    }>;
+    const entry = index.find((candidate) => candidate.name === "trust-flow");
+    return entry ? localStorage.getItem(entry.key) : null;
+  });
+  expect(firstSave).not.toBeNull();
+  const firstCreated = JSON.parse(firstSave as string).created as string;
+  const saveEventsAfterFirstSave = await page.evaluate(() => window.__KINEMA__.getEditorSaveEventCount());
+
+  await placeBlock(page);
+  await expect(page.locator(".ke-dirty-dot")).toBeVisible();
+  let cancelDialogs = 0;
+  const cancelOverwrite = (dialog: import("@playwright/test").Dialog): void => {
+    cancelDialogs++;
+    if (cancelDialogs === 1) void dialog.accept("trust-flow");
+    else void dialog.dismiss();
+  };
+  page.on("dialog", cancelOverwrite);
+  await page.keyboard.press("Control+S");
+  await expect.poll(() => cancelDialogs).toBe(2);
+  page.off("dialog", cancelOverwrite);
+  await page.waitForTimeout(250);
+  expect(downloadCount).toBe(1);
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorSaveEventCount())).toBe(saveEventsAfterFirstSave);
+  expect(
+    await page.evaluate(() => {
+      const index = JSON.parse(localStorage.getItem("kinema_level_index") ?? "[]") as Array<{
+        key: string;
+        name: string;
+      }>;
+      const entry = index.find((candidate) => candidate.name === "trust-flow");
+      return entry ? localStorage.getItem(entry.key) : null;
+    }),
+  ).toBe(firstSave);
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorDocumentState().dirty)).toBe(true);
+
+  let acceptDialogs = 0;
+  const acceptOverwrite = (dialog: import("@playwright/test").Dialog): void => {
+    acceptDialogs++;
+    void dialog.accept("trust-flow");
+  };
+  page.on("dialog", acceptOverwrite);
+  const overwriteDownloadPromise = page.waitForEvent("download");
+  await page.keyboard.press("Control+S");
+  await overwriteDownloadPromise;
+  await expect.poll(() => acceptDialogs).toBe(2);
+  page.off("dialog", acceptOverwrite);
+  await expect(page.locator(".ke-dirty-dot")).toBeHidden();
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorSaveEventCount())).toBe(saveEventsAfterFirstSave + 1);
+  expect(
+    await page.evaluate(() => {
+      const index = JSON.parse(localStorage.getItem("kinema_level_index") ?? "[]") as Array<{
+        key: string;
+        name: string;
+      }>;
+      const entry = index.find((candidate) => candidate.name === "trust-flow");
+      const stored = entry ? localStorage.getItem(entry.key) : null;
+      return stored ? (JSON.parse(stored).created as string) : null;
+    }),
+  ).toBe(firstCreated);
+
+  await placeBlock(page);
+  await expect(page.locator(".ke-dirty-dot")).toBeVisible();
+  await page.evaluate(() => {
+    const originalSetItem = Storage.prototype.setItem;
+    const testWindow = window as Window & { __kinemaOriginalSetItem?: typeof originalSetItem };
+    testWindow.__kinemaOriginalSetItem = originalSetItem;
+    Storage.prototype.setItem = function (this: Storage, key: string, value: string): void {
+      if (key.startsWith("kinema_level_")) throw new DOMException("quota", "QuotaExceededError");
+      originalSetItem.call(this, key, value);
+    };
+  });
+  let quotaDialogs = 0;
+  const acceptQuotaSave = (dialog: import("@playwright/test").Dialog): void => {
+    quotaDialogs++;
+    void dialog.accept("trust-flow");
+  };
+  page.on("dialog", acceptQuotaSave);
+  const failedDownloadPromise = page.waitForEvent("download");
+  await page.keyboard.press("Control+S");
+  await failedDownloadPromise;
+  await expect.poll(() => quotaDialogs).toBe(2);
+  page.off("dialog", acceptQuotaSave);
+  await expect(page.locator(".ke-save-error")).toHaveText(
+    "Save failed — storage full. A file download was started instead.",
+  );
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorDocumentState().dirty)).toBe(true);
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorUnloadProtectionState().registered)).toBe(true);
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorSaveEventCount())).toBe(saveEventsAfterFirstSave + 1);
+  await page.evaluate(() => {
+    const testWindow = window as Window & { __kinemaOriginalSetItem?: typeof Storage.prototype.setItem };
+    if (testWindow.__kinemaOriginalSetItem) {
+      Storage.prototype.setItem = testWindow.__kinemaOriginalSetItem;
+      delete testWindow.__kinemaOriginalSetItem;
+    }
+  });
+});
+
 test("play-test cannot survive a main-menu transition and soft-brick the next run", async ({ page }, testInfo) => {
   test.setTimeout(300_000);
   await page.addInitScript(() => {

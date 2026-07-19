@@ -266,6 +266,7 @@ export interface EventMap {
   "editor:objectRemoved": { id: string };
   "editor:saved": { name: string };
   "editor:loaded": { name: string };
+  "editor:unloadProtectionChanged": boolean;
   "audio:musicVolume": number;
   "audio:sfxVolume": number;
   "audio:masterVolume": number;

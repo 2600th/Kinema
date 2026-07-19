@@ -3,6 +3,10 @@ export interface EditorDocumentSnapshot {
   dirty: boolean;
 }
 
+export function shouldProtectEditorUnload(dirty: boolean, active: boolean, playTesting: boolean): boolean {
+  return dirty && (active || playTesting);
+}
+
 export class EditorDocumentState {
   private name = "Untitled";
   private dirty = false;

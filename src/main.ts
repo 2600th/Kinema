@@ -195,6 +195,25 @@ async function bootstrap(): Promise<void> {
   type EditorManagerInstance = import("@editor/EditorManager").EditorManager;
   let editorManager: EditorManagerInstance | null = null;
   let editorManagerPromise: Promise<EditorManagerInstance> | null = null;
+  let editorBeforeUnloadRegistered = false;
+  let editorBeforeUnloadPrevented = false;
+  const onEditorBeforeUnload = (event: BeforeUnloadEvent): void => {
+    editorBeforeUnloadPrevented = false;
+    if (!editorManager?.shouldWarnBeforeUnload()) return;
+    event.preventDefault();
+    event.returnValue = true;
+    editorBeforeUnloadPrevented = event.defaultPrevented;
+  };
+  const setEditorUnloadProtection = (enabled: boolean): void => {
+    if (enabled === editorBeforeUnloadRegistered) return;
+    editorBeforeUnloadRegistered = enabled;
+    if (enabled) {
+      window.addEventListener("beforeunload", onEditorBeforeUnload);
+    } else {
+      window.removeEventListener("beforeunload", onEditorBeforeUnload);
+    }
+  };
+  const unsubEditorUnloadProtection = eventBus.on("editor:unloadProtectionChanged", setEditorUnloadProtection);
   let unsubEditorBootstrap = () => {};
   const ensureEditorManager = (): Promise<EditorManagerInstance> => {
     if (editorManager) return Promise.resolve(editorManager);
@@ -861,6 +880,13 @@ async function bootstrap(): Promise<void> {
       getEditorSaveEventCount() {
         return editorSaveEventCount;
       },
+      getEditorDocumentState() {
+        const state = editorManager?.getDocumentState() ?? { name: "Untitled", dirty: false };
+        return { name: state.name, dirty: state.dirty };
+      },
+      getEditorUnloadProtectionState() {
+        return { registered: editorBeforeUnloadRegistered, lastPrevented: editorBeforeUnloadPrevented };
+      },
       getInteractionEvents() {
         return interactionEvents.map((event) => ({ ...event }));
       },
@@ -934,15 +960,21 @@ async function bootstrap(): Promise<void> {
     startBlankLevelForEditor,
   );
   menuManagerRef = menuManager;
-  const registerUnload = (): void => {
-    window.addEventListener("beforeunload", () => {
-      gameLoop.stop();
-      comfortPreferences.dispose();
-      game.dispose();
-      menuManager.dispose();
-    });
+  let pageCleanupComplete = false;
+  const cleanupPage = (): void => {
+    if (pageCleanupComplete) return;
+    pageCleanupComplete = true;
+    setEditorUnloadProtection(false);
+    unsubEditorUnloadProtection();
+    gameLoop.stop();
+    comfortPreferences.dispose();
+    game.dispose();
+    menuManager.dispose();
   };
-  registerUnload();
+  window.addEventListener("pagehide", (event) => {
+    if (event.persisted) return;
+    cleanupPage();
+  });
   if (
     stationParam &&
     SHOWCASE_STATION_ORDER.includes(stationParam as import("@level/ShowcaseLayout").ShowcaseStationKey)
