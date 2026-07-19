@@ -27,6 +27,32 @@ async function simulateGamepadMenuInput(
   await page.evaluate((input) => window.__KINEMA__.simulateGamepadMenuInput(input), action);
 }
 
+async function pressUntilFocused(
+  page: import("@playwright/test").Page,
+  target: import("@playwright/test").Locator,
+  key: string,
+  maxSteps = 40,
+): Promise<void> {
+  for (let step = 0; step < maxSteps; step += 1) {
+    if (await target.evaluate((element) => element === document.activeElement)) return;
+    await page.keyboard.press(key);
+  }
+  await expect(target).toBeFocused();
+}
+
+async function gamepadUntilFocused(
+  page: import("@playwright/test").Page,
+  target: import("@playwright/test").Locator,
+  action: GamepadMenuAction,
+  maxSteps = 40,
+): Promise<void> {
+  for (let step = 0; step < maxSteps; step += 1) {
+    if (await target.evaluate((element) => element === document.activeElement)) return;
+    await simulateGamepadMenuInput(page, action);
+  }
+  await expect(target).toBeFocused();
+}
+
 async function expectVisibleFocusRing(locator: import("@playwright/test").Locator): Promise<void> {
   const outline = await locator.evaluate((element) => {
     const style = getComputedStyle(element);
@@ -82,6 +108,11 @@ async function setSlider(
 
 function bindingRow(page: import("@playwright/test").Page, action: string) {
   return page.locator(".binding-row", { has: page.locator(".binding-action", { hasText: action }) });
+}
+
+function formatSliderValue(value: number, step: number): string {
+  const decimals = step < 0.01 ? (step < 0.001 ? 4 : 3) : 2;
+  return value.toFixed(decimals);
 }
 
 test.describe("KIN-020 settings journeys", () => {
@@ -239,28 +270,37 @@ test.describe("KIN-020 settings journeys", () => {
       ["Camera effects intensity", "cameraEffectsIntensity", { min: 0, max: 1, step: 0.05 }],
       ["Damage flash intensity", "damageFlashIntensity", { min: 0, max: 1, step: 0.05 }],
     ] as const;
-    for (const [name, key, range] of endpointCases) {
-      const sliderName = new RegExp(`^${name}:`);
-      for (const endpoint of [range.min, range.max]) {
+    for (const endpointName of ["min", "max"] as const) {
+      for (const [name, key, range] of endpointCases) {
+        const endpoint = range[endpointName];
+        const sliderName = new RegExp(`^${name}:`);
         const slider = await setSlider(page, sliderName, endpoint);
-        await expect(slider).toHaveAccessibleName(new RegExp(`${endpoint.toFixed(range.step < 0.001 ? 4 : 2)}$`));
+        await expect(slider).toHaveAccessibleName(`${name}: ${formatSliderValue(endpoint, range.step)}`);
         await expect.poll(async () => (await readStoredSettings(page))[key]).toBe(endpoint);
       }
-    }
-    const damageOverlay = page.locator(".hud-damage-overlay");
-    await expect(damageOverlay).toHaveCSS("--damage-flash-intensity", "1");
 
-    await page.getByRole("button", { name: "Graphics" }).click();
-    await page.getByRole("button", { name: "Controls" }).click();
-    for (const [name, , range] of endpointCases) {
-      await expect(page.getByRole("slider", { name: new RegExp(`^${name}:`) })).toHaveValue(String(range.max));
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("dialog", { name: "Kinema" })).toBeVisible();
+      await page.getByRole("button", { name: "Settings" }).click();
+      for (const [name, , range] of endpointCases) {
+        const endpoint = range[endpointName];
+        const slider = page.getByRole("slider", { name: new RegExp(`^${name}:`) });
+        await expect(slider).toHaveValue(String(endpoint));
+        await expect(slider).toHaveAccessibleName(`${name}: ${formatSliderValue(endpoint, range.step)}`);
+      }
+
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect(page.getByRole("dialog", { name: "Kinema" })).toBeVisible({ timeout: 60_000 });
+      await page.getByRole("button", { name: "Settings" }).click();
+      for (const [name, , range] of endpointCases) {
+        const endpoint = range[endpointName];
+        const slider = page.getByRole("slider", { name: new RegExp(`^${name}:`) });
+        await expect(slider).toHaveValue(String(endpoint));
+        await expect(slider).toHaveAccessibleName(`${name}: ${formatSliderValue(endpoint, range.step)}`);
+      }
     }
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("dialog", { name: "Kinema" })).toBeVisible({ timeout: 60_000 });
-    await page.getByRole("button", { name: "Settings" }).click();
-    for (const [name, , range] of endpointCases) {
-      await expect(page.getByRole("slider", { name: new RegExp(`^${name}:`) })).toHaveValue(String(range.max));
-    }
+
+    await expect(page.locator(".hud-damage-overlay")).toHaveCSS("--damage-flash-intensity", "1");
   });
 
   test("remaps, swaps, cancels, resets, and updates the live interaction prompt", async ({ page }) => {
@@ -268,6 +308,30 @@ test.describe("KIN-020 settings journeys", () => {
     await openSettings(page);
     const status = page.getByRole("status");
     await expect(status).toHaveAttribute("aria-live", "polite");
+    for (const action of [
+      "Move forward",
+      "Move backward",
+      "Move left",
+      "Move right",
+      "Jump",
+      "Interact",
+      "Crouch",
+      "Sprint",
+    ]) {
+      await expect(page.getByRole("button", { name: `Rebind ${action}`, exact: true })).toHaveCount(1);
+    }
+    await expect(page.getByRole("button", { name: "Reset bindings", exact: true })).toHaveCount(1);
+    for (const [name, value] of [
+      ["Camera effects intensity", "1.00"],
+      ["Damage flash intensity", "1.00"],
+      ["Gamepad look sensitivity", "18.00"],
+      ["Touch look sensitivity", "4.00"],
+    ] as const) {
+      await expect(page.getByRole("slider", { name: `${name}: ${value}`, exact: true })).toHaveCount(1);
+    }
+    for (const name of ["Reduced motion", "Sprint mode", "Crouch mode"]) {
+      await expect(page.getByRole("combobox", { name, exact: true })).toHaveCount(1);
+    }
     const interactButton = page.getByRole("button", { name: "Rebind Interact" });
 
     await interactButton.click();
@@ -276,6 +340,7 @@ test.describe("KIN-020 settings journeys", () => {
     await page.keyboard.press("KeyZ");
     await expect(status).toHaveText("Interact set to Z.");
     await expect(bindingRow(page, "Interact").locator("kbd")).toHaveText("Z");
+    await expect.poll(async () => (await readStoredSettings(page)).keyboardBindings.interact[0]).toBe("KeyZ");
     await expect(interactButton).toBeFocused();
 
     await interactButton.click();
@@ -343,11 +408,25 @@ test.describe("KIN-020 settings journeys", () => {
 
   test("cleans capture on tab switch and supports controller remap and comfort navigation", async ({ page }) => {
     await openSettings(page);
+    const status = page.getByRole("status");
     const interactButton = page.getByRole("button", { name: "Rebind Interact" });
     await interactButton.click();
+    const crouchButton = page.getByRole("button", { name: "Rebind Crouch", exact: true });
+    await pressUntilFocused(page, crouchButton, "Tab");
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("button", { name: /Capturing Crouch/ })).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(status).toHaveText("Cancelled Crouch rebinding.");
+
+    await interactButton.click();
+    const resetBindings = page.getByRole("button", { name: "Reset bindings", exact: true });
+    await pressUntilFocused(page, resetBindings, "Tab");
+    await page.keyboard.press("Space");
+    await expect(status).toHaveText("Keyboard bindings reset to defaults.");
+
+    await interactButton.click();
     const graphicsTab = page.getByRole("button", { name: "Graphics" });
-    for (let index = 0; index < 13; index += 1) await page.keyboard.press("Tab");
-    await expect(graphicsTab).toBeFocused();
+    await pressUntilFocused(page, graphicsTab, "Tab");
     await page.keyboard.press("Enter");
     await expect(graphicsTab).toBeFocused();
     await page.keyboard.press("KeyZ");
@@ -360,18 +439,16 @@ test.describe("KIN-020 settings journeys", () => {
 
     const controlsTab = page.getByRole("button", { name: "Controls" });
     await controlsTab.focus();
-    for (let index = 0; index < 9; index += 1) await simulateGamepadMenuInput(page, "down");
     const forwardRebind = page.getByRole("button", { name: "Rebind Move forward" });
-    await expect(forwardRebind).toBeFocused();
+    await gamepadUntilFocused(page, forwardRebind, "down");
     await expectVisibleFocusRing(forwardRebind);
     await simulateGamepadMenuInput(page, "activate");
     await expect(page.getByRole("button", { name: /Capturing Move forward/ })).toBeFocused();
     await page.keyboard.press("KeyX");
     await expect(bindingRow(page, "Move forward").locator("kbd")).toHaveText("X");
 
-    for (let index = 0; index < 9; index += 1) await simulateGamepadMenuInput(page, "down");
     const cameraEffects = page.getByRole("slider", { name: /^Camera effects intensity:/ });
-    await expect(cameraEffects).toBeFocused();
+    await gamepadUntilFocused(page, cameraEffects, "down");
     await expect(page.locator(".menu-overlay")).toHaveClass(/is-gamepad-navigation/);
     const before = Number(await cameraEffects.inputValue());
     await simulateGamepadMenuInput(page, "left");
@@ -387,22 +464,25 @@ test.describe("KIN-020 settings journeys", () => {
     await expect(root).toHaveAttribute("data-reduced-motion", "reduce");
     await expect(reducedMotion).toHaveValue("system");
 
-    await reducedMotion.selectOption("off");
-    await expect(root).toHaveAttribute("data-reduced-motion", "normal");
-    await expect(controlsSection).toHaveCSS("animation-name", "fadeIn");
-    await expect.poll(async () => (await readStoredSettings(page)).reducedMotion).toBe("off");
-
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await reducedMotion.selectOption("on");
     await expect(root).toHaveAttribute("data-reduced-motion", "reduce");
     await expect(controlsSection).toHaveCSS("animation-name", "none");
     await expect.poll(async () => (await readStoredSettings(page)).reducedMotion).toBe("on");
 
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(root).toHaveAttribute("data-reduced-motion", "reduce", { timeout: 60_000 });
+    await page.getByRole("button", { name: "Settings" }).click();
+    await expect(reducedMotion).toHaveValue("on");
+
     const cameraEffects = await setSlider(page, /^Camera effects intensity:/, 0);
     await expect(root).toHaveAttribute("data-reduced-motion", "reduce");
     await expect.poll(async () => (await readStoredSettings(page)).cameraEffectsIntensity).toBe(0);
+    await page.emulateMedia({ reducedMotion: "reduce" });
     await reducedMotion.selectOption("off");
     await expect(root).toHaveAttribute("data-reduced-motion", "normal");
+    await expect(controlsSection).toHaveCSS("animation-name", "fadeIn");
+    await expect.poll(async () => (await readStoredSettings(page)).reducedMotion).toBe("off");
     await expect(cameraEffects).toHaveValue("0");
 
     const damageFlash = page.getByRole("slider", { name: /^Damage flash intensity:/ });

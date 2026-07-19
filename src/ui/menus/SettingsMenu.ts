@@ -583,7 +583,10 @@ export class SettingsMenu {
     const capture = this.activeCapture;
     if (!capture) return;
 
-    if (event.code === "Tab") return;
+    if (event.code === "Tab") {
+      this.stopBindingCapture(undefined, false);
+      return;
+    }
     if (
       (event.code === "Enter" || event.code === "Space") &&
       event.target instanceof HTMLButtonElement &&

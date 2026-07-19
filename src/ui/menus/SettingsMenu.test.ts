@@ -277,6 +277,27 @@ describe("SettingsMenu comfort controls", () => {
 });
 
 describe("SettingsMenu section lifecycle", () => {
+  it("cancels binding capture on Tab without consuming native focus navigation", () => {
+    const menu = Object.create(SettingsMenu.prototype) as {
+      activeCapture: { action: "interact"; button: object };
+      stopBindingCapture: ReturnType<typeof vi.fn>;
+      handleCaptureKeyDown: (event: KeyboardEvent) => void;
+    };
+    menu.activeCapture = { action: "interact", button: {} };
+    menu.stopBindingCapture = vi.fn();
+    const event = {
+      code: "Tab",
+      preventDefault: vi.fn(),
+      stopImmediatePropagation: vi.fn(),
+    } as unknown as KeyboardEvent;
+
+    menu.handleCaptureKeyDown(event);
+
+    expect(menu.stopBindingCapture).toHaveBeenCalledWith(undefined, false);
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(event.stopImmediatePropagation).not.toHaveBeenCalled();
+  });
+
   it("does not restore capture focus when navigating away from Controls", () => {
     const menu = Object.create(SettingsMenu.prototype) as {
       controlsSection: { classList: { toggle: ReturnType<typeof vi.fn> } };
