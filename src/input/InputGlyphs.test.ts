@@ -42,9 +42,15 @@ describe("input glyphs", () => {
     bindings.crouch[0] = "ControlRight";
     bindings.sprint[0] = "ShiftRight";
 
-    expect(getInputGlyph("interact", "gamepad", bindings)).toBe("X");
-    expect(getInputGlyph("jump", "touch", bindings)).toBe("↑");
-    expect(getInputGlyph("crouch", "gamepad", bindings)).toBe("B");
-    expect(getInputGlyph("sprint", "touch", bindings)).toBe("⇧");
+    const expected = {
+      gamepad: { interact: "X", jump: "A", crouch: "B", sprint: "LB" },
+      touch: { interact: "✋", jump: "↑", crouch: "↓", sprint: "⇧" },
+    } as const;
+
+    for (const source of ["gamepad", "touch"] as const) {
+      for (const action of ["interact", "jump", "crouch", "sprint"] as const) {
+        expect(getInputGlyph(action, source, bindings)).toBe(expected[source][action]);
+      }
+    }
   });
 });

@@ -713,7 +713,7 @@ export class ProceduralBuilder {
       this.createLadder("MainLadder", new THREE.Vector3(14, bayTopY, zMovement), 4.2, obstacleMat);
       this.createCrouchCourse(new THREE.Vector3(0, bayTopY, zMovement), obstacleMat);
       this.createSectionLabel(
-        "Movement\nW/S climb \u2022 C crouch \u2022 Space jump off rope",
+        "Movement\nMove to climb \u2022 Crouch \u2022 Jump off rope",
         new THREE.Vector3(0, 3.0, zMovement + 6),
         11.2,
         2.25,
@@ -723,7 +723,7 @@ export class ProceduralBuilder {
     if (isTarget("doubleJump")) {
       this.createDoubleJumpCourse(new THREE.Vector3(-6, bayTopY, zDoubleJump), stepMat);
       this.createSectionLabel(
-        "Double Jump\nSpace \u2022 Multi-tier jump platforms",
+        "Double Jump\nJump again in air \u2022 Multi-tier jump platforms",
         new THREE.Vector3(-2, 4.9, zDoubleJump),
         7.6,
         1.65,
@@ -733,7 +733,7 @@ export class ProceduralBuilder {
     await this.yieldProgress(0.6);
 
     if (isTarget("grab")) {
-      this.createSectionLabel("Grab & Pull\nPress F to grab / release", new THREE.Vector3(0, 2.55, zGrab), 10.2, 2.2);
+      this.createSectionLabel("Grab & Pull\nInteract to grab / release", new THREE.Vector3(0, 2.55, zGrab), 10.2, 2.2);
       const grabbableMat = new THREE.MeshPhysicalMaterial({
         color: 0x4fa8d8,
         roughness: 0.3,
@@ -781,7 +781,7 @@ export class ProceduralBuilder {
 
     if (isTarget("throw")) {
       this.createSectionLabel(
-        "Pick Up & Throw\nF to pick up \u2022 LMB to throw \u2022 C to drop",
+        "Pick Up & Throw\nInteract to pick up \u2022 Primary to throw \u2022 Crouch to drop",
         new THREE.Vector3(0, 3.6, zThrow + 5),
         11.0,
         2.25,
@@ -1314,12 +1314,12 @@ export class ProceduralBuilder {
     } // end throw
 
     if (isTarget("door")) {
-      this.createSectionLabel("Door & Beacon\nPress F near objects", new THREE.Vector3(0, 2.55, zDoor), 10.2, 2.15);
+      this.createSectionLabel("Door & Beacon\nInteract near objects", new THREE.Vector3(0, 2.55, zDoor), 10.2, 2.15);
     } // end door
 
     if (isTarget("vehicles")) {
       this.createSectionLabel(
-        "Vehicles\nF to enter / exit \u2022 E/Q altitude (drone)",
+        "Vehicles\nInteract to enter / exit \u2022 E/Q altitude (drone)",
         new THREE.Vector3(0, 2.55, zVehicles),
         9.2,
         2.05,

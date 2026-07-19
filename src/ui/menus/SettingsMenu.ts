@@ -488,7 +488,7 @@ export class SettingsMenu {
   }
 
   private showSection(section: "controls" | "graphics" | "audio"): void {
-    if (section !== "controls") this.stopBindingCapture();
+    if (section !== "controls") this.stopBindingCapture(undefined, false);
     this.controlsSection.classList.toggle("active", section === "controls");
     this.graphicsSection.classList.toggle("active", section === "graphics");
     this.audioSection.classList.toggle("active", section === "audio");

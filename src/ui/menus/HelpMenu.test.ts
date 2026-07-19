@@ -1,12 +1,88 @@
 import { createDefaultKeyboardBindings } from "@input/InputBindings";
-import { describe, expect, it } from "vitest";
-import { getHelpBindings } from "./HelpMenu";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { getHelpBindings, HelpMenu } from "./HelpMenu";
+
+class FakeClassList {
+  private values = new Set<string>();
+
+  add(value: string): void {
+    this.values.add(value);
+  }
+
+  remove(value: string): void {
+    this.values.delete(value);
+  }
+}
+
+class FakeElement {
+  textContent = "";
+  className = "";
+  readonly classList = new FakeClassList();
+  readonly children: FakeElement[] = [];
+  removed = false;
+
+  constructor(readonly tagName: string) {}
+
+  appendChild(child: FakeElement): FakeElement {
+    this.children.push(child);
+    return child;
+  }
+
+  replaceChildren(...children: FakeElement[]): void {
+    this.children.splice(0, this.children.length, ...children);
+  }
+
+  setAttribute(): void {}
+
+  addEventListener(): void {}
+
+  remove(): void {
+    this.removed = true;
+  }
+}
+
+function getKbdTexts(root: FakeElement): string[] {
+  const texts: string[] = [];
+  const visit = (element: FakeElement): void => {
+    if (element.tagName === "kbd") texts.push(element.textContent);
+    for (const child of element.children) visit(child);
+  };
+  visit(root);
+  return texts;
+}
 
 function bindingKeys(source: "keyboard" | "gamepad" | "touch", bindings = createDefaultKeyboardBindings()): string[] {
   return getHelpBindings(source, bindings).flatMap((section) => section.bindings.map((binding) => binding.key));
 }
 
 describe("getHelpBindings", () => {
+  const originalDocument = globalThis.document;
+  const originalWindow = globalThis.window;
+  const cancelAnimationFrame = vi.fn();
+  let nextFrame = 0;
+
+  beforeEach(() => {
+    nextFrame = 0;
+    cancelAnimationFrame.mockClear();
+    (globalThis as { document?: unknown }).document = {
+      createElement: (tag: string) => new FakeElement(tag),
+      createTextNode: (text: string) => {
+        const node = new FakeElement("#text");
+        node.textContent = text;
+        return node;
+      },
+    };
+    (globalThis as { window?: unknown }).window = {
+      requestAnimationFrame: vi.fn(() => ++nextFrame),
+      cancelAnimationFrame,
+    };
+  });
+
+  afterEach(() => {
+    (globalThis as { document?: unknown }).document = originalDocument;
+    (globalThis as { window?: unknown }).window = originalWindow;
+  });
+
   it("shows keyboard controls for keyboard input", () => {
     expect(bindingKeys("keyboard")).toEqual(expect.arrayContaining(["W A S D", "Space", "Left Shift", "C", "F"]));
   });
@@ -40,14 +116,32 @@ describe("getHelpBindings", () => {
     );
   });
 
-  it("reflects later binding changes when keyboard help is rebuilt", () => {
+  it("rebuilds provider labels on reopen and cleans up its subscriptions", () => {
     const bindings = createDefaultKeyboardBindings();
-    expect(bindingKeys("keyboard", bindings)).toContain("F");
+    const unsubscribe = vi.fn();
+    const menu = new HelpMenu({
+      eventBus: { on: vi.fn(() => unsubscribe) } as never,
+      getInputSource: () => "keyboard",
+      pollInputSource: () => "keyboard",
+      getKeyboardBindings: () => bindings,
+      onBack: vi.fn(),
+    });
+
+    menu.show();
+    expect(getKbdTexts(menu.root as unknown as FakeElement)).toContain("F");
 
     bindings.interact[0] = "KeyZ";
+    menu.hide();
+    menu.show();
 
-    expect(bindingKeys("keyboard", bindings)).toContain("Z");
-    expect(bindingKeys("keyboard", bindings)).not.toContain("F");
+    const reopenedKeys = getKbdTexts(menu.root as unknown as FakeElement);
+    expect(reopenedKeys).toContain("Z");
+    expect(reopenedKeys).not.toContain("F");
+
+    menu.dispose();
+    expect(cancelAnimationFrame).toHaveBeenCalledTimes(2);
+    expect(unsubscribe).toHaveBeenCalledOnce();
+    expect((menu.root as unknown as FakeElement).removed).toBe(true);
   });
 
   it("does not change gamepad or touch rows for custom keyboard bindings", () => {
