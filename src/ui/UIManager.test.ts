@@ -61,6 +61,7 @@ vi.mock("./components/DeathEffect", () => ({
   },
 }));
 
+import { createDefaultKeyboardBindings } from "@input/InputBindings";
 import { UIManager } from "./UIManager";
 
 describe("UIManager", () => {
@@ -181,6 +182,30 @@ describe("UIManager", () => {
     expect(hud.setInteractionGlyph).toHaveBeenNthCalledWith(1, "C");
     expect(hud.setInteractionGlyph).toHaveBeenNthCalledWith(2, "B");
     expect(hud.showStatus).toHaveBeenCalledWith("Hold B to reset while stopped or upside-down", 2800);
+    ui.dispose();
+  });
+
+  it("reads live keyboard bindings for interaction and vehicle reset glyphs", () => {
+    const listeners = new Map<string, (payload: any) => void>();
+    const on = vi.fn((event: string, handler: (payload: any) => void) => {
+      listeners.set(event, handler);
+      return () => {};
+    });
+    const bindings = createDefaultKeyboardBindings();
+    const ui = new UIManager({ on } as any, () => bindings);
+    const hud = hudInstances[0];
+
+    listeners.get("interaction:holdProgress")?.({ id: "door", progress: 0.2 });
+    bindings.interact[0] = "KeyZ";
+    listeners.get("interaction:holdProgress")?.({ id: "door", progress: 0.4 });
+    bindings.crouch[0] = "ControlRight";
+    listeners.get("vehicle:resetHoldProgress")?.({ id: "car-1", progress: 0.5 });
+    listeners.get("vehicle:resetAvailable")?.({ id: "car-1" });
+
+    expect(hud.setInteractionGlyph).toHaveBeenCalledWith("F");
+    expect(hud.setInteractionGlyph).toHaveBeenCalledWith("Z");
+    expect(hud.setInteractionGlyph).toHaveBeenCalledWith("Right Ctrl");
+    expect(hud.showStatus).toHaveBeenCalledWith("Hold Right Ctrl to reset while stopped or upside-down", 2800);
     ui.dispose();
   });
 

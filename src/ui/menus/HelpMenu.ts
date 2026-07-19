@@ -1,11 +1,13 @@
 import type { EventBus } from "@core/EventBus";
 import type { InputSource } from "@core/types";
+import type { ReadonlyKeyboardBindings } from "@input/InputBindings";
 import { getInputGlyph } from "@input/InputGlyphs";
 
 interface HelpMenuOptions {
   eventBus: EventBus;
   getInputSource: () => InputSource;
   pollInputSource: () => InputSource;
+  getKeyboardBindings: () => ReadonlyKeyboardBindings;
   onBack: () => void;
 }
 
@@ -19,7 +21,10 @@ export interface HelpBindingSection {
   bindings: KeyBinding[];
 }
 
-export function getHelpBindings(source: InputSource): HelpBindingSection[] {
+export function getHelpBindings(
+  source: InputSource,
+  keyboardBindings?: ReadonlyKeyboardBindings,
+): HelpBindingSection[] {
   if (source === "gamepad") {
     return [
       {
@@ -71,18 +76,25 @@ export function getHelpBindings(source: InputSource): HelpBindingSection[] {
     {
       title: "Movement",
       bindings: [
-        { key: "W A S D", description: "Move" },
-        { key: "↑ ↓ ← →", description: "Move (arrows)" },
-        { key: getInputGlyph("jump", source), description: "Jump / Double Jump" },
-        { key: getInputGlyph("crouch", source), description: "Crouch" },
-        { key: getInputGlyph("sprint", source), description: "Sprint" },
-        { key: "W / S", description: "Climb (on ladder)" },
+        {
+          key: (["moveForward", "moveLeft", "moveBackward", "moveRight"] as const)
+            .map((action) => getInputGlyph(action, "keyboard", keyboardBindings))
+            .join(" "),
+          description: "Move",
+        },
+        { key: getInputGlyph("jump", source, keyboardBindings), description: "Jump / Double Jump" },
+        { key: getInputGlyph("crouch", source, keyboardBindings), description: "Crouch" },
+        { key: getInputGlyph("sprint", source, keyboardBindings), description: "Sprint" },
+        {
+          key: `${getInputGlyph("moveForward", "keyboard", keyboardBindings)} / ${getInputGlyph("moveBackward", "keyboard", keyboardBindings)}`,
+          description: "Climb (on ladder)",
+        },
       ],
     },
     {
       title: "Interaction",
       bindings: [
-        { key: getInputGlyph("interact", source), description: "Interact / Grab" },
+        { key: getInputGlyph("interact", source, keyboardBindings), description: "Interact / Grab" },
         { key: "LMB", description: "Throw / Primary action" },
         { key: "E", description: "Altitude Up" },
         { key: "Q", description: "Altitude Down" },
@@ -152,7 +164,9 @@ export class HelpMenu {
 
   private renderBindings(source: InputSource): void {
     this.content.replaceChildren(
-      ...getHelpBindings(source).map(({ title, bindings }) => this.createBindingSection(title, bindings)),
+      ...getHelpBindings(source, this.options.getKeyboardBindings()).map(({ title, bindings }) =>
+        this.createBindingSection(title, bindings),
+      ),
     );
   }
 

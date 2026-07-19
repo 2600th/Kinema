@@ -153,9 +153,9 @@ async function bootstrap(): Promise<void> {
   camera.setBaseFov(settings.value.cameraFov);
   renderer.camera.updateProjectionMatrix();
   const interactionManager = new InteractionManager(physicsWorld, playerController, eventBus, () =>
-    getInputGlyph("interact", inputManager.lastInputSource),
+    getInputGlyph("interact", inputManager.lastInputSource, settings.value.keyboardBindings),
   );
-  const uiManager = new UIManager(eventBus);
+  const uiManager = new UIManager(eventBus, () => settings.value.keyboardBindings);
   let audioManager: import("@audio/AudioManager").AudioController;
   try {
     audioManager = new AudioManager(eventBus, playerController, inputManager, settings);

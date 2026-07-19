@@ -74,6 +74,7 @@ export class MenuManager {
       eventBus: this.eventBus,
       getInputSource: () => this.inputManager.lastInputSource,
       pollInputSource: () => this.inputManager.pollInputSource(),
+      getKeyboardBindings: () => settings.value.keyboardBindings,
       onBack: () => this.pop(),
     });
     this.mainMenu = new MainMenu({

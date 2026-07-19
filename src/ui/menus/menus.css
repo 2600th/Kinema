@@ -846,6 +846,66 @@
   border-top: none;
 }
 
+.binding-list {
+  display: grid;
+  gap: 8px;
+}
+
+.binding-row {
+  display: grid;
+  grid-template-columns: minmax(9rem, 1fr) minmax(6rem, auto) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.binding-action {
+  font-weight: 600;
+}
+
+.binding-key {
+  min-width: 5rem;
+  padding: 5px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.25);
+  text-align: center;
+}
+
+.binding-button {
+  min-width: 7rem;
+}
+
+.binding-button.is-capturing {
+  outline: 2px solid var(--menu-accent-cyan);
+  outline-offset: 2px;
+}
+
+.binding-reset-button {
+  margin-top: 10px;
+}
+
+.binding-status {
+  min-height: 1.4em;
+  margin: 8px 0 0;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.875rem;
+}
+
+@media (max-width: 600px) {
+  .binding-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .binding-button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+}
+
 .menu-level-empty {
   text-align: center;
   padding: 24px 12px;

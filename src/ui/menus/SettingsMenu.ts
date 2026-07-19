@@ -4,10 +4,21 @@ import type { EventBus } from "@core/EventBus";
 import {
   type AntiAliasingMode,
   type GraphicsProfile,
+  type InputActivationMode,
   type ShadowQualityTier,
   USER_SETTINGS_RANGES,
   type UserSettingsStore,
 } from "@core/UserSettings";
+import {
+  createDefaultKeyboardBindings,
+  getKeyboardCodeLabel,
+  INPUT_ACTION_LABELS,
+  isReservedBindingCode,
+  KEYBOARD_BINDING_ACTIONS,
+  type KeyboardBindingAction,
+  type KeyboardBindings,
+  rebindKeyboardAction,
+} from "@input/InputBindings";
 import type { InputManager } from "@input/InputManager";
 import type { RendererManager } from "@renderer/RendererManager";
 
@@ -29,6 +40,10 @@ export class SettingsMenu {
   private graphicsSection: HTMLDivElement;
   private audioSection: HTMLDivElement;
   private controlId = 0;
+  private bindingLabels = new Map<KeyboardBindingAction, HTMLElement>();
+  private bindingStatus: HTMLParagraphElement | null = null;
+  private activeCapture: { action: KeyboardBindingAction; button: HTMLButtonElement } | null = null;
+  private readonly onCaptureKeyDown = (event: KeyboardEvent): void => this.handleCaptureKeyDown(event);
 
   constructor(private options: SettingsMenuOptions) {
     this.root = document.createElement("div");
@@ -77,6 +92,7 @@ export class SettingsMenu {
   }
 
   show(): void {
+    this.stopBindingCapture(undefined, false);
     this.controlsSection.replaceChildren();
     this.graphicsSection.replaceChildren();
     this.audioSection.replaceChildren();
@@ -87,15 +103,21 @@ export class SettingsMenu {
   }
 
   hide(): void {
+    this.stopBindingCapture(undefined, false);
     this.root.classList.remove("active");
   }
 
   dispose(): void {
+    this.stopBindingCapture(undefined, false);
     this.root.remove();
   }
 
   private buildControlsSection(): void {
     const { settings, inputManager, camera, renderer } = this.options;
+
+    this.bindingLabels.clear();
+    this.bindingStatus = null;
+    this.controlsSection.appendChild(this.createSectionHeader("Pointer & Camera"));
 
     this.controlsSection.appendChild(
       this.createSlider(
@@ -141,6 +163,7 @@ export class SettingsMenu {
       ),
     );
 
+    this.controlsSection.appendChild(this.createSectionHeader("Gamepad Tuning"));
     this.controlsSection.appendChild(
       this.createSlider(
         "Gamepad deadzone",
@@ -167,6 +190,68 @@ export class SettingsMenu {
           inputManager.setGamepadTuning(s.gamepadDeadzone, s.gamepadCurve);
         },
       ),
+    );
+
+    this.controlsSection.appendChild(this.createSectionHeader("Keyboard Remapping"));
+    const remapping = document.createElement("div");
+    remapping.className = "binding-list";
+    for (const action of KEYBOARD_BINDING_ACTIONS) {
+      remapping.appendChild(this.createBindingRow(action, settings.value.keyboardBindings));
+    }
+    this.controlsSection.appendChild(remapping);
+
+    const resetBindings = document.createElement("button");
+    resetBindings.type = "button";
+    resetBindings.className = "menu-button menu-button-small binding-reset-button";
+    resetBindings.textContent = "Reset bindings";
+    resetBindings.addEventListener("click", () => this.resetBindings());
+    this.controlsSection.appendChild(resetBindings);
+
+    this.bindingStatus = document.createElement("p");
+    this.bindingStatus.className = "binding-status";
+    this.bindingStatus.setAttribute("role", "status");
+    this.bindingStatus.setAttribute("aria-live", "polite");
+    this.bindingStatus.setAttribute("aria-atomic", "true");
+    this.controlsSection.appendChild(this.bindingStatus);
+
+    this.controlsSection.appendChild(this.createSectionHeader("Comfort"));
+    this.controlsSection.appendChild(
+      this.createSlider(
+        "Gamepad look sensitivity",
+        settings.value.gamepadLookSensitivity,
+        USER_SETTINGS_RANGES.gamepadLookSensitivity.min,
+        USER_SETTINGS_RANGES.gamepadLookSensitivity.max,
+        USER_SETTINGS_RANGES.gamepadLookSensitivity.step,
+        (value) => {
+          const s = settings.update({ gamepadLookSensitivity: value });
+          inputManager.setGamepadLookSensitivity(s.gamepadLookSensitivity);
+        },
+      ),
+    );
+    this.controlsSection.appendChild(
+      this.createSlider(
+        "Touch look sensitivity",
+        settings.value.touchLookSensitivity,
+        USER_SETTINGS_RANGES.touchLookSensitivity.min,
+        USER_SETTINGS_RANGES.touchLookSensitivity.max,
+        USER_SETTINGS_RANGES.touchLookSensitivity.step,
+        (value) => {
+          const s = settings.update({ touchLookSensitivity: value });
+          inputManager.setTouchLookSensitivity(s.touchLookSensitivity);
+        },
+      ),
+    );
+    this.controlsSection.appendChild(
+      this.createSelect("Sprint mode", settings.value.sprintMode, ["hold", "toggle"], (value) => {
+        const s = settings.update({ sprintMode: value as InputActivationMode });
+        inputManager.setSprintMode(s.sprintMode);
+      }),
+    );
+    this.controlsSection.appendChild(
+      this.createSelect("Crouch mode", settings.value.crouchMode, ["hold", "toggle"], (value) => {
+        const s = settings.update({ crouchMode: value as InputActivationMode });
+        inputManager.setCrouchMode(s.crouchMode);
+      }),
     );
 
     // Touch controls toggle — only visible on touch-capable devices
@@ -403,6 +488,7 @@ export class SettingsMenu {
   }
 
   private showSection(section: "controls" | "graphics" | "audio"): void {
+    if (section !== "controls") this.stopBindingCapture();
     this.controlsSection.classList.toggle("active", section === "controls");
     this.graphicsSection.classList.toggle("active", section === "graphics");
     this.audioSection.classList.toggle("active", section === "audio");
@@ -413,6 +499,116 @@ export class SettingsMenu {
     h3.className = "menu-section-header";
     h3.textContent = title;
     return h3;
+  }
+
+  private createBindingRow(action: KeyboardBindingAction, bindings: Readonly<KeyboardBindings>): HTMLDivElement {
+    const row = document.createElement("div");
+    row.className = "binding-row";
+
+    const actionLabel = document.createElement("span");
+    actionLabel.className = "binding-action";
+    actionLabel.textContent = INPUT_ACTION_LABELS[action];
+    row.appendChild(actionLabel);
+
+    const binding = document.createElement("kbd");
+    binding.className = "binding-key";
+    binding.textContent = getKeyboardCodeLabel(bindings[action][0]);
+    this.bindingLabels.set(action, binding);
+    row.appendChild(binding);
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "menu-button menu-button-small binding-button";
+    button.textContent = "Rebind";
+    button.setAttribute("aria-label", `Rebind ${INPUT_ACTION_LABELS[action]}`);
+    button.addEventListener("click", () => this.startBindingCapture(action, button));
+    row.appendChild(button);
+    return row;
+  }
+
+  private startBindingCapture(action: KeyboardBindingAction, button: HTMLButtonElement): void {
+    this.stopBindingCapture(undefined, false);
+    this.activeCapture = { action, button };
+    button.classList.add("is-capturing");
+    button.setAttribute("aria-busy", "true");
+    button.setAttribute("aria-disabled", "true");
+    button.setAttribute("aria-label", `Capturing ${INPUT_ACTION_LABELS[action]}; Escape cancels`);
+    button.textContent = "Press a key...";
+    button.focus({ preventScroll: true });
+    this.announceBindingStatus(`Listening for ${INPUT_ACTION_LABELS[action]}. Escape cancels.`);
+    window.addEventListener("keydown", this.onCaptureKeyDown, true);
+  }
+
+  private handleCaptureKeyDown(event: KeyboardEvent): void {
+    const capture = this.activeCapture;
+    if (!capture) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+
+    if (event.code === "Escape") {
+      this.stopBindingCapture(`Cancelled ${INPUT_ACTION_LABELS[capture.action]} rebinding.`);
+      return;
+    }
+
+    const current = this.options.settings.value.keyboardBindings;
+    const currentCode = current[capture.action][0];
+    if (event.code === currentCode) {
+      this.stopBindingCapture(
+        `${INPUT_ACTION_LABELS[capture.action]} is already ${getKeyboardCodeLabel(currentCode)}.`,
+      );
+      return;
+    }
+    if (isReservedBindingCode(event.code)) {
+      this.announceBindingStatus(`${getKeyboardCodeLabel(event.code)} is reserved. Choose another key.`);
+      return;
+    }
+
+    const next = rebindKeyboardAction(current, capture.action, event.code);
+    if (next[capture.action][0] !== event.code) {
+      this.announceBindingStatus("That key is not supported. Choose another key.");
+      return;
+    }
+
+    const saved = this.options.settings.update({ keyboardBindings: next });
+    this.options.inputManager.setKeyboardBindings(saved.keyboardBindings);
+    this.refreshBindingRows(saved.keyboardBindings);
+    this.stopBindingCapture(`${INPUT_ACTION_LABELS[capture.action]} set to ${getKeyboardCodeLabel(event.code)}.`);
+  }
+
+  private stopBindingCapture(message?: string, restoreFocus = true): void {
+    window.removeEventListener("keydown", this.onCaptureKeyDown, true);
+    const capture = this.activeCapture;
+    this.activeCapture = null;
+    if (capture) {
+      capture.button.classList.remove("is-capturing");
+      capture.button.removeAttribute("aria-busy");
+      capture.button.removeAttribute("aria-disabled");
+      capture.button.setAttribute("aria-label", `Rebind ${INPUT_ACTION_LABELS[capture.action]}`);
+      capture.button.textContent = "Rebind";
+      if (restoreFocus && capture.button.isConnected) {
+        capture.button.focus({ preventScroll: true });
+      }
+    }
+    if (message) this.announceBindingStatus(message);
+  }
+
+  private refreshBindingRows(bindings: Readonly<KeyboardBindings>): void {
+    for (const action of KEYBOARD_BINDING_ACTIONS) {
+      const label = this.bindingLabels.get(action);
+      if (label) label.textContent = getKeyboardCodeLabel(bindings[action][0]);
+    }
+  }
+
+  private resetBindings(): void {
+    this.stopBindingCapture(undefined, false);
+    const saved = this.options.settings.update({ keyboardBindings: createDefaultKeyboardBindings() });
+    this.options.inputManager.setKeyboardBindings(saved.keyboardBindings);
+    this.refreshBindingRows(saved.keyboardBindings);
+    this.announceBindingStatus("Keyboard bindings reset to defaults.");
+  }
+
+  private announceBindingStatus(message: string): void {
+    if (this.bindingStatus) this.bindingStatus.textContent = message;
   }
 
   private createSlider(

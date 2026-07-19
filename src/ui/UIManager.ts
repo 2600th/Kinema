@@ -1,6 +1,7 @@
 import type { EventBus } from "@core/EventBus";
 import { shouldShowLandscapeHint } from "@core/mobilePlatform";
 import type { Disposable, InputSource } from "@core/types";
+import type { ReadonlyKeyboardBindings } from "@input/InputBindings";
 import type { InputAction } from "@input/InputGlyphs";
 import { getInputGlyph } from "@input/InputGlyphs";
 import { DeathEffect } from "./components/DeathEffect";
@@ -28,7 +29,10 @@ export class UIManager implements Disposable {
   private inputSource: InputSource = "keyboard";
   private holdAction: InputAction = "interact";
 
-  constructor(private eventBus: EventBus) {
+  constructor(
+    private eventBus: EventBus,
+    private getKeyboardBindings: () => ReadonlyKeyboardBindings | undefined = () => undefined,
+  ) {
     let overlay = document.getElementById("ui-overlay");
     if (!overlay) {
       if (!document.body) {
@@ -112,7 +116,7 @@ export class UIManager implements Disposable {
     this.unsubscribers.push(
       this.eventBus.on("vehicle:resetAvailable", () => {
         this.hud.showStatus(
-          `Hold ${getInputGlyph("crouch", this.inputSource)} to reset while stopped or upside-down`,
+          `Hold ${getInputGlyph("crouch", this.inputSource, this.getKeyboardBindings())} to reset while stopped or upside-down`,
           2800,
         );
       }),
@@ -304,6 +308,6 @@ export class UIManager implements Disposable {
   }
 
   private updateHoldGlyph(): void {
-    this.hud.setInteractionGlyph(getInputGlyph(this.holdAction, this.inputSource));
+    this.hud.setInteractionGlyph(getInputGlyph(this.holdAction, this.inputSource, this.getKeyboardBindings()));
   }
 }
