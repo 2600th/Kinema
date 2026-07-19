@@ -3,6 +3,7 @@ import { EventBus } from "@core/EventBus";
 import { type InputState, NULL_INPUT } from "@core/types";
 import type RAPIER from "@dimforge/rapier3d-compat";
 import { FOVPunch } from "@juice/FOVPunch";
+import { ScreenShake, type ShakeOffsets } from "@juice/ScreenShake";
 import type { PhysicsWorld } from "@physics/PhysicsWorld";
 import type { VehicleHandlingFeelState } from "@vehicle/VehicleController";
 import * as THREE from "three";
@@ -31,6 +32,14 @@ interface TestHarness {
   eventBus: EventBus;
   target: THREE.Object3D;
   velocity: { x: number; y: number; z: number };
+}
+
+interface ScalarEffectScenario {
+  name: string;
+  create: () => TestHarness;
+  activate: (harness: TestHarness) => void;
+  read: (harness: TestHarness) => number;
+  baseline: number;
 }
 
 const VEHICLE_DRIFT: VehicleHandlingFeelState = {
@@ -101,7 +110,126 @@ function expectVectorClose(actual: THREE.Vector3, expected: THREE.Vector3): void
   expect(actual.z).toBeCloseTo(expected.z, 12);
 }
 
+function sampleScalarEffect(scenario: ScalarEffectScenario): [number, number, number] {
+  return [0, 0.5, 1].map((intensity) => {
+    const harness = scenario.create();
+    scenario.activate(harness);
+    harness.follow.setEffectsIntensity(intensity);
+    harness.follow.update(0.02, 0);
+    return scenario.read(harness);
+  }) as [number, number, number];
+}
+
+function expectIsolatedLinearEffect(scenario: ScalarEffectScenario): void {
+  const [zero, half, one] = sampleScalarEffect(scenario);
+  expect(zero).toBe(scenario.baseline);
+  expect(one).not.toBe(scenario.baseline);
+  expect(half - scenario.baseline).toBeCloseTo((one - scenario.baseline) * 0.5, 12);
+}
+
+const PIVOT_EFFECT_SCENARIOS: ScalarEffectScenario[] = [
+  {
+    name: "landing dip",
+    create: () => makeHarness(),
+    activate: ({ eventBus }) => eventBus.emit("player:landed", { impactSpeed: 2 }),
+    read: ({ follow }) => internals(follow).pivotPosition.y,
+    baseline: 0,
+  },
+  {
+    name: "look-ahead",
+    create: () => makeHarness({ velocity: { z: 7 } }),
+    activate: () => {},
+    read: ({ follow }) => internals(follow).pivotPosition.z,
+    baseline: 0,
+  },
+  {
+    name: "player lateral drift",
+    create: () => makeHarness({ input: { moveX: 0.5 } }),
+    activate: () => {},
+    read: ({ follow }) => internals(follow).pivotPosition.x,
+    baseline: 0,
+  },
+  {
+    name: "vehicle drift lateral offset",
+    create: () => makeHarness(),
+    activate: ({ follow }) => follow.setVehicleHandlingFeel(VEHICLE_DRIFT),
+    read: ({ follow }) => internals(follow).pivotPosition.x,
+    baseline: 0,
+  },
+];
+
+const DISTANCE_EFFECT_SCENARIOS: ScalarEffectScenario[] = [
+  {
+    name: "vehicle speed distance pullback",
+    create: () => makeHarness(),
+    activate: ({ follow }) => follow.setVehicleSpeedRatio(0.6),
+    read: ({ follow }) => internals(follow).currentDistance,
+    baseline: 5,
+  },
+  {
+    name: "vehicle drift distance pullback",
+    create: () => makeHarness(),
+    activate: ({ follow }) => follow.setVehicleHandlingFeel(VEHICLE_DRIFT),
+    read: ({ follow }) => internals(follow).currentDistance,
+    baseline: 5,
+  },
+];
+
+const FOV_EFFECT_SCENARIOS: ScalarEffectScenario[] = [
+  {
+    name: "locomotion speed FOV",
+    create: () => makeHarness({ velocity: { z: 7 } }),
+    activate: () => {},
+    read: ({ camera }) => camera.fov,
+    baseline: 60,
+  },
+  {
+    name: "sprint FOV",
+    create: () => makeHarness({ input: { forward: true, sprint: true } }),
+    activate: () => {},
+    read: ({ camera }) => camera.fov,
+    baseline: 60,
+  },
+  {
+    name: "vehicle speed FOV",
+    create: () => makeHarness(),
+    activate: ({ follow }) => follow.setVehicleSpeedRatio(0.6),
+    read: ({ camera }) => camera.fov,
+    baseline: 60,
+  },
+  {
+    name: "vehicle drift FOV",
+    create: () => makeHarness(),
+    activate: ({ follow }) => follow.setVehicleHandlingFeel(VEHICLE_DRIFT),
+    read: ({ camera }) => camera.fov,
+    baseline: 60,
+  },
+  {
+    name: "FOVPunch",
+    create: () => makeHarness(),
+    activate: ({ follow }) => {
+      const punch = new FOVPunch();
+      punch.punch(4);
+      follow.setFOVPunch(punch);
+    },
+    read: ({ camera }) => camera.fov,
+    baseline: 60,
+  },
+];
+
 describe("OrbitFollowCamera effects intensity", () => {
+  it.each(PIVOT_EFFECT_SCENARIOS)("isolates $name output at zero, half, and one", (scenario) => {
+    expectIsolatedLinearEffect(scenario);
+  });
+
+  it.each(DISTANCE_EFFECT_SCENARIOS)("isolates $name output at zero, half, and one", (scenario) => {
+    expectIsolatedLinearEffect(scenario);
+  });
+
+  it.each(FOV_EFFECT_SCENARIOS)("isolates $name output at zero, half, and one", (scenario) => {
+    expectIsolatedLinearEffect(scenario);
+  });
+
   it("defaults to exact legacy output and clamps finite setter endpoints", () => {
     const makeActive = () => {
       const harness = makeHarness({
@@ -238,6 +366,34 @@ describe("OrbitFollowCamera effects intensity", () => {
     expect(punchInternals(punch).currentPunch).not.toBe(0);
     expect(punchInternals(punch).velocity).not.toBe(4 * 30);
     expect(state.screenShake.getTrauma()).toBeLessThan(initialTrauma);
+  });
+
+  it("applies real positional and rotational shake through the camera consumer", () => {
+    for (const intensity of [0, 0.5, 1]) {
+      const harness = makeHarness();
+      const expectedShake = new ScreenShake();
+      harness.follow.addTrauma(0.8);
+      expectedShake.addTrauma(0.8);
+      harness.follow.setEffectsIntensity(intensity);
+      const initialPosition = harness.camera.position.clone();
+      const initialQuaternion = harness.camera.quaternion.clone();
+      const expectedOffsets: ShakeOffsets = expectedShake.update(0.02, intensity);
+
+      harness.follow.update(0.02, 0);
+
+      expectVectorClose(
+        harness.camera.position,
+        initialPosition
+          .clone()
+          .add(new THREE.Vector3(expectedOffsets.offsetX, expectedOffsets.offsetY, expectedOffsets.offsetZ)),
+      );
+      const expectedOrientation = new THREE.Object3D();
+      expectedOrientation.quaternion.copy(initialQuaternion);
+      expectedOrientation.rotateX(expectedOffsets.rotX);
+      expectedOrientation.rotateY(expectedOffsets.rotY);
+      expectedOrientation.rotateZ(expectedOffsets.rotZ);
+      expect(harness.camera.quaternion.toArray()).toEqual(expectedOrientation.quaternion.toArray());
+    }
   });
 
   it("advances FOV punch and base-FOV damping through the zero-intensity consumer", () => {

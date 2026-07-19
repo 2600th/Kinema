@@ -37,17 +37,20 @@ describe("ScreenShake", () => {
     });
   });
 
-  it("scales each returned offset linearly", () => {
-    const full = new ScreenShake();
-    const half = new ScreenShake();
-    full.addTrauma(0.8);
-    half.addTrauma(0.8);
+  it.each([
+    { name: "positional shake", keys: ["offsetX", "offsetY", "offsetZ"] as const },
+    { name: "rotational shake", keys: ["rotX", "rotY", "rotZ"] as const },
+  ])("isolates $name output at zero, half, and one", ({ keys }) => {
+    const outputs = [0, 0.5, 1].map((intensity) => {
+      const shake = new ScreenShake();
+      shake.addTrauma(0.8);
+      return shake.update(0.02, intensity);
+    });
 
-    const fullOutput = full.update(0.02, 1);
-    const halfOutput = half.update(0.02, 0.5);
-
-    for (const key of Object.keys(fullOutput) as (keyof ShakeOffsets)[]) {
-      expect(halfOutput[key]).toBe(fullOutput[key] * 0.5);
+    for (const key of keys as readonly (keyof ShakeOffsets)[]) {
+      expect(outputs[0][key]).toBe(0);
+      expect(outputs[2][key]).not.toBe(0);
+      expect(outputs[1][key]).toBe(outputs[2][key] * 0.5);
     }
   });
 
