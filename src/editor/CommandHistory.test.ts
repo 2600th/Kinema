@@ -88,4 +88,25 @@ describe("CommandHistory", () => {
 
     expect(onMutation).toHaveBeenCalledTimes(3);
   });
+
+  it("rejects execute, undo, and redo while mutations are locked", () => {
+    let canMutate = true;
+    const onRejected = vi.fn();
+    const events: string[] = [];
+    const history = new CommandHistory(() => {}, () => canMutate, onRejected);
+    const command = createCommand("locked", events);
+
+    canMutate = false;
+    history.push(command);
+    expect(events).toEqual([]);
+
+    canMutate = true;
+    history.push(command);
+    canMutate = false;
+    history.undo();
+    history.redo();
+
+    expect(events).toEqual(["execute:locked"]);
+    expect(onRejected).toHaveBeenCalledTimes(3);
+  });
 });

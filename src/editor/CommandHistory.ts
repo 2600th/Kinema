@@ -8,9 +8,17 @@ export class CommandHistory {
   private redoStack: Command[] = [];
   private maxSize = 50;
 
-  constructor(private readonly onMutation: () => void = () => {}) {}
+  constructor(
+    private readonly onMutation: () => void = () => {},
+    private readonly canMutate: () => boolean = () => true,
+    private readonly onRejected: () => void = () => {},
+  ) {}
 
   push(cmd: Command): void {
+    if (!this.canMutate()) {
+      this.onRejected();
+      return;
+    }
     cmd.execute();
     this.undoStack.push(cmd);
     if (this.undoStack.length > this.maxSize) {
@@ -21,6 +29,10 @@ export class CommandHistory {
   }
 
   undo(): void {
+    if (!this.canMutate()) {
+      this.onRejected();
+      return;
+    }
     const cmd = this.undoStack.pop();
     if (!cmd) return;
     cmd.undo();
@@ -29,6 +41,10 @@ export class CommandHistory {
   }
 
   redo(): void {
+    if (!this.canMutate()) {
+      this.onRejected();
+      return;
+    }
     const cmd = this.redoStack.pop();
     if (!cmd) return;
     cmd.execute();

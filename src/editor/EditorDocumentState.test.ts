@@ -42,11 +42,29 @@ describe("EditorDocumentState", () => {
   );
 
   it.each([
-    { loadedName: null, expected: "Untitled" },
-    { loadedName: "procedural", expected: "Untitled" },
-    { loadedName: "station:vfx", expected: "Untitled" },
-    { loadedName: "Authored Lab", expected: "Authored Lab" },
-  ])("normalizes loaded document name $loadedName", ({ loadedName, expected }) => {
-    expect(normalizeEditorDocumentName(loadedName)).toBe(expected);
+    { identity: null, expected: "Untitled" },
+    {
+      identity: { name: "procedural", origin: "system" as const, kind: "procedural" as const },
+      expected: "Untitled",
+    },
+    {
+      identity: { name: "station:vfx", origin: "system" as const, kind: "station" as const },
+      expected: "Untitled",
+    },
+    { identity: { name: "museum", origin: "system" as const, kind: "asset" as const }, expected: "museum" },
+    {
+      identity: { name: "procedural", origin: "authored" as const, kind: "authored" as const },
+      expected: "procedural",
+    },
+    {
+      identity: { name: "station:vfx", origin: "authored" as const, kind: "authored" as const },
+      expected: "station:vfx",
+    },
+    {
+      identity: { name: "Authored Lab", origin: "authored" as const, kind: "authored" as const },
+      expected: "Authored Lab",
+    },
+  ])("normalizes loaded document identity $identity", ({ identity, expected }) => {
+    expect(normalizeEditorDocumentName(identity)).toBe(expected);
   });
 });

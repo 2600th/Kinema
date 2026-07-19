@@ -3,8 +3,14 @@ export interface EditorDocumentSnapshot {
   dirty: boolean;
 }
 
-export function normalizeEditorDocumentName(loadedName: string | null): string {
-  return !loadedName || loadedName === "procedural" || loadedName.startsWith("station:") ? "Untitled" : loadedName;
+export type EditorLevelIdentity = Readonly<{
+  name: string;
+  origin: "system" | "authored";
+  kind: "procedural" | "station" | "asset" | "authored";
+}>;
+
+export function normalizeEditorDocumentName(identity: EditorLevelIdentity | null): string {
+  return !identity || identity.kind === "procedural" || identity.kind === "station" ? "Untitled" : identity.name;
 }
 
 export function shouldProtectEditorUnload(

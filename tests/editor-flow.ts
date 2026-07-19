@@ -316,6 +316,68 @@ test("protects unsaved editor work and saves through Ctrl+S", async ({ page }) =
       delete testWindow.__kinemaOriginalSetItem;
     }
   });
+
+  let releaseDelayedAsset!: () => void;
+  let confirmDelayedRequest!: () => void;
+  const delayedRequest = new Promise<void>((resolve) => {
+    confirmDelayedRequest = resolve;
+  });
+  const releaseAsset = new Promise<void>((resolve) => {
+    releaseDelayedAsset = resolve;
+  });
+  await page.route("**/assets/models/kin021-delayed.glb", async (route) => {
+    confirmDelayedRequest();
+    await releaseAsset;
+    await route.fulfill({
+      path: path.resolve(
+        "public/assets/models/Universal Animation Library 2[Standard]/Female Mannequin/Unreal-Godot/Mannequin_F.glb",
+      ),
+    });
+  });
+
+  const validLoadChooserPromise = page.waitForEvent("filechooser");
+  await page.getByTitle("Load", { exact: true }).click();
+  const validLoadChooser = await validLoadChooserPromise;
+  await validLoadChooser.setFiles({
+    name: "authored-sentinel-level.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(
+      JSON.stringify({
+        version: 2,
+        name: "procedural",
+        created: "2026-07-19T00:00:00.000Z",
+        modified: "2026-07-19T00:00:00.000Z",
+        spawnPoint: { position: [0, 2, 0] },
+        objects: [
+          {
+            id: "delayed-glb",
+            name: "Delayed GLB",
+            parentId: null,
+            source: { type: "glb", asset: "/assets/models/kin021-delayed.glb" },
+            transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+          },
+        ],
+      }),
+    ),
+  });
+  await delayedRequest;
+
+  const objectCountDuringLoad = await page.evaluate(() => window.__KINEMA__.getEditorObjectCount());
+  await page.keyboard.press("Control+Z");
+  await expect.poll(() => page.evaluate(() => window.__KINEMA__.getEditorObjectCount())).toBe(objectCountDuringLoad);
+  await page.getByTitle("Load", { exact: true }).click();
+  await expect(page.locator(".ke-save-error")).toHaveText(
+    "Load already in progress — wait for it to finish before editing or loading another level.",
+  );
+  releaseDelayedAsset();
+
+  await expect(page.locator(".ke-document-title")).toHaveText("procedural", { timeout: 60_000 });
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorDocumentState())).toEqual({
+    name: "procedural",
+    dirty: false,
+  });
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorObjectCount())).toBe(1);
+  await expect(page.locator(".ke-save-error")).toBeHidden();
 });
 
 test("play-test cannot survive a main-menu transition and soft-brick the next run", async ({ page }, testInfo) => {

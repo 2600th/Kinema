@@ -27,6 +27,7 @@ const ICON_PLAY = "M5 3l14 9-14 9V3z";
 export class ToolbarPanel extends EditorPanel {
   private modeButtons = new Map<TransformMode, HTMLButtonElement>();
   private saveButton!: HTMLButtonElement;
+  private loadButton!: HTMLButtonElement;
   private documentTitle!: HTMLSpanElement;
   private dirtyDot!: HTMLSpanElement;
   private snapBtn!: HTMLButtonElement;
@@ -57,7 +58,8 @@ export class ToolbarPanel extends EditorPanel {
     this.dirtyDot.setAttribute("aria-hidden", "true");
     this.saveButton.appendChild(this.dirtyDot);
     leftGroup.appendChild(this.saveButton);
-    leftGroup.appendChild(this.createIconBtn(ICON_FOLDER, "Load", this.callbacks.onLoad));
+    this.loadButton = this.createIconBtn(ICON_FOLDER, "Load", this.callbacks.onLoad);
+    leftGroup.appendChild(this.loadButton);
     leftGroup.appendChild(this.createIconBtn(ICON_IMPORT, "Import GLB", this.callbacks.onImportGLB));
     leftGroup.appendChild(this.createSep());
     leftGroup.appendChild(this.createIconBtn(ICON_UNDO, "Undo (Ctrl+Z)", this.callbacks.onUndo));
@@ -183,6 +185,11 @@ export class ToolbarPanel extends EditorPanel {
     this.dirtyDot.classList.toggle("ke-hidden", !dirty);
     this.saveButton.title = dirty ? "Save (Ctrl+S) — Unsaved changes" : "Save (Ctrl+S)";
     this.saveButton.setAttribute("aria-label", this.saveButton.title);
+  }
+
+  setLoadBusy(busy: boolean): void {
+    this.container.setAttribute("aria-busy", String(busy));
+    this.loadButton.setAttribute("aria-label", busy ? "Load (in progress)" : "Load");
   }
 
   showSaveError(message: string): void {

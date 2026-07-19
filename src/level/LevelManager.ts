@@ -106,6 +106,15 @@ export type LoadStats = {
   durationMs: number;
 };
 
+export type LevelOrigin = "system" | "authored";
+export type LevelKind = "procedural" | "station" | "asset" | "authored";
+
+export type CurrentLevelIdentity = Readonly<{
+  name: string;
+  origin: LevelOrigin;
+  kind: LevelKind;
+}>;
+
 /**
  * Manages level loading, scene traversal, collider creation, and cleanup.
  */
@@ -116,6 +125,8 @@ export class LevelManager implements Disposable {
   private colliderFactory: ColliderFactory;
 
   private currentLevelName: string | null = null;
+  private currentLevelOrigin: LevelOrigin | null = null;
+  private currentLevelKind: LevelKind | null = null;
   private levelObjects: THREE.Object3D[] = [];
   private vfxDisposeCallbacks: Array<() => void> = [];
   private vfxUpdateCallbacks: Array<(dt: number) => void> = [];
@@ -170,6 +181,12 @@ export class LevelManager implements Disposable {
   /** Read-only name of the level currently loaded into the runtime. */
   getCurrentLevelName(): string | null {
     return this.currentLevelName;
+  }
+
+  /** Read-only identity including whether the name came from Kinema or authored JSON. */
+  getCurrentLevelIdentity(): CurrentLevelIdentity | null {
+    if (!this.currentLevelName || !this.currentLevelOrigin || !this.currentLevelKind) return null;
+    return { name: this.currentLevelName, origin: this.currentLevelOrigin, kind: this.currentLevelKind };
   }
 
   /** Ladder trigger volumes for climb assist. */
@@ -368,6 +385,8 @@ export class LevelManager implements Disposable {
     }
 
     this.currentLevelName = name;
+    this.currentLevelOrigin = "system";
+    this.currentLevelKind = name === "procedural" ? "procedural" : "asset";
     this.addLighting();
     this.eventBus.emit("loading:progress", { progress: 1.0 });
     this.eventBus.emit("level:loaded", { name });
@@ -391,6 +410,8 @@ export class LevelManager implements Disposable {
     this.eventBus.emit("loading:progress", { progress: 0.1 });
     await this.buildProcedural(key);
     this.currentLevelName = `station:${key}`;
+    this.currentLevelOrigin = "system";
+    this.currentLevelKind = "station";
     this.addLighting();
     this.eventBus.emit("loading:progress", { progress: 1.0 });
     this.eventBus.emit("level:loaded", { name: `station:${key}` });
@@ -483,6 +504,8 @@ export class LevelManager implements Disposable {
     this.eventBus.emit("loading:progress", { progress: 0.5 });
 
     this.currentLevelName = data.name || "custom";
+    this.currentLevelOrigin = "authored";
+    this.currentLevelKind = "authored";
     this.addLighting();
     this.eventBus.emit("loading:progress", { progress: 0.8 });
     this.eventBus.emit("loading:progress", { progress: 1.0 });
@@ -793,6 +816,8 @@ export class LevelManager implements Disposable {
     this.navMeshManager = null;
     this.lighting.clearLightReferences();
     this.currentLevelName = null;
+    this.currentLevelOrigin = null;
+    this.currentLevelKind = null;
     this.spawnPoint = createDefaultSpawnPoint();
 
     if (name) {

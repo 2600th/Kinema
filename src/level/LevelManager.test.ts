@@ -156,6 +156,81 @@ describe("LevelManager load timing", () => {
   });
 });
 
+describe("LevelManager level identity", () => {
+  type LevelManagerInternals = {
+    buildProcedural(station: "vfx" | null): Promise<void>;
+    addLighting(): void;
+  };
+
+  it.each([
+    {
+      label: "built-in procedural level",
+      expected: { name: "procedural", origin: "system" as const, kind: "procedural" as const },
+      prepare: (manager: LevelManager) =>
+        vi.spyOn(manager as unknown as LevelManagerInternals, "buildProcedural").mockResolvedValue(undefined),
+      load: (manager: LevelManager) => manager.load("procedural"),
+    },
+    {
+      label: "built-in station",
+      expected: { name: "station:vfx", origin: "system" as const, kind: "station" as const },
+      prepare: (manager: LevelManager) =>
+        vi.spyOn(manager as unknown as LevelManagerInternals, "buildProcedural").mockResolvedValue(undefined),
+      load: (manager: LevelManager) => manager.loadStation("vfx"),
+    },
+    {
+      label: "authored procedural collision",
+      expected: { name: "procedural", origin: "authored" as const, kind: "authored" as const },
+      prepare: () => undefined,
+      load: (manager: LevelManager) =>
+        manager.loadFromJSON({
+          version: 2,
+          name: "procedural",
+          created: "2026-07-19T00:00:00.000Z",
+          modified: "2026-07-19T00:00:00.000Z",
+          spawnPoint: { position: [0, 2, 0] },
+          objects: [],
+        }),
+    },
+    {
+      label: "authored station collision",
+      expected: { name: "station:vfx", origin: "authored" as const, kind: "authored" as const },
+      prepare: () => undefined,
+      load: (manager: LevelManager) =>
+        manager.loadFromJSON({
+          version: 2,
+          name: "station:vfx",
+          created: "2026-07-19T00:00:00.000Z",
+          modified: "2026-07-19T00:00:00.000Z",
+          spawnPoint: { position: [0, 2, 0] },
+          objects: [],
+        }),
+    },
+  ])("sets $label identity before level:loaded and clears it on unload", async ({ expected, prepare, load }) => {
+    let manager!: LevelManager;
+    const identityAtLoaded: unknown[] = [];
+    const eventBus = {
+      emit: vi.fn((event: string) => {
+        if (event === "level:loaded") identityAtLoaded.push(manager.getCurrentLevelIdentity());
+      }),
+    };
+    manager = new LevelManager(
+      new THREE.Scene(),
+      { world: {}, removeCollider: vi.fn(), removeBody: vi.fn() } as unknown as PhysicsWorld,
+      eventBus as unknown as EventBus,
+    );
+    vi.spyOn(manager as unknown as LevelManagerInternals, "addLighting").mockImplementation(() => {});
+    prepare(manager);
+
+    await load(manager);
+
+    expect(manager.getCurrentLevelIdentity()).toEqual(expected);
+    expect(identityAtLoaded).toEqual([expected]);
+
+    manager.unload();
+    expect(manager.getCurrentLevelIdentity()).toBeNull();
+  });
+});
+
 describe("LevelManager rotated body creation", () => {
   let logSpy: ReturnType<typeof vi.spyOn>;
 

@@ -20,7 +20,9 @@ import {
   shouldProtectEditorUnload,
 } from "./EditorDocumentState";
 import { validateEditorLevelData } from "./EditorLevelValidator";
+import { EditorLoadTransaction } from "./EditorLoadTransaction";
 import type { EditorObject } from "./EditorObject";
+import { syncRigidBodyToObjectWorldPose } from "./EditorPhysicsSync";
 import { FreeCamera } from "./FreeCamera";
 import { type LevelData, LevelSerializer } from "./LevelSerializer";
 import { BrushPanel } from "./panels/BrushPanel";
@@ -56,6 +58,7 @@ export class EditorManager {
   private playTestCameraState: { position: THREE.Vector3; quaternion: THREE.Quaternion } | null = null;
   private playTestStopButton: HTMLElement | null = null;
   private unloadProtectionEnabled = false;
+  private loadTransaction = new EditorLoadTransaction();
 
   /* ---- Subsystems ---- */
   private gizmo: TransformGizmo;
@@ -92,13 +95,19 @@ export class EditorManager {
 
     this.document = new EditorDocument(this.renderer.scene, this.physicsWorld);
     this.documentState = new EditorDocumentState((state) => this.onDocumentStateChanged(state));
-    this.history = new CommandHistory(() => this.markDirty());
+    this.history = new CommandHistory(
+      () => this.markDirty(),
+      () => this.loadTransaction.canMutate,
+      () => this.showLoadBusyFeedback(),
+    );
     this.freeCamera = new FreeCamera(this.renderer.camera, this.renderer.canvas);
     this.grid = new SnapGrid(this.renderer.scene);
 
     /* ---- Panels ---- */
     this.toolbarPanel = new ToolbarPanel({
-      onSave: () => this.saveLevel(),
+      onSave: () => {
+        if (this.guardDocumentMutation()) void this.saveLevel();
+      },
       onLoad: () => this.loadLevel(),
       onImportGLB: () => this.onImportGLB(),
       onUndo: () => this.undo(),
@@ -112,13 +121,16 @@ export class EditorManager {
       onPlayTest: () => this.startPlayTest(),
     });
 
-    this.brushPanel = new BrushPanel((brushId) => this.onBrushSelected(brushId));
+    this.brushPanel = new BrushPanel((brushId) => {
+      if (this.guardDocumentMutation()) this.onBrushSelected(brushId);
+    });
 
     this.hierarchyPanel = new HierarchyPanel({
       onSelect: (id) => this.selectById(id),
       onDelete: (id) => this.deleteById(id),
       onDuplicate: (id) => this.duplicateById(id),
       onRename: (id, name) => {
+        if (!this.guardDocumentMutation()) return;
         const previousName = this.document.findById(id)?.name;
         this.document.renameById(id, name);
         if (previousName !== undefined && previousName !== this.document.findById(id)?.name) {
@@ -127,6 +139,7 @@ export class EditorManager {
         this.syncHierarchy();
       },
       onToggleVisible: (id) => {
+        if (!this.guardDocumentMutation()) return;
         const target = this.document.findById(id);
         const previousVisibility = target?.visible ?? true;
         const wasSelected = this.document.selected?.id === id;
@@ -144,6 +157,7 @@ export class EditorManager {
         this.syncHierarchy();
       },
       onToggleLock: (id) => {
+        if (!this.guardDocumentMutation()) return;
         const target = this.document.findById(id);
         const previousLock = target?.locked ?? false;
         const wasSelected = this.document.selected?.id === id;
@@ -158,6 +172,7 @@ export class EditorManager {
         this.syncHierarchy();
       },
       onReparent: (childId, newParentId) => {
+        if (!this.guardDocumentMutation()) return;
         const previousParent = this.document.findById(childId)?.parentId ?? null;
         this.document.reparentById(childId, newParentId);
         if (previousParent !== (this.document.findById(childId)?.parentId ?? null)) {
@@ -166,6 +181,7 @@ export class EditorManager {
         this.syncHierarchy();
       },
       onGroup: (ids) => {
+        if (!this.guardDocumentMutation()) return;
         const groupObj = this.document.groupObjects(ids);
         if (groupObj) {
           this.levelManager.addLevelObject(groupObj.mesh, this.createLevelObjectTracking(groupObj));
@@ -175,6 +191,7 @@ export class EditorManager {
         }
       },
       onUngroup: (groupId) => {
+        if (!this.guardDocumentMutation()) return;
         const wasSelected = this.document.selected;
         const groupObj = this.document.findById(groupId);
         if (groupObj && this.document.ungroupObject(groupId)) {
@@ -225,13 +242,18 @@ export class EditorManager {
     this.tools.set(this.glbPlacementTool.id, this.glbPlacementTool);
     this.activeTool = this.selectionTool;
 
-    this.documentState.markClean(normalizeEditorDocumentName(this.levelManager.getCurrentLevelName()));
+    this.documentState.markClean(normalizeEditorDocumentName(this.levelManager.getCurrentLevelIdentity()));
 
     this.unsubs.push(this.eventBus.on("editor:toggle", () => this.toggle()));
     this.unsubs.push(
       this.eventBus.on("level:loaded", ({ name }) => {
+        this.loadTransaction.invalidate();
+        this.toolbarPanel.setLoadBusy(false);
         this.history.clear();
-        this.documentState.markClean(normalizeEditorDocumentName(name));
+        const identity = this.levelManager.getCurrentLevelIdentity();
+        this.documentState.markClean(
+          normalizeEditorDocumentName(identity ?? { name, origin: "system", kind: "asset" }),
+        );
       }),
     );
 
@@ -322,6 +344,7 @@ export class EditorManager {
   }
 
   dispose(): void {
+    this.loadTransaction.invalidate();
     this.abortPlayTest();
     for (const unsub of this.unsubs) unsub();
     this.unsubs.length = 0;
@@ -490,7 +513,7 @@ export class EditorManager {
    * ================================================================== */
 
   startPlayTest(): void {
-    if (!this.active || this.playTestActive) return;
+    if (!this.active || this.playTestActive || !this.guardDocumentMutation()) return;
 
     // Undo entries capture mesh/parent references that the play-test
     // restore (applyLoadedLevel) tears down and rebuilds; running them
@@ -676,6 +699,7 @@ export class EditorManager {
     if (this.isClickOnPanel(e.target as Node)) return;
 
     if (e.button === 2 || e.button === 1) return; // right/middle for camera
+    if (!this.guardDocumentMutation()) return;
 
     // Delegate to active tool
     const ctx = this.buildToolContext();
@@ -691,6 +715,13 @@ export class EditorManager {
 
   private onKeyDown = (e: KeyboardEvent): void => {
     if (!this.active) return;
+
+    if (!this.loadTransaction.canMutate) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      this.showLoadBusyFeedback();
+      return;
+    }
 
     const cmd = e.ctrlKey || e.metaKey;
     if (e.code === "KeyS" && cmd) {
@@ -792,6 +823,7 @@ export class EditorManager {
    * ================================================================== */
 
   private onImportGLB(): void {
+    if (!this.guardDocumentMutation()) return;
     this.switchTool("glb-placement");
     this.glbPlacementTool.openFilePicker(this.buildToolContext());
   }
@@ -805,6 +837,7 @@ export class EditorManager {
   private onDrop = (e: DragEvent): void => {
     if (!this.active) return;
     e.preventDefault();
+    if (!this.guardDocumentMutation()) return;
     const file = e.dataTransfer?.files?.[0];
     if (file && (file.name.endsWith(".glb") || file.name.endsWith(".gltf"))) {
       this.switchTool("glb-placement");
@@ -817,6 +850,7 @@ export class EditorManager {
    * ================================================================== */
 
   private onBrushSelected(brushId: string | null): void {
+    if (!this.guardDocumentMutation()) return;
     if (!brushId) {
       // Deselect brush, return to selection tool
       this.brushPanel.setActiveBrush(null);
@@ -1030,6 +1064,7 @@ export class EditorManager {
    * ================================================================== */
 
   private deleteById(id: string): void {
+    if (!this.guardDocumentMutation()) return;
     const obj = this.document.findById(id);
     if (!obj) return;
     this.setSelection(obj);
@@ -1037,6 +1072,7 @@ export class EditorManager {
   }
 
   private duplicateById(id: string): void {
+    if (!this.guardDocumentMutation()) return;
     const newObj = this.document.duplicateById(id);
     if (!newObj) return;
 
@@ -1103,6 +1139,7 @@ export class EditorManager {
     emissiveIntensity: number;
     opacity: number;
   }): void {
+    if (!this.guardDocumentMutation()) return;
     if (!this.document.selected) return;
     const root = this.document.selected.mesh;
 
@@ -1144,6 +1181,7 @@ export class EditorManager {
    * ================================================================== */
 
   private applyPhysicsTypeChange(id: string, type: "static" | "dynamic" | "kinematic"): void {
+    if (!this.guardDocumentMutation()) return;
     const obj = this.document.findById(id);
     if (!obj || obj.physicsType === type) return;
 
@@ -1212,6 +1250,7 @@ export class EditorManager {
     rotation: [number, number, number];
     scale: [number, number, number];
   }): void {
+    if (!this.guardDocumentMutation()) return;
     const selected = this.document.selected;
     if (!selected) return;
     const changed =
@@ -1236,6 +1275,7 @@ export class EditorManager {
    * ================================================================== */
 
   private onDragStateChanged(dragging: boolean): void {
+    if (!this.guardDocumentMutation()) return;
     if (dragging && this.document.selected) {
       this.dragStartTransform = {
         position: this.document.selected.mesh.position.clone(),
@@ -1259,6 +1299,7 @@ export class EditorManager {
   }
 
   private onGizmoObjectChanged(): void {
+    if (!this.guardDocumentMutation()) return;
     if (!this.document.selected) return;
     this.updateEditorObjectTransform(this.document.selected);
     if (this.grid.enabled) {
@@ -1293,6 +1334,18 @@ export class EditorManager {
 
   private markDirty(): void {
     this.documentState.markDirty();
+  }
+
+  private guardDocumentMutation(): boolean {
+    if (this.loadTransaction.canMutate) return true;
+    this.showLoadBusyFeedback();
+    return false;
+  }
+
+  private showLoadBusyFeedback(): void {
+    this.toolbarPanel.showSaveError(
+      "Load already in progress — wait for it to finish before editing or loading another level.",
+    );
   }
 
   private onDocumentStateChanged(state: Readonly<EditorDocumentSnapshot>): void {
@@ -1407,6 +1460,7 @@ export class EditorManager {
    * ================================================================== */
 
   private deleteSelection(): void {
+    if (!this.guardDocumentMutation()) return;
     if (!this.document.selected) return;
     const target = this.document.selected;
     const parent = target.mesh.parent ?? this.renderer.scene;
@@ -1499,6 +1553,10 @@ export class EditorManager {
   }
 
   private async loadLevel(): Promise<void> {
+    if (this.loadTransaction.isBusy) {
+      this.showLoadBusyFeedback();
+      return;
+    }
     const input = document.createElement("input");
     input.type = "file";
     input.accept = ".json";
@@ -1516,6 +1574,30 @@ export class EditorManager {
     data: LevelData,
     intent: "user-load" | "playtest-restore",
   ): Promise<boolean> {
+    if (intent === "playtest-restore") {
+      return this.applyLoadedLevelContents(data, intent);
+    }
+
+    const loadToken = this.loadTransaction.begin();
+    if (loadToken === null) {
+      this.showLoadBusyFeedback();
+      return false;
+    }
+    this.toolbarPanel.setLoadBusy(true);
+    try {
+      return await this.applyLoadedLevelContents(data, intent, loadToken);
+    } finally {
+      const wasCurrent = this.loadTransaction.isCurrent(loadToken);
+      this.loadTransaction.finish(loadToken);
+      if (wasCurrent) this.toolbarPanel.setLoadBusy(false);
+    }
+  }
+
+  private async applyLoadedLevelContents(
+    data: LevelData,
+    intent: "user-load" | "playtest-restore",
+    loadToken?: number,
+  ): Promise<boolean> {
     if (intent === "user-load") {
       const validation = validateEditorLevelData(data);
       if (!validation.ok) {
@@ -1529,6 +1611,7 @@ export class EditorManager {
 
     try {
       const levelTrackedMeshes = new Set(this.levelManager.getLevelObjects());
+      this.setSelection(null);
       this.levelManager.unload();
 
       // Phase 1: remove editor document objects not already owned by LevelManager.
@@ -1576,8 +1659,14 @@ export class EditorManager {
 
       // ── Phase 4: Spawn fresh objects from the snapshot ──
       for (const entry of data.objects) {
-        if (!(await this.spawnSerializedObject(entry))) {
+        if (loadToken !== undefined && !this.loadTransaction.isCurrent(loadToken)) {
+          throw new Error("Level load was superseded.");
+        }
+        if (!(await this.spawnSerializedObject(entry, loadToken))) {
           throw new Error(`Object "${entry.id}" could not be reconstructed.`);
+        }
+        if (loadToken !== undefined && !this.loadTransaction.isCurrent(loadToken)) {
+          throw new Error("Level load was superseded.");
         }
       }
 
@@ -1603,7 +1692,13 @@ export class EditorManager {
         }
         this.updateEditorObjectTransform(obj);
       }
+
+      this.renderer.scene.updateWorldMatrix(true, true);
+      for (const obj of this.document.objects) {
+        if (obj.body) syncRigidBodyToObjectWorldPose(obj.mesh, obj.body);
+      }
     } catch (err) {
+      if (loadToken !== undefined && !this.loadTransaction.isCurrent(loadToken)) return false;
       console.error(`[Editor] ${intent === "user-load" ? "Level load" : "Play-test restore"} failed:`, err);
       this.markDirty();
       this.syncHierarchy();
@@ -1615,6 +1710,7 @@ export class EditorManager {
       return false;
     }
 
+    if (loadToken !== undefined && !this.loadTransaction.isCurrent(loadToken)) return false;
     if (intent === "user-load") {
       this.history.clear();
       this.documentState.markClean(data.name);
@@ -1625,7 +1721,7 @@ export class EditorManager {
     return true;
   }
 
-  private async spawnSerializedObject(entry: LevelData["objects"][number]): Promise<boolean> {
+  private async spawnSerializedObject(entry: LevelData["objects"][number], loadToken?: number): Promise<boolean> {
     let obj: THREE.Object3D | null = null;
     if (entry.source.type === "primitive" && entry.source.primitive) {
       const p = entry.source.primitive;
@@ -1680,6 +1776,7 @@ export class EditorManager {
         obj.userData.editorMissingAssetPath = entry.source.asset;
       }
     }
+    if (loadToken !== undefined && !this.loadTransaction.isCurrent(loadToken)) return false;
     if (!obj) return false;
 
     obj.position.set(entry.transform.position[0], entry.transform.position[1], entry.transform.position[2]);
