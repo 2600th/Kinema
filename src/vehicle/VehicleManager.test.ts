@@ -2,6 +2,7 @@ import { EventBus } from "@core/EventBus";
 import { NULL_INPUT } from "@core/types";
 import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
+import type { VehicleController } from "./VehicleController";
 import { isVehicleManualResetEligible, VehicleManager } from "./VehicleManager";
 
 function createVehicle() {
@@ -58,6 +59,20 @@ function createManager() {
 }
 
 describe("VehicleManager", () => {
+  it("initializes vehicle entry neutrally before accepting the next raw vehicle input", () => {
+    const { eventBus, manager } = createManager();
+    const vehicle = createVehicle();
+    manager.register(vehicle as unknown as VehicleController);
+    manager.setInput({ ...NULL_INPUT, crouch: true, crouchPressed: true, sprint: true });
+
+    eventBus.emit("vehicle:enter", { vehicle: vehicle as unknown as VehicleController });
+
+    expect(vehicle.enter).toHaveBeenCalledWith(NULL_INPUT);
+    const vehicleInput = { ...NULL_INPUT, crouch: true, sprint: true };
+    manager.setInput(vehicleInput);
+    expect(vehicle.setInput).toHaveBeenCalledWith(vehicleInput);
+  });
+
   it("allows manual recovery only when stationary or upside-down", () => {
     const upright = { x: 0, y: 0, z: 0, w: 1 };
     const upsideDown = { x: 1, y: 0, z: 0, w: 0 };

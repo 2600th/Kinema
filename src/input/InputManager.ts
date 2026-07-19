@@ -203,14 +203,14 @@ export class InputManager implements Disposable {
     const crouchInput = this.resolveTraversalAction(
       "crouch",
       rawCrouch,
-      rawCrouch || (this.locked && this.isKeyboardActionLatched("crouch")),
+      rawCrouch || (touch?.crouchPressed ?? false) || (this.locked && this.isKeyboardActionLatched("crouch")),
     );
     const rawSprint =
       (this.locked && this.isKeyboardActionHeld("sprint")) || gamepad.sprint || (touch?.sprint ?? false);
     const sprintInput = this.resolveTraversalAction(
       "sprint",
       rawSprint,
-      rawSprint || (this.locked && this.isKeyboardActionLatched("sprint")),
+      rawSprint || (touch?.sprintPressed ?? false) || (this.locked && this.isKeyboardActionLatched("sprint")),
     );
     const jump =
       (this.locked && (this.isKeyboardActionHeld("jump") || this.isKeyboardActionLatched("jump"))) ||
@@ -436,25 +436,27 @@ export class InputManager implements Disposable {
   }
 
   private handleKeyDown(e: KeyboardEvent): void {
-    // Don't capture game keys while typing in text fields (editor inspector, settings, etc.)
-    const tag = (e.target as HTMLElement)?.tagName;
+    const target = e.target as HTMLElement | null;
+    const tag = target?.tagName;
+    // Preserve native editing behavior in inspector/settings form controls.
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
     this.setLastInputSource("keyboard");
+    if (e.code === "Escape") {
+      this.eventBus.emit("menu:toggle", undefined);
+      return;
+    }
+    if (e.code === "F1" && !this.inputSuppressed) {
+      this.eventBus.emit("editor:toggle", undefined);
+      return;
+    }
+    const isInteractiveTarget = tag === "BUTTON" || tag === "A" || target?.isContentEditable === true;
+    if (isInteractiveTarget || !this.locked || this.inputSuppressed || this.editorActive) return;
 
     this.keys.add(e.code);
     this.latchedKeys.add(e.code);
 
-    // Prevent default for game keys
-    if (this.isKeyboardBoundCode(e.code) || e.code === "KeyE" || e.code === "KeyQ") {
-      e.preventDefault();
-    }
-    if (e.code === "Escape") {
-      this.eventBus.emit("menu:toggle", undefined);
-    }
-    if (e.code === "F1" && !this.inputSuppressed) {
-      this.eventBus.emit("editor:toggle", undefined);
-    }
+    if (this.isKeyboardBoundCode(e.code) || e.code === "KeyE" || e.code === "KeyQ") e.preventDefault();
   }
 
   private handleKeyUp(e: KeyboardEvent): void {

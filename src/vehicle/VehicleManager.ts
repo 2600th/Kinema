@@ -164,7 +164,8 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
     this.player.setEnabled(false);
     this.interactionManager.setEnabled(false);
     vehicle.body.wakeUp();
-    vehicle.enter(this.lastInput);
+    this.lastInput = NULL_INPUT;
+    vehicle.enter(NULL_INPUT);
     vehicle.postPhysicsUpdate(0);
     vehicle.update(0, 1);
     this.camera.applyCameraConfig(vehicle.cameraConfig);

@@ -18,6 +18,7 @@ export interface TouchInputState {
   crouch: boolean;
   crouchPressed: boolean;
   sprint: boolean;
+  sprintPressed: boolean;
   active: boolean;
 }
 
@@ -38,6 +39,7 @@ export class TouchControlsManager implements Disposable {
   private prevJump = false;
   private prevInteract = false;
   private prevCrouch = false;
+  private prevSprint = false;
   private lookSensitivity = DEFAULT_USER_SETTINGS.touchLookSensitivity;
 
   constructor(container: HTMLElement) {
@@ -125,18 +127,28 @@ export class TouchControlsManager implements Disposable {
 
     const jumpHeld = jump.held || jump.pressed;
     const interactHeld = interact.held || interact.pressed;
-    const crouchHeld = crouch.held || crouch.pressed;
-    const sprintHeld = sprint.held || sprint.pressed;
+    const crouchHeld = crouch.held;
+    const sprintHeld = sprint.held;
 
     const jumpPressed = jumpHeld && !this.prevJump;
     const interactPressed = interactHeld && !this.prevInteract;
-    const crouchPressed = crouchHeld && !this.prevCrouch;
+    const crouchPressed = crouch.pressed || (crouchHeld && !this.prevCrouch);
+    const sprintPressed = sprint.pressed || (sprintHeld && !this.prevSprint);
 
     this.prevJump = jumpHeld;
     this.prevInteract = interactHeld;
     this.prevCrouch = crouchHeld;
+    this.prevSprint = sprintHeld;
 
-    const active = move.active || look.active || jumpHeld || interactHeld || crouchHeld || sprintHeld;
+    const active =
+      move.active ||
+      look.active ||
+      jumpHeld ||
+      interactHeld ||
+      crouchHeld ||
+      crouchPressed ||
+      sprintHeld ||
+      sprintPressed;
 
     return {
       // Invert Y: joystick down (positive y) = backward (negative moveY)
@@ -152,6 +164,7 @@ export class TouchControlsManager implements Disposable {
       crouch: crouchHeld,
       crouchPressed,
       sprint: sprintHeld,
+      sprintPressed,
       active,
     };
   }

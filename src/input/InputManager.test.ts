@@ -531,6 +531,7 @@ describe("InputManager", () => {
         crouch: true,
         crouchPressed: true,
         sprint: true,
+        sprintPressed: true,
         active: true,
       })),
     };
@@ -637,6 +638,79 @@ describe("InputManager", () => {
     keyDown(code);
 
     expect(manager.poll()[field]).toBe(true);
+    manager.dispose();
+  });
+
+  it.each(["ArrowUp", "ShiftLeft"])("prevents the default %s binding during locked gameplay", (code) => {
+    const manager = new InputManager(new EventBus(), asCanvas(canvasTarget));
+    const preventDefault = vi.fn();
+    lockPointer();
+
+    windowTarget.dispatch("keydown", { code, preventDefault });
+
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    manager.dispose();
+  });
+
+  it("does not capture or prevent bound keys while gameplay is unlocked", () => {
+    const manager = new InputManager(new EventBus(), asCanvas(canvasTarget));
+    const preventDefault = vi.fn();
+
+    windowTarget.dispatch("keydown", { code: "ArrowUp", preventDefault });
+    lockPointer();
+
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(manager.poll().forward).toBe(false);
+    manager.dispose();
+  });
+
+  it("leaves remapped native button activation untouched while a menu is open", () => {
+    const eventBus = new EventBus();
+    const manager = new InputManager(eventBus, asCanvas(canvasTarget));
+    const bindings = createDefaultKeyboardBindings();
+    bindings.jump[0] = "Enter";
+    manager.setKeyboardBindings(bindings);
+    const preventDefault = vi.fn();
+    lockPointer();
+    eventBus.emit("menu:opened", { screen: "settings" });
+
+    windowTarget.dispatch("keydown", { code: "Enter", preventDefault, target: { tagName: "BUTTON" } });
+    eventBus.emit("menu:closed", undefined);
+
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(manager.poll()).toMatchObject({ jump: false, jumpPressed: false });
+    manager.dispose();
+  });
+
+  it.each([
+    { tagName: "BUTTON" },
+    { tagName: "A" },
+    { tagName: "DIV", isContentEditable: true },
+  ])("does not capture gameplay bindings from interactive target $tagName", (target) => {
+    const manager = new InputManager(new EventBus(), asCanvas(canvasTarget));
+    const preventDefault = vi.fn();
+    lockPointer();
+
+    windowTarget.dispatch("keydown", { code: "KeyW", preventDefault, target });
+
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(manager.poll().forward).toBe(false);
+    manager.dispose();
+  });
+
+  it("preserves Escape and F1 menu/editor shortcuts outside gameplay capture", () => {
+    const eventBus = new EventBus();
+    const menuToggle = vi.fn();
+    const editorToggle = vi.fn();
+    eventBus.on("menu:toggle", menuToggle);
+    eventBus.on("editor:toggle", editorToggle);
+    const manager = new InputManager(eventBus, asCanvas(canvasTarget));
+
+    windowTarget.dispatch("keydown", { code: "Escape", preventDefault: vi.fn() });
+    windowTarget.dispatch("keydown", { code: "F1", preventDefault: vi.fn() });
+
+    expect(menuToggle).toHaveBeenCalledTimes(1);
+    expect(editorToggle).toHaveBeenCalledTimes(1);
     manager.dispose();
   });
 
@@ -827,6 +901,7 @@ describe("InputManager", () => {
         crouch: touchCrouch,
         crouchPressed: touchCrouch,
         sprint: false,
+        sprintPressed: false,
         active: touchCrouch,
       })),
     };

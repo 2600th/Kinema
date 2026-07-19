@@ -1,9 +1,12 @@
+import { EventBus } from "@core/EventBus";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { InputManager } from "./InputManager";
 import type { TouchButton } from "./TouchButton";
 import { TouchControlsManager } from "./TouchControlsManager";
 import type { VirtualJoystick } from "./VirtualJoystick";
 
 class FakeElement {
+  private readonly listeners = new Map<string, Set<(event: unknown) => void>>();
   readonly style: Record<string, string> = {};
   readonly children: FakeElement[] = [];
   readonly classList = { add: vi.fn(), remove: vi.fn() };
@@ -16,8 +19,20 @@ class FakeElement {
   }
 
   setAttribute(): void {}
-  addEventListener(): void {}
-  removeEventListener(): void {}
+  addEventListener(type: string, listener: (event: unknown) => void): void {
+    const listeners = this.listeners.get(type) ?? new Set();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  removeEventListener(type: string, listener: (event: unknown) => void): void {
+    this.listeners.get(type)?.delete(listener);
+  }
+
+  dispatch(type: string, event: unknown): void {
+    for (const listener of this.listeners.get(type) ?? []) listener(event);
+  }
+
   remove(): void {}
 
   getBoundingClientRect(): DOMRect {
@@ -51,14 +66,31 @@ type RuntimeTouchControls = TouchControlsManager & {
 };
 
 describe("TouchControlsManager runtime preferences", () => {
+  let windowTarget: FakeElement;
+  let documentTarget: FakeElement & { createElement: () => FakeElement; pointerLockElement: unknown };
+
   beforeEach(() => {
+    windowTarget = Object.assign(new FakeElement(), { devicePixelRatio: 1 });
+    documentTarget = Object.assign(new FakeElement(), {
+      createElement: vi.fn(() => new FakeElement()),
+      pointerLockElement: null,
+    });
     Object.defineProperty(globalThis, "window", {
-      value: { devicePixelRatio: 1, addEventListener: vi.fn(), removeEventListener: vi.fn() },
+      value: windowTarget,
       configurable: true,
       writable: true,
     });
     Object.defineProperty(globalThis, "document", {
-      value: { createElement: vi.fn(() => new FakeElement()) },
+      value: documentTarget,
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(globalThis, "navigator", {
+      value: { getGamepads: vi.fn(() => []), maxTouchPoints: 1 },
+      configurable: true,
+    });
+    Object.defineProperty(globalThis, "matchMedia", {
+      value: vi.fn(() => ({ matches: false })),
       configurable: true,
       writable: true,
     });
@@ -111,5 +143,49 @@ describe("TouchControlsManager runtime preferences", () => {
     runtime.setLookSensitivity?.(Number.POSITIVE_INFINITY);
     expect(manager.getInputState().lookDX).toBe(4);
     manager.dispose();
+  });
+
+  it("keeps consumable crouch and sprint button pulses separate from physical hold", () => {
+    const container = new FakeElement();
+    const manager = new TouchControlsManager(container as unknown as HTMLElement);
+    const root = container.children[0];
+    const sprintButton = root.children[1].children[0];
+    const crouchButton = root.children[3].children[2];
+
+    sprintButton.dispatch("click", { detail: 0 });
+    crouchButton.dispatch("click", { detail: 0 });
+
+    expect(manager.getInputState()).toMatchObject({
+      crouch: false,
+      crouchPressed: true,
+      sprint: false,
+      sprintPressed: true,
+    });
+    manager.dispose();
+  });
+
+  it("toggles adjacent assistive crouch and sprint clicks through the real touch snapshot", () => {
+    const container = new FakeElement();
+    const touchControls = new TouchControlsManager(container as unknown as HTMLElement);
+    const inputManager = new InputManager(new EventBus(), new FakeElement() as unknown as HTMLCanvasElement);
+    const inputInternals = inputManager as unknown as {
+      touchActive: boolean;
+      touchControls: TouchControlsManager;
+    };
+    inputInternals.touchActive = true;
+    inputInternals.touchControls = touchControls;
+    inputManager.setCrouchMode("toggle");
+    inputManager.setSprintMode("toggle");
+    const root = container.children[0];
+    const sprintButton = root.children[1].children[0];
+    const crouchButton = root.children[3].children[2];
+
+    sprintButton.dispatch("click", { detail: 0 });
+    crouchButton.dispatch("click", { detail: 0 });
+    expect(inputManager.poll()).toMatchObject({ crouch: true, crouchPressed: true, sprint: true });
+    sprintButton.dispatch("click", { detail: 0 });
+    crouchButton.dispatch("click", { detail: 0 });
+    expect(inputManager.poll()).toMatchObject({ crouch: false, crouchPressed: false, sprint: false });
+    inputManager.dispose();
   });
 });
