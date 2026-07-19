@@ -72,6 +72,7 @@ export class GLBPlacementTool implements EditorTool {
     const objectUrl = URL.createObjectURL(file);
     const assetLoader = this.levelManager.getAssetLoader();
     let transientGLTF: Awaited<ReturnType<typeof assetLoader.loadTransient>> | null = null;
+    let adoptedScene: THREE.Object3D | null = null;
     try {
       transientGLTF = await assetLoader.loadTransient(objectUrl);
       if (!this.isImportCurrent(importGeneration, lifecycleGeneration)) {
@@ -89,6 +90,7 @@ export class GLBPlacementTool implements EditorTool {
       // The canonical cache owns the parsed source; adopt() returned a fully
       // independent scene whose ownership transfers to the preview/final object.
       const clone = gltf.scene;
+      adoptedScene = clone;
       // Store animation clips on the cloned scene for later use
       if (gltf.animations?.length) {
         clone.userData.animations = gltf.animations;
@@ -99,8 +101,17 @@ export class GLBPlacementTool implements EditorTool {
         `[Editor] Imported "${file.name}" for this session. ` +
           `Copy the file to public/assets/models/ for it to persist across reloads.`,
       );
+      adoptedScene = null;
     } catch (err) {
       console.error("[Editor] Failed to import GLB:", err);
+      if (adoptedScene) {
+        if (this.glbPreview === adoptedScene) this.cancelPlacement(ctx);
+        else assetLoader.disposeObject(adoptedScene);
+      } else {
+        this.cancelPlacement(ctx);
+      }
+      this.onError("Imported model preview could not be prepared. No editor changes were made.");
+      this.onFinished();
     } finally {
       if (transientGLTF) assetLoader.disposeTransient(transientGLTF);
       // Revoke the blob URL (the GLTF data is now cached under assetPath via put())
@@ -247,9 +258,9 @@ export class GLBPlacementTool implements EditorTool {
       this.onFinished();
     } catch (error) {
       console.error("[Editor] GLB placement failed:", error);
-      if (publicationAttempted) ctx.removeEditorObject?.(editorObj.id);
+      if (publicationAttempted) ctx.rollbackEditorObject(editorObj);
       ctx.scene.remove(finalObj);
-      if (body) ctx.physicsWorld.removeBody(body);
+      if (!publicationAttempted && body) ctx.physicsWorld.removeBody(body);
       this.levelManager.getAssetLoader().disposeObject(finalObj);
       this.glbPreview = null;
       this.pendingGLBAsset = null;

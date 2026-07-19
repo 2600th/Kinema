@@ -1,4 +1,5 @@
 import type { EventBus } from "@core/EventBus";
+import RAPIER from "@dimforge/rapier3d-compat";
 import type { PhysicsWorld } from "@physics/PhysicsWorld";
 import * as THREE from "three";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -249,6 +250,45 @@ describe("LevelManager transactional editor JSON loading", () => {
 });
 
 describe("LevelManager non-mesh GLTF physics ownership", () => {
+  it.each(["collider", "sensor"] as const)(
+    "finishes the non-mesh %s descriptor before allocating or tracking a body",
+    async (type) => {
+      const scene = new THREE.Scene();
+      const physicsWorld = {
+        world: { createRigidBody: vi.fn(), createCollider: vi.fn() },
+        removeCollider: vi.fn(),
+        removeBody: vi.fn(),
+      };
+      const manager = new LevelManager(scene, physicsWorld as any, { emit: vi.fn() } as any);
+      const group = new THREE.Group();
+      group.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()));
+      vi.spyOn(manager.getAssetLoader(), "load").mockResolvedValue({ scene: new THREE.Group(), animations: [] } as any);
+      vi.spyOn((manager as any).meshParser, "parse").mockReturnValue([{ type, object: group, mesh: null }]);
+      vi.spyOn((manager as any).levelValidator, "validate").mockImplementation(() => {});
+      const descriptorError = new Error(`${type} descriptor failed`);
+      const cuboidSpy = vi.spyOn(RAPIER.ColliderDesc, "cuboid");
+      if (type === "collider") {
+        cuboidSpy.mockImplementation(() => {
+          throw descriptorError;
+        });
+      } else {
+        cuboidSpy.mockReturnValue({
+          setSensor: vi.fn(() => {
+            throw descriptorError;
+          }),
+        } as unknown as RAPIER.ColliderDesc);
+      }
+
+      await expect((manager as any).loadGLTF("descriptor-order-test")).rejects.toThrow(descriptorError);
+      cuboidSpy.mockRestore();
+
+      expect(physicsWorld.world.createRigidBody).not.toHaveBeenCalled();
+      expect(physicsWorld.world.createCollider).not.toHaveBeenCalled();
+      expect((manager as any).levelBodies).toHaveLength(0);
+      expect((manager as any).levelColliders).toHaveLength(0);
+    },
+  );
+
   it.each(["collider", "sensor"] as const)("removes the %s body when collider creation fails", async (type) => {
     const scene = new THREE.Scene();
     const body = { id: `${type}-body` };
@@ -271,6 +311,35 @@ describe("LevelManager non-mesh GLTF physics ownership", () => {
 
     await expect((manager as any).loadGLTF("ownership-test")).rejects.toThrow(`${type} collider failed`);
 
+    expect(physicsWorld.removeBody).toHaveBeenCalledWith(body);
+    expect((manager as any).levelBodies).toHaveLength(0);
+    expect((manager as any).levelColliders).toHaveLength(0);
+  });
+
+  it("removes both allocations when non-mesh physics tracking throws", async () => {
+    const scene = new THREE.Scene();
+    const body = { id: "tracked-body" };
+    const collider = { id: "tracked-collider" };
+    const physicsWorld = {
+      world: { createRigidBody: vi.fn(() => body), createCollider: vi.fn(() => collider) },
+      removeCollider: vi.fn(),
+      removeBody: vi.fn(),
+    };
+    const manager = new LevelManager(scene, physicsWorld as any, { emit: vi.fn() } as any);
+    const group = new THREE.Group();
+    group.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()));
+    vi.spyOn(manager.getAssetLoader(), "load").mockResolvedValue({ scene: new THREE.Group(), animations: [] } as any);
+    vi.spyOn((manager as any).meshParser, "parse").mockReturnValue([{ type: "collider", object: group, mesh: null }]);
+    vi.spyOn((manager as any).levelValidator, "validate").mockImplementation(() => {});
+    const bodies: unknown[] = [];
+    vi.spyOn(bodies, "push").mockImplementation(() => {
+      throw new Error("tracking failed");
+    });
+    (manager as any).levelBodies = bodies;
+
+    await expect((manager as any).loadGLTF("tracking-test")).rejects.toThrow("tracking failed");
+
+    expect(physicsWorld.removeCollider).toHaveBeenCalledWith(collider);
     expect(physicsWorld.removeBody).toHaveBeenCalledWith(body);
     expect((manager as any).levelBodies).toHaveLength(0);
     expect((manager as any).levelColliders).toHaveLength(0);

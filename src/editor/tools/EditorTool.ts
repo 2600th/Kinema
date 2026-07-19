@@ -21,6 +21,7 @@ export interface EditorToolContext {
   selected: EditorObject | null;
   setSelection(obj: EditorObject | null): void;
   addEditorObject(obj: EditorObject, parent?: THREE.Object3D): void;
+  rollbackEditorObject(obj: EditorObject): void;
   removeEditorObject(id: string): void;
   syncHierarchy(): void;
   syncInspector(): void;

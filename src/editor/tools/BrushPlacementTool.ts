@@ -119,22 +119,36 @@ export class BrushPlacementTool implements EditorTool {
 
     const brush = getBrushById(brushId);
     if (!brush) return;
-
-    this.activeBrush = brush;
-    this.placementPhase = "position";
-    this.onBrushChanged(brushId);
-
-    // Create preview mesh with brush-specific or generic defaults
-    const defaultParams = buildDefaultParams(brush);
-    const geometry = brush.buildPreviewGeometry(defaultParams);
-    const material = brush.getDefaultMaterial().clone();
-    material.transparent = true;
-    material.opacity = 0.4;
-    material.depthWrite = false;
-    this.previewMesh = new THREE.Mesh(geometry, material);
-    this.previewMesh.castShadow = false;
-    this.previewMesh.receiveShadow = false;
-    ctx.scene.add(this.previewMesh);
+    let geometry: THREE.BufferGeometry | null = null;
+    let material: THREE.Material | null = null;
+    let preview: THREE.Mesh | null = null;
+    try {
+      const defaultParams = buildDefaultParams(brush);
+      geometry = brush.buildPreviewGeometry(defaultParams);
+      material = brush.getDefaultMaterial();
+      material.transparent = true;
+      material.opacity = 0.4;
+      material.depthWrite = false;
+      preview = new THREE.Mesh(geometry, material);
+      preview.castShadow = false;
+      preview.receiveShadow = false;
+      ctx.scene.add(preview);
+      this.previewMesh = preview;
+      this.activeBrush = brush;
+      this.placementPhase = "position";
+      this.onBrushChanged(brushId);
+    } catch (error) {
+      console.error("[Editor] Brush preview preparation failed:", error);
+      preview?.parent?.remove(preview);
+      geometry?.dispose();
+      material?.dispose();
+      this.previewMesh = null;
+      this.activeBrush = null;
+      this.placementPhase = "idle";
+      this.onBrushChanged(null);
+      this.onError("Brush preview could not be prepared. No editor changes were made.");
+      this.onFinished();
+    }
   }
 
   getActiveBrushId(): string | null {
@@ -203,60 +217,54 @@ export class BrushPlacementTool implements EditorTool {
     if (!this.activeBrush || !this.previewMesh) return;
 
     const brush = this.activeBrush;
-    // Use the preview mesh position (already offset to sit on ground)
     const position = this.previewMesh.position.clone();
-
-    // Create final mesh with brush-specific or generic defaults
-    const defaultParams = buildDefaultParams(brush);
-    const geometry = brush.buildPreviewGeometry(defaultParams);
-    const material = brush.getDefaultMaterial();
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    mesh.position.copy(position);
-
-    // Extract material properties for editor object
-    const matProps: NonNullable<EditorObject["material"]> = {
-      color: "#" + material.color.getHexString(),
-      roughness: material.roughness,
-      metalness: material.metalness,
-      emissive: "#" + material.emissive.getHexString(),
-      emissiveIntensity: material.emissiveIntensity,
-      opacity: material.opacity,
-    };
-
-    // Build editor object
-    const editorObj: EditorObject = {
-      id: mesh.uuid,
-      name: `${brush.label}_${++brushNameCounter}`,
-      mesh,
-      source: { type: "brush", brush: brush.id },
-      transform: {
-        position: [position.x, position.y, position.z],
-        rotation: [0, 0, 0],
-        scale: [1, 1, 1],
-      },
-      parentId: null,
-      children: [],
-      visible: true,
-      locked: false,
-      material: matProps,
-      brushParams: {
-        width: defaultParams.current.x - defaultParams.anchor.x || 1,
-        height: defaultParams.height ?? 1,
-        depth: defaultParams.current.z - defaultParams.anchor.z || 1,
-      },
-      physicsType: "static",
-      spawnTag: brush.id === "spawn" ? "player" : undefined,
-    };
-
-    mesh.userData.editorSource = editorObj.source;
-
+    let geometry: THREE.BufferGeometry | null = null;
+    let material: THREE.MeshStandardMaterial | null = null;
+    let mesh: THREE.Mesh | null = null;
+    let editorObj: EditorObject | null = null;
     let body: RAPIER.RigidBody | null = null;
     let publicationAttempted = false;
     try {
-      // Create static physics body/collider for physical brushes (not spawn or trigger).
-      // Descriptor construction remains before body allocation.
+      const defaultParams = buildDefaultParams(brush);
+      geometry = brush.buildPreviewGeometry(defaultParams);
+      material = brush.getDefaultMaterial();
+      mesh = new THREE.Mesh(geometry, material);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.position.copy(position);
+      const matProps: NonNullable<EditorObject["material"]> = {
+        color: `#${material.color.getHexString()}`,
+        roughness: material.roughness,
+        metalness: material.metalness,
+        emissive: `#${material.emissive.getHexString()}`,
+        emissiveIntensity: material.emissiveIntensity,
+        opacity: material.opacity,
+      };
+      editorObj = {
+        id: mesh.uuid,
+        name: `${brush.label}_${++brushNameCounter}`,
+        mesh,
+        source: { type: "brush", brush: brush.id },
+        transform: {
+          position: [position.x, position.y, position.z],
+          rotation: [0, 0, 0],
+          scale: [1, 1, 1],
+        },
+        parentId: null,
+        children: [],
+        visible: true,
+        locked: false,
+        material: matProps,
+        brushParams: {
+          width: defaultParams.current.x - defaultParams.anchor.x || 1,
+          height: defaultParams.height ?? 1,
+          depth: defaultParams.current.z - defaultParams.anchor.z || 1,
+        },
+        physicsType: "static",
+        spawnTag: brush.id === "spawn" ? "player" : undefined,
+      };
+      mesh.userData.editorSource = editorObj.source;
+
       if (brush.id !== "spawn" && brush.id !== "trigger") {
         const colliderDesc = buildColliderDesc(brush.id, geometry, mesh);
         const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(position.x, position.y, position.z);
@@ -266,17 +274,18 @@ export class BrushPlacementTool implements EditorTool {
       }
 
       publicationAttempted = true;
+      const publishedObj = editorObj;
       const published = ctx.history.push({
         execute: () => {
-          ctx.addEditorObject(editorObj, ctx.scene);
+          ctx.addEditorObject(publishedObj, ctx.scene);
           ctx.syncHierarchy();
-          ctx.eventBus.emit("editor:objectAdded", { id: editorObj.id });
-          ctx.setSelection(editorObj);
+          ctx.eventBus.emit("editor:objectAdded", { id: publishedObj.id });
+          ctx.setSelection(publishedObj);
         },
         undo: () => {
-          ctx.removeEditorObject(editorObj.id);
+          ctx.removeEditorObject(publishedObj.id);
           ctx.syncHierarchy();
-          ctx.eventBus.emit("editor:objectRemoved", { id: editorObj.id });
+          ctx.eventBus.emit("editor:objectRemoved", { id: publishedObj.id });
         },
       });
       if (!published) throw new Error("History rejected brush placement.");
@@ -287,11 +296,20 @@ export class BrushPlacementTool implements EditorTool {
       this.onFinished();
     } catch (error) {
       console.error("[Editor] Brush placement failed:", error);
-      if (publicationAttempted) ctx.removeEditorObject?.(editorObj.id);
-      if (body) ctx.physicsWorld.removeBody(body);
-      geometry.dispose();
-      material.dispose();
-      this.cleanupPreview(ctx);
+      if (publicationAttempted && editorObj) ctx.rollbackEditorObject(editorObj);
+      else if (body) ctx.physicsWorld.removeBody(body);
+      const disposedGeometries = new Set<THREE.BufferGeometry>();
+      const disposedMaterials = new Set<THREE.Material>();
+      if (geometry) {
+        geometry.dispose();
+        disposedGeometries.add(geometry);
+      }
+      if (material) {
+        material.dispose();
+        disposedMaterials.add(material);
+      }
+      mesh?.parent?.remove(mesh);
+      this.cleanupPreview(ctx, disposedGeometries, disposedMaterials);
       this.placementPhase = "idle";
       this.activeBrush = null;
       this.onBrushChanged(null);
@@ -305,12 +323,24 @@ export class BrushPlacementTool implements EditorTool {
     this.placementPhase = "idle";
   }
 
-  private cleanupPreview(ctx: EditorToolContext): void {
+  private cleanupPreview(
+    ctx: EditorToolContext,
+    disposedGeometries = new Set<THREE.BufferGeometry>(),
+    disposedMaterials = new Set<THREE.Material>(),
+  ): void {
     if (!this.previewMesh) return;
     ctx.scene.remove(this.previewMesh);
-    if (this.previewMesh.geometry) this.previewMesh.geometry.dispose();
+    if (this.previewMesh.geometry && !disposedGeometries.has(this.previewMesh.geometry)) {
+      disposedGeometries.add(this.previewMesh.geometry);
+      this.previewMesh.geometry.dispose();
+    }
     if (this.previewMesh.material) {
-      (this.previewMesh.material as THREE.Material).dispose();
+      const materials = Array.isArray(this.previewMesh.material) ? this.previewMesh.material : [this.previewMesh.material];
+      for (const material of materials) {
+        if (disposedMaterials.has(material)) continue;
+        disposedMaterials.add(material);
+        material.dispose();
+      }
     }
     this.previewMesh = null;
   }

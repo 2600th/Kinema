@@ -13,40 +13,72 @@ function createCommand(label: string, events: string[]): Command {
 }
 
 describe("CommandHistory", () => {
-  it.each([
-    "push",
-    "undo",
-    "redo",
-  ] as const)("keeps history stacks and mutation state unchanged when %s reports failure", (operation) => {
+  it("keeps a seeded undo stack intact when push reports failure", () => {
     const onMutation = vi.fn();
     const history = new CommandHistory(onMutation);
-    const command: Command = {
-      execute: vi.fn(() => false),
-      undo: vi.fn(() => false),
+    const seeded = createCommand("seeded", []);
+    const rejected: Command = { execute: vi.fn(() => false), undo: vi.fn() };
+
+    expect(history.push(seeded)).toBe(true);
+    expect(history.push(rejected)).toBe(false);
+    expect(onMutation).toHaveBeenCalledTimes(1);
+    expect(history.undo()).toBe(true);
+    expect(history.redo()).toBe(true);
+
+    expect(rejected.execute).toHaveBeenCalledOnce();
+    expect(rejected.undo).not.toHaveBeenCalled();
+    expect(seeded.undo).toHaveBeenCalledOnce();
+    expect(seeded.execute).toHaveBeenCalledTimes(2);
+    expect(onMutation).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps a seeded command on the undo stack when undo reports failure", () => {
+    const onMutation = vi.fn();
+    const history = new CommandHistory(onMutation);
+    const first = createCommand("first", []);
+    let rejectUndo = true;
+    const second: Command = {
+      execute: vi.fn(() => true),
+      undo: vi.fn(() => !rejectUndo),
     };
 
-    if (operation !== "push") {
-      command.execute = vi.fn(() => true);
-      history.push(command);
-      onMutation.mockClear();
-      if (operation === "redo") {
-        command.undo = vi.fn(() => true);
-        history.undo();
-        onMutation.mockClear();
-        command.execute = vi.fn(() => false);
-      } else {
-        command.undo = vi.fn(() => false);
-      }
-    }
+    expect(history.push(first)).toBe(true);
+    expect(history.push(second)).toBe(true);
+    expect(history.undo()).toBe(false);
+    expect(onMutation).toHaveBeenCalledTimes(2);
+    rejectUndo = false;
+    expect(history.undo()).toBe(true);
+    expect(history.undo()).toBe(true);
+    expect(history.redo()).toBe(true);
 
-    if (operation === "push") history.push(command);
-    else history[operation]();
+    expect(second.undo).toHaveBeenCalledTimes(2);
+    expect(first.undo).toHaveBeenCalledOnce();
+    expect(first.execute).toHaveBeenCalledTimes(2);
+    expect(second.execute).toHaveBeenCalledOnce();
+    expect(onMutation).toHaveBeenCalledTimes(5);
+  });
 
-    expect(onMutation).not.toHaveBeenCalled();
-    if (operation === "push") history.undo();
-    if (operation === "undo") history.undo();
-    if (operation === "redo") history.redo();
-    expect(onMutation).not.toHaveBeenCalled();
+  it("keeps a seeded command on the redo stack when redo reports failure", () => {
+    const onMutation = vi.fn();
+    const history = new CommandHistory(onMutation);
+    let rejectRedo = false;
+    const command: Command = {
+      execute: vi.fn(() => !rejectRedo),
+      undo: vi.fn(() => true),
+    };
+
+    expect(history.push(command)).toBe(true);
+    expect(history.undo()).toBe(true);
+    rejectRedo = true;
+    expect(history.redo()).toBe(false);
+    expect(onMutation).toHaveBeenCalledTimes(2);
+    rejectRedo = false;
+    expect(history.redo()).toBe(true);
+    expect(history.undo()).toBe(true);
+
+    expect(command.execute).toHaveBeenCalledTimes(3);
+    expect(command.undo).toHaveBeenCalledTimes(2);
+    expect(onMutation).toHaveBeenCalledTimes(4);
   });
 
   it("executes commands and preserves undo and redo ordering", () => {

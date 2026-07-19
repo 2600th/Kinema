@@ -478,6 +478,7 @@ export class EditorManager {
       selected: this.document.selected,
       setSelection: (obj) => this.setSelection(obj),
       addEditorObject: (obj, parent) => this.addTrackedEditorObject(obj, parent),
+      rollbackEditorObject: (obj) => this.rollbackEditorObject(obj),
       removeEditorObject: (id) => {
         const obj = this.document.findById(id);
         if (obj) this.removeTrackedEditorObject(obj);
@@ -524,6 +525,30 @@ export class EditorManager {
     tracking.physics?.collider?.setEnabled(false);
     this.document.removeObject(obj);
     return tracking;
+  }
+
+  private rollbackEditorObject(obj: EditorObject): void {
+    const wasSelected = this.document.selected === obj;
+    const physics = this.levelManager.getLevelObjectTracking(obj.mesh).physics;
+    const body = obj.body;
+    const collider = obj.collider;
+    this.levelManager.removeLevelObject(obj.mesh, { removePhysics: true });
+    if (!physics) {
+      if (body) this.physicsWorld.removeBody(body);
+      else if (collider) this.physicsWorld.removeCollider(collider);
+    }
+    obj.body = undefined;
+    obj.collider = undefined;
+    this.document.removeObject(obj);
+    if (wasSelected) {
+      try {
+        this.setSelection(null);
+      } catch (error) {
+        console.error("[Editor] Selection cleanup failed during rollback:", error);
+        this.document.selected = null;
+        this.gizmo.attach(null);
+      }
+    }
   }
 
   private switchTool(toolId: string): void {
@@ -1182,6 +1207,7 @@ export class EditorManager {
     const newObj = this.document.duplicateById(id);
     if (!newObj) return;
     let body: RAPIER.RigidBody | null = null;
+    let publicationAttempted = false;
     try {
       // Create fresh physics body/collider for the duplicate (structuredClone
       // cannot clone live Rapier handles — the duplicated EditorObject has none).
@@ -1218,6 +1244,7 @@ export class EditorManager {
         newObj.collider = collider;
       }
 
+      publicationAttempted = true;
       const published = this.history.push({
         execute: () => {
           this.addTrackedEditorObject(newObj, this.renderer.scene);
@@ -1233,8 +1260,8 @@ export class EditorManager {
       });
       if (!published) throw new Error("History rejected duplicate placement.");
     } catch (error) {
-      if (this.document.findById(newObj.id) === newObj) this.removeTrackedEditorObject(newObj);
-      if (body) this.physicsWorld.removeBody(body);
+      if (publicationAttempted) this.rollbackEditorObject(newObj);
+      else if (body) this.physicsWorld.removeBody(body);
       console.error("[Editor] Duplicate failed:", error);
       this.showPhysicsMutationError("Duplicate failed; no copy was added.");
     }
@@ -1635,7 +1662,9 @@ export class EditorManager {
       .setEnabled(collider.isEnabled())
       .setFriction(collider.friction())
       .setRestitution(collider.restitution())
-      .setDensity(collider.density())
+      .setMass(collider.mass())
+      .setFrictionCombineRule(collider.frictionCombineRule())
+      .setRestitutionCombineRule(collider.restitutionCombineRule())
       .setCollisionGroups(collider.collisionGroups())
       .setSolverGroups(collider.solverGroups())
       .setActiveHooks(collider.activeHooks())

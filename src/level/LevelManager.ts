@@ -651,6 +651,30 @@ export class LevelManager implements Disposable {
     return getObjectColliderBounds(obj);
   }
 
+  private createTrackedFixedCollider(
+    bodyDesc: RAPIER.RigidBodyDesc,
+    colliderDesc: RAPIER.ColliderDesc,
+  ): void {
+    let body: RAPIER.RigidBody | null = null;
+    let collider: RAPIER.Collider | null = null;
+    try {
+      body = this.physicsWorld.world.createRigidBody(bodyDesc);
+      collider = this.physicsWorld.world.createCollider(colliderDesc, body);
+      this.levelBodies.push(body);
+      this.levelColliders.push(collider);
+    } catch (error) {
+      if (collider) {
+        this.physicsWorld.removeCollider(collider);
+        this.levelColliders = this.levelColliders.filter((entry) => entry !== collider);
+      }
+      if (body) {
+        this.physicsWorld.removeBody(body);
+        this.levelBodies = this.levelBodies.filter((entry) => entry !== body);
+      }
+      throw error;
+    }
+  }
+
   private createPrimitiveMesh(primitive: string): THREE.Object3D {
     if (primitive === "group") {
       return new THREE.Group();
@@ -1051,21 +1075,12 @@ export class LevelManager implements Disposable {
               const center = box.getCenter(new THREE.Vector3());
               const size = box.getSize(new THREE.Vector3());
               const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(center.x, center.y, center.z);
-              const body = this.physicsWorld.world.createRigidBody(bodyDesc);
               const colliderDesc = RAPIER.ColliderDesc.cuboid(
                 Math.max(size.x / 2, 0.01),
                 Math.max(size.y / 2, 0.01),
                 Math.max(size.z / 2, 0.01),
               );
-              let collider: RAPIER.Collider;
-              try {
-                collider = this.physicsWorld.world.createCollider(colliderDesc, body);
-              } catch (error) {
-                this.physicsWorld.removeBody(body);
-                throw error;
-              }
-              this.levelBodies.push(body);
-              this.levelColliders.push(collider);
+              this.createTrackedFixedCollider(bodyDesc, colliderDesc);
             }
           }
           break;
@@ -1084,21 +1099,12 @@ export class LevelManager implements Disposable {
               const center = box.getCenter(new THREE.Vector3());
               const size = box.getSize(new THREE.Vector3());
               const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(center.x, center.y, center.z);
-              const body = this.physicsWorld.world.createRigidBody(bodyDesc);
               const colliderDesc = RAPIER.ColliderDesc.cuboid(
                 Math.max(size.x / 2, 0.01),
                 Math.max(size.y / 2, 0.01),
                 Math.max(size.z / 2, 0.01),
               ).setSensor(true);
-              let collider: RAPIER.Collider;
-              try {
-                collider = this.physicsWorld.world.createCollider(colliderDesc, body);
-              } catch (error) {
-                this.physicsWorld.removeBody(body);
-                throw error;
-              }
-              this.levelBodies.push(body);
-              this.levelColliders.push(collider);
+              this.createTrackedFixedCollider(bodyDesc, colliderDesc);
             } else {
               console.warn(
                 "[LevelManager] Sensor node has no mesh and empty bounding box, skipped:",

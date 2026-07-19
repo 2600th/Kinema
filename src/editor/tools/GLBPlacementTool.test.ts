@@ -26,6 +26,48 @@ afterEach(() => {
 });
 
 describe("GLBPlacementTool import boundaries", () => {
+  it("disposes an adopted clone and resets the tool when preview material preparation fails", async () => {
+    const transient = { scene: new THREE.Group(), animations: [] };
+    const adoptedScene = new THREE.Group();
+    const adoptedMaterial = new THREE.MeshStandardMaterial();
+    Object.defineProperty(adoptedMaterial, "transparent", {
+      configurable: true,
+      set: () => {
+        throw new Error("preview material preparation failed");
+      },
+    });
+    adoptedScene.add(new THREE.Mesh(new THREE.BoxGeometry(), adoptedMaterial));
+    const disposeObject = vi.fn();
+    const assetLoader = {
+      loadTransient: vi.fn().mockResolvedValue(transient),
+      disposeTransient: vi.fn(),
+      adopt: vi.fn().mockReturnValue({ scene: adoptedScene, animations: [] }),
+      disposeObject,
+    };
+    installObjectURLMocks();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const onFinished = vi.fn();
+    const onImported = vi.fn();
+    const onError = vi.fn();
+    const tool = new GLBPlacementTool({
+      levelManager: { getAssetLoader: () => assetLoader } as unknown as LevelManager,
+      onFinished,
+      onImported,
+      onError,
+    });
+    const context = makeContext();
+
+    await tool.importFile(context, { name: "BrokenPreview.glb" } as File);
+
+    expect(disposeObject).toHaveBeenCalledOnce();
+    expect(disposeObject).toHaveBeenCalledWith(adoptedScene);
+    expect(context.scene.children).not.toContain(adoptedScene);
+    expect(tool.isPlacing()).toBe(false);
+    expect(onImported).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith(expect.stringMatching(/could not be prepared/i));
+    expect(onFinished).toHaveBeenCalledOnce();
+  });
+
   it("announces a successful import after caching and starting placement", async () => {
     const gltf = { scene: new THREE.Group(), animations: [] };
     const ownedGLTF = { scene: new THREE.Group(), animations: [] };
@@ -182,11 +224,15 @@ describe("GLBPlacementTool import boundaries", () => {
     "body",
     "collider",
     "material",
+    "publication",
   ] as const)("aborts and disposes the owned preview without publishing when %s finalization fails", (failure) => {
     const body = { id: "new-body" };
     const removeBody = vi.fn();
-    const historyPush = vi.fn();
+    const historyPush = vi.fn((command: { execute(): void }) => {
+      if (failure === "publication") command.execute();
+    });
     const disposeObject = vi.fn();
+    const rollbackEditorObject = vi.fn();
     const onFinished = vi.fn();
     const onError = vi.fn();
     const scene = new THREE.Scene();
@@ -223,6 +269,10 @@ describe("GLBPlacementTool import boundaries", () => {
         removeBody,
       },
       history: { push: historyPush },
+      addEditorObject: vi.fn(() => {
+        if (failure === "publication") throw new Error("forced GLB publication failure");
+      }),
+      rollbackEditorObject,
     } as unknown as EditorToolContext;
     const tool = new GLBPlacementTool({
       levelManager: { getAssetLoader: () => ({ disposeObject }) } as unknown as LevelManager,
@@ -243,7 +293,13 @@ describe("GLBPlacementTool import boundaries", () => {
 
     if (failure === "collider" || failure === "material") expect(removeBody).toHaveBeenCalledWith(body);
     else expect(removeBody).not.toHaveBeenCalled();
-    expect(historyPush).not.toHaveBeenCalled();
+    if (failure === "publication") {
+      expect(historyPush).toHaveBeenCalledOnce();
+      expect(rollbackEditorObject).toHaveBeenCalledOnce();
+    } else {
+      expect(historyPush).not.toHaveBeenCalled();
+      expect(rollbackEditorObject).not.toHaveBeenCalled();
+    }
     expect(scene.children).not.toContain(preview);
     expect(disposeObject).toHaveBeenCalledWith(preview);
     expect(tool.isPlacing()).toBe(false);

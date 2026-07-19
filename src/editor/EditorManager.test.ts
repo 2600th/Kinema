@@ -1,6 +1,9 @@
+import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
+import { LevelManager } from "../level/LevelManager";
 import { CommandHistory } from "./CommandHistory";
+import { EditorDocument } from "./EditorDocument";
 import { EditorManager } from "./EditorManager";
 import type { EditorObject } from "./EditorObject";
 
@@ -184,5 +187,172 @@ describe("EditorManager gizmo history transactions", () => {
     expect(historyPush).not.toHaveBeenCalled();
     expect(manager.setSelection).not.toHaveBeenCalled();
     expect(manager.showPhysicsMutationError).toHaveBeenCalledWith(expect.stringMatching(/duplicate/i));
+  });
+
+  it("rolls a partially published duplicate back through LevelManager and detaches its gizmo", () => {
+    const scene = new THREE.Scene();
+    const removeBody = vi.fn();
+    const removeCollider = vi.fn();
+    const body = { setEnabled: vi.fn() };
+    const collider = { setEnabled: vi.fn() };
+    const physicsWorld = {
+      world: {
+        createRigidBody: vi.fn(() => body),
+        createCollider: vi.fn(() => collider),
+      },
+      removeBody,
+      removeCollider,
+    };
+    const levelManager = new LevelManager(scene, physicsWorld as any, { emit: vi.fn() } as any);
+    const document = new EditorDocument(scene, physicsWorld as any);
+    const source = makeObject();
+    document.addObject(source, scene);
+    let selectionEventThrows = true;
+    const eventBus = {
+      emit: vi.fn((event: string, payload: unknown) => {
+        if (event === "editor:objectSelected" && payload && selectionEventThrows) {
+          selectionEventThrows = false;
+          throw new Error("selection publication failed");
+        }
+      }),
+    };
+    const gizmo = { attach: vi.fn() };
+    const manager = Object.create(EditorManager.prototype) as any;
+    Object.assign(manager, {
+      guardDocumentMutation: () => true,
+      document,
+      physicsWorld,
+      levelManager,
+      renderer: { scene },
+      eventBus,
+      gizmo,
+      inspectorPanel: { setSelection: vi.fn() },
+      hierarchyPanel: { setSelection: vi.fn() },
+      inspectorEditStartTransform: null,
+      inspectorEditObjectId: null,
+      setSelectionHelper: vi.fn(),
+      syncHierarchy: vi.fn(),
+      history: new CommandHistory(),
+      showPhysicsMutationError: vi.fn(),
+    });
+
+    expect(() => manager.duplicateById(source.id)).not.toThrow();
+
+    expect(document.objects).toEqual([source]);
+    expect(document.selected).toBeNull();
+    expect(scene.children).toEqual([source.mesh]);
+    expect((levelManager as any).objectPhysics.size).toBe(0);
+    expect((levelManager as any).levelBodies).toHaveLength(0);
+    expect((levelManager as any).levelColliders).toHaveLength(0);
+    expect(levelManager.getLevelObjects()).toHaveLength(0);
+    expect(removeCollider).toHaveBeenCalledWith(collider);
+    expect(removeBody).toHaveBeenCalledWith(body);
+    expect(gizmo.attach).toHaveBeenLastCalledWith(null);
+  });
+
+  it("clears LevelManager physics metadata when duplicate tracking itself throws", () => {
+    const scene = new THREE.Scene();
+    const removeBody = vi.fn();
+    const removeCollider = vi.fn();
+    const body = { setEnabled: vi.fn() };
+    const collider = {
+      setEnabled: vi
+        .fn()
+        .mockImplementationOnce(() => {})
+        .mockImplementationOnce(() => {
+          throw new Error("tracking failed");
+        }),
+    };
+    const physicsWorld = {
+      world: { createRigidBody: vi.fn(() => body), createCollider: vi.fn(() => collider) },
+      removeBody,
+      removeCollider,
+    };
+    const levelManager = new LevelManager(scene, physicsWorld as any, { emit: vi.fn() } as any);
+    const document = new EditorDocument(scene, physicsWorld as any);
+    const source = makeObject();
+    document.addObject(source, scene);
+    const manager = Object.create(EditorManager.prototype) as any;
+    Object.assign(manager, {
+      guardDocumentMutation: () => true,
+      document,
+      physicsWorld,
+      levelManager,
+      renderer: { scene },
+      eventBus: { emit: vi.fn() },
+      gizmo: { attach: vi.fn() },
+      inspectorPanel: { setSelection: vi.fn() },
+      hierarchyPanel: { setSelection: vi.fn() },
+      inspectorEditStartTransform: null,
+      inspectorEditObjectId: null,
+      setSelectionHelper: vi.fn(),
+      syncHierarchy: vi.fn(),
+      history: new CommandHistory(),
+      showPhysicsMutationError: vi.fn(),
+    });
+
+    expect(() => manager.duplicateById(source.id)).not.toThrow();
+
+    expect(document.objects).toEqual([source]);
+    expect((levelManager as any).objectPhysics.size).toBe(0);
+    expect((levelManager as any).levelBodies).toHaveLength(0);
+    expect((levelManager as any).levelColliders).toHaveLength(0);
+    expect(levelManager.getLevelObjects()).toHaveLength(0);
+    expect(removeCollider).toHaveBeenCalledWith(collider);
+    expect(removeBody).toHaveBeenCalledWith(body);
+  });
+});
+
+describe("EditorManager collider rollback fidelity", () => {
+  it("prepares an explicit-mass collider restore with pose and interaction properties intact", () => {
+    const obj = makeObject();
+    obj.body = { id: "body" } as any;
+    const createCollider = vi.fn((_desc: RAPIER.ColliderDesc, _body: unknown) => ({ id: "restored" }));
+    const manager = Object.create(EditorManager.prototype) as any;
+    manager.physicsWorld = { world: { createCollider } };
+    const collider = {
+      shape: RAPIER.ColliderDesc.cuboid(1, 2, 3).shape,
+      translationWrtParent: () => ({ x: 1.25, y: -2.5, z: 3.75 }),
+      rotationWrtParent: () => ({ x: 0.1, y: 0.2, z: 0.3, w: 0.9 }),
+      isSensor: () => true,
+      isEnabled: () => false,
+      friction: () => 0.37,
+      restitution: () => 0.62,
+      density: () => 9,
+      mass: () => 7.5,
+      frictionCombineRule: () => 2,
+      restitutionCombineRule: () => 3,
+      collisionGroups: () => 0x12340056,
+      solverGroups: () => 0x43210065,
+      activeHooks: () => 4,
+      activeEvents: () => 5,
+      activeCollisionTypes: () => 6,
+      contactForceEventThreshold: () => 8.5,
+      contactSkin: () => 0.0125,
+    };
+
+    const restore = manager.prepareEditorColliderRestore(obj, collider);
+    expect(restore()).toEqual({ id: "restored" });
+
+    const [desc, body] = createCollider.mock.calls[0]!;
+    expect(body).toBe(obj.body);
+    expect(desc.massPropsMode).toBe(RAPIER.MassPropsMode.Mass);
+    expect(desc.mass).toBe(7.5);
+    expect(desc.density).not.toBe(9);
+    expect(desc.translation).toMatchObject({ x: 1.25, y: -2.5, z: 3.75 });
+    expect(desc.rotation).toMatchObject({ x: 0.1, y: 0.2, z: 0.3, w: 0.9 });
+    expect(desc.isSensor).toBe(true);
+    expect(desc.enabled).toBe(false);
+    expect(desc.friction).toBe(0.37);
+    expect(desc.restitution).toBe(0.62);
+    expect(desc.frictionCombineRule).toBe(2);
+    expect(desc.restitutionCombineRule).toBe(3);
+    expect(desc.collisionGroups).toBe(0x12340056);
+    expect(desc.solverGroups).toBe(0x43210065);
+    expect(desc.activeHooks).toBe(4);
+    expect(desc.activeEvents).toBe(5);
+    expect(desc.activeCollisionTypes).toBe(6);
+    expect(desc.contactForceEventThreshold).toBe(8.5);
+    expect(desc.contactSkin).toBe(0.0125);
   });
 });
