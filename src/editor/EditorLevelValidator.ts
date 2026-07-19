@@ -1,8 +1,8 @@
 import * as THREE from "three";
 import { getBrushById } from "./brushes/index";
-import type { LevelDataV2, SerializedObjectV2 } from "./LevelSerializer";
+import { type LevelDataV2, type SerializedObjectV2, validateLevelDataV2Shape } from "./LevelSerializer";
 
-const SUPPORTED_PRIMITIVES = new Set(["group", "cube", "sphere", "cylinder", "capsule", "plane"]);
+const SUPPORTED_PRIMITIVES = new Set(["group", "box", "cube", "sphere", "cylinder", "capsule", "plane"]);
 const MATRIX_EPSILON = 1e-6;
 
 export type EditorLevelValidationResult = { ok: true } | { ok: false; reason: string };
@@ -37,10 +37,19 @@ function validateSource(entry: SerializedObjectV2): string | null {
   return `Object "${entry.id}" uses unsupported source type "${source.type}".`;
 }
 
-export function validateEditorLevelData(data: LevelDataV2): EditorLevelValidationResult {
-  if (!Array.isArray(data.objects)) {
-    return { ok: false, reason: "The level has no reconstructable object list." };
-  }
+function matrixHasNonUniformScale(matrix: THREE.Matrix4): boolean {
+  const elements = matrix.elements;
+  const sx = Math.hypot(elements[0], elements[1], elements[2]);
+  const sy = Math.hypot(elements[4], elements[5], elements[6]);
+  const sz = Math.hypot(elements[8], elements[9], elements[10]);
+  const largest = Math.max(1, sx, sy, sz);
+  return Math.abs(sx - sy) > MATRIX_EPSILON * largest || Math.abs(sx - sz) > MATRIX_EPSILON * largest;
+}
+
+export function validateEditorLevelData(untrustedData: unknown): EditorLevelValidationResult {
+  const shape = validateLevelDataV2Shape(untrustedData);
+  if (!shape.ok) return shape;
+  const data = untrustedData as LevelDataV2;
 
   const objectsById = new Map<string, SerializedObjectV2>();
   for (const entry of data.objects) {
@@ -97,7 +106,19 @@ export function validateEditorLevelData(data: LevelDataV2): EditorLevelValidatio
 
   for (const entry of data.objects) {
     const isTransformOnlyGroup = entry.source.type === "primitive" && entry.source.primitive === "group";
-    if (isTransformOnlyGroup || entry.visible === false) continue;
+    if (isTransformOnlyGroup) continue;
+    const parent = entry.parentId ? objectsById.get(entry.parentId) : undefined;
+    if (
+      parent &&
+      (entry.physics.type === "dynamic" || entry.physics.type === "kinematic") &&
+      matrixHasNonUniformScale(resolveWorldMatrix(parent))
+    ) {
+      return {
+        ok: false,
+        reason: `Object "${entry.id}" is a moving ${entry.physics.type} body below non-uniform inherited scale, which physics cannot represent exactly.`,
+      };
+    }
+    if (entry.visible === false) continue;
     const world = resolveWorldMatrix(entry);
     const position = new THREE.Vector3();
     const rotation = new THREE.Quaternion();

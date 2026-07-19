@@ -22,7 +22,13 @@ import {
 import { validateEditorLevelData } from "./EditorLevelValidator";
 import { type EditorLoadToken, EditorLoadTransaction } from "./EditorLoadTransaction";
 import type { EditorObject } from "./EditorObject";
-import { getObjectColliderBounds, getObjectWorldPhysicsPose } from "./EditorPhysicsSync";
+import {
+  getObjectColliderBounds,
+  getObjectWorldPhysicsPose,
+  syncRigidBodiesInSubtree,
+  validateObjectPhysicsTransform,
+  validatePhysicsAttachment,
+} from "./EditorPhysicsSync";
 import { FreeCamera } from "./FreeCamera";
 import { type LevelData, LevelSerializer } from "./LevelSerializer";
 import { BrushPanel } from "./panels/BrushPanel";
@@ -175,9 +181,19 @@ export class EditorManager {
       },
       onReparent: (childId, newParentId) => {
         if (!this.guardDocumentMutation()) return;
+        const child = this.document.findById(childId);
+        const nextParent = newParentId ? this.document.findById(newParentId)?.mesh : this.renderer.scene;
+        if (!child || !nextParent) return;
+        const validation = validatePhysicsAttachment(child.mesh, nextParent, child.physicsType ?? "static");
+        if (!validation.ok) {
+          this.showPhysicsMutationError(validation.reason);
+          this.syncHierarchy();
+          return;
+        }
         const previousParent = this.document.findById(childId)?.parentId ?? null;
         this.document.reparentById(childId, newParentId);
         if (previousParent !== (this.document.findById(childId)?.parentId ?? null)) {
+          this.syncPhysicsSubtree(child, false);
           this.markDirty();
         }
         this.syncHierarchy();
@@ -187,6 +203,7 @@ export class EditorManager {
         const groupObj = this.document.groupObjects(ids);
         if (groupObj) {
           this.levelManager.addLevelObject(groupObj.mesh, this.createLevelObjectTracking(groupObj));
+          this.syncPhysicsSubtree(groupObj, false);
           this.syncHierarchy();
           this.setSelection(groupObj);
           this.markDirty();
@@ -196,9 +213,28 @@ export class EditorManager {
         if (!this.guardDocumentMutation()) return;
         const wasSelected = this.document.selected;
         const groupObj = this.document.findById(groupId);
+        const targetParent = groupObj?.parentId
+          ? this.document.findById(groupObj.parentId)?.mesh
+          : this.renderer.scene;
+        if (groupObj && targetParent) {
+          for (const childId of groupObj.children ?? []) {
+            const child = this.document.findById(childId);
+            if (!child) continue;
+            const validation = validatePhysicsAttachment(child.mesh, targetParent, child.physicsType ?? "static");
+            if (!validation.ok) {
+              this.showPhysicsMutationError(validation.reason);
+              this.syncHierarchy();
+              return;
+            }
+          }
+        }
         if (groupObj && this.document.ungroupObject(groupId)) {
           this.levelManager.removeLevelObject(groupObj.mesh);
           if (wasSelected && wasSelected.id === groupId) this.setSelection(null);
+          for (const childId of groupObj.children ?? []) {
+            const child = this.document.findById(childId);
+            if (child) this.syncPhysicsSubtree(child, false);
+          }
           this.syncHierarchy();
           this.markDirty();
         }
@@ -1205,6 +1241,35 @@ export class EditorManager {
     const obj = this.document.findById(id);
     if (!obj || obj.physicsType === type) return;
 
+    const validation = validateObjectPhysicsTransform(obj.mesh, type);
+    if (!validation.ok) {
+      this.showPhysicsMutationError(validation.reason);
+      this.inspectorPanel.setSelection(obj);
+      return;
+    }
+
+    const pose = getObjectWorldPhysicsPose(obj.mesh);
+    const bodyDesc =
+      type === "static"
+        ? RAPIER.RigidBodyDesc.fixed()
+        : type === "kinematic"
+          ? RAPIER.RigidBodyDesc.kinematicPositionBased()
+          : RAPIER.RigidBodyDesc.dynamic();
+    bodyDesc.setTranslation(pose.position.x, pose.position.y, pose.position.z);
+    bodyDesc.setRotation(new RAPIER.Quaternion(pose.rotation.x, pose.rotation.y, pose.rotation.z, pose.rotation.w));
+
+    const body = this.physicsWorld.world.createRigidBody(bodyDesc);
+    let collider: RAPIER.Collider;
+    try {
+      collider = this.physicsWorld.world.createCollider(this.buildEditorColliderDesc(obj, pose.scale), body);
+    } catch (error) {
+      this.physicsWorld.removeBody(body);
+      this.showPhysicsMutationError("Physics type change failed; the existing physics was kept.");
+      console.error("[Editor] Physics type change failed:", error);
+      this.inspectorPanel.setSelection(obj);
+      return;
+    }
+
     // Remove old body/collider
     const wasLevelTracked = this.levelManager.getLevelObjects().includes(obj.mesh);
     if (wasLevelTracked) {
@@ -1220,38 +1285,6 @@ export class EditorManager {
       obj.collider = undefined;
     }
 
-    // Create new body with correct type
-    const pos = obj.mesh.position;
-    const q = obj.mesh.quaternion;
-    let bodyDesc: RAPIER.RigidBodyDesc;
-    if (type === "static") {
-      bodyDesc = RAPIER.RigidBodyDesc.fixed();
-    } else if (type === "kinematic") {
-      bodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased();
-    } else {
-      bodyDesc = RAPIER.RigidBodyDesc.dynamic();
-    }
-    bodyDesc.setTranslation(pos.x, pos.y, pos.z);
-    bodyDesc.setRotation(new RAPIER.Quaternion(q.x, q.y, q.z, q.w));
-
-    const body = this.physicsWorld.world.createRigidBody(bodyDesc);
-
-    // Recreate collider -- approximate from bounding box
-    const meshObj = obj.mesh as THREE.Mesh;
-    let colliderDesc: RAPIER.ColliderDesc;
-    if (meshObj.isMesh && meshObj.geometry) {
-      meshObj.geometry.computeBoundingBox();
-      const bb = meshObj.geometry.boundingBox!;
-      const s = obj.mesh.scale;
-      const halfW = ((bb.max.x - bb.min.x) / 2) * s.x;
-      const halfH = ((bb.max.y - bb.min.y) / 2) * s.y;
-      const halfD = ((bb.max.z - bb.min.z) / 2) * s.z;
-      colliderDesc = RAPIER.ColliderDesc.cuboid(halfW, halfH, halfD);
-    } else {
-      colliderDesc = RAPIER.ColliderDesc.cuboid(0.5, 0.5, 0.5);
-    }
-
-    const collider = this.physicsWorld.world.createCollider(colliderDesc, body);
     obj.body = body;
     obj.collider = collider;
     obj.physicsType = type;
@@ -1281,12 +1314,27 @@ export class EditorManager {
         .every((value, index) => value === transform.rotation[index]) ||
       !selected.mesh.scale.toArray().every((value, index) => value === transform.scale[index]);
     if (!changed) return;
+    const previous = {
+      position: selected.mesh.position.clone(),
+      rotation: selected.mesh.rotation.clone(),
+      scale: selected.mesh.scale.clone(),
+    };
     selected.mesh.position.set(transform.position[0], transform.position[1], transform.position[2]);
     selected.mesh.rotation.set(transform.rotation[0], transform.rotation[1], transform.rotation[2]);
     selected.mesh.scale.set(transform.scale[0], transform.scale[1], transform.scale[2]);
-    selected.mesh.updateMatrixWorld(true);
+    selected.mesh.updateWorldMatrix(true, true);
+    const validation = this.validatePhysicsSubtree(selected);
+    if (!validation.ok) {
+      selected.mesh.position.copy(previous.position);
+      selected.mesh.rotation.copy(previous.rotation);
+      selected.mesh.scale.copy(previous.scale);
+      selected.mesh.updateWorldMatrix(true, true);
+      this.inspectorPanel.setSelection(selected);
+      this.showPhysicsMutationError(validation.reason);
+      return;
+    }
     this.updateEditorObjectTransform(selected);
-    this.applyPhysicsTransform(selected);
+    this.syncPhysicsSubtree(selected, true);
     this.markDirty();
   }
 
@@ -1321,14 +1369,27 @@ export class EditorManager {
   private onGizmoObjectChanged(): void {
     if (!this.guardDocumentMutation()) return;
     if (!this.document.selected) return;
-    this.updateEditorObjectTransform(this.document.selected);
+    const selected = this.document.selected;
     if (this.grid.enabled) {
       this.applySnapToSelection();
     }
-    this.applyPhysicsTransform(this.document.selected);
-    this.inspectorPanel.setSelection(this.document.selected);
+    selected.mesh.updateWorldMatrix(true, true);
+    const validation = this.validatePhysicsSubtree(selected);
+    if (!validation.ok) {
+      selected.mesh.position.fromArray(selected.transform.position);
+      selected.mesh.rotation.set(...selected.transform.rotation);
+      selected.mesh.scale.fromArray(selected.transform.scale);
+      selected.mesh.updateWorldMatrix(true, true);
+      this.syncPhysicsSubtree(selected, false);
+      this.inspectorPanel.setSelection(selected);
+      this.showPhysicsMutationError(validation.reason);
+      return;
+    }
+    this.updateEditorObjectTransform(selected);
+    this.syncPhysicsSubtree(selected, false);
+    this.inspectorPanel.setSelection(selected);
     // Force world matrix update so BoxHelper.update() reads correct bounds
-    this.document.selected.mesh.updateMatrixWorld(true);
+    selected.mesh.updateMatrixWorld(true);
     this.markDirty();
   }
 
@@ -1411,54 +1472,58 @@ export class EditorManager {
     obj.transform.scale = [obj.mesh.scale.x, obj.mesh.scale.y, obj.mesh.scale.z];
   }
 
-  private applyPhysicsTransform(obj: EditorObject): void {
-    if (!obj.body) return;
-    const pos = obj.mesh.position;
-    obj.body.setTranslation(new RAPIER.Vector3(pos.x, pos.y, pos.z), true);
-    const q = obj.mesh.quaternion;
-    obj.body.setRotation(new RAPIER.Quaternion(q.x, q.y, q.z, q.w), true);
+  private physicsSubtree(root: EditorObject): EditorObject[] {
+    const nodes = new Set<THREE.Object3D>();
+    root.mesh.traverse((node) => nodes.add(node));
+    return this.document.objects.filter((entry) => nodes.has(entry.mesh));
+  }
 
-    // Rebuild collider when scale changes (collider shape cannot be rescaled in-place).
-    // Must handle different shape types: cuboid, cylinder, trimesh.
-    if (obj.collider && obj.body) {
-      obj.mesh.updateMatrixWorld(true);
-      const box = new THREE.Box3().setFromObject(obj.mesh);
-      const size = box.getSize(new THREE.Vector3());
+  private validatePhysicsSubtree(root: EditorObject): { ok: true } | { ok: false; reason: string } {
+    for (const obj of this.physicsSubtree(root)) {
+      const validation = validateObjectPhysicsTransform(obj.mesh, obj.physicsType ?? "static");
+      if (!validation.ok) return validation;
+    }
+    return { ok: true };
+  }
 
-      // Determine if rebuild is needed by comparing against current AABB size
-      const shapeType = obj.collider.shapeType();
-      let needsRebuild = false;
+  private showPhysicsMutationError(reason: string): void {
+    this.toolbarPanel.showSaveError(`Physics edit rejected â€” ${reason}`);
+  }
 
-      if (shapeType === RAPIER.ShapeType.Cuboid) {
-        const cur = (obj.collider.shape as RAPIER.Cuboid).halfExtents;
-        needsRebuild =
-          Math.abs(cur.x - size.x / 2) > 0.001 ||
-          Math.abs(cur.y - size.y / 2) > 0.001 ||
-          Math.abs(cur.z - size.z / 2) > 0.001;
-      } else {
-        // For trimesh/cylinder: always rebuild on any scale change since
-        // we can't easily compare the current shape's dimensions
-        needsRebuild = true;
+  private buildEditorColliderDesc(obj: EditorObject, worldScale?: THREE.Vector3): RAPIER.ColliderDesc {
+    const mesh = obj.mesh as THREE.Mesh;
+    const scale = worldScale ?? getObjectWorldPhysicsPose(obj.mesh).scale;
+    if (obj.source.type === "brush" && obj.source.brush && mesh.isMesh && mesh.geometry) {
+      const scaleProxy = new THREE.Mesh(mesh.geometry);
+      scaleProxy.scale.copy(scale);
+      return buildColliderDesc(obj.source.brush, mesh.geometry, scaleProxy);
+    }
+    const bounds = getObjectColliderBounds(obj.mesh);
+    return RAPIER.ColliderDesc.cuboid(
+      Math.max(bounds.halfExtents.x, 0.01),
+      Math.max(bounds.halfExtents.y, 0.01),
+      Math.max(bounds.halfExtents.z, 0.01),
+    ).setTranslation(bounds.center.x, bounds.center.y, bounds.center.z);
+  }
+
+  private syncPhysicsSubtree(root: EditorObject, rebuildColliders: boolean): void {
+    const subtree = this.physicsSubtree(root);
+    syncRigidBodiesInSubtree(root.mesh, subtree);
+    for (const obj of subtree) {
+      if (!obj.body) continue;
+      if (!rebuildColliders || !obj.collider) continue;
+      let replacement: RAPIER.Collider;
+      try {
+        replacement = this.physicsWorld.world.createCollider(this.buildEditorColliderDesc(obj), obj.body);
+      } catch (error) {
+        console.error("[Editor] Collider rebuild failed:", error);
+        this.showPhysicsMutationError("Collider rebuild failed; the previous collider was kept.");
+        continue;
       }
-
-      if (needsRebuild) {
-        this.physicsWorld.world.removeCollider(obj.collider, true);
-        // Use shape-appropriate collider if this is a brush object
-        const meshObj = obj.mesh as THREE.Mesh;
-        let colliderDesc: RAPIER.ColliderDesc;
-        if (obj.source?.type === "brush" && obj.source.brush && meshObj.isMesh && meshObj.geometry) {
-          colliderDesc = buildColliderDesc(obj.source.brush, meshObj.geometry, meshObj);
-        } else {
-          colliderDesc = RAPIER.ColliderDesc.cuboid(
-            Math.max(size.x / 2, 0.01),
-            Math.max(size.y / 2, 0.01),
-            Math.max(size.z / 2, 0.01),
-          );
-        }
-        obj.collider = this.physicsWorld.world.createCollider(colliderDesc, obj.body);
-        if (this.levelManager.getLevelObjects().includes(obj.mesh)) {
-          this.levelManager.updateLevelObjectPhysics(obj.mesh, { body: obj.body, collider: obj.collider });
-        }
+      this.physicsWorld.world.removeCollider(obj.collider, true);
+      obj.collider = replacement;
+      if (this.levelManager.getLevelObjects().includes(obj.mesh)) {
+        this.levelManager.updateLevelObjectPhysics(obj.mesh, { body: obj.body, collider: obj.collider });
       }
     }
   }
@@ -1471,7 +1536,7 @@ export class EditorManager {
     obj.mesh.rotation.copy(transform.rotation);
     obj.mesh.scale.copy(transform.scale);
     this.updateEditorObjectTransform(obj);
-    this.applyPhysicsTransform(obj);
+    this.syncPhysicsSubtree(obj, true);
     this.inspectorPanel.setSelection(obj);
   }
 
@@ -1872,21 +1937,13 @@ export class EditorManager {
     );
     const body = this.physicsWorld.world.createRigidBody(bodyDesc);
 
-    let colliderDesc: RAPIER.ColliderDesc;
-    const mesh = editorObj.mesh as THREE.Mesh;
-    if (entry.source.type === "brush" && entry.source.brush && mesh.isMesh && mesh.geometry) {
-      const scaleProxy = new THREE.Mesh(mesh.geometry);
-      scaleProxy.scale.copy(pose.scale);
-      colliderDesc = buildColliderDesc(entry.source.brush, mesh.geometry, scaleProxy);
-    } else {
-      const bounds = getObjectColliderBounds(editorObj.mesh);
-      colliderDesc = RAPIER.ColliderDesc.cuboid(
-        Math.max(bounds.halfExtents.x, 0.01),
-        Math.max(bounds.halfExtents.y, 0.01),
-        Math.max(bounds.halfExtents.z, 0.01),
-      ).setTranslation(bounds.center.x, bounds.center.y, bounds.center.z);
+    let collider: RAPIER.Collider;
+    try {
+      collider = this.physicsWorld.world.createCollider(this.buildEditorColliderDesc(editorObj, pose.scale), body);
+    } catch (error) {
+      this.physicsWorld.removeBody(body);
+      throw error;
     }
-    const collider = this.physicsWorld.world.createCollider(colliderDesc, body);
     editorObj.body = body;
     editorObj.collider = collider;
   }

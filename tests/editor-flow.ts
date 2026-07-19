@@ -177,11 +177,11 @@ test("protects unsaved editor work and saves through Ctrl+S", async ({ page }) =
         spawnPoint: { position: [0, 2, 0] },
         objects: [
           {
-            id: "unsupported-object",
-            name: "Unsupported",
+            id: "malformed-object",
+            name: "Malformed",
             parentId: null,
-            source: { type: "sprite" },
-            transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+            source: { type: "primitive", primitive: "cube" },
+            transform: { position: [0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
             physics: { type: "static" },
           },
         ],
@@ -189,7 +189,7 @@ test("protects unsaved editor work and saves through Ctrl+S", async ({ page }) =
     ),
   });
   await expect(page.locator(".ke-save-error")).toHaveText(
-    "Load rejected — one or more objects or hierarchy links could not be reconstructed.",
+    "Load rejected — the selected file is not valid Kinema level JSON.",
   );
   await expect(page.locator(".ke-save-error")).toBeVisible();
   expect(await page.evaluate(() => window.__KINEMA__.getEditorObjectCount())).toBe(initialObjectCount + 1);
@@ -355,6 +355,7 @@ test("protects unsaved editor work and saves through Ctrl+S", async ({ page }) =
             parentId: null,
             source: { type: "glb", asset: "/assets/models/kin021-delayed.glb" },
             transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+            physics: { type: "static" },
           },
         ],
       }),
@@ -378,6 +379,72 @@ test("protects unsaved editor work and saves through Ctrl+S", async ({ page }) =
   });
   expect(await page.evaluate(() => window.__KINEMA__.getEditorObjectCount())).toBe(1);
   await expect(page.locator(".ke-save-error")).toBeHidden();
+});
+
+test("rejects invalid inherited-scale physics mutations without changing the document", async ({ page }) => {
+  test.setTimeout(180_000);
+  await page.addInitScript(() => {
+    localStorage.setItem("kinema.user-settings.v1", JSON.stringify({ graphicsProfile: "performance" }));
+  });
+  await page.goto("/?station=steps", { waitUntil: "domcontentloaded" });
+  await waitForKinema(page);
+  await waitForGrounded(page);
+  await openEditor(page);
+
+  const chooserPromise = page.waitForEvent("filechooser");
+  await page.getByTitle("Load", { exact: true }).click();
+  const chooser = await chooserPromise;
+  await chooser.setFiles({
+    name: "physics-policy.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(
+      JSON.stringify({
+        version: 2,
+        name: "physics-policy",
+        created: "2026-07-19T00:00:00.000Z",
+        modified: "2026-07-19T00:00:00.000Z",
+        spawnPoint: { position: [0, 2, 0] },
+        objects: [
+          {
+            id: "scaled-parent",
+            name: "Scaled Parent",
+            parentId: null,
+            source: { type: "primitive", primitive: "group" },
+            transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [2, 1, 0.5] },
+            physics: { type: "static" },
+          },
+          {
+            id: "static-child",
+            name: "Static Child",
+            parentId: "scaled-parent",
+            source: { type: "primitive", primitive: "cube" },
+            transform: { position: [1, 0.5, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+            physics: { type: "static" },
+          },
+        ],
+      }),
+    ),
+  });
+
+  await expect(page.locator(".ke-document-title")).toHaveText("physics-policy");
+  await page.locator('.ke-tree-row[data-object-id="scaled-parent"] .ke-tree-row-toggle').click();
+  await page.locator(".ke-tree-row-label", { hasText: "Static Child" }).click();
+  const physicsSelect = page.locator(".ke-inspector-row", { hasText: "Physics" }).locator("select");
+  await expect(physicsSelect).toHaveValue("static");
+  await physicsSelect.selectOption("dynamic");
+  await expect(page.locator(".ke-save-error")).toContainText("Physics edit rejected");
+  await expect(page.locator(".ke-save-error")).toContainText("non-uniform inherited scale");
+  await expect(physicsSelect).toHaveValue("static");
+
+  const rotationY = page.getByTitle("Rotation Y");
+  await rotationY.fill("30");
+  await expect(page.locator(".ke-save-error")).toContainText("Physics edit rejected");
+  await expect(page.locator(".ke-save-error")).toContainText("rotated child");
+  await expect(rotationY).toHaveValue("0.00");
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorDocumentState())).toEqual({
+    name: "physics-policy",
+    dirty: false,
+  });
 });
 
 test("rejects stale async editor lifecycle completions", async ({ page }) => {

@@ -1,7 +1,6 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import type { LevelManager } from "@level/LevelManager";
 import * as THREE from "three";
-import { clone as skeletonClone } from "three/addons/utils/SkeletonUtils.js";
 import type { EditorObject } from "../EditorObject";
 import type { EditorTool, EditorToolContext } from "./EditorTool";
 
@@ -68,17 +67,25 @@ export class GLBPlacementTool implements EditorTool {
     const importGeneration = ++this.importGeneration;
     const lifecycleGeneration = this.getLifecycleGeneration();
     const objectUrl = URL.createObjectURL(file);
+    const assetLoader = this.levelManager.getAssetLoader();
+    let transientGLTF: Awaited<ReturnType<typeof assetLoader.loadTransient>> | null = null;
     try {
-      const gltf = await this.levelManager.getAssetLoader().load(objectUrl);
-      if (!this.isImportCurrent(importGeneration, lifecycleGeneration)) return;
+      transientGLTF = await assetLoader.loadTransient(objectUrl);
+      if (!this.isImportCurrent(importGeneration, lifecycleGeneration)) {
+        assetLoader.disposeTransient(transientGLTF);
+        transientGLTF = null;
+        return;
+      }
       const assetPath = `/assets/models/${file.name}`;
 
-      // Register the loaded GLTF under the canonical asset path so it survives
-      // play-test restore (spawnSerializedObject calls load(assetPath)).
-      this.levelManager.getAssetLoader().put(assetPath, gltf);
+      // Adopt and clone synchronously: there is no lifecycle gap after the
+      // final freshness check in which a stale import can enter the cache.
+      const gltf = assetLoader.adopt(assetPath, transientGLTF);
+      transientGLTF = null;
 
-      // Use SkeletonUtils.clone to preserve SkinnedMesh skeleton bindings
-      const clone = skeletonClone(gltf.scene);
+      // The canonical cache owns the parsed source; adopt() returned a fully
+      // independent scene whose ownership transfers to the preview/final object.
+      const clone = gltf.scene;
       // Store animation clips on the cloned scene for later use
       if (gltf.animations?.length) {
         clone.userData.animations = gltf.animations;
@@ -92,6 +99,7 @@ export class GLBPlacementTool implements EditorTool {
     } catch (err) {
       console.error("[Editor] Failed to import GLB:", err);
     } finally {
+      if (transientGLTF) assetLoader.disposeTransient(transientGLTF);
       // Revoke the blob URL (the GLTF data is now cached under assetPath via put())
       // Don't call evict() — that would dispose the shared scene/materials.
       URL.revokeObjectURL(objectUrl);
@@ -131,11 +139,13 @@ export class GLBPlacementTool implements EditorTool {
     // Make preview transparent
     this.glbPreview.traverse((child) => {
       if (child instanceof THREE.Mesh && child.material) {
-        const mat = (child.material as THREE.Material).clone();
-        (mat as THREE.MeshStandardMaterial).transparent = true;
-        (mat as THREE.MeshStandardMaterial).opacity = 0.4;
-        (mat as THREE.MeshStandardMaterial).depthWrite = false;
-        child.material = mat;
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        for (const material of materials) {
+          const previewMaterial = material as THREE.MeshStandardMaterial;
+          previewMaterial.transparent = true;
+          previewMaterial.opacity = 0.4;
+          previewMaterial.depthWrite = false;
+        }
       }
     });
     ctx.scene.add(this.glbPreview);
@@ -164,15 +174,17 @@ export class GLBPlacementTool implements EditorTool {
     // Remove the transparent preview
     ctx.scene.remove(this.glbPreview);
 
-    // Create final opaque clone (SkeletonUtils preserves skinned mesh bindings)
-    const finalObj = skeletonClone(this.glbPreview);
+    // Transfer the owned preview scene directly into the document.
+    const finalObj = this.glbPreview;
     finalObj.traverse((child) => {
       if (child instanceof THREE.Mesh && child.material) {
-        const mat = (child.material as THREE.Material).clone();
-        (mat as THREE.MeshStandardMaterial).transparent = false;
-        (mat as THREE.MeshStandardMaterial).opacity = 1;
-        (mat as THREE.MeshStandardMaterial).depthWrite = true;
-        child.material = mat;
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        for (const material of materials) {
+          const finalMaterial = material as THREE.MeshStandardMaterial;
+          finalMaterial.transparent = false;
+          finalMaterial.opacity = 1;
+          finalMaterial.depthWrite = true;
+        }
         child.castShadow = true;
         child.receiveShadow = true;
       }
@@ -209,7 +221,13 @@ export class GLBPlacementTool implements EditorTool {
       Math.max(size.y / 2, 0.01),
       Math.max(size.z / 2, 0.01),
     );
-    const collider = ctx.physicsWorld.world.createCollider(colliderDesc, body);
+    let collider: RAPIER.Collider;
+    try {
+      collider = ctx.physicsWorld.world.createCollider(colliderDesc, body);
+    } catch (error) {
+      ctx.physicsWorld.removeBody(body);
+      throw error;
+    }
     editorObj.body = body;
     editorObj.collider = collider;
 
@@ -236,17 +254,7 @@ export class GLBPlacementTool implements EditorTool {
   cancelPlacement(ctx: EditorToolContext): void {
     if (this.glbPreview) {
       ctx.scene.remove(this.glbPreview);
-      this.glbPreview.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          child.geometry?.dispose();
-          const mat = child.material;
-          if (Array.isArray(mat)) {
-            mat.forEach((m) => void m.dispose());
-          } else if (mat) {
-            (mat as THREE.Material).dispose();
-          }
-        }
-      });
+      this.levelManager.getAssetLoader().disposeObject(this.glbPreview);
     }
     this.glbPreview = null;
     this.pendingGLBAsset = null;

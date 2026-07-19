@@ -128,4 +128,45 @@ describe("validateEditorLevelData", () => {
     expect(result.reason).toContain("rotated-child");
     expect(result.reason).toMatch(/non-uniform inherited scale/i);
   });
+
+  it.each(["dynamic", "kinematic"] as const)(
+    "rejects an axis-aligned %s child below a non-uniformly scaled parent",
+    (type) => {
+      const parent = objectWith({ type: "primitive", primitive: "group" }, "scaled-parent");
+      parent.transform.scale = [2, 1, 0.5];
+      const child = objectWith({ type: "primitive", primitive: "cube" }, `${type}-child`);
+      child.parentId = parent.id;
+      child.physics.type = type;
+
+      const result = validateEditorLevelData(levelWith([parent, child]));
+
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error("Expected moving-body inherited scale rejection");
+      expect(result.reason).toContain(`${type}-child`);
+      expect(result.reason).toMatch(/dynamic|kinematic|moving/i);
+      expect(result.reason).toMatch(/non-uniform/i);
+    },
+  );
+
+  it("rejects a hidden dynamic child below non-uniform inherited scale before it can later be shown", () => {
+    const parent = objectWith({ type: "primitive", primitive: "group" }, "scaled-parent");
+    parent.transform.scale = [2, 1, 0.5];
+    const child = objectWith({ type: "primitive", primitive: "cube" }, "hidden-dynamic");
+    child.parentId = parent.id;
+    child.physics.type = "dynamic";
+    child.visible = false;
+
+    expect(validateEditorLevelData(levelWith([parent, child])).ok).toBe(false);
+  });
+
+  it.each([
+    ["missing objects", { version: 2, name: "bad", created: "x", modified: "x", spawnPoint: { position: [0, 2, 0] } }],
+    ["bad parent id", levelWith([{ ...objectWith({ type: "primitive", primitive: "cube" }), parentId: 42 } as unknown as SerializedObjectV2])],
+    ["bad transform tuple", levelWith([{ ...objectWith({ type: "primitive", primitive: "cube" }), transform: { position: [0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] } } as unknown as SerializedObjectV2])],
+    ["non-finite transform", levelWith([{ ...objectWith({ type: "primitive", primitive: "cube" }), transform: { position: [0, 0, 0], rotation: [0, Number.NaN, 0], scale: [1, 1, 1] } }])],
+    ["bad physics", levelWith([{ ...objectWith({ type: "primitive", primitive: "cube" }), physics: { type: "future" } } as unknown as SerializedObjectV2])],
+  ])("totally rejects malformed V2 data: %s", (_label, malformed) => {
+    expect(() => validateEditorLevelData(malformed as LevelDataV2)).not.toThrow();
+    expect(validateEditorLevelData(malformed as LevelDataV2).ok).toBe(false);
+  });
 });

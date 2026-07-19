@@ -254,7 +254,13 @@ export class BrushPlacementTool implements EditorTool {
       const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(position.x, position.y, position.z);
       const body = ctx.physicsWorld.world.createRigidBody(bodyDesc);
       const colliderDesc = buildColliderDesc(brush.id, geometry, mesh);
-      const collider = ctx.physicsWorld.world.createCollider(colliderDesc, body);
+      let collider: RAPIER.Collider;
+      try {
+        collider = ctx.physicsWorld.world.createCollider(colliderDesc, body);
+      } catch (error) {
+        ctx.physicsWorld.removeBody(body);
+        throw error;
+      }
       editorObj.body = body;
       editorObj.collider = collider;
     }

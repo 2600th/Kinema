@@ -109,6 +109,109 @@ describe("LevelManager editor metadata for JSON GLBs", () => {
     expect(placeholder.userData.editorMissingAssetPath).toBe("/assets/models/Missing.glb");
     expect(placeholder.userData.editorSource).toEqual(entry.source);
   });
+
+  it("preserves an already-canonical session import across runtime unload for editor restore", async () => {
+    const manager = makeManager();
+    const assetPath = "/assets/models/SessionOwned.glb";
+    manager.getAssetLoader().put(assetPath, { scene: new THREE.Group(), animations: [] } as any);
+    const internals = manager as unknown as { loadGLBObject(path: string): Promise<THREE.Object3D | null> };
+
+    await internals.loadGLBObject(assetPath);
+    (manager as any).currentLevelName = "playtest";
+    manager.unload();
+
+    expect(manager.getAssetLoader().has(assetPath)).toBe(true);
+  });
+});
+
+describe("LevelManager transactional editor JSON loading", () => {
+  const baseLevel = {
+    version: 2 as const,
+    name: "replacement",
+    created: "2026-07-19T00:00:00.000Z",
+    modified: "2026-07-19T00:00:00.000Z",
+    spawnPoint: { position: [0, 2, 0] as [number, number, number] },
+  };
+
+  it("rejects malformed inherited moving-body scale before unloading the current level", async () => {
+    const scene = new THREE.Scene();
+    const oldRoot = new THREE.Group();
+    oldRoot.name = "CurrentRoot";
+    scene.add(oldRoot);
+    const physicsWorld = { world: {}, removeCollider: vi.fn(), removeBody: vi.fn() };
+    const manager = new LevelManager(scene, physicsWorld as any, { emit: vi.fn() } as any);
+    (manager as any).currentLevelName = "current";
+    (manager as any).currentLevelOrigin = "authored";
+    (manager as any).currentLevelKind = "authored";
+    (manager as any).levelObjects = [oldRoot];
+
+    await expect(
+      manager.loadFromJSON({
+        ...baseLevel,
+        objects: [
+          {
+            id: "parent",
+            name: "Parent",
+            parentId: null,
+            source: { type: "primitive", primitive: "group" },
+            transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [2, 1, 0.5] },
+            physics: { type: "static" },
+          },
+          {
+            id: "child",
+            name: "Child",
+            parentId: "parent",
+            source: { type: "primitive", primitive: "cube" },
+            transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+            physics: { type: "dynamic" },
+          },
+        ],
+      }),
+    ).rejects.toThrow(/non-uniform/i);
+
+    expect(manager.getCurrentLevelName()).toBe("current");
+    expect(manager.getLevelObjects()).toEqual([oldRoot]);
+    expect(scene.children).toContain(oldRoot);
+    expect(physicsWorld.removeBody).not.toHaveBeenCalled();
+  });
+
+  it("rolls back visuals and a newly created body when collider creation throws", async () => {
+    const scene = new THREE.Scene();
+    const body = {};
+    const physicsWorld = {
+      world: {
+        createRigidBody: vi.fn(() => body),
+        createCollider: vi.fn(() => {
+          throw new Error("forced collider failure");
+        }),
+      },
+      removeCollider: vi.fn(),
+      removeBody: vi.fn(),
+    };
+    const manager = new LevelManager(scene, physicsWorld as any, { emit: vi.fn() } as any);
+    vi.spyOn(manager as any, "addLighting").mockImplementation(() => {});
+
+    await expect(
+      manager.loadFromJSON({
+        ...baseLevel,
+        objects: [
+          {
+            id: "cube",
+            name: "Cube",
+            parentId: null,
+            source: { type: "primitive", primitive: "cube" },
+            transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+            physics: { type: "static" },
+          },
+        ],
+      }),
+    ).rejects.toThrow("forced collider failure");
+
+    expect(physicsWorld.removeBody).toHaveBeenCalledWith(body);
+    expect(manager.getCurrentLevelName()).toBeNull();
+    expect(manager.getLevelObjects()).toHaveLength(0);
+    expect(scene.getObjectByName("Cube")).toBeUndefined();
+  });
 });
 
 describe("LevelManager load timing", () => {

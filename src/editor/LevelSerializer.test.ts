@@ -65,6 +65,18 @@ afterEach(() => {
 });
 
 describe("LevelSerializer", () => {
+  it.each([
+    ["missing objects", { version: 2, name: "bad", created: NOW, modified: NOW, spawnPoint: { position: [0, 2, 0] } }],
+    ["malformed object entry", { version: 2, name: "bad", created: NOW, modified: NOW, spawnPoint: { position: [0, 2, 0] }, objects: [null] }],
+    ["short transform tuple", { version: 2, name: "bad", created: NOW, modified: NOW, spawnPoint: { position: [0, 2, 0] }, objects: [{ id: "bad", name: "bad", parentId: null, source: { type: "primitive", primitive: "cube" }, transform: { position: [0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] }, physics: { type: "static" } }] }],
+    ["non-finite transform", { version: 2, name: "bad", created: NOW, modified: NOW, spawnPoint: { position: [0, 2, 0] }, objects: [{ id: "bad", name: "bad", parentId: null, source: { type: "primitive", primitive: "cube" }, transform: { position: [0, Number.POSITIVE_INFINITY, 0], rotation: [0, 0, 0], scale: [1, 1, 1] }, physics: { type: "static" } }] }],
+    ["malformed source", { version: 2, name: "bad", created: NOW, modified: NOW, spawnPoint: { position: [0, 2, 0] }, objects: [{ id: "bad", name: "bad", parentId: null, source: null, transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] }, physics: { type: "static" } }] }],
+    ["malformed physics", { version: 2, name: "bad", created: NOW, modified: NOW, spawnPoint: { position: [0, 2, 0] }, objects: [{ id: "bad", name: "bad", parentId: null, source: { type: "primitive", primitive: "cube" }, transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] }, physics: { type: "flying" } }] }],
+  ])("rejects syntactically valid V2 JSON with %s without throwing", (_label, malformed) => {
+    expect(() => upgradeLevelData(malformed)).not.toThrow();
+    expect(upgradeLevelData(malformed)).toBeNull();
+  });
+
   it("round-trips a complete V2 document without dropping serialized fields", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(NOW));

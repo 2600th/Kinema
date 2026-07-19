@@ -44,7 +44,7 @@ export class AssetLoader {
   /** Load a GLTF/GLB file. Returns cached result (with cloned scene) if available. */
   async load(url: string): Promise<GLTF> {
     const cached = this.cache.get(url);
-    if (cached) return { ...cached, scene: skeletonClone(cached.scene) as THREE.Group };
+    if (cached) return this.cloneForUse(cached);
 
     let pending = this.pending.get(url);
     if (!pending) {
@@ -58,7 +58,7 @@ export class AssetLoader {
         this.cache.set(url, gltf);
       }
       // Return a clone even on first load to protect the cache from mutation
-      return { ...gltf, scene: skeletonClone(gltf.scene) as THREE.Group };
+      return this.cloneForUse(gltf);
     } finally {
       if (this.pending.get(url) === pending) {
         this.pending.delete(url);
@@ -66,9 +66,45 @@ export class AssetLoader {
     }
   }
 
+  /** Load an uncached asset whose ownership is returned to the caller. */
+  loadTransient(url: string): Promise<GLTF> {
+    return this.loader.loadAsync(url);
+  }
+
+  /** Read-only cache visibility for ownership-sensitive callers and tests. */
+  has(url: string): boolean {
+    return this.cache.has(url);
+  }
+
+  /** Dispose an uncached GLTF that was not adopted into the canonical cache. */
+  disposeTransient(gltf: GLTF): void {
+    this.disposeObject(gltf.scene);
+  }
+
+  disposeObject(root: THREE.Object3D): void {
+    root.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return;
+      child.geometry.dispose();
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
+      for (const material of materials) {
+        this.disposeMaterialTextures(material);
+        material.dispose();
+      }
+    });
+  }
+
   /** Register a pre-loaded GLTF under a canonical path so it can be retrieved by load(). */
   put(url: string, gltf: GLTF): void {
     this.cache.set(url, gltf);
+  }
+
+  /** Atomically transfer a parsed GLTF into the cache and return an owned instance. */
+  adopt(url: string, gltf: GLTF): GLTF {
+    const owned = this.cloneForUse(gltf);
+    const previous = this.cache.get(url);
+    if (previous && previous !== gltf) this.disposeGLTF(previous);
+    this.cache.set(url, gltf);
+    return owned;
   }
 
   /** Clear a specific entry from the cache, disposing GPU resources. */
@@ -77,21 +113,7 @@ export class AssetLoader {
     this.pending.delete(url);
     const gltf = this.cache.get(url);
     if (gltf) {
-      gltf.scene.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          child.geometry.dispose();
-          const mat = child.material;
-          if (Array.isArray(mat)) {
-            mat.forEach((m) => {
-              this.disposeMaterialTextures(m);
-              m.dispose();
-            });
-          } else {
-            this.disposeMaterialTextures(mat);
-            mat.dispose();
-          }
-        }
-      });
+      this.disposeGLTF(gltf);
     }
     this.cache.delete(url);
   }
@@ -100,21 +122,7 @@ export class AssetLoader {
   clearAll(): void {
     this.generation++;
     for (const gltf of this.cache.values()) {
-      gltf.scene.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          child.geometry.dispose();
-          const mat = child.material;
-          if (Array.isArray(mat)) {
-            mat.forEach((m) => {
-              this.disposeMaterialTextures(m);
-              m.dispose();
-            });
-          } else {
-            this.disposeMaterialTextures(mat);
-            mat.dispose();
-          }
-        }
-      });
+      this.disposeGLTF(gltf);
     }
     this.cache.clear();
     this.pending.clear();
@@ -138,6 +146,32 @@ export class AssetLoader {
     mat.envMap?.dispose();
     mat.lightMap?.dispose();
     mat.bumpMap?.dispose();
+  }
+
+  private disposeGLTF(gltf: GLTF): void {
+    this.disposeObject(gltf.scene);
+  }
+
+  private cloneForUse(gltf: GLTF): GLTF {
+    const scene = skeletonClone(gltf.scene) as THREE.Group;
+    scene.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return;
+      child.geometry = child.geometry.clone();
+      child.material = Array.isArray(child.material)
+        ? child.material.map((material) => this.cloneMaterialForUse(material))
+        : this.cloneMaterialForUse(child.material);
+    });
+    return { ...gltf, scene };
+  }
+
+  private cloneMaterialForUse(material: THREE.Material): THREE.Material {
+    const clone = material.clone();
+    const source = material as unknown as Record<string, unknown>;
+    const target = clone as unknown as Record<string, unknown>;
+    for (const [key, value] of Object.entries(source)) {
+      if (value instanceof THREE.Texture) target[key] = value.clone();
+    }
+    return clone;
   }
 
   /** Dispose loaders and free decoder resources. */

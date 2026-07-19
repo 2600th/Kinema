@@ -4,6 +4,7 @@ import type { Disposable, SpawnPointData } from "@core/types";
 import type { GraphicsProfile, ShadowQualityTier } from "@core/UserSettings";
 import RAPIER from "@dimforge/rapier3d-compat";
 import { getBrushById } from "@editor/brushes/index";
+import { validateEditorLevelData } from "@editor/EditorLevelValidator";
 import { applyWorldPoseToObject, getObjectColliderBounds } from "@editor/EditorPhysicsSync";
 import type { LevelDataV2, SerializedObjectV2 } from "@editor/LevelSerializer";
 import type { ShowcaseStationKey } from "@level/ShowcaseLayout";
@@ -454,11 +455,16 @@ export class LevelManager implements Disposable {
   }
 
   private async loadFromJSONInternal(data: LevelDataV2): Promise<void> {
+    const validation = validateEditorLevelData(data);
+    if (!validation.ok) {
+      throw new Error(`Level load rejected: ${validation.reason}`);
+    }
     if (this.currentLevelName) {
       this.unload();
     }
-    this.spawnPoint = createDefaultSpawnPoint();
-    this.eventBus.emit("loading:progress", { progress: 0.1 });
+    try {
+      this.spawnPoint = createDefaultSpawnPoint();
+      this.eventBus.emit("loading:progress", { progress: 0.1 });
 
     // Apply spawn point from JSON — prefer tagged spawnPoints array, fall back to legacy
     const playerSpawn = data.spawnPoints?.find((s) => s.tag === "player") ?? data.spawnPoints?.[0];
@@ -475,45 +481,56 @@ export class LevelManager implements Disposable {
       this.spawnPoint = { position: new THREE.Vector3(x, y, z) };
     }
 
-    const spawnedObjects = new Map<string, SpawnedJsonObject>();
+      const spawnedObjects = new Map<string, SpawnedJsonObject>();
 
     // Create each object first so hierarchy can be reconstructed before physics is built.
-    for (const entry of data.objects) {
-      const spawned = await this.spawnJSONObject(entry);
-      if (spawned) {
+      for (const entry of data.objects) {
+        const spawned = await this.spawnJSONObject(entry);
+        if (!spawned) throw new Error(`Object "${entry.id}" could not be reconstructed.`);
         spawnedObjects.set(entry.id, spawned);
       }
-    }
 
     // Rebuild the authored hierarchy using serialized local transforms.
-    for (const entry of data.objects) {
-      const spawned = spawnedObjects.get(entry.id);
-      if (!spawned) continue;
-      const parent = entry.parentId ? (spawnedObjects.get(entry.parentId)?.obj ?? null) : null;
-      if (parent) {
-        parent.add(spawned.obj);
-      } else {
-        this.scene.add(spawned.obj);
+      for (const entry of data.objects) {
+        const spawned = spawnedObjects.get(entry.id);
+        if (!spawned) throw new Error(`Object "${entry.id}" disappeared before hierarchy reconstruction.`);
+        const parent = entry.parentId ? spawnedObjects.get(entry.parentId)?.obj : null;
+        if (entry.parentId && !parent) throw new Error(`Parent "${entry.parentId}" was not reconstructed.`);
+        if (parent) {
+          parent.add(spawned.obj);
+        } else {
+          this.scene.add(spawned.obj);
+        }
       }
-    }
+
+      // Own every visual before physics begins so any later failure can roll
+      // the complete hierarchy back through unload().
+      for (const { entry, obj } of spawnedObjects.values()) {
+        this.levelObjects.push(obj);
+        obj.visible = entry.visible ?? true;
+      }
 
     // Finalize tracking and physics once world transforms are correct.
-    for (const entry of data.objects) {
-      const spawned = spawnedObjects.get(entry.id);
-      if (!spawned) continue;
-      this.finalizeSpawnedJSONObject(spawned);
+      for (const entry of data.objects) {
+        const spawned = spawnedObjects.get(entry.id);
+        if (!spawned) throw new Error(`Object "${entry.id}" disappeared before physics reconstruction.`);
+        this.finalizeSpawnedJSONObject(spawned);
+      }
+
+      this.eventBus.emit("loading:progress", { progress: 0.5 });
+
+      this.currentLevelName = data.name || "custom";
+      this.currentLevelOrigin = "authored";
+      this.currentLevelKind = "authored";
+      this.addLighting();
+      this.eventBus.emit("loading:progress", { progress: 0.8 });
+      this.eventBus.emit("loading:progress", { progress: 1.0 });
+      this.eventBus.emit("level:loaded", { name: this.currentLevelName });
+      console.log(`[LevelManager] JSON level "${this.currentLevelName}" loaded (${data.objects.length} objects)`);
+    } catch (error) {
+      this.unload();
+      throw error;
     }
-
-    this.eventBus.emit("loading:progress", { progress: 0.5 });
-
-    this.currentLevelName = data.name || "custom";
-    this.currentLevelOrigin = "authored";
-    this.currentLevelKind = "authored";
-    this.addLighting();
-    this.eventBus.emit("loading:progress", { progress: 0.8 });
-    this.eventBus.emit("loading:progress", { progress: 1.0 });
-    this.eventBus.emit("level:loaded", { name: this.currentLevelName });
-    console.log(`[LevelManager] JSON level "${this.currentLevelName}" loaded (${data.objects.length} objects)`);
   }
 
   private async spawnJSONObject(entry: SerializedObjectV2): Promise<SpawnedJsonObject | null> {
@@ -571,9 +588,6 @@ export class LevelManager implements Disposable {
   }
 
   private finalizeSpawnedJSONObject({ entry, obj, isEditorGizmo }: SpawnedJsonObject): void {
-    this.levelObjects.push(obj);
-    obj.visible = entry.visible ?? true;
-
     const isTransformOnlyGroup = entry.source.type === "primitive" && entry.source.primitive === "group";
     if (isEditorGizmo) {
       obj.visible = false;
@@ -605,7 +619,13 @@ export class LevelManager implements Disposable {
       Math.max(halfExtents.z, 0.01),
     ).setCollisionGroups(COLLISION_GROUP_WORLD);
     colliderDesc.setTranslation(center.x, center.y, center.z);
-    const collider = this.physicsWorld.world.createCollider(colliderDesc, body);
+    let collider: RAPIER.Collider;
+    try {
+      collider = this.physicsWorld.world.createCollider(colliderDesc, body);
+    } catch (error) {
+      this.physicsWorld.removeBody(body);
+      throw error;
+    }
 
     this.levelBodies.push(body);
     this.levelColliders.push(collider);
@@ -663,7 +683,8 @@ export class LevelManager implements Disposable {
 
   private async loadGLBObject(assetPath: string): Promise<THREE.Object3D | null> {
     try {
-      this.importedAssetPaths.add(assetPath);
+      const sessionOwned = this.assetLoader.has(assetPath);
+      if (!sessionOwned) this.importedAssetPaths.add(assetPath);
       const gltf = await this.assetLoader.load(assetPath);
       // Clone the entire scene so multi-mesh GLBs keep all children.
       // Deep-clone geometry and material per-mesh so disposal during unload

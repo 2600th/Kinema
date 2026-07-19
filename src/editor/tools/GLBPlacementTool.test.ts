@@ -28,42 +28,89 @@ afterEach(() => {
 describe("GLBPlacementTool import boundaries", () => {
   it("announces a successful import after caching and starting placement", async () => {
     const gltf = { scene: new THREE.Group(), animations: [] };
-    const load = vi.fn().mockResolvedValue(gltf);
-    const put = vi.fn();
+    const ownedGLTF = { scene: new THREE.Group(), animations: [] };
+    const loadTransient = vi.fn().mockResolvedValue(gltf);
+    const disposeTransient = vi.fn();
+    const adopt = vi.fn().mockReturnValue(ownedGLTF);
     const onImported = vi.fn();
     const { revoke } = installObjectURLMocks();
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const tool = new GLBPlacementTool({
-      levelManager: { getAssetLoader: () => ({ load, put }) } as unknown as LevelManager,
+      levelManager: { getAssetLoader: () => ({ loadTransient, disposeTransient, adopt }) } as unknown as LevelManager,
       onFinished: vi.fn(),
       onImported,
     });
 
     await tool.importFile(makeContext(), { name: "Test.glb" } as File);
 
-    expect(load).toHaveBeenCalledWith("blob:kinema-test");
-    expect(put).toHaveBeenCalledWith("/assets/models/Test.glb", gltf);
+    expect(loadTransient).toHaveBeenCalledWith("blob:kinema-test");
+    expect(adopt).toHaveBeenCalledWith("/assets/models/Test.glb", gltf);
     expect(tool.isPlacing()).toBe(true);
     expect(onImported).toHaveBeenCalledOnce();
     expect(onImported).toHaveBeenCalledWith("/assets/models/Test.glb");
     expect(revoke).toHaveBeenCalledWith("blob:kinema-test");
+    expect(disposeTransient).not.toHaveBeenCalled();
+  });
+
+  it("cancels an accepted preview without disposing canonical cache geometry or materials", async () => {
+    const geometry = new THREE.BoxGeometry();
+    const material = new THREE.MeshStandardMaterial();
+    const scene = new THREE.Group();
+    scene.add(new THREE.Mesh(geometry, material));
+    const gltf = { scene, animations: [] };
+    const geometryDispose = vi.spyOn(geometry, "dispose");
+    const materialDispose = vi.spyOn(material, "dispose");
+    const loadTransient = vi.fn().mockResolvedValue(gltf);
+    const instanceGeometry = geometry.clone();
+    const instanceMaterial = material.clone();
+    const instanceScene = new THREE.Group();
+    instanceScene.add(new THREE.Mesh(instanceGeometry, instanceMaterial));
+    const assetLoader = {
+      loadTransient,
+      adopt: vi.fn().mockReturnValue({ scene: instanceScene, animations: [] }),
+      disposeTransient: vi.fn(),
+      disposeObject: vi.fn((root: THREE.Object3D) => {
+        root.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.geometry.dispose();
+            const materials = Array.isArray(child.material) ? child.material : [child.material];
+            for (const entry of materials) entry.dispose();
+          }
+        });
+      }),
+    };
+    installObjectURLMocks();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const tool = new GLBPlacementTool({
+      levelManager: { getAssetLoader: () => assetLoader } as unknown as LevelManager,
+      onFinished: vi.fn(),
+      onImported: vi.fn(),
+    });
+    const ctx = makeContext();
+
+    await tool.importFile(ctx, { name: "Owned.glb" } as File);
+    tool.cancelPlacement(ctx);
+
+    expect(geometryDispose).not.toHaveBeenCalled();
+    expect(materialDispose).not.toHaveBeenCalled();
   });
 
   it("does not announce or cache a rejected import", async () => {
-    const load = vi.fn().mockRejectedValue(new Error("invalid GLB"));
-    const put = vi.fn();
+    const loadTransient = vi.fn().mockRejectedValue(new Error("invalid GLB"));
+    const disposeTransient = vi.fn();
+    const adopt = vi.fn();
     const onImported = vi.fn();
     const { revoke } = installObjectURLMocks();
     vi.spyOn(console, "error").mockImplementation(() => {});
     const tool = new GLBPlacementTool({
-      levelManager: { getAssetLoader: () => ({ load, put }) } as unknown as LevelManager,
+      levelManager: { getAssetLoader: () => ({ loadTransient, disposeTransient, adopt }) } as unknown as LevelManager,
       onFinished: vi.fn(),
       onImported,
     });
 
     await tool.importFile(makeContext(), { name: "Broken.glb" } as File);
 
-    expect(put).not.toHaveBeenCalled();
+    expect(adopt).not.toHaveBeenCalled();
     expect(tool.isPlacing()).toBe(false);
     expect(onImported).not.toHaveBeenCalled();
     expect(revoke).toHaveBeenCalledWith("blob:kinema-test");
@@ -71,18 +118,19 @@ describe("GLBPlacementTool import boundaries", () => {
 
   it("drops a completed import when a newer editor lifecycle supersedes it", async () => {
     let resolveLoad!: (value: { scene: THREE.Group; animations: never[] }) => void;
-    const load = vi.fn(
+    const loadTransient = vi.fn(
       () =>
         new Promise<{ scene: THREE.Group; animations: never[] }>((resolve) => {
           resolveLoad = resolve;
         }),
     );
-    const put = vi.fn();
+    const adopt = vi.fn();
+    const disposeTransient = vi.fn();
     const onImported = vi.fn();
     let lifecycleGeneration = 4;
     installObjectURLMocks();
     const tool = new GLBPlacementTool({
-      levelManager: { getAssetLoader: () => ({ load, put }) } as unknown as LevelManager,
+      levelManager: { getAssetLoader: () => ({ loadTransient, disposeTransient, adopt }) } as unknown as LevelManager,
       onFinished: vi.fn(),
       onImported,
       getLifecycleGeneration: () => lifecycleGeneration,
@@ -93,24 +141,26 @@ describe("GLBPlacementTool import boundaries", () => {
     resolveLoad({ scene: new THREE.Group(), animations: [] });
     await pending;
 
-    expect(put).not.toHaveBeenCalled();
+    expect(adopt).not.toHaveBeenCalled();
     expect(onImported).not.toHaveBeenCalled();
     expect(tool.isPlacing()).toBe(false);
+    expect(disposeTransient).toHaveBeenCalledOnce();
   });
 
   it("drops a completed import after explicit tool cancellation", async () => {
     let resolveLoad!: (value: { scene: THREE.Group; animations: never[] }) => void;
-    const load = vi.fn(
+    const loadTransient = vi.fn(
       () =>
         new Promise<{ scene: THREE.Group; animations: never[] }>((resolve) => {
           resolveLoad = resolve;
         }),
     );
-    const put = vi.fn();
+    const adopt = vi.fn();
+    const disposeTransient = vi.fn();
     const onImported = vi.fn();
     installObjectURLMocks();
     const tool = new GLBPlacementTool({
-      levelManager: { getAssetLoader: () => ({ load, put }) } as unknown as LevelManager,
+      levelManager: { getAssetLoader: () => ({ loadTransient, disposeTransient, adopt }) } as unknown as LevelManager,
       onFinished: vi.fn(),
       onImported,
       getLifecycleGeneration: () => 9,
@@ -121,8 +171,9 @@ describe("GLBPlacementTool import boundaries", () => {
     resolveLoad({ scene: new THREE.Group(), animations: [] });
     await pending;
 
-    expect(put).not.toHaveBeenCalled();
+    expect(adopt).not.toHaveBeenCalled();
     expect(onImported).not.toHaveBeenCalled();
     expect(tool.isPlacing()).toBe(false);
+    expect(disposeTransient).toHaveBeenCalledOnce();
   });
 });

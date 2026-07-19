@@ -93,6 +93,102 @@ export interface SerializedObjectV2 {
 export type LevelData = LevelDataV2;
 export type SerializedObject = SerializedObjectV2;
 
+export type LevelDataShapeValidationResult = { ok: true } | { ok: false; reason: string };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isFiniteVec3(value: unknown): value is [number, number, number] {
+  return Array.isArray(value) && value.length === 3 && value.every((entry) => typeof entry === "number" && Number.isFinite(entry));
+}
+
+function validateSpawnPoint(value: unknown, label: string): string | null {
+  if (!isRecord(value) || !isFiniteVec3(value.position)) return `${label} must contain a finite three-number position.`;
+  if (value.rotation !== undefined && !isFiniteVec3(value.rotation)) {
+    return `${label} rotation must contain exactly three finite numbers.`;
+  }
+  return null;
+}
+
+function validateSerializedObjectShape(value: unknown, index: number): string | null {
+  if (!isRecord(value)) return `Object entry ${index} must be an object.`;
+  const id = typeof value.id === "string" ? value.id : `entry ${index}`;
+  if (typeof value.id !== "string" || value.id.length === 0) return `Object entry ${index} has no valid id.`;
+  if (typeof value.name !== "string") return `Object "${id}" has no valid name.`;
+  if (value.parentId !== null && typeof value.parentId !== "string") return `Object "${id}" has an invalid parent id.`;
+  if (value.visible !== undefined && typeof value.visible !== "boolean") return `Object "${id}" has invalid visibility.`;
+  if (value.locked !== undefined && typeof value.locked !== "boolean") return `Object "${id}" has invalid lock state.`;
+  if (value.spawnTag !== undefined && typeof value.spawnTag !== "string") return `Object "${id}" has an invalid spawn tag.`;
+
+  if (!isRecord(value.source) || typeof value.source.type !== "string") return `Object "${id}" has a malformed source.`;
+  for (const key of ["asset", "primitive", "brush"] as const) {
+    if (value.source[key] !== undefined && typeof value.source[key] !== "string") {
+      return `Object "${id}" has a malformed source ${key}.`;
+    }
+  }
+
+  if (!isRecord(value.transform)) return `Object "${id}" has no transform.`;
+  for (const key of ["position", "rotation", "scale"] as const) {
+    if (!isFiniteVec3(value.transform[key])) return `Object "${id}" ${key} must contain exactly three finite numbers.`;
+  }
+
+  if (!isRecord(value.physics) || !["static", "dynamic", "kinematic"].includes(String(value.physics.type))) {
+    return `Object "${id}" has an invalid physics type.`;
+  }
+
+  if (value.material !== undefined) {
+    if (!isRecord(value.material)) return `Object "${id}" has malformed material data.`;
+    for (const key of ["color", "emissive"] as const) {
+      if (typeof value.material[key] !== "string") return `Object "${id}" has malformed material ${key}.`;
+    }
+    for (const key of ["roughness", "metalness", "emissiveIntensity", "opacity"] as const) {
+      if (typeof value.material[key] !== "number" || !Number.isFinite(value.material[key])) {
+        return `Object "${id}" has malformed material ${key}.`;
+      }
+    }
+  }
+
+  if (value.brushParams !== undefined) {
+    if (!isRecord(value.brushParams)) return `Object "${id}" has malformed brush parameters.`;
+    if (Object.values(value.brushParams).some((entry) => typeof entry !== "number" || !Number.isFinite(entry))) {
+      return `Object "${id}" has non-finite brush parameters.`;
+    }
+  }
+  return null;
+}
+
+/** Total structural validation for untrusted V2 data. Never throws. */
+export function validateLevelDataV2Shape(data: unknown): LevelDataShapeValidationResult {
+  try {
+    if (!isRecord(data) || data.version !== 2) return { ok: false, reason: "The level is not V2 data." };
+    if (typeof data.name !== "string") return { ok: false, reason: "The level has no valid name." };
+    if (typeof data.created !== "string" || typeof data.modified !== "string") {
+      return { ok: false, reason: "The level has invalid timestamps." };
+    }
+    const spawnError = validateSpawnPoint(data.spawnPoint, "The level spawn point");
+    if (spawnError) return { ok: false, reason: spawnError };
+    if (data.spawnPoints !== undefined) {
+      if (!Array.isArray(data.spawnPoints)) return { ok: false, reason: "The level spawn-point list is malformed." };
+      for (const [index, spawn] of data.spawnPoints.entries()) {
+        if (!isRecord(spawn) || typeof spawn.tag !== "string") {
+          return { ok: false, reason: `Spawn point ${index} has no valid tag.` };
+        }
+        const error = validateSpawnPoint(spawn, `Spawn point ${index}`);
+        if (error) return { ok: false, reason: error };
+      }
+    }
+    if (!Array.isArray(data.objects)) return { ok: false, reason: "The level has no reconstructable object list." };
+    for (const [index, entry] of data.objects.entries()) {
+      const error = validateSerializedObjectShape(entry, index);
+      if (error) return { ok: false, reason: error };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, reason: "The level contains malformed V2 data." };
+  }
+}
+
 /* ======================================================================
  *  Serializer
  * ====================================================================== */
@@ -188,37 +284,48 @@ export function loadFromFile(file: File): Promise<LevelDataV2 | null> {
 /* ------------------------------------------------------------------ */
 
 export function upgradeLevelData(data: unknown): LevelDataV2 | null {
-  if (data == null || typeof data !== "object") return null;
+  try {
+    if (!isRecord(data)) return null;
+    if (data.version === 2) return validateLevelDataV2Shape(data).ok ? (data as unknown as LevelDataV2) : null;
 
-  const raw = data as Record<string, unknown>;
-  if (raw.version === 2) return data as LevelDataV2;
+    if (data.version === 1) {
+      const v1 = data as unknown as LevelDataV1;
+      if (
+        typeof v1.name !== "string" ||
+        !isRecord(v1.spawnPoint) ||
+        !isFiniteVec3(v1.spawnPoint.position) ||
+        !Array.isArray(v1.objects)
+      ) {
+        return null;
+      }
+      const now = new Date().toISOString();
+      const upgraded: LevelDataV2 = {
+        version: 2,
+        name: v1.name,
+        created: now,
+        modified: now,
+        spawnPoint: { position: v1.spawnPoint.position },
+        objects: v1.objects.map((obj) => ({
+          id: obj.id,
+          name: obj.name,
+          parentId: null,
+          visible: true,
+          locked: false,
+          spawnTag: undefined,
+          source: obj.source,
+          transform: obj.transform,
+          physics: { type: obj.physics?.type ?? "static" },
+          material: undefined,
+          brushParams: undefined,
+        })),
+      };
+      return validateLevelDataV2Shape(upgraded).ok ? upgraded : null;
+    }
 
-  if (raw.version === 1) {
-    const v1 = data as LevelDataV1;
-    const now = new Date().toISOString();
-    return {
-      version: 2,
-      name: v1.name,
-      created: now,
-      modified: now,
-      spawnPoint: { position: v1.spawnPoint.position },
-      objects: v1.objects.map((obj) => ({
-        id: obj.id,
-        name: obj.name,
-        parentId: null,
-        visible: true,
-        locked: false,
-        spawnTag: undefined,
-        source: obj.source,
-        transform: obj.transform,
-        physics: { type: obj.physics?.type ?? "static" },
-        material: undefined,
-        brushParams: undefined,
-      })),
-    };
+    return null;
+  } catch {
+    return null;
   }
-
-  return null;
 }
 
 export const LevelSerializer = {

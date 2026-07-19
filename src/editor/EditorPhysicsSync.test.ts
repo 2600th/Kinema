@@ -4,7 +4,10 @@ import {
   applyWorldPoseToObject,
   getObjectColliderBounds,
   getObjectWorldPhysicsPose,
+  syncRigidBodiesInSubtree,
   syncRigidBodyToObjectWorldPose,
+  validateObjectPhysicsTransform,
+  validatePhysicsAttachment,
 } from "./EditorPhysicsSync";
 
 describe("syncRigidBodyToObjectWorldPose", () => {
@@ -100,5 +103,66 @@ describe("syncRigidBodyToObjectWorldPose", () => {
     parent.updateWorldMatrix(true, true);
 
     expect(() => getObjectWorldPhysicsPose(child)).toThrow(/non-uniform inherited scale/i);
+  });
+
+  it.each(["dynamic", "kinematic"] as const)(
+    "rejects an axis-aligned %s body under non-uniform inherited parent scale",
+    (type) => {
+      const parent = new THREE.Group();
+      parent.scale.set(2, 1, 0.5);
+      const child = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+      parent.add(child);
+
+      expect(validateObjectPhysicsTransform(child, type)).toEqual(
+        expect.objectContaining({ ok: false }),
+      );
+    },
+  );
+
+  it("allows an exact static axis-aligned collider under non-uniform inherited scale", () => {
+    const parent = new THREE.Group();
+    parent.scale.set(2, 1, 0.5);
+    const child = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+    parent.add(child);
+
+    expect(validateObjectPhysicsTransform(child, "static")).toEqual({ ok: true });
+  });
+
+  it("rejects attachment that would place a moving object below non-uniform world scale", () => {
+    const scene = new THREE.Scene();
+    const parent = new THREE.Group();
+    parent.scale.set(2, 1, 0.5);
+    const child = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+    scene.add(parent, child);
+    scene.updateWorldMatrix(true, true);
+
+    expect(validatePhysicsAttachment(child, parent, "dynamic")).toEqual(
+      expect.objectContaining({ ok: false }),
+    );
+    expect(child.parent).toBe(scene);
+  });
+
+  it("syncs descendant bodies after a transformed parent commits", () => {
+    const parent = new THREE.Group();
+    const child = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+    child.position.set(1, 2, 3);
+    parent.add(child);
+    const setTranslation = vi.fn();
+    const setRotation = vi.fn();
+    parent.position.set(4, -1, 6);
+    parent.rotation.set(0.2, 0.5, -0.1);
+    parent.scale.setScalar(1.5);
+
+    syncRigidBodiesInSubtree(parent, [{ mesh: child, body: { setTranslation, setRotation } }]);
+
+    const expected = child.getWorldPosition(new THREE.Vector3());
+    expect(setTranslation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        x: expect.closeTo(expected.x, 8),
+        y: expect.closeTo(expected.y, 8),
+        z: expect.closeTo(expected.z, 8),
+      }),
+      true,
+    );
   });
 });
