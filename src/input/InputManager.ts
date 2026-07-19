@@ -752,7 +752,7 @@ export class InputManager implements Disposable {
     const rising = (rawActive && !this.traversalRawActive[action]) || (freshSourcePulse && !continuousOtherSource);
     this.traversalRawActive[action] = rawHeld;
     if (this.vehicleContext || this.traversalModes[action] === "hold") {
-      return { active: rawHeld, pressed: rising };
+      return { active: rawHeld || freshSourcePulse, pressed: rising };
     }
     if (rising) this.traversalLatches[action] = !this.traversalLatches[action];
     return {

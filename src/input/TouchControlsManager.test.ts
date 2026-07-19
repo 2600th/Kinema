@@ -250,4 +250,39 @@ describe("TouchControlsManager runtime preferences", () => {
     expect(inputManager.poll().crouch).toBe(true);
     inputManager.dispose();
   });
+
+  it.each([
+    ["character", "crouch", "physical", 3, 2],
+    ["character", "sprint", "assistive", 1, 0],
+    ["vehicle", "sprint", "physical", 1, 0],
+    ["vehicle", "crouch", "assistive", 3, 2],
+  ] as const)("preserves one-frame %s hold input for a %s %s tap", (context, action, activation, zoneIndex, buttonIndex) => {
+    const eventBus = new EventBus();
+    const container = new FakeElement();
+    const touchControls = new TouchControlsManager(container as unknown as HTMLElement);
+    const inputManager = new InputManager(eventBus, new FakeElement() as unknown as HTMLCanvasElement);
+    const inputInternals = inputManager as unknown as {
+      touchActive: boolean;
+      touchControls: TouchControlsManager;
+    };
+    inputInternals.touchActive = true;
+    inputInternals.touchControls = touchControls;
+    if (context === "vehicle") {
+      inputManager.setCrouchMode("toggle");
+      inputManager.setSprintMode("toggle");
+      eventBus.emit("vehicle:enter", { vehicle: {} as never });
+    }
+    const button = container.children[0].children[zoneIndex].children[buttonIndex];
+
+    if (activation === "physical") {
+      button.dispatch("touchstart", { preventDefault: vi.fn(), changedTouches: [{ identifier: 1 }] });
+      windowTarget.dispatch("touchend", { changedTouches: [{ identifier: 1 }] });
+    } else {
+      button.dispatch("click", { detail: 0 });
+    }
+
+    expect(inputManager.poll()[action]).toBe(true);
+    expect(inputManager.poll()[action]).toBe(false);
+    inputManager.dispose();
+  });
 });
