@@ -127,6 +127,15 @@ export class RendererManager implements Disposable {
   private ssrOpacity = 0.5;
   private lutPassNode: RendererLutPassNode | null = null;
   private postFXUniforms: RendererPostFxUniforms | null = null;
+  private appliedGraphicsProfile: GraphicsProfile = this.graphicsProfile;
+  private appliedPostEffectSettings: PostEffectSettings = {
+    postProcessingEnabled: this.postProcessingEnabled,
+    ssaoEnabled: this.gtaoEnabled,
+    ssrEnabled: this.ssrEnabled,
+    bloomEnabled: this.bloomEnabled,
+    vignetteEnabled: this.vignetteEnabled,
+    lutEnabled: this.lutEnabled,
+  };
 
   private lastRenderStats = {
     drawCalls: 0,
@@ -396,8 +405,8 @@ export class RendererManager implements Disposable {
     this.pipelineDisposables = [];
   }
 
-  private getPipelineDescriptor(): RendererPipelineDescriptor {
-    const descriptor = buildRendererPipelineDescriptor({
+  private buildPipelineDescriptor(): RendererPipelineDescriptor {
+    return buildRendererPipelineDescriptor({
       profile: this.graphicsProfile,
       aaMode: this.antiAliasingMode,
       postProcessingEnabled: this.postProcessingEnabled,
@@ -410,8 +419,6 @@ export class RendererManager implements Disposable {
       vignetteEnabled: this.vignetteEnabled,
       lutEnabled: this.lutEnabled,
     });
-    this.currentPipelineDescriptor = descriptor;
-    return descriptor;
   }
 
   private resetPipelineResources(): void {
@@ -434,12 +441,12 @@ export class RendererManager implements Disposable {
 
   private rebuildPostProcessingPipeline(): void {
     if (!this.isWebGPUPipeline || !this.tslRuntime || !(this.renderer instanceof WebGPURenderer)) {
-      this.currentPipelineDescriptor = this.getPipelineDescriptor();
+      this.currentPipelineDescriptor = this.buildPipelineDescriptor();
       this.resetPipelineResources();
       return;
     }
 
-    const descriptor = this.getPipelineDescriptor();
+    const descriptor = this.buildPipelineDescriptor();
     this.resetPipelineResources();
 
     if (!descriptor.useRenderPipeline) {
@@ -502,15 +509,15 @@ export class RendererManager implements Disposable {
     this.ssrOpacity = defaults.ssrOpacity;
     this.ssrResolutionScale = defaults.ssrResolutionScale;
     this.markPipelineDirty();
-    this.scheduleGpuResourceMutation("renderer-quality", () => this.applyQualitySettings());
+    this.scheduleQualitySettingsApply();
   }
 
   private getProfileMaxPixelRatio(profile: GraphicsProfile): number {
     return getRendererMaxPixelRatio(profile);
   }
 
-  private getEffectiveShadowQualityProfile(): GraphicsProfile {
-    return this.shadowQualityTier === "auto" ? this.graphicsProfile : this.shadowQualityTier;
+  private getEffectiveShadowQualityProfile(graphicsProfile = this.graphicsProfile): GraphicsProfile {
+    return this.shadowQualityTier === "auto" ? graphicsProfile : this.shadowQualityTier;
   }
 
   private isSsrActiveForPipeline(): boolean {
@@ -525,14 +532,14 @@ export class RendererManager implements Disposable {
     if (currentValue === nextValue) return;
     assign(nextValue);
     this.markPipelineDirty();
-    this.applyQualitySettings();
+    this.scheduleQualitySettingsApply();
   }
 
   private applyStructuralChange(changed: boolean, apply: () => void): void {
     if (!changed) return;
     apply();
     this.markPipelineDirty();
-    this.applyQualitySettings();
+    this.scheduleQualitySettingsApply();
   }
 
   setPostProcessingEnabled(enabled: boolean): void {
@@ -569,7 +576,7 @@ export class RendererManager implements Disposable {
     const nextValue = clampFiniteNumber(value, 0.5, 1);
     if (nextValue === null || nextValue === this.resolutionScale) return;
     this.resolutionScale = nextValue;
-    this.scheduleGpuResourceMutation("renderer-quality", () => this.applyQualitySettings());
+    this.scheduleQualitySettingsApply();
   }
 
   setBackgroundIntensity(value: number): void {
@@ -608,7 +615,7 @@ export class RendererManager implements Disposable {
     this.casStrength = mutation.nextValue;
     if (mutation.requiresRebuild) {
       this.markPipelineDirty();
-      this.applyQualitySettings();
+      this.scheduleQualitySettingsApply();
     } else {
       if (this.postFXUniforms) {
         this.postFXUniforms.casStrength.value = getEffectiveCasStrength(
@@ -706,7 +713,7 @@ export class RendererManager implements Disposable {
 
     if (!structuralMutationNeeded) return;
     this.markPipelineDirty();
-    this.scheduleGpuResourceMutation("renderer-quality", () => this.applyQualitySettings());
+    this.scheduleQualitySettingsApply();
   }
 
   getRequestedPostEffectSettings(): Readonly<PostEffectSettings> {
@@ -766,14 +773,10 @@ export class RendererManager implements Disposable {
 
   /** Returns current flags (effective state). */
   getDebugFlags(): Readonly<RendererDebugFlags> {
-    const descriptor = this.getPipelineDescriptor();
+    const descriptor = this.currentPipelineDescriptor ?? this.buildPipelineDescriptor();
     const backend = (this.renderer as unknown as { backend?: { isWebGPUBackend?: boolean } }).backend;
     const postEffectCapabilities = this.getPostEffectCapabilities();
-    const effectivePostEffects = getEffectivePostEffectSettings(
-      this.getRequestedPostEffectSettings(),
-      this.graphicsProfile,
-      postEffectCapabilities,
-    );
+    const effectivePostEffects = this.appliedPostEffectSettings;
     return buildRendererDebugFlags({
       isWebGPUPipeline: this.isWebGPUPipeline,
       backendInfo: backend,
@@ -781,9 +784,9 @@ export class RendererManager implements Disposable {
       postProcessingEnabled: effectivePostEffects.postProcessingEnabled,
       shadowsEnabled: this.shadowsEnabled,
       shadowQuality: this.shadowQualityTier,
-      shadowQualityResolvedProfile: this.getEffectiveShadowQualityProfile(),
+      shadowQualityResolvedProfile: this.getEffectiveShadowQualityProfile(this.appliedGraphicsProfile),
       exposure: this.toneExposure,
-      graphicsProfile: this.graphicsProfile,
+      graphicsProfile: this.appliedGraphicsProfile,
       envRotationDegrees: this.envRotationDegrees,
       descriptor,
       aoOnlyView: this.aoOnlyView,
@@ -805,7 +808,14 @@ export class RendererManager implements Disposable {
    * Syncs post-FX uniforms, pixel ratio budget, rebuilds the node graph, and resizes.
    */
   private applyQualitySettings(): void {
-    const descriptor = this.getPipelineDescriptor();
+    const descriptor = this.buildPipelineDescriptor();
+    this.currentPipelineDescriptor = descriptor;
+    this.appliedGraphicsProfile = this.graphicsProfile;
+    this.appliedPostEffectSettings = getEffectivePostEffectSettings(
+      this.getRequestedPostEffectSettings(),
+      this.graphicsProfile,
+      this.getPostEffectCapabilities(),
+    );
     // 1. Sync uniforms (cheap — no graph rebuild)
     syncRuntimePostFxState({
       renderer: this.renderer,
@@ -839,6 +849,10 @@ export class RendererManager implements Disposable {
     }
 
     this.handleResize();
+  }
+
+  private scheduleQualitySettingsApply(): void {
+    this.scheduleGpuResourceMutation("renderer-quality", () => this.applyQualitySettings());
   }
 
   getGraphicsProfile(): GraphicsProfile {
