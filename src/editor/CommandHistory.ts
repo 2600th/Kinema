@@ -8,6 +8,8 @@ export class CommandHistory {
   private redoStack: Command[] = [];
   private maxSize = 50;
 
+  constructor(private readonly onMutation: () => void = () => {}) {}
+
   push(cmd: Command): void {
     cmd.execute();
     this.undoStack.push(cmd);
@@ -15,6 +17,7 @@ export class CommandHistory {
       this.undoStack.shift();
     }
     this.redoStack = [];
+    this.onMutation();
   }
 
   undo(): void {
@@ -22,6 +25,7 @@ export class CommandHistory {
     if (!cmd) return;
     cmd.undo();
     this.redoStack.push(cmd);
+    this.onMutation();
   }
 
   redo(): void {
@@ -29,6 +33,7 @@ export class CommandHistory {
     if (!cmd) return;
     cmd.execute();
     this.undoStack.push(cmd);
+    this.onMutation();
   }
 
   clear(): void {

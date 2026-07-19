@@ -26,6 +26,9 @@ const ICON_PLAY = "M5 3l14 9-14 9V3z";
 
 export class ToolbarPanel extends EditorPanel {
   private modeButtons = new Map<TransformMode, HTMLButtonElement>();
+  private saveButton!: HTMLButtonElement;
+  private documentTitle!: HTMLSpanElement;
+  private dirtyDot!: HTMLSpanElement;
   private snapBtn!: HTMLButtonElement;
   private gridBtn!: HTMLButtonElement;
   private saveError!: HTMLDivElement;
@@ -47,13 +50,22 @@ export class ToolbarPanel extends EditorPanel {
 
     // ── Left section: File operations ──
     const leftGroup = this.createGroup();
-    leftGroup.appendChild(this.createIconBtn(ICON_SAVE, "Save (Ctrl+S)", this.callbacks.onSave));
+    this.saveButton = this.createIconBtn(ICON_SAVE, "Save (Ctrl+S)", this.callbacks.onSave);
+    this.dirtyDot = document.createElement("span");
+    this.dirtyDot.className = "ke-dirty-dot ke-hidden";
+    this.dirtyDot.setAttribute("aria-hidden", "true");
+    this.saveButton.appendChild(this.dirtyDot);
+    leftGroup.appendChild(this.saveButton);
     leftGroup.appendChild(this.createIconBtn(ICON_FOLDER, "Load", this.callbacks.onLoad));
     leftGroup.appendChild(this.createIconBtn(ICON_IMPORT, "Import GLB", this.callbacks.onImportGLB));
     leftGroup.appendChild(this.createSep());
     leftGroup.appendChild(this.createIconBtn(ICON_UNDO, "Undo (Ctrl+Z)", this.callbacks.onUndo));
     leftGroup.appendChild(this.createIconBtn(ICON_REDO, "Redo (Ctrl+Y)", this.callbacks.onRedo));
     el.appendChild(leftGroup);
+
+    this.documentTitle = document.createElement("span");
+    this.documentTitle.className = "ke-document-title";
+    el.appendChild(this.documentTitle);
 
     el.appendChild(this.createDivider());
 
@@ -122,6 +134,7 @@ export class ToolbarPanel extends EditorPanel {
 
     // Default: translate active
     this.setActiveMode("translate");
+    this.setDocumentState("Untitled", false);
   }
 
   update(): void {
@@ -140,6 +153,14 @@ export class ToolbarPanel extends EditorPanel {
 
   setGridActive(active: boolean): void {
     this.gridBtn.classList.toggle("ke-btn-active", active);
+  }
+
+  setDocumentState(name: string, dirty: boolean): void {
+    this.documentTitle.textContent = `${name}${dirty ? "*" : ""}`;
+    this.saveButton.classList.toggle("ke-btn-dirty", dirty);
+    this.dirtyDot.classList.toggle("ke-hidden", !dirty);
+    this.saveButton.title = dirty ? "Save (Ctrl+S) — Unsaved changes" : "Save (Ctrl+S)";
+    this.saveButton.setAttribute("aria-label", this.saveButton.title);
   }
 
   showSaveError(message: string): void {

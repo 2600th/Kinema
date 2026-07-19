@@ -142,6 +142,32 @@
   flex-shrink: 0;
 }
 
+.ke-document-title {
+  min-width: 64px;
+  max-width: 140px;
+  overflow: hidden;
+  color: var(--ke-text-bright);
+  font-size: var(--ke-font-size-sm);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ke-btn-dirty {
+  border-color: rgba(98, 230, 255, 0.62);
+}
+
+.ke-dirty-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ke-accent);
+  box-shadow: 0 0 6px var(--ke-accent-glow);
+}
+
 .ke-save-error {
   position: absolute;
   top: calc(100% + 10px);
@@ -545,6 +571,7 @@
 }
 
 .ke-btn-icon {
+  position: relative;
   width: 30px;
   height: 28px;
   padding: 0;

@@ -71,4 +71,21 @@ describe("CommandHistory", () => {
     expect(() => history.undo()).not.toThrow();
     expect(() => history.redo()).not.toThrow();
   });
+
+  it("notifies once for each successful mutation but not empty operations or clear", () => {
+    const onMutation = vi.fn();
+    const history = new CommandHistory(onMutation);
+
+    history.undo();
+    history.redo();
+    history.clear();
+
+    expect(onMutation).not.toHaveBeenCalled();
+
+    history.push(createCommand("first", []));
+    history.undo();
+    history.redo();
+
+    expect(onMutation).toHaveBeenCalledTimes(3);
+  });
 });

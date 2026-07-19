@@ -13,6 +13,7 @@ import { clone as skeletonClone } from "three/addons/utils/SkeletonUtils.js";
 import { BRUSH_REGISTRY, getBrushById } from "./brushes/index";
 import { CommandHistory } from "./CommandHistory";
 import { EditorDocument } from "./EditorDocument";
+import { type EditorDocumentSnapshot, EditorDocumentState } from "./EditorDocumentState";
 import type { EditorObject } from "./EditorObject";
 import { FreeCamera } from "./FreeCamera";
 import { type LevelData, LevelSerializer } from "./LevelSerializer";
@@ -40,6 +41,7 @@ export class EditorManager {
 
   /* ---- Data model ---- */
   private document: EditorDocument;
+  private documentState: EditorDocumentState;
 
   /* ---- Play-test state ---- */
   private playTestActive = false;
@@ -52,7 +54,7 @@ export class EditorManager {
   private grid: SnapGrid;
   private gridWasVisible = true;
   private freeCamera: FreeCamera;
-  private history = new CommandHistory();
+  private history: CommandHistory;
 
   /* ---- Tools ---- */
   private tools = new Map<string, EditorTool>();
@@ -81,6 +83,8 @@ export class EditorManager {
     this.injectStyles();
 
     this.document = new EditorDocument(this.renderer.scene, this.physicsWorld);
+    this.documentState = new EditorDocumentState((state) => this.onDocumentStateChanged(state));
+    this.history = new CommandHistory(() => this.markDirty());
     this.freeCamera = new FreeCamera(this.renderer.camera, this.renderer.canvas);
     this.grid = new SnapGrid(this.renderer.scene);
 
@@ -107,12 +111,21 @@ export class EditorManager {
       onDelete: (id) => this.deleteById(id),
       onDuplicate: (id) => this.duplicateById(id),
       onRename: (id, name) => {
+        const previousName = this.document.findById(id)?.name;
         this.document.renameById(id, name);
+        if (previousName !== undefined && previousName !== this.document.findById(id)?.name) {
+          this.markDirty();
+        }
         this.syncHierarchy();
       },
       onToggleVisible: (id) => {
+        const target = this.document.findById(id);
+        const previousVisibility = target?.visible ?? true;
         const wasSelected = this.document.selected?.id === id;
         this.document.toggleVisibleById(id);
+        if (target && previousVisibility !== (target.visible ?? true)) {
+          this.markDirty();
+        }
         // If hiding the selected object, deselect to detach gizmo/inspector
         if (wasSelected) {
           const obj = this.document.findById(id);
@@ -123,8 +136,13 @@ export class EditorManager {
         this.syncHierarchy();
       },
       onToggleLock: (id) => {
+        const target = this.document.findById(id);
+        const previousLock = target?.locked ?? false;
         const wasSelected = this.document.selected?.id === id;
         this.document.toggleLockById(id);
+        if (target && previousLock !== (target.locked ?? false)) {
+          this.markDirty();
+        }
         // toggleLockById clears document.selected directly; sync gizmo/inspector
         if (wasSelected && !this.document.selected) {
           this.setSelection(null);
@@ -132,7 +150,11 @@ export class EditorManager {
         this.syncHierarchy();
       },
       onReparent: (childId, newParentId) => {
+        const previousParent = this.document.findById(childId)?.parentId ?? null;
         this.document.reparentById(childId, newParentId);
+        if (previousParent !== (this.document.findById(childId)?.parentId ?? null)) {
+          this.markDirty();
+        }
         this.syncHierarchy();
       },
       onGroup: (ids) => {
@@ -141,6 +163,7 @@ export class EditorManager {
           this.levelManager.addLevelObject(groupObj.mesh, this.createLevelObjectTracking(groupObj));
           this.syncHierarchy();
           this.setSelection(groupObj);
+          this.markDirty();
         }
       },
       onUngroup: (groupId) => {
@@ -150,6 +173,7 @@ export class EditorManager {
           this.levelManager.removeLevelObject(groupObj.mesh);
           if (wasSelected && wasSelected.id === groupId) this.setSelection(null);
           this.syncHierarchy();
+          this.markDirty();
         }
       },
     });
@@ -243,6 +267,14 @@ export class EditorManager {
 
   getObjectCount(): number {
     return this.document.objects.length;
+  }
+
+  isDirty(): boolean {
+    return this.documentState.value.dirty;
+  }
+
+  getDocumentState(): Readonly<EditorDocumentSnapshot> {
+    return this.documentState.value;
   }
 
   undo(): void {
@@ -1048,6 +1080,7 @@ export class EditorManager {
 
     // Update editor object material record
     this.document.selected.material = { ...material };
+    this.markDirty();
   }
 
   /* ==================================================================
@@ -1056,7 +1089,7 @@ export class EditorManager {
 
   private applyPhysicsTypeChange(id: string, type: "static" | "dynamic" | "kinematic"): void {
     const obj = this.document.findById(id);
-    if (!obj) return;
+    if (!obj || obj.physicsType === type) return;
 
     // Remove old body/collider
     const wasLevelTracked = this.levelManager.getLevelObjects().includes(obj.mesh);
@@ -1111,6 +1144,7 @@ export class EditorManager {
     if (wasLevelTracked) {
       this.levelManager.addLevelObject(obj.mesh, this.createLevelObjectTracking(obj));
     }
+    this.markDirty();
   }
 
   /* ==================================================================
@@ -1122,13 +1156,23 @@ export class EditorManager {
     rotation: [number, number, number];
     scale: [number, number, number];
   }): void {
-    if (!this.document.selected) return;
-    this.document.selected.mesh.position.set(transform.position[0], transform.position[1], transform.position[2]);
-    this.document.selected.mesh.rotation.set(transform.rotation[0], transform.rotation[1], transform.rotation[2]);
-    this.document.selected.mesh.scale.set(transform.scale[0], transform.scale[1], transform.scale[2]);
-    this.document.selected.mesh.updateMatrixWorld(true);
-    this.updateEditorObjectTransform(this.document.selected);
-    this.applyPhysicsTransform(this.document.selected);
+    const selected = this.document.selected;
+    if (!selected) return;
+    const changed =
+      !selected.mesh.position.toArray().every((value, index) => value === transform.position[index]) ||
+      !selected.mesh.rotation
+        .toArray()
+        .slice(0, 3)
+        .every((value, index) => value === transform.rotation[index]) ||
+      !selected.mesh.scale.toArray().every((value, index) => value === transform.scale[index]);
+    if (!changed) return;
+    selected.mesh.position.set(transform.position[0], transform.position[1], transform.position[2]);
+    selected.mesh.rotation.set(transform.rotation[0], transform.rotation[1], transform.rotation[2]);
+    selected.mesh.scale.set(transform.scale[0], transform.scale[1], transform.scale[2]);
+    selected.mesh.updateMatrixWorld(true);
+    this.updateEditorObjectTransform(selected);
+    this.applyPhysicsTransform(selected);
+    this.markDirty();
   }
 
   /* ==================================================================
@@ -1168,6 +1212,7 @@ export class EditorManager {
     this.inspectorPanel.setSelection(this.document.selected);
     // Force world matrix update so BoxHelper.update() reads correct bounds
     this.document.selected.mesh.updateMatrixWorld(true);
+    this.markDirty();
   }
 
   /* ==================================================================
@@ -1186,6 +1231,16 @@ export class EditorManager {
     this.toolbarPanel.setActiveMode(this.currentTransformMode);
     this.toolbarPanel.setSnapActive(this.grid.enabled);
     this.toolbarPanel.setGridActive(this.grid.isVisible());
+    const state = this.documentState.value;
+    this.toolbarPanel.setDocumentState(state.name, state.dirty);
+  }
+
+  private markDirty(): void {
+    this.documentState.markDirty();
+  }
+
+  private onDocumentStateChanged(state: Readonly<EditorDocumentSnapshot>): void {
+    this.toolbarPanel.setDocumentState(state.name, state.dirty);
   }
 
   /* ==================================================================
