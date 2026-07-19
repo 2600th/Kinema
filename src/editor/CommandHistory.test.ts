@@ -157,6 +157,35 @@ describe("CommandHistory", () => {
     expect(events).toEqual(["execute:abandoned", "undo:abandoned", "execute:replacement"]);
   });
 
+  it("discards applied commands on eviction and redo invalidation", () => {
+    const discarded: string[] = [];
+    const history = new CommandHistory();
+    for (let index = 0; index < 51; index += 1) {
+      history.push({
+        execute: () => true,
+        undo: () => true,
+        discard: () => discarded.push(String(index)),
+      });
+    }
+    expect(discarded).toEqual(["0"]);
+    history.undo();
+    history.push({ execute: () => true, undo: () => true });
+    expect(discarded).toContain("50");
+  });
+
+  it("isolates discard exceptions while clearing both stacks", () => {
+    const history = new CommandHistory();
+    history.push({
+      execute: () => true,
+      undo: () => true,
+      discard: () => {
+        throw new Error("boom");
+      },
+    });
+    history.undo();
+    expect(() => history.clear()).not.toThrow();
+  });
+
   it("treats undo and redo on empty stacks as no-ops", () => {
     const history = new CommandHistory();
 

@@ -3,6 +3,7 @@ export interface Command {
   execute(): void | boolean;
   // biome-ignore lint/suspicious/noConfusingVoidType: existing commands return void; false alone rejects a transaction.
   undo(): void | boolean;
+  discard?(): void;
 }
 
 export class CommandHistory {
@@ -23,7 +24,11 @@ export class CommandHistory {
     }
     if (cmd.execute() === false) return false;
     this.undoStack.push(cmd);
-    if (this.undoStack.length > this.maxSize) this.undoStack.shift();
+    if (this.undoStack.length > this.maxSize) {
+      const evicted = this.undoStack.shift();
+      if (evicted) this.discard(evicted);
+    }
+    for (const command of this.redoStack) this.discard(command);
     this.redoStack = [];
     this.onMutation();
     return true;
@@ -56,7 +61,17 @@ export class CommandHistory {
   }
 
   clear(): void {
+    for (const command of this.undoStack) this.discard(command);
+    for (const command of this.redoStack) this.discard(command);
     this.undoStack = [];
     this.redoStack = [];
+  }
+
+  private discard(command: Command): void {
+    try {
+      command.discard?.();
+    } catch (error) {
+      console.error("[Editor] Command cleanup failed:", error);
+    }
   }
 }
