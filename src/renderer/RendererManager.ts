@@ -72,6 +72,16 @@ export type AntiAliasingMode = "smaa" | "fxaa" | "none";
 const CAMERA_CLIP_NEAR = 0.5;
 const CAMERA_CLIP_FAR = 1000;
 
+interface AppliedQualityDebugState {
+  aoOnlyView: boolean;
+  ssrOpacity: number;
+  ssrResolutionScale: number;
+  bloomStrength: number;
+  casStrength: number;
+  vignetteDarkness: number;
+  lutStrength: number;
+}
+
 /**
  * Wraps the renderer, scene, camera, and TSL post-processing chain.
  * Uses WebGPURenderer (WebGPU with WebGL2 fallback) and a TSL post-processing graph.
@@ -135,6 +145,15 @@ export class RendererManager implements Disposable {
     bloomEnabled: this.bloomEnabled,
     vignetteEnabled: this.vignetteEnabled,
     lutEnabled: this.lutEnabled,
+  };
+  private appliedQualityDebugState: AppliedQualityDebugState = {
+    aoOnlyView: this.aoOnlyView,
+    ssrOpacity: this.ssrOpacity,
+    ssrResolutionScale: this.ssrResolutionScale,
+    bloomStrength: this.bloomStrength,
+    casStrength: this.casStrength,
+    vignetteDarkness: this.vignetteDarkness,
+    lutStrength: this.lutStrength,
   };
 
   private lastRenderStats = {
@@ -618,11 +637,11 @@ export class RendererManager implements Disposable {
       this.scheduleQualitySettingsApply();
     } else {
       if (this.postFXUniforms) {
-        this.postFXUniforms.casStrength.value = getEffectiveCasStrength(
-          this.casEnabled,
-          this.antiAliasingMode,
-          this.casStrength,
-        );
+        const effectiveCasStrength = getEffectiveCasStrength(this.casEnabled, this.antiAliasingMode, this.casStrength);
+        this.postFXUniforms.casStrength.value = effectiveCasStrength;
+        if (this.currentPipelineDescriptor?.useCAS) {
+          this.appliedQualityDebugState.casStrength = this.casStrength;
+        }
       }
     }
   }
@@ -657,7 +676,11 @@ export class RendererManager implements Disposable {
     const nextValue = clampFiniteNumber(value, 0, 1);
     if (nextValue === null) return;
     this.ssrOpacity = nextValue;
-    if (this.postFXUniforms) this.postFXUniforms.ssrOpacity.value = this.isSsrActiveForPipeline() ? this.ssrOpacity : 0;
+    if (this.postFXUniforms) {
+      const ssrActive = this.isSsrActiveForPipeline();
+      this.postFXUniforms.ssrOpacity.value = ssrActive ? this.ssrOpacity : 0;
+      if (ssrActive) this.appliedQualityDebugState.ssrOpacity = this.ssrOpacity;
+    }
   }
 
   setSsrResolutionScale(value: number): void {
@@ -666,6 +689,7 @@ export class RendererManager implements Disposable {
     this.ssrResolutionScale = nextValue;
     if (this.ssrNode) {
       (this.ssrNode as unknown as { resolutionScale: number }).resolutionScale = this.ssrResolutionScale;
+      this.appliedQualityDebugState.ssrResolutionScale = this.ssrResolutionScale;
     }
   }
 
@@ -680,6 +704,7 @@ export class RendererManager implements Disposable {
     for (const node of this.bloomNodes) {
       node.strength.value = this.bloomStrength;
     }
+    if (this.bloomNodes.length > 0) this.appliedQualityDebugState.bloomStrength = this.bloomStrength;
   }
 
   setVignetteEnabled(enabled: boolean): void {
@@ -690,8 +715,14 @@ export class RendererManager implements Disposable {
     const nextValue = clampFiniteNumber(value, 0, 0.8);
     if (nextValue === null) return;
     this.vignetteDarkness = nextValue;
-    if (this.postFXUniforms)
-      this.postFXUniforms.vignetteDarkness.value = this.vignetteEnabled ? this.vignetteDarkness : 0;
+    if (this.postFXUniforms) {
+      this.postFXUniforms.vignetteDarkness.value = this.appliedPostEffectSettings.vignetteEnabled
+        ? this.vignetteDarkness
+        : 0;
+      if (this.appliedPostEffectSettings.vignetteEnabled) {
+        this.appliedQualityDebugState.vignetteDarkness = this.vignetteDarkness;
+      }
+    }
   }
 
   setLutEnabled(enabled: boolean): void {
@@ -735,7 +766,10 @@ export class RendererManager implements Disposable {
     const nextValue = clampFiniteNumber(value, 0, 1);
     if (nextValue === null) return;
     this.lutStrength = nextValue;
-    if (this.postFXUniforms) this.postFXUniforms.lutIntensity.value = this.lutEnabled ? this.lutStrength : 0;
+    if (this.postFXUniforms) {
+      this.postFXUniforms.lutIntensity.value = this.appliedPostEffectSettings.lutEnabled ? this.lutStrength : 0;
+      if (this.appliedPostEffectSettings.lutEnabled) this.appliedQualityDebugState.lutStrength = this.lutStrength;
+    }
   }
 
   setLutName(name: string): void {
@@ -777,6 +811,7 @@ export class RendererManager implements Disposable {
     const backend = (this.renderer as unknown as { backend?: { isWebGPUBackend?: boolean } }).backend;
     const postEffectCapabilities = this.getPostEffectCapabilities();
     const effectivePostEffects = this.appliedPostEffectSettings;
+    const qualityState = this.appliedQualityDebugState;
     return buildRendererDebugFlags({
       isWebGPUPipeline: this.isWebGPUPipeline,
       backendInfo: backend,
@@ -789,15 +824,15 @@ export class RendererManager implements Disposable {
       graphicsProfile: this.appliedGraphicsProfile,
       envRotationDegrees: this.envRotationDegrees,
       descriptor,
-      aoOnlyView: this.aoOnlyView,
-      ssrOpacity: this.ssrOpacity,
-      ssrResolutionScale: this.ssrResolutionScale,
-      bloomStrength: this.bloomStrength,
-      casStrength: this.casStrength,
+      aoOnlyView: qualityState.aoOnlyView,
+      ssrOpacity: qualityState.ssrOpacity,
+      ssrResolutionScale: qualityState.ssrResolutionScale,
+      bloomStrength: qualityState.bloomStrength,
+      casStrength: qualityState.casStrength,
       vignetteEnabled: effectivePostEffects.vignetteEnabled,
-      vignetteDarkness: this.vignetteDarkness,
+      vignetteDarkness: qualityState.vignetteDarkness,
       lutEnabled: effectivePostEffects.lutEnabled,
-      lutStrength: this.lutStrength,
+      lutStrength: qualityState.lutStrength,
       lutName: this.lutName,
       lutReady: this.lutReady,
       envName: this.envName,
@@ -816,6 +851,15 @@ export class RendererManager implements Disposable {
       this.graphicsProfile,
       this.getPostEffectCapabilities(),
     );
+    this.appliedQualityDebugState = {
+      aoOnlyView: this.aoOnlyView,
+      ssrOpacity: this.ssrOpacity,
+      ssrResolutionScale: this.ssrResolutionScale,
+      bloomStrength: this.bloomStrength,
+      casStrength: this.casStrength,
+      vignetteDarkness: this.vignetteDarkness,
+      lutStrength: this.lutStrength,
+    };
     // 1. Sync uniforms (cheap — no graph rebuild)
     syncRuntimePostFxState({
       renderer: this.renderer,

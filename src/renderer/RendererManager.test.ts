@@ -22,6 +22,7 @@ interface RendererManagerHarness {
   currentPipelineDescriptor: RendererPipelineDescriptor | null;
   appliedGraphicsProfile: GraphicsProfile;
   appliedPostEffectSettings: PostEffectSettings;
+  appliedQualityDebugState: AppliedQualityDebugState;
   isWebGPUPipeline: boolean;
   renderer: { backend?: { isWebGPUBackend?: boolean } };
   shadowsEnabled: boolean;
@@ -37,6 +38,24 @@ interface RendererManagerHarness {
   lutName: string;
   lutReady: boolean;
   envName: string;
+  postFXUniforms: {
+    ssrOpacity: { value: number };
+    casStrength: { value: number };
+    vignetteDarkness: { value: number };
+    lutIntensity: { value: number };
+  } | null;
+  bloomNodes: Array<{ strength: { value: number } }>;
+  ssrNode: { resolutionScale: number } | null;
+}
+
+interface AppliedQualityDebugState {
+  aoOnlyView: boolean;
+  ssrOpacity: number;
+  ssrResolutionScale: number;
+  bloomStrength: number;
+  casStrength: number;
+  vignetteDarkness: number;
+  lutStrength: number;
 }
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
@@ -111,6 +130,15 @@ describe("RendererManager quality mutation boundaries", () => {
       currentPipelineDescriptor: appliedDescriptor,
       appliedGraphicsProfile: "balanced",
       appliedPostEffectSettings: BALANCED_POST_EFFECTS,
+      appliedQualityDebugState: {
+        aoOnlyView: false,
+        ssrOpacity: 0.4,
+        ssrResolutionScale: 0.5,
+        bloomStrength: 0.1,
+        casStrength: 0,
+        vignetteDarkness: 0.38,
+        lutStrength: 0.38,
+      },
       graphicsProfile: "cinematic",
       antiAliasingMode: "smaa",
       casEnabled: true,
@@ -127,12 +155,12 @@ describe("RendererManager quality mutation boundaries", () => {
       shadowQualityTier: "auto",
       toneExposure: 0.85,
       envRotationDegrees: 0,
-      aoOnlyView: false,
-      ssrOpacity: 0.5,
-      ssrResolutionScale: 1,
-      bloomStrength: 0.1,
-      vignetteDarkness: 0.38,
-      lutStrength: 0.38,
+      aoOnlyView: true,
+      ssrOpacity: 0.91,
+      ssrResolutionScale: 0.88,
+      bloomStrength: 0.77,
+      vignetteDarkness: 0.55,
+      lutStrength: 0.44,
       lutName: "Cubicle 99",
       lutReady: true,
       envName: "Sunrise",
@@ -146,13 +174,110 @@ describe("RendererManager quality mutation boundaries", () => {
       ssrEnabled: false,
       bloomEnabled: true,
       casEnabled: false,
+      casStrength: 0,
       vignetteEnabled: true,
+      vignetteDarkness: 0.38,
       lutEnabled: true,
+      lutStrength: 0.38,
+      aoOnly: false,
+      ssrOpacity: 0.4,
+      ssrResolutionScale: 0.5,
+      bloomStrength: 0.1,
     });
     expect(manager.getRequestedPostEffectSettings()).toMatchObject({
       ssrEnabled: true,
       vignetteEnabled: false,
       lutEnabled: false,
     });
+  });
+
+  it("reports immediate live-uniform numeric changes without waiting for a structural boundary", () => {
+    const descriptor = buildRendererPipelineDescriptor({
+      profile: "cinematic",
+      aaMode: "smaa",
+      postProcessingEnabled: true,
+      aoEnabled: true,
+      aoOnlyView: false,
+      bloomEnabled: true,
+      ssrEnabled: true,
+      casEnabled: true,
+      casStrength: 0.3,
+      vignetteEnabled: true,
+      lutEnabled: true,
+    });
+    const postFXUniforms = {
+      ssrOpacity: { value: 0.5 },
+      casStrength: { value: 0.3 },
+      vignetteDarkness: { value: 0.42 },
+      lutIntensity: { value: 0.42 },
+    };
+    const bloomNode = { strength: { value: 0.1 } };
+    const ssrNode = { resolutionScale: 1 };
+    const manager = createManagerHarness({
+      currentPipelineDescriptor: descriptor,
+      appliedGraphicsProfile: "cinematic",
+      appliedPostEffectSettings: { ...BALANCED_POST_EFFECTS, ssrEnabled: true },
+      appliedQualityDebugState: {
+        aoOnlyView: false,
+        ssrOpacity: 0.5,
+        ssrResolutionScale: 1,
+        bloomStrength: 0.1,
+        casStrength: 0.3,
+        vignetteDarkness: 0.42,
+        lutStrength: 0.42,
+      },
+      graphicsProfile: "cinematic",
+      antiAliasingMode: "smaa",
+      casEnabled: true,
+      casStrength: 0.3,
+      postProcessingEnabled: true,
+      gtaoEnabled: true,
+      ssrEnabled: true,
+      bloomEnabled: true,
+      vignetteEnabled: true,
+      lutEnabled: true,
+      isWebGPUPipeline: true,
+      renderer: { backend: { isWebGPUBackend: true } },
+      shadowsEnabled: true,
+      shadowQualityTier: "auto",
+      toneExposure: 0.85,
+      envRotationDegrees: 0,
+      aoOnlyView: false,
+      ssrOpacity: 0.5,
+      ssrResolutionScale: 1,
+      bloomStrength: 0.1,
+      vignetteDarkness: 0.42,
+      lutStrength: 0.42,
+      lutName: "Cubicle 99",
+      lutReady: true,
+      envName: "Sunrise",
+      postFXUniforms,
+      bloomNodes: [bloomNode],
+      ssrNode,
+    });
+
+    manager.setSsrOpacity(0.6);
+    manager.setSsrResolutionScale(0.75);
+    manager.setBloomStrength(0.6);
+    manager.setCasStrength(0.4);
+    manager.setVignetteDarkness(0.5);
+    manager.setLutStrength(0.7);
+
+    expect(manager.getDebugFlags()).toMatchObject({
+      ssrOpacity: 0.6,
+      ssrResolutionScale: 0.75,
+      bloomStrength: 0.6,
+      casStrength: 0.4,
+      vignetteDarkness: 0.5,
+      lutStrength: 0.7,
+    });
+    expect(postFXUniforms).toMatchObject({
+      ssrOpacity: { value: 0.6 },
+      casStrength: { value: 0.4 },
+      vignetteDarkness: { value: 0.5 },
+      lutIntensity: { value: 0.7 },
+    });
+    expect(bloomNode.strength.value).toBe(0.6);
+    expect(ssrNode.resolutionScale).toBe(0.75);
   });
 });
