@@ -1,7 +1,9 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
+import type { EventBus } from "../core/EventBus";
 import { LevelManager } from "../level/LevelManager";
+import type { PhysicsWorld } from "../physics/PhysicsWorld";
 import { CommandHistory } from "./CommandHistory";
 import { EditorDocument } from "./EditorDocument";
 import { EditorManager } from "./EditorManager";
@@ -56,6 +58,30 @@ interface DuplicateManagerHarness {
   duplicateById(id: string): void;
 }
 
+interface DeleteManagerHarness {
+  guardDocumentMutation(): boolean;
+  document: EditorDocument;
+  physicsWorld: PhysicsWorld;
+  levelManager: LevelManager;
+  renderer: { scene: THREE.Scene };
+  eventBus: { emit: ReturnType<typeof vi.fn> };
+  gizmo: { attach: ReturnType<typeof vi.fn> };
+  inspectorPanel: { setSelection: ReturnType<typeof vi.fn> };
+  hierarchyPanel: { setSelection: ReturnType<typeof vi.fn>; setObjects: ReturnType<typeof vi.fn> };
+  inspectorEditStartTransform: TransformTuple | null;
+  inspectorEditObjectId: string | null;
+  setSelectionHelper: ReturnType<typeof vi.fn>;
+  syncPhysicsSubtree: ReturnType<typeof vi.fn>;
+  showPhysicsMutationError: ReturnType<typeof vi.fn>;
+  markDirty: ReturnType<typeof vi.fn>;
+  history: CommandHistory;
+  deleteSubtree(rootId: string): boolean;
+  deleteById(id: string): void;
+  deleteSelection(): void;
+}
+
+type DeleteHarness = ReturnType<typeof makeDeleteHarness>;
+
 function makeObject(): EditorObject {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
   return {
@@ -84,6 +110,136 @@ function makeManager(selected: EditorObject): EditorManagerHarness {
   manager.inspectorEditStartTransform = null;
   manager.inspectorEditObjectId = null;
   return manager;
+}
+
+function makeTrackedObject(
+  id: string,
+  parentId: string | null,
+  children: string[],
+  physicsType: "static" | "dynamic",
+  body?: { setEnabled: ReturnType<typeof vi.fn> },
+  collider?: { setEnabled: ReturnType<typeof vi.fn> },
+): EditorObject {
+  const mesh = new THREE.Object3D();
+  mesh.name = id;
+  return {
+    id,
+    name: id,
+    mesh,
+    body: body as unknown as RAPIER.RigidBody,
+    collider: collider as unknown as RAPIER.Collider,
+    source: { type: "primitive", primitive: "group" },
+    transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+    parentId,
+    children,
+    visible: true,
+    locked: false,
+    physicsType,
+  };
+}
+
+function makeDeleteHarness() {
+  const scene = new THREE.Scene();
+  const removeBody = vi.fn();
+  const removeCollider = vi.fn();
+  const physicsWorld = { removeBody, removeCollider };
+  const levelManager = new LevelManager(
+    scene,
+    physicsWorld as unknown as PhysicsWorld,
+    { emit: vi.fn() } as unknown as EventBus,
+  );
+  const document = new EditorDocument(scene, physicsWorld as unknown as PhysicsWorld);
+  const rootBody = { setEnabled: vi.fn() };
+  const rootCollider = { setEnabled: vi.fn() };
+  const childBody = { setEnabled: vi.fn() };
+  const childCollider = { setEnabled: vi.fn() };
+  const grandchildCollider = { setEnabled: vi.fn() };
+  const sibling = makeTrackedObject("sibling", null, ["root"], "static");
+  const root = makeTrackedObject("root", sibling.id, ["child"], "static", rootBody, rootCollider);
+  const child = makeTrackedObject("child", root.id, ["grandchild"], "dynamic", childBody, childCollider);
+  const grandchild = makeTrackedObject("grandchild", child.id, [], "static", undefined, grandchildCollider);
+
+  scene.add(sibling.mesh);
+  sibling.mesh.add(root.mesh);
+  root.mesh.add(child.mesh);
+  child.mesh.add(grandchild.mesh);
+  document.objects = [sibling, root, child, grandchild];
+  document.selected = child;
+  levelManager.addLevelObject(sibling.mesh);
+  levelManager.addLevelObject(root.mesh, { physics: { body: root.body, collider: root.collider } });
+  levelManager.addLevelObject(child.mesh, {
+    physics: { body: child.body, collider: child.collider },
+    dynamicBody: {
+      mesh: child.mesh,
+      body: childBody as unknown as RAPIER.RigidBody,
+      prevPos: new THREE.Vector3(),
+      currPos: new THREE.Vector3(),
+      prevQuat: new THREE.Quaternion(),
+      currQuat: new THREE.Quaternion(),
+      hasPose: false,
+    },
+  });
+  levelManager.addLevelObject(grandchild.mesh, { physics: { collider: grandchild.collider } });
+
+  for (const handle of [rootBody, rootCollider, childBody, childCollider, grandchildCollider]) {
+    handle.setEnabled.mockClear();
+  }
+
+  const markDirty = vi.fn();
+  const manager = Object.create(EditorManager.prototype) as unknown as DeleteManagerHarness;
+  Object.assign(manager, {
+    guardDocumentMutation: () => true,
+    document,
+    physicsWorld,
+    levelManager,
+    renderer: { scene },
+    eventBus: { emit: vi.fn() },
+    gizmo: { attach: vi.fn() },
+    inspectorPanel: { setSelection: vi.fn() },
+    hierarchyPanel: { setSelection: vi.fn(), setObjects: vi.fn() },
+    inspectorEditStartTransform: null,
+    inspectorEditObjectId: null,
+    setSelectionHelper: vi.fn(),
+    syncPhysicsSubtree: vi.fn(() => ({ ok: true })),
+    showPhysicsMutationError: vi.fn(),
+    markDirty,
+    history: new CommandHistory(markDirty),
+  });
+
+  return {
+    manager,
+    document,
+    levelManager,
+    scene,
+    sibling,
+    root,
+    child,
+    grandchild,
+    rootBody,
+    rootCollider,
+    childBody,
+    childCollider,
+    grandchildCollider,
+    removeBody,
+    removeCollider,
+    markDirty,
+  };
+}
+
+function projectDeleteManager({ document, levelManager }: DeleteHarness) {
+  const objectByMesh = new Map(document.objects.map((object) => [object.mesh, object.id]));
+  return {
+    document: document.objects.map((object) => ({
+      id: object.id,
+      parentId: object.parentId ?? null,
+      children: [...(object.children ?? [])],
+      meshParent: object.mesh.parent ? (objectByMesh.get(object.mesh.parent) ?? null) : null,
+      meshChildren: object.mesh.children.map((mesh) => objectByMesh.get(mesh)),
+    })),
+    selected: document.selected?.id ?? null,
+    levelObjects: levelManager.getLevelObjects().map((mesh) => objectByMesh.get(mesh)),
+    dynamicBodies: levelManager.getDynamicBodies().map(({ mesh }) => objectByMesh.get(mesh)),
+  };
 }
 
 describe("EditorManager inspector transform transactions", () => {
@@ -354,5 +510,139 @@ describe("EditorManager collider rollback fidelity", () => {
     expect(desc.activeCollisionTypes).toBe(6);
     expect(desc.contactForceEventThreshold).toBe(8.5);
     expect(desc.contactSkin).toBe(0.0125);
+  });
+});
+
+describe("EditorManager subtree delete transactions", () => {
+  it("round-trips mixed tracking and selected descendants, then finalizes an applied redo exactly once", () => {
+    const harness = makeDeleteHarness();
+    const { manager, document, levelManager, root, child, grandchild, sibling } = harness;
+    const before = projectDeleteManager(harness);
+    const trackingBefore = [root, child, grandchild].map((object) => levelManager.getLevelObjectTracking(object.mesh));
+    const removeLevelObject = vi.spyOn(levelManager, "removeLevelObject");
+
+    expect(manager.deleteSubtree(root.id)).toBe(true);
+    expect(document.objects).toEqual([sibling]);
+    expect(levelManager.getLevelObjects()).toEqual([sibling.mesh]);
+    expect(document.selected).toBeNull();
+    expect(root.mesh.parent).toBeNull();
+    expect(removeLevelObject.mock.calls.slice(0, 3).map(([mesh]) => (mesh as THREE.Object3D).name)).toEqual([
+      grandchild.id,
+      child.id,
+      root.id,
+    ]);
+    for (const handle of [
+      harness.rootBody,
+      harness.rootCollider,
+      harness.childBody,
+      harness.childCollider,
+      harness.grandchildCollider,
+    ]) {
+      expect(handle.setEnabled).toHaveBeenLastCalledWith(false);
+    }
+
+    expect(manager.history.undo()).toBe(true);
+    expect(projectDeleteManager(harness)).toEqual(before);
+    expect([root, child, grandchild].map((object) => levelManager.getLevelObjectTracking(object.mesh))).toEqual(
+      trackingBefore,
+    );
+    expect(manager.syncPhysicsSubtree).toHaveBeenCalledWith(root, false);
+    for (const handle of [
+      harness.rootBody,
+      harness.rootCollider,
+      harness.childBody,
+      harness.childCollider,
+      harness.grandchildCollider,
+    ]) {
+      expect(handle.setEnabled).toHaveBeenLastCalledWith(true);
+    }
+
+    expect(manager.history.redo()).toBe(true);
+    manager.history.clear();
+    expect(harness.removeBody.mock.calls.map(([body]) => body)).toEqual([root.body, child.body]);
+    expect(harness.removeCollider.mock.calls.map(([collider]) => collider)).toEqual([
+      root.collider,
+      child.collider,
+      grandchild.collider,
+    ]);
+  });
+
+  it("rolls a mid-remove failure back without dirtying or retaining history", () => {
+    const harness = makeDeleteHarness();
+    const { manager, levelManager, root } = harness;
+    const before = projectDeleteManager(harness);
+    const removeLevelObject = levelManager.removeLevelObject.bind(levelManager);
+    let removalCount = 0;
+    vi.spyOn(levelManager, "removeLevelObject").mockImplementation((mesh, options) => {
+      removalCount += 1;
+      if (removalCount === 2) throw new Error("mid-remove failure");
+      return removeLevelObject(mesh, options);
+    });
+
+    expect(manager.deleteSubtree(root.id)).toBe(false);
+
+    expect(projectDeleteManager(harness)).toEqual(before);
+    expect(harness.markDirty).not.toHaveBeenCalled();
+    expect(manager.history.undo()).toBe(false);
+    expect(manager.showPhysicsMutationError).toHaveBeenCalledWith(expect.stringMatching(/delete/i));
+  });
+
+  it("rolls a mid-restore failure back to the applied deletion and keeps undo retryable", () => {
+    const harness = makeDeleteHarness();
+    const { manager, document, levelManager, root, sibling } = harness;
+    const before = projectDeleteManager(harness);
+    expect(manager.deleteSubtree(root.id)).toBe(true);
+    const addLevelObject = levelManager.addLevelObject.bind(levelManager);
+    let restoreCount = 0;
+    const addSpy = vi.spyOn(levelManager, "addLevelObject").mockImplementation((mesh, options) => {
+      restoreCount += 1;
+      if (restoreCount === 2) throw new Error("mid-restore failure");
+      addLevelObject(mesh, options);
+    });
+
+    expect(manager.history.undo()).toBe(false);
+
+    expect(document.objects).toEqual([sibling]);
+    expect(levelManager.getLevelObjects()).toEqual([sibling.mesh]);
+    expect(document.selected).toBeNull();
+    expect(harness.markDirty).toHaveBeenCalledOnce();
+    expect(manager.syncPhysicsSubtree).not.toHaveBeenCalled();
+
+    addSpy.mockImplementation(addLevelObject);
+    expect(manager.history.undo()).toBe(true);
+    expect(projectDeleteManager(harness)).toEqual(before);
+  });
+
+  it("does not destroy restored live physics when an undone delete leaves history", () => {
+    const harness = makeDeleteHarness();
+    const { manager, root } = harness;
+    expect(manager.deleteSubtree(root.id)).toBe(true);
+    expect(manager.history.undo()).toBe(true);
+
+    manager.history.clear();
+
+    expect(harness.removeBody).not.toHaveBeenCalled();
+    expect(harness.removeCollider).not.toHaveBeenCalled();
+  });
+
+  it("rejects a missing root without dirtying or retaining history", () => {
+    const harness = makeDeleteHarness();
+
+    expect(harness.manager.deleteSubtree("missing")).toBe(false);
+
+    expect(harness.markDirty).not.toHaveBeenCalled();
+    expect(harness.manager.history.undo()).toBe(false);
+  });
+
+  it("routes hierarchy and keyboard deletion through deleteSubtree", () => {
+    const { manager, document, root } = makeDeleteHarness();
+    const deleteSubtree = vi.fn(() => true);
+    manager.deleteSubtree = deleteSubtree;
+
+    manager.deleteById(root.id);
+    document.selected = root;
+    manager.deleteSelection();
+
+    expect(deleteSubtree.mock.calls).toEqual([[root.id], [root.id]]);
   });
 });

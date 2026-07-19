@@ -11,7 +11,8 @@ import type { RendererManager } from "@renderer/RendererManager";
 import * as THREE from "three";
 import { BRUSH_REGISTRY, getBrushById } from "./brushes/index";
 import { CommandHistory } from "./CommandHistory";
-import { EditorDocument } from "./EditorDocument";
+import { buildDeleteSubtreeCommand, type EditorSubtreeState } from "./EditorCommands";
+import { EditorDocument, type EditorSubtreeSnapshot } from "./EditorDocument";
 import {
   type EditorDocumentSnapshot,
   EditorDocumentState,
@@ -48,6 +49,18 @@ type EditorTransformSnapshot = {
   rotation: THREE.Euler;
   scale: THREE.Vector3;
 };
+type EditorDeleteSubtreeNodeTracking = {
+  object: EditorObject;
+  wasLevelTracked: boolean;
+  tracking: RemovedLevelObjectTracking;
+  retainedPhysics: NonNullable<RemovedLevelObjectTracking["physics"]> | undefined;
+};
+type EditorDeleteSubtreeTransaction = {
+  snapshot: EditorSubtreeSnapshot;
+  nodes: readonly EditorDeleteSubtreeNodeTracking[];
+  selectedWithinSubtree: EditorObject | null;
+  finalized: boolean;
+};
 
 export class EditorManager {
   private active = false;
@@ -77,6 +90,7 @@ export class EditorManager {
   private gridWasVisible = true;
   private freeCamera: FreeCamera;
   private history: CommandHistory;
+  private deleteSubtreeTransactions = new WeakMap<EditorSubtreeState, EditorDeleteSubtreeTransaction>();
 
   /* ---- Tools ---- */
   private tools = new Map<string, EditorTool>();
@@ -525,6 +539,152 @@ export class EditorManager {
     tracking.physics?.collider?.setEnabled(false);
     this.document.removeObject(obj);
     return tracking;
+  }
+
+  private getDeleteSubtreeTransaction(state: EditorSubtreeState): EditorDeleteSubtreeTransaction | null {
+    this.deleteSubtreeTransactions ??= new WeakMap();
+    const existing = this.deleteSubtreeTransactions.get(state);
+    if (existing) return existing;
+
+    const snapshot = this.document.captureSubtree(state.rootId);
+    if (!snapshot) return null;
+    const levelObjects = new Set(this.levelManager.getLevelObjects());
+    const nodes = snapshot.nodes.map(({ object }) => {
+      const tracking = this.levelManager.getLevelObjectTracking(object.mesh);
+      return Object.freeze({
+        object,
+        wasLevelTracked: levelObjects.has(object.mesh),
+        tracking,
+        retainedPhysics:
+          tracking.physics ??
+          (object.body || object.collider ? { body: object.body, collider: object.collider } : undefined),
+      });
+    });
+    const subtreeIds = new Set(snapshot.nodes.map(({ object }) => object.id));
+    const transaction: EditorDeleteSubtreeTransaction = {
+      snapshot,
+      nodes: Object.freeze(nodes),
+      selectedWithinSubtree:
+        this.document.selected && subtreeIds.has(this.document.selected.id) ? this.document.selected : null,
+      finalized: false,
+    };
+    this.deleteSubtreeTransactions.set(state, transaction);
+    return transaction;
+  }
+
+  private setRetainedPhysicsEnabled(node: EditorDeleteSubtreeNodeTracking, enabled: boolean): void {
+    node.retainedPhysics?.body?.setEnabled(enabled);
+    node.retainedPhysics?.collider?.setEnabled(enabled);
+  }
+
+  private restoreDeletedLevelTracking(transaction: EditorDeleteSubtreeTransaction): void {
+    for (const node of transaction.nodes) {
+      if (node.wasLevelTracked) this.levelManager.addLevelObject(node.object.mesh, node.tracking);
+      else this.setRetainedPhysicsEnabled(node, true);
+    }
+  }
+
+  private detachDeletedLevelTracking(transaction: EditorDeleteSubtreeTransaction): void {
+    for (const node of [...transaction.nodes].reverse()) {
+      if (node.wasLevelTracked) this.levelManager.removeLevelObject(node.object.mesh);
+      this.setRetainedPhysicsEnabled(node, false);
+    }
+  }
+
+  detachSubtree(state: EditorSubtreeState): boolean {
+    const transaction = this.getDeleteSubtreeTransaction(state);
+    if (!transaction || transaction.finalized) return false;
+    const selectedBefore = this.document.selected;
+    const inspectorEditBefore = this.inspectorEditStartTransform;
+    const inspectorObjectBefore = this.inspectorEditObjectId;
+    if (transaction.selectedWithinSubtree === selectedBefore) this.document.selected = null;
+    this.clearInspectorEditSession();
+
+    try {
+      this.detachDeletedLevelTracking(transaction);
+      if (!this.document.removeSubtree(transaction.snapshot)) {
+        throw new Error("The editor document rejected subtree removal.");
+      }
+      return true;
+    } catch (error) {
+      try {
+        if (!this.document.findById(transaction.snapshot.root.id)) {
+          this.document.restoreSubtree(transaction.snapshot);
+        }
+        this.restoreDeletedLevelTracking(transaction);
+      } catch (rollbackError) {
+        console.error("[Editor] Delete rollback failed:", rollbackError);
+      }
+      this.document.selected = selectedBefore;
+      this.inspectorEditStartTransform = inspectorEditBefore;
+      this.inspectorEditObjectId = inspectorObjectBefore;
+      console.error("[Editor] Subtree delete failed:", error);
+      return false;
+    }
+  }
+
+  restoreSubtree(state: EditorSubtreeState): boolean {
+    this.deleteSubtreeTransactions ??= new WeakMap();
+    const transaction = this.deleteSubtreeTransactions.get(state);
+    if (!transaction || transaction.finalized) return false;
+    const selectedBefore = this.document.selected;
+
+    if (!this.document.restoreSubtree(transaction.snapshot)) return false;
+    try {
+      this.restoreDeletedLevelTracking(transaction);
+      const synced = this.syncPhysicsSubtree(transaction.snapshot.root, false);
+      if (!synced.ok) throw new Error(synced.reason);
+      if (transaction.selectedWithinSubtree) this.document.selected = transaction.selectedWithinSubtree;
+      return true;
+    } catch (error) {
+      try {
+        this.detachDeletedLevelTracking(transaction);
+        this.document.removeSubtree(transaction.snapshot);
+      } catch (rollbackError) {
+        console.error("[Editor] Restore rollback failed:", rollbackError);
+      }
+      this.document.selected = selectedBefore;
+      console.error("[Editor] Deleted subtree restore failed:", error);
+      return false;
+    }
+  }
+
+  finalizeDetachedSubtree(state: EditorSubtreeState): void {
+    this.deleteSubtreeTransactions ??= new WeakMap();
+    const transaction = this.deleteSubtreeTransactions.get(state);
+    if (!transaction || transaction.finalized) return;
+    transaction.finalized = true;
+
+    let firstFailure: unknown;
+    for (const node of transaction.nodes) {
+      try {
+        if (node.wasLevelTracked) {
+          this.levelManager.removeLevelObject(node.object.mesh, { removePhysics: true });
+        } else if (node.retainedPhysics?.body) {
+          this.physicsWorld.removeBody(node.retainedPhysics.body);
+        } else if (node.retainedPhysics?.collider) {
+          this.physicsWorld.removeCollider(node.retainedPhysics.collider);
+        }
+      } catch (error) {
+        firstFailure ??= error;
+      }
+    }
+    this.deleteSubtreeTransactions.delete(state);
+    if (firstFailure) throw firstFailure;
+  }
+
+  afterMutation(notice: unknown): void {
+    const mutation = notice as { type?: string; phase?: string; rootId?: string };
+    if (mutation.type !== "subtree-delete" || !mutation.rootId) return;
+    this.syncHierarchy();
+    this.setSelection(this.document.selected);
+    this.eventBus.emit(mutation.phase === "restored" ? "editor:objectAdded" : "editor:objectRemoved", {
+      id: mutation.rootId,
+    });
+  }
+
+  reportFailure(reason: string): void {
+    this.showPhysicsMutationError(reason);
   }
 
   private rollbackEditorObject(obj: EditorObject): void {
@@ -1194,12 +1354,18 @@ export class EditorManager {
    *  Hierarchy operations (delegate to EditorDocument)
    * ================================================================== */
 
+  deleteSubtree(rootId: string): boolean {
+    if (!this.guardDocumentMutation()) return false;
+    const result = buildDeleteSubtreeCommand(this, rootId);
+    if (!result.ok) {
+      this.reportFailure(result.reason);
+      return false;
+    }
+    return this.history.push(result.command);
+  }
+
   private deleteById(id: string): void {
-    if (!this.guardDocumentMutation()) return;
-    const obj = this.document.findById(id);
-    if (!obj) return;
-    this.setSelection(obj);
-    this.deleteSelection();
+    this.deleteSubtree(id);
   }
 
   private duplicateById(id: string): void {
@@ -1738,28 +1904,8 @@ export class EditorManager {
    * ================================================================== */
 
   private deleteSelection(): void {
-    if (!this.guardDocumentMutation()) return;
-    if (!this.document.selected) return;
     const target = this.document.selected;
-    const parent = target.mesh.parent ?? this.renderer.scene;
-    let removedTracking: RemovedLevelObjectTracking | undefined;
-    this.history.push({
-      execute: () => {
-        removedTracking = this.removeTrackedEditorObject(target);
-        this.setSelection(null);
-        this.syncHierarchy();
-        this.eventBus.emit("editor:objectRemoved", { id: target.id });
-      },
-      undo: () => {
-        this.document.addObject(target, parent);
-        // Keep LevelManager tracking in sync with the document, or the
-        // restored object is invisible to level operations (saves, rebuilds,
-        // unload sweeps) while still rendering in the scene.
-        this.levelManager.addLevelObject(target.mesh, removedTracking);
-        this.syncHierarchy();
-        this.eventBus.emit("editor:objectAdded", { id: target.id });
-      },
-    });
+    if (target) this.deleteSubtree(target.id);
   }
 
   /* ==================================================================

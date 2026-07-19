@@ -1,6 +1,50 @@
 import type { PhysicsWorld } from "@physics/PhysicsWorld";
 import * as THREE from "three";
+import type { EditorTransformState } from "./EditorCommands";
 import type { EditorObject } from "./EditorObject";
+
+export interface EditorSubtreeNodeSnapshot {
+  object: EditorObject;
+  documentIndex: number;
+  parentId: string | null;
+  children: readonly string[];
+  localTransform: EditorTransformState;
+}
+
+export interface EditorSubtreeSnapshot {
+  root: EditorObject;
+  nodes: readonly EditorSubtreeNodeSnapshot[];
+  externalParent: THREE.Object3D | null;
+  externalParentObject: EditorObject | null;
+  externalParentChildren: readonly string[] | null;
+  externalChildIndex: number;
+}
+
+function captureLocalTransform(object: EditorObject): EditorTransformState {
+  return Object.freeze({
+    position: Object.freeze([object.mesh.position.x, object.mesh.position.y, object.mesh.position.z] as [
+      number,
+      number,
+      number,
+    ]),
+    rotation: Object.freeze([object.mesh.rotation.x, object.mesh.rotation.y, object.mesh.rotation.z] as [
+      number,
+      number,
+      number,
+    ]),
+    scale: Object.freeze([object.mesh.scale.x, object.mesh.scale.y, object.mesh.scale.z] as [number, number, number]),
+  });
+}
+
+function snapshotNode(object: EditorObject, documentIndex: number): EditorSubtreeNodeSnapshot {
+  return Object.freeze({
+    object,
+    documentIndex,
+    parentId: object.parentId ?? null,
+    children: Object.freeze([...(object.children ?? [])]),
+    localTransform: captureLocalTransform(object),
+  });
+}
 
 /**
  * EditorDocument owns the editor object list and all object-mutation
@@ -198,6 +242,92 @@ export class EditorDocument {
       }
       return true;
     });
+  }
+
+  captureSubtree(rootId: string): EditorSubtreeSnapshot | null {
+    const root = this.findById(rootId);
+    if (!root) return null;
+
+    const queue = [root];
+    const capturedIds = new Set<string>();
+    const nodes: EditorSubtreeNodeSnapshot[] = [];
+    for (let index = 0; index < queue.length; index += 1) {
+      const object = queue[index];
+      if (!object) continue;
+      if (capturedIds.has(object.id)) continue;
+      capturedIds.add(object.id);
+      nodes.push(snapshotNode(object, this.objects.indexOf(object)));
+      for (const child of this.objects) {
+        if (child.parentId === object.id) queue.push(child);
+      }
+    }
+
+    const externalParent = root.mesh.parent;
+    const externalParentObject = root.parentId ? (this.findById(root.parentId) ?? null) : null;
+    return Object.freeze({
+      root,
+      nodes: Object.freeze(nodes),
+      externalParent,
+      externalParentObject,
+      externalParentChildren: externalParentObject
+        ? Object.freeze([...(externalParentObject.children ?? [])])
+        : null,
+      externalChildIndex: externalParent?.children.indexOf(root.mesh) ?? -1,
+    });
+  }
+
+  removeSubtree(snapshot: EditorSubtreeSnapshot): boolean {
+    if (snapshot.nodes.length === 0) return false;
+    if (snapshot.nodes.some((node) => this.findById(node.object.id) !== node.object)) return false;
+
+    const removedIds = new Set(snapshot.nodes.map((node) => node.object.id));
+    snapshot.root.mesh.parent?.remove(snapshot.root.mesh);
+    if (snapshot.externalParentObject) {
+      snapshot.externalParentObject.children = (snapshot.externalParentObject.children ?? []).filter(
+        (id) => id !== snapshot.root.id,
+      );
+    }
+    this.objects = this.objects.filter((object) => !removedIds.has(object.id));
+    if (this.selected && removedIds.has(this.selected.id)) this.selected = null;
+    return true;
+  }
+
+  restoreSubtree(snapshot: EditorSubtreeSnapshot): boolean {
+    if (snapshot.nodes.length === 0) return false;
+    if (snapshot.nodes.some((node) => this.findById(node.object.id))) return false;
+    if (snapshot.externalParentObject && this.findById(snapshot.externalParentObject.id) !== snapshot.externalParentObject) {
+      return false;
+    }
+
+    for (const node of [...snapshot.nodes].sort((a, b) => a.documentIndex - b.documentIndex)) {
+      const { object, localTransform } = node;
+      object.parentId = node.parentId;
+      object.children = [...node.children];
+      object.mesh.position.fromArray(localTransform.position);
+      object.mesh.rotation.set(...localTransform.rotation);
+      object.mesh.scale.fromArray(localTransform.scale);
+      object.transform = {
+        position: [...localTransform.position],
+        rotation: [...localTransform.rotation],
+        scale: [...localTransform.scale],
+      };
+      this.objects.splice(node.documentIndex, 0, object);
+    }
+
+    if (snapshot.externalParentObject && snapshot.externalParentChildren) {
+      snapshot.externalParentObject.children = [...snapshot.externalParentChildren];
+    }
+    snapshot.externalParent?.add(snapshot.root.mesh);
+    if (
+      snapshot.externalParent &&
+      snapshot.externalChildIndex >= 0 &&
+      snapshot.externalChildIndex < snapshot.externalParent.children.length - 1
+    ) {
+      const restoredIndex = snapshot.externalParent.children.indexOf(snapshot.root.mesh);
+      snapshot.externalParent.children.splice(restoredIndex, 1);
+      snapshot.externalParent.children.splice(snapshot.externalChildIndex, 0, snapshot.root.mesh);
+    }
+    return true;
   }
 
   groupObjects(ids: string[]): EditorObject | null {
