@@ -23,6 +23,7 @@ import type { LevelManager } from "@level/LevelManager";
 import type { ShowcaseStationKey } from "@level/ShowcaseLayout";
 import type { PhysicsWorld } from "@physics/PhysicsWorld";
 import type { RendererManager } from "@renderer/RendererManager";
+import { pickPostEffectSettings } from "@renderer/rendererState";
 import { CheckpointObjectiveSystem } from "@systems/CheckpointObjectiveSystem";
 import { CoinCollectibleSystem, type CoinDebugEntry } from "@systems/CoinCollectibleSystem";
 import { DebugRuntimeSystem } from "@systems/DebugRuntimeSystem";
@@ -245,7 +246,9 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
         this.syncDebugPanel();
       }),
       this.eventBus.on("debug:postProcessing", (enabled) => {
-        this.renderer.setPostProcessingEnabled(enabled);
+        const settings = this.settings.update({ postProcessingEnabled: enabled });
+        this.renderer.applyPostEffectSettings(pickPostEffectSettings(settings));
+        this.syncDebugPanel();
       }),
       this.eventBus.on("debug:shadows", (enabled) => {
         this.settings.update({ shadowsEnabled: enabled });
@@ -267,9 +270,12 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
         this.renderer.setExposure(value);
       }),
       this.eventBus.on("debug:graphicsProfile", ({ profile }) => {
-        this.renderer.setGraphicsProfile(profile);
-        const flags = this.renderer.getDebugFlags();
-        const s = this.settings.update({ graphicsProfile: profile, aaMode: flags.aaMode });
+        const s = this.settings.update({ graphicsProfile: profile });
+        this.renderer.setGraphicsProfile(s.graphicsProfile);
+        this.renderer.setAntiAliasingMode(s.aaMode);
+        this.renderer.setCasEnabled(s.casEnabled);
+        this.renderer.setCasStrength(s.casStrength);
+        this.renderer.applyPostEffectSettings(pickPostEffectSettings(s));
         this.levelManager.setGraphicsProfile(s.graphicsProfile);
         this.syncDebugPanel();
       }),
@@ -283,10 +289,14 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
         this.syncDebugPanel();
       }),
       this.eventBus.on("debug:ssaoEnabled", (enabled) => {
-        this.renderer.setSsaoEnabled(enabled);
+        const settings = this.settings.update({ ssaoEnabled: enabled });
+        this.renderer.applyPostEffectSettings(pickPostEffectSettings(settings));
+        this.syncDebugPanel();
       }),
       this.eventBus.on("debug:ssrEnabled", (enabled) => {
-        this.renderer.setSsrEnabled(enabled);
+        const settings = this.settings.update({ ssrEnabled: enabled });
+        this.renderer.applyPostEffectSettings(pickPostEffectSettings(settings));
+        this.syncDebugPanel();
       }),
       this.eventBus.on("debug:ssrOpacity", (opacity) => {
         this.renderer.setSsrOpacity(opacity);
@@ -295,19 +305,25 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
         this.renderer.setSsrResolutionScale(scale);
       }),
       this.eventBus.on("debug:bloomEnabled", (enabled) => {
-        this.renderer.setBloomEnabled(enabled);
+        const settings = this.settings.update({ bloomEnabled: enabled });
+        this.renderer.applyPostEffectSettings(pickPostEffectSettings(settings));
+        this.syncDebugPanel();
       }),
       this.eventBus.on("debug:bloomStrength", (strength) => {
         this.renderer.setBloomStrength(strength);
       }),
       this.eventBus.on("debug:vignetteEnabled", (enabled) => {
-        this.renderer.setVignetteEnabled(enabled);
+        const settings = this.settings.update({ vignetteEnabled: enabled });
+        this.renderer.applyPostEffectSettings(pickPostEffectSettings(settings));
+        this.syncDebugPanel();
       }),
       this.eventBus.on("debug:vignetteDarkness", (darkness) => {
         this.renderer.setVignetteDarkness(darkness);
       }),
       this.eventBus.on("debug:lutEnabled", (enabled) => {
-        this.renderer.setLutEnabled(enabled);
+        const settings = this.settings.update({ lutEnabled: enabled });
+        this.renderer.applyPostEffectSettings(pickPostEffectSettings(settings));
+        this.syncDebugPanel();
       }),
       this.eventBus.on("debug:lutStrength", (strength) => {
         this.renderer.setLutStrength(strength);
@@ -696,11 +712,13 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       e.preventDefault();
       const cycled = this.settings.cycleGraphicsProfile();
       this.renderer.setGraphicsProfile(cycled.graphicsProfile);
-      const flags = this.renderer.getDebugFlags();
-      const s = this.settings.update({ aaMode: flags.aaMode });
-      this.levelManager.setGraphicsProfile(s.graphicsProfile);
+      this.renderer.setAntiAliasingMode(cycled.aaMode);
+      this.renderer.setCasEnabled(cycled.casEnabled);
+      this.renderer.setCasStrength(cycled.casStrength);
+      this.renderer.applyPostEffectSettings(pickPostEffectSettings(cycled));
+      this.levelManager.setGraphicsProfile(cycled.graphicsProfile);
       this.syncDebugPanel();
-      console.log(`[Settings] graphicsProfile=${s.graphicsProfile}, aaMode=${s.aaMode}`);
+      console.log(`[Settings] graphicsProfile=${cycled.graphicsProfile}, aaMode=${cycled.aaMode}`);
       return;
     }
     if (e.code === "F7") {

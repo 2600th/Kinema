@@ -802,6 +802,18 @@
   border-color: rgba(255, 80, 80, 0.45);
 }
 
+.menu-field input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.menu-field-help {
+  margin: -4px 0 0 32px;
+  color: rgba(224, 224, 224, 0.58);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .menu-button:focus-visible,
 .menu-tab:focus-visible,
 .menu-button-small:focus-visible,

@@ -3,6 +3,7 @@ import { shouldUseCompatibilityRenderer } from "@core/mobilePlatform";
 import type { InputState } from "@core/types";
 import RAPIER from "@dimforge/rapier3d-compat";
 import { getInputGlyph } from "@input/InputGlyphs";
+import { pickPostEffectSettings } from "@renderer/rendererState";
 import type { CarController } from "@vehicle/CarController";
 import type { VehicleController } from "@vehicle/VehicleController";
 import * as THREE from "three";
@@ -113,12 +114,13 @@ async function bootstrap(): Promise<void> {
   AssetLoader.initRendererSupport(renderer.renderer);
   renderer.setGraphicsProfile(settings.value.graphicsProfile);
   renderer.setAntiAliasingMode(settings.value.aaMode);
+  renderer.setCasEnabled(settings.value.casEnabled);
+  renderer.setCasStrength(settings.value.casStrength);
+  renderer.applyPostEffectSettings(pickPostEffectSettings(settings.value));
   renderer.setResolutionScale(settings.value.resolutionScale);
   renderer.setShadowsEnabled(settings.value.shadowsEnabled);
   renderer.setShadowQualityTier(settings.value.shadowQuality);
   renderer.setEnvironmentRotationDegrees(settings.value.envRotationDegrees);
-  renderer.setCasEnabled(settings.value.casEnabled);
-  renderer.setCasStrength(settings.value.casStrength);
   console.log("[Kinema] Renderer initialized");
 
   const eventBus = new EventBus();

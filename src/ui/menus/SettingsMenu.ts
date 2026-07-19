@@ -1,7 +1,13 @@
 import type { AudioController } from "@audio/AudioManager";
 import type { OrbitFollowCamera } from "@camera/OrbitFollowCamera";
 import type { EventBus } from "@core/EventBus";
-import type { AntiAliasingMode, GraphicsProfile, ShadowQualityTier, UserSettingsStore } from "@core/UserSettings";
+import {
+  type AntiAliasingMode,
+  type GraphicsProfile,
+  type ShadowQualityTier,
+  USER_SETTINGS_RANGES,
+  type UserSettingsStore,
+} from "@core/UserSettings";
 import type { InputManager } from "@input/InputManager";
 import type { RendererManager } from "@renderer/RendererManager";
 
@@ -71,6 +77,12 @@ export class SettingsMenu {
   }
 
   show(): void {
+    this.controlsSection.replaceChildren();
+    this.graphicsSection.replaceChildren();
+    this.audioSection.replaceChildren();
+    this.buildControlsSection();
+    this.buildGraphicsSection();
+    this.buildAudioSection();
     this.root.classList.add("active");
   }
 
@@ -86,10 +98,17 @@ export class SettingsMenu {
     const { settings, inputManager, camera, renderer } = this.options;
 
     this.controlsSection.appendChild(
-      this.createSlider("Mouse sensitivity", settings.value.mouseSensitivity, 0.0005, 0.008, 0.0001, (value) => {
-        const s = settings.update({ mouseSensitivity: value });
-        camera.setMouseSensitivity(s.mouseSensitivity);
-      }),
+      this.createSlider(
+        "Mouse sensitivity",
+        settings.value.mouseSensitivity,
+        USER_SETTINGS_RANGES.mouseSensitivity.min,
+        USER_SETTINGS_RANGES.mouseSensitivity.max,
+        USER_SETTINGS_RANGES.mouseSensitivity.step,
+        (value) => {
+          const s = settings.update({ mouseSensitivity: value });
+          camera.setMouseSensitivity(s.mouseSensitivity);
+        },
+      ),
     );
 
     this.controlsSection.appendChild(
@@ -107,26 +126,47 @@ export class SettingsMenu {
     );
 
     this.controlsSection.appendChild(
-      this.createSlider("Camera FOV", settings.value.cameraFov, 60, 75, 1, (value) => {
-        const s = settings.update({ cameraFov: value });
-        renderer.camera.fov = s.cameraFov;
-        camera.setBaseFov(s.cameraFov);
-        renderer.camera.updateProjectionMatrix();
-      }),
+      this.createSlider(
+        "Camera FOV",
+        settings.value.cameraFov,
+        USER_SETTINGS_RANGES.cameraFov.min,
+        USER_SETTINGS_RANGES.cameraFov.max,
+        USER_SETTINGS_RANGES.cameraFov.step,
+        (value) => {
+          const s = settings.update({ cameraFov: value });
+          renderer.camera.fov = s.cameraFov;
+          camera.setBaseFov(s.cameraFov);
+          renderer.camera.updateProjectionMatrix();
+        },
+      ),
     );
 
     this.controlsSection.appendChild(
-      this.createSlider("Gamepad deadzone", settings.value.gamepadDeadzone, 0, 0.4, 0.01, (value) => {
-        const s = settings.update({ gamepadDeadzone: value });
-        inputManager.setGamepadTuning(s.gamepadDeadzone, s.gamepadCurve);
-      }),
+      this.createSlider(
+        "Gamepad deadzone",
+        settings.value.gamepadDeadzone,
+        USER_SETTINGS_RANGES.gamepadDeadzone.min,
+        USER_SETTINGS_RANGES.gamepadDeadzone.max,
+        USER_SETTINGS_RANGES.gamepadDeadzone.step,
+        (value) => {
+          const s = settings.update({ gamepadDeadzone: value });
+          inputManager.setGamepadTuning(s.gamepadDeadzone, s.gamepadCurve);
+        },
+      ),
     );
 
     this.controlsSection.appendChild(
-      this.createSlider("Gamepad curve", settings.value.gamepadCurve, 0.6, 3.0, 0.1, (value) => {
-        const s = settings.update({ gamepadCurve: value });
-        inputManager.setGamepadTuning(s.gamepadDeadzone, s.gamepadCurve);
-      }),
+      this.createSlider(
+        "Gamepad curve",
+        settings.value.gamepadCurve,
+        USER_SETTINGS_RANGES.gamepadCurve.min,
+        USER_SETTINGS_RANGES.gamepadCurve.max,
+        USER_SETTINGS_RANGES.gamepadCurve.step,
+        (value) => {
+          const s = settings.update({ gamepadCurve: value });
+          inputManager.setGamepadTuning(s.gamepadDeadzone, s.gamepadCurve);
+        },
+      ),
     );
 
     // Touch controls toggle — only visible on touch-capable devices
@@ -141,7 +181,7 @@ export class SettingsMenu {
 
   private buildGraphicsSection(): void {
     const { settings, renderer, eventBus } = this.options;
-    const flags = renderer.getDebugFlags();
+    const capabilities = renderer.getPostEffectCapabilities();
 
     // --- Profile & Resolution ---
     this.graphicsSection.appendChild(this.createSectionHeader("Profile & Resolution"));
@@ -166,10 +206,17 @@ export class SettingsMenu {
     );
 
     this.graphicsSection.appendChild(
-      this.createSlider("Resolution scale", settings.value.resolutionScale, 0.5, 1, 0.05, (value) => {
-        const s = settings.update({ resolutionScale: value });
-        renderer.setResolutionScale(s.resolutionScale);
-      }),
+      this.createSlider(
+        "Resolution scale",
+        settings.value.resolutionScale,
+        USER_SETTINGS_RANGES.resolutionScale.min,
+        USER_SETTINGS_RANGES.resolutionScale.max,
+        USER_SETTINGS_RANGES.resolutionScale.step,
+        (value) => {
+          const s = settings.update({ resolutionScale: value });
+          renderer.setResolutionScale(s.resolutionScale);
+        },
+      ),
     );
 
     // --- Lighting & Shadows ---
@@ -194,34 +241,53 @@ export class SettingsMenu {
       ),
     );
     this.graphicsSection.appendChild(
-      this.createSlider("Environment rotation", settings.value.envRotationDegrees, -180, 180, 1, (value) => {
-        const s = settings.update({ envRotationDegrees: value });
-        eventBus.emit("debug:environmentRotation", s.envRotationDegrees);
-      }),
+      this.createSlider(
+        "Environment rotation",
+        settings.value.envRotationDegrees,
+        USER_SETTINGS_RANGES.envRotationDegrees.min,
+        USER_SETTINGS_RANGES.envRotationDegrees.max,
+        USER_SETTINGS_RANGES.envRotationDegrees.step,
+        (value) => {
+          const s = settings.update({ envRotationDegrees: value });
+          eventBus.emit("debug:environmentRotation", s.envRotationDegrees);
+        },
+      ),
     );
 
     // --- Post Effects ---
     this.graphicsSection.appendChild(this.createSectionHeader("Post Effects"));
 
     this.graphicsSection.appendChild(
-      this.createToggle("Post-processing", flags.postProcessingEnabled, (value) => {
-        eventBus.emit("debug:postProcessing", value);
-      }),
+      this.createToggle(
+        "Post-processing",
+        settings.value.postProcessingEnabled,
+        (value) => eventBus.emit("debug:postProcessing", value),
+        capabilities.postProcessingEnabled ? undefined : "Unavailable: active renderer has no post-processing pipeline.",
+      ),
     );
     this.graphicsSection.appendChild(
-      this.createToggle("SSAO", flags.ssaoEnabled, (value) => {
-        eventBus.emit("debug:ssaoEnabled", value);
-      }),
+      this.createToggle(
+        "SSAO",
+        settings.value.ssaoEnabled,
+        (value) => eventBus.emit("debug:ssaoEnabled", value),
+        capabilities.ssaoEnabled ? undefined : "Unavailable: active renderer cannot apply SSAO.",
+      ),
     );
     this.graphicsSection.appendChild(
-      this.createToggle("SSR", flags.ssrEnabled, (value) => {
-        eventBus.emit("debug:ssrEnabled", value);
-      }),
+      this.createToggle(
+        "SSR",
+        settings.value.ssrEnabled,
+        (value) => eventBus.emit("debug:ssrEnabled", value),
+        capabilities.ssrEnabled ? undefined : "Unavailable: active renderer cannot apply SSR.",
+      ),
     );
     this.graphicsSection.appendChild(
-      this.createToggle("Bloom", flags.bloomEnabled, (value) => {
-        eventBus.emit("debug:bloomEnabled", value);
-      }),
+      this.createToggle(
+        "Bloom",
+        settings.value.bloomEnabled,
+        (value) => eventBus.emit("debug:bloomEnabled", value),
+        capabilities.bloomEnabled ? undefined : "Unavailable: active renderer cannot apply bloom.",
+      ),
     );
     this.graphicsSection.appendChild(
       this.createToggle("CAS sharpening", settings.value.casEnabled, (value) => {
@@ -230,20 +296,33 @@ export class SettingsMenu {
       }),
     );
     this.graphicsSection.appendChild(
-      this.createSlider("CAS strength", settings.value.casStrength, 0, 1, 0.05, (value) => {
-        const s = settings.update({ casStrength: value });
-        eventBus.emit("debug:casStrength", s.casStrength);
-      }),
+      this.createSlider(
+        "CAS strength",
+        settings.value.casStrength,
+        USER_SETTINGS_RANGES.casStrength.min,
+        USER_SETTINGS_RANGES.casStrength.max,
+        USER_SETTINGS_RANGES.casStrength.step,
+        (value) => {
+          const s = settings.update({ casStrength: value });
+          eventBus.emit("debug:casStrength", s.casStrength);
+        },
+      ),
     );
     this.graphicsSection.appendChild(
-      this.createToggle("Vignette", flags.vignetteEnabled, (value) => {
-        eventBus.emit("debug:vignetteEnabled", value);
-      }),
+      this.createToggle(
+        "Vignette",
+        settings.value.vignetteEnabled,
+        (value) => eventBus.emit("debug:vignetteEnabled", value),
+        capabilities.vignetteEnabled ? undefined : "Unavailable: active renderer cannot apply vignette.",
+      ),
     );
     this.graphicsSection.appendChild(
-      this.createToggle("LUT", flags.lutEnabled, (value) => {
-        eventBus.emit("debug:lutEnabled", value);
-      }),
+      this.createToggle(
+        "LUT",
+        settings.value.lutEnabled,
+        (value) => eventBus.emit("debug:lutEnabled", value),
+        capabilities.lutEnabled ? undefined : "Unavailable: active renderer cannot apply LUT color grading.",
+      ),
     );
 
     // --- Developer ---
@@ -259,25 +338,46 @@ export class SettingsMenu {
   private buildAudioSection(): void {
     const { settings, audioManager, eventBus } = this.options;
     this.audioSection.appendChild(
-      this.createSlider("Master volume", settings.value.masterVolume, 0, 1, 0.01, (value) => {
-        const s = settings.update({ masterVolume: value });
-        audioManager.setMasterVolume(s.masterVolume);
-        eventBus.emit("audio:masterVolume", s.masterVolume);
-      }),
+      this.createSlider(
+        "Master volume",
+        settings.value.masterVolume,
+        USER_SETTINGS_RANGES.masterVolume.min,
+        USER_SETTINGS_RANGES.masterVolume.max,
+        USER_SETTINGS_RANGES.masterVolume.step,
+        (value) => {
+          const s = settings.update({ masterVolume: value });
+          audioManager.setMasterVolume(s.masterVolume);
+          eventBus.emit("audio:masterVolume", s.masterVolume);
+        },
+      ),
     );
     this.audioSection.appendChild(
-      this.createSlider("Music volume", settings.value.musicVolume, 0, 1, 0.01, (value) => {
-        const s = settings.update({ musicVolume: value });
-        audioManager.setMusicVolume(s.musicVolume);
-        eventBus.emit("audio:musicVolume", s.musicVolume);
-      }),
+      this.createSlider(
+        "Music volume",
+        settings.value.musicVolume,
+        USER_SETTINGS_RANGES.musicVolume.min,
+        USER_SETTINGS_RANGES.musicVolume.max,
+        USER_SETTINGS_RANGES.musicVolume.step,
+        (value) => {
+          const s = settings.update({ musicVolume: value });
+          audioManager.setMusicVolume(s.musicVolume);
+          eventBus.emit("audio:musicVolume", s.musicVolume);
+        },
+      ),
     );
     this.audioSection.appendChild(
-      this.createSlider("SFX volume", settings.value.sfxVolume, 0, 1, 0.01, (value) => {
-        const s = settings.update({ sfxVolume: value });
-        audioManager.setSfxVolume(s.sfxVolume);
-        eventBus.emit("audio:sfxVolume", s.sfxVolume);
-      }),
+      this.createSlider(
+        "SFX volume",
+        settings.value.sfxVolume,
+        USER_SETTINGS_RANGES.sfxVolume.min,
+        USER_SETTINGS_RANGES.sfxVolume.max,
+        USER_SETTINGS_RANGES.sfxVolume.step,
+        (value) => {
+          const s = settings.update({ sfxVolume: value });
+          audioManager.setSfxVolume(s.sfxVolume);
+          eventBus.emit("audio:sfxVolume", s.sfxVolume);
+        },
+      ),
     );
   }
 
@@ -347,19 +447,31 @@ export class SettingsMenu {
     return wrapper;
   }
 
-  private createToggle(label: string, value: boolean, onChange: (value: boolean) => void): HTMLDivElement {
+  private createToggle(
+    label: string,
+    value: boolean,
+    onChange: (value: boolean) => void,
+    unavailableReason?: string,
+  ): HTMLDivElement {
     const wrapper = document.createElement("div");
     wrapper.className = "menu-field";
     const fieldLabel = document.createElement("label");
     const input = document.createElement("input");
     input.type = "checkbox";
     input.checked = value;
+    input.disabled = unavailableReason !== undefined;
     input.addEventListener("change", () => {
       onChange(input.checked);
     });
     fieldLabel.appendChild(input);
     fieldLabel.appendChild(document.createTextNode(label));
     wrapper.appendChild(fieldLabel);
+    if (unavailableReason) {
+      const help = document.createElement("p");
+      help.className = "menu-field-help";
+      help.textContent = unavailableReason;
+      wrapper.appendChild(help);
+    }
     return wrapper;
   }
 

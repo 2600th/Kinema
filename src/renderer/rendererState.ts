@@ -1,5 +1,82 @@
-import type { AntiAliasingMode, GraphicsProfile, ShadowQualityTier } from "@core/UserSettings";
+import type { AntiAliasingMode, GraphicsProfile, ShadowQualityTier, UserSettings } from "@core/UserSettings";
 import type { RendererPipelineDescriptor } from "./pipelineProfile";
+
+export type PostEffectSettings = Pick<
+  UserSettings,
+  | "postProcessingEnabled"
+  | "ssaoEnabled"
+  | "ssrEnabled"
+  | "bloomEnabled"
+  | "vignetteEnabled"
+  | "lutEnabled"
+>;
+
+export type RendererPostEffectCapabilities = Readonly<{
+  [Key in keyof PostEffectSettings]: boolean;
+}>;
+
+const POST_EFFECT_SETTING_KEYS = [
+  "postProcessingEnabled",
+  "ssaoEnabled",
+  "ssrEnabled",
+  "bloomEnabled",
+  "vignetteEnabled",
+  "lutEnabled",
+] as const satisfies ReadonlyArray<keyof PostEffectSettings>;
+
+export function pickPostEffectSettings(settings: Readonly<PostEffectSettings>): PostEffectSettings {
+  return {
+    postProcessingEnabled: settings.postProcessingEnabled,
+    ssaoEnabled: settings.ssaoEnabled,
+    ssrEnabled: settings.ssrEnabled,
+    bloomEnabled: settings.bloomEnabled,
+    vignetteEnabled: settings.vignetteEnabled,
+    lutEnabled: settings.lutEnabled,
+  };
+}
+
+export function applyPostEffectSettingsBatch(
+  current: Readonly<PostEffectSettings>,
+  next: Readonly<PostEffectSettings>,
+  requestStructuralMutation: () => void,
+): PostEffectSettings {
+  const requested = pickPostEffectSettings(next);
+  if (POST_EFFECT_SETTING_KEYS.some((key) => current[key] !== requested[key])) {
+    requestStructuralMutation();
+  }
+  return requested;
+}
+
+export function getRendererPostEffectCapabilities(
+  supportsPostPipeline: boolean,
+): RendererPostEffectCapabilities {
+  return {
+    postProcessingEnabled: supportsPostPipeline,
+    ssaoEnabled: supportsPostPipeline,
+    ssrEnabled: supportsPostPipeline,
+    bloomEnabled: supportsPostPipeline,
+    vignetteEnabled: supportsPostPipeline,
+    lutEnabled: supportsPostPipeline,
+  };
+}
+
+export function getEffectivePostEffectSettings(
+  requested: Readonly<PostEffectSettings>,
+  profile: GraphicsProfile,
+  capabilities: RendererPostEffectCapabilities,
+): PostEffectSettings {
+  const postProcessingEnabled = capabilities.postProcessingEnabled && requested.postProcessingEnabled;
+  return {
+    postProcessingEnabled,
+    ssaoEnabled:
+      postProcessingEnabled && capabilities.ssaoEnabled && requested.ssaoEnabled && profile !== "performance",
+    ssrEnabled: postProcessingEnabled && capabilities.ssrEnabled && requested.ssrEnabled && profile === "cinematic",
+    bloomEnabled:
+      postProcessingEnabled && capabilities.bloomEnabled && requested.bloomEnabled && profile !== "performance",
+    vignetteEnabled: postProcessingEnabled && capabilities.vignetteEnabled && requested.vignetteEnabled,
+    lutEnabled: postProcessingEnabled && capabilities.lutEnabled && requested.lutEnabled,
+  };
+}
 
 export interface RendererProfileDefaults {
   gtaoEnabled: boolean;
@@ -48,6 +125,7 @@ export interface RendererDebugFlags {
 export interface BuildRendererDebugFlagsArgs {
   isWebGPUPipeline: boolean;
   backendInfo?: { isWebGPUBackend?: boolean };
+  postEffectCapabilities: RendererPostEffectCapabilities;
   postProcessingEnabled: boolean;
   shadowsEnabled: boolean;
   shadowQuality: ShadowQualityTier;
@@ -142,11 +220,11 @@ export function buildRendererDebugFlags(args: BuildRendererDebugFlagsArgs): Rend
     envRotationDegrees: args.envRotationDegrees,
     aaMode: args.descriptor.aaMode,
     aoOnly: args.aoOnlyView,
-    ssaoEnabled: args.descriptor.useAo,
-    ssrEnabled: args.descriptor.useSSR,
+    ssaoEnabled: args.postEffectCapabilities.ssaoEnabled && args.descriptor.useAo,
+    ssrEnabled: args.postEffectCapabilities.ssrEnabled && args.descriptor.useSSR,
     ssrOpacity: args.ssrOpacity,
     ssrResolutionScale: args.ssrResolutionScale,
-    bloomEnabled: args.descriptor.useBloom,
+    bloomEnabled: args.postEffectCapabilities.bloomEnabled && args.descriptor.useBloom,
     bloomStrength: args.bloomStrength,
     casEnabled: args.descriptor.useCAS,
     casStrength: args.casStrength,

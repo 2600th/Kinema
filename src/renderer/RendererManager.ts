@@ -43,7 +43,17 @@ import {
   applyLutTexture,
   applyShadowToggle,
 } from "./rendererSceneState";
-import { buildRendererDebugFlags, getGraphicsProfileDefaults, type RendererDebugFlags } from "./rendererState";
+import {
+  applyPostEffectSettingsBatch,
+  buildRendererDebugFlags,
+  getEffectivePostEffectSettings,
+  getGraphicsProfileDefaults,
+  getRendererPostEffectCapabilities,
+  type PostEffectSettings,
+  pickPostEffectSettings,
+  type RendererDebugFlags,
+  type RendererPostEffectCapabilities,
+} from "./rendererState";
 
 /**
  * Renderer notes for the r183 WebGPU path.
@@ -483,15 +493,10 @@ export class RendererManager implements Disposable {
     if (profile === this.graphicsProfile) return;
     this.graphicsProfile = profile;
     const defaults = getGraphicsProfileDefaults(profile);
-    this.gtaoEnabled = defaults.gtaoEnabled;
-    this.ssrEnabled = defaults.ssrEnabled;
-    this.bloomEnabled = defaults.bloomEnabled;
     this.bloomStrength = defaults.bloomStrength;
     this.casEnabled = defaults.casEnabled;
     this.casStrength = defaults.casStrength;
-    this.vignetteEnabled = defaults.vignetteEnabled;
     this.vignetteDarkness = defaults.vignetteDarkness;
-    this.lutEnabled = defaults.lutEnabled;
     this.lutStrength = defaults.lutStrength;
     this.antiAliasingMode = defaults.antiAliasingMode;
     this.ssrOpacity = defaults.ssrOpacity;
@@ -531,9 +536,7 @@ export class RendererManager implements Disposable {
   }
 
   setPostProcessingEnabled(enabled: boolean): void {
-    this.applyStructuralToggleChange(this.postProcessingEnabled, enabled, (value) => {
-      this.postProcessingEnabled = value;
-    });
+    this.applyPostEffectSettings({ ...this.getRequestedPostEffectSettings(), postProcessingEnabled: enabled });
   }
 
   setAoOnlyView(enabled: boolean): void {
@@ -636,15 +639,11 @@ export class RendererManager implements Disposable {
   }
 
   setSsaoEnabled(enabled: boolean): void {
-    this.applyStructuralToggleChange(this.gtaoEnabled, enabled, (value) => {
-      this.gtaoEnabled = value;
-    });
+    this.applyPostEffectSettings({ ...this.getRequestedPostEffectSettings(), ssaoEnabled: enabled });
   }
 
   setSsrEnabled(enabled: boolean): void {
-    this.applyStructuralToggleChange(this.ssrEnabled, enabled, (value) => {
-      this.ssrEnabled = value;
-    });
+    this.applyPostEffectSettings({ ...this.getRequestedPostEffectSettings(), ssrEnabled: enabled });
   }
 
   setSsrOpacity(value: number): void {
@@ -664,9 +663,7 @@ export class RendererManager implements Disposable {
   }
 
   setBloomEnabled(enabled: boolean): void {
-    this.applyStructuralToggleChange(this.bloomEnabled, enabled, (value) => {
-      this.bloomEnabled = value;
-    });
+    this.applyPostEffectSettings({ ...this.getRequestedPostEffectSettings(), bloomEnabled: enabled });
   }
 
   setBloomStrength(value: number): void {
@@ -679,9 +676,7 @@ export class RendererManager implements Disposable {
   }
 
   setVignetteEnabled(enabled: boolean): void {
-    this.applyStructuralToggleChange(this.vignetteEnabled, enabled, (value) => {
-      this.vignetteEnabled = value;
-    });
+    this.applyPostEffectSettings({ ...this.getRequestedPostEffectSettings(), vignetteEnabled: enabled });
   }
 
   setVignetteDarkness(value: number): void {
@@ -693,9 +688,40 @@ export class RendererManager implements Disposable {
   }
 
   setLutEnabled(enabled: boolean): void {
-    this.applyStructuralToggleChange(this.lutEnabled, enabled, (value) => {
-      this.lutEnabled = value;
+    this.applyPostEffectSettings({ ...this.getRequestedPostEffectSettings(), lutEnabled: enabled });
+  }
+
+  applyPostEffectSettings(settings: Readonly<PostEffectSettings>): void {
+    let structuralMutationNeeded = false;
+    const requested = applyPostEffectSettingsBatch(this.getRequestedPostEffectSettings(), settings, () => {
+      structuralMutationNeeded = true;
     });
+
+    this.postProcessingEnabled = requested.postProcessingEnabled;
+    this.gtaoEnabled = requested.ssaoEnabled;
+    this.ssrEnabled = requested.ssrEnabled;
+    this.bloomEnabled = requested.bloomEnabled;
+    this.vignetteEnabled = requested.vignetteEnabled;
+    this.lutEnabled = requested.lutEnabled;
+
+    if (!structuralMutationNeeded) return;
+    this.markPipelineDirty();
+    this.scheduleGpuResourceMutation("renderer-quality", () => this.applyQualitySettings());
+  }
+
+  getRequestedPostEffectSettings(): Readonly<PostEffectSettings> {
+    return pickPostEffectSettings({
+      postProcessingEnabled: this.postProcessingEnabled,
+      ssaoEnabled: this.gtaoEnabled,
+      ssrEnabled: this.ssrEnabled,
+      bloomEnabled: this.bloomEnabled,
+      vignetteEnabled: this.vignetteEnabled,
+      lutEnabled: this.lutEnabled,
+    });
+  }
+
+  getPostEffectCapabilities(): RendererPostEffectCapabilities {
+    return getRendererPostEffectCapabilities(this.isWebGPUPipeline);
   }
 
   setLutStrength(value: number): void {
@@ -740,12 +766,19 @@ export class RendererManager implements Disposable {
 
   /** Returns current flags (effective state). */
   getDebugFlags(): Readonly<RendererDebugFlags> {
-    const descriptor = this.currentPipelineDescriptor ?? this.getPipelineDescriptor();
+    const descriptor = this.getPipelineDescriptor();
     const backend = (this.renderer as unknown as { backend?: { isWebGPUBackend?: boolean } }).backend;
+    const postEffectCapabilities = this.getPostEffectCapabilities();
+    const effectivePostEffects = getEffectivePostEffectSettings(
+      this.getRequestedPostEffectSettings(),
+      this.graphicsProfile,
+      postEffectCapabilities,
+    );
     return buildRendererDebugFlags({
       isWebGPUPipeline: this.isWebGPUPipeline,
       backendInfo: backend,
-      postProcessingEnabled: this.postProcessingEnabled,
+      postEffectCapabilities,
+      postProcessingEnabled: effectivePostEffects.postProcessingEnabled,
       shadowsEnabled: this.shadowsEnabled,
       shadowQuality: this.shadowQualityTier,
       shadowQualityResolvedProfile: this.getEffectiveShadowQualityProfile(),
@@ -758,9 +791,9 @@ export class RendererManager implements Disposable {
       ssrResolutionScale: this.ssrResolutionScale,
       bloomStrength: this.bloomStrength,
       casStrength: this.casStrength,
-      vignetteEnabled: this.vignetteEnabled,
+      vignetteEnabled: effectivePostEffects.vignetteEnabled,
       vignetteDarkness: this.vignetteDarkness,
-      lutEnabled: this.lutEnabled,
+      lutEnabled: effectivePostEffects.lutEnabled,
       lutStrength: this.lutStrength,
       lutName: this.lutName,
       lutReady: this.lutReady,
