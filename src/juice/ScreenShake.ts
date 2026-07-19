@@ -61,7 +61,7 @@ export class ScreenShake {
    * Advance time and decay trauma. Returns camera offsets to apply.
    * Uses trauma^2 for a nonlinear curve: small hits are subtle, big hits are intense.
    */
-  update(dt: number): ShakeOffsets {
+  update(dt: number, outputIntensity = 1): ShakeOffsets {
     if (this.trauma <= 0) {
       return ZERO_OFFSETS;
     }
@@ -77,13 +77,23 @@ export class ScreenShake {
     const t = this.time;
     const f = this.frequency;
 
-    return {
+    const offsets = {
       offsetX: this.maxOffsetX * shake * noise(SEED_X, t, f),
       offsetY: this.maxOffsetY * shake * noise(SEED_Y, t, f),
       offsetZ: this.maxOffsetZ * shake * noise(SEED_Z, t, f),
       rotX: this.maxRotX * shake * noise(SEED_RX, t, f),
       rotY: this.maxRotY * shake * noise(SEED_RY, t, f),
       rotZ: this.maxRotZ * shake * noise(SEED_RZ, t, f),
+    };
+    if (outputIntensity === 1) return offsets;
+    if (outputIntensity === 0) return ZERO_OFFSETS;
+    return {
+      offsetX: offsets.offsetX * outputIntensity,
+      offsetY: offsets.offsetY * outputIntensity,
+      offsetZ: offsets.offsetZ * outputIntensity,
+      rotX: offsets.rotX * outputIntensity,
+      rotY: offsets.rotY * outputIntensity,
+      rotZ: offsets.rotZ * outputIntensity,
     };
   }
 

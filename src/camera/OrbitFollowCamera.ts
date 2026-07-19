@@ -2,6 +2,7 @@ import type { PlayerController } from "@character/PlayerController";
 import { COLLISION_GROUP_PLAYER, DEFAULT_CAMERA_CONFIG } from "@core/constants";
 import type { EventBus } from "@core/EventBus";
 import type { CameraConfig, Disposable, InputState, Updatable } from "@core/types";
+import { DEFAULT_USER_SETTINGS, USER_SETTINGS_RANGES } from "@core/UserSettings";
 import RAPIER from "@dimforge/rapier3d-compat";
 import type { FOVPunch } from "@juice/FOVPunch";
 import { ScreenShake } from "@juice/ScreenShake";
@@ -52,6 +53,7 @@ export class OrbitFollowCamera implements Updatable, Disposable {
   private lateralDriftCurrent = 0;
   private screenShake = new ScreenShake();
   private fovPunch: FOVPunch | null = null;
+  private effectsIntensity = DEFAULT_USER_SETTINGS.cameraEffectsIntensity;
   private captureFrozen = false;
   private unsubs: (() => void)[] = [];
 
@@ -119,6 +121,12 @@ export class OrbitFollowCamera implements Updatable, Disposable {
   setBaseFov(value: number): void {
     if (!Number.isFinite(value)) return;
     this.baseFov = value;
+  }
+
+  setEffectsIntensity(value: number): void {
+    if (!Number.isFinite(value)) return;
+    const range = USER_SETTINGS_RANGES.cameraEffectsIntensity;
+    this.effectsIntensity = Math.min(range.max, Math.max(range.min, value));
   }
 
   setCollisionEnabled(enabled: boolean): void {
@@ -331,7 +339,11 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     const landingC = 22;
     this.landingDipVelocity += (-landingK * this.landingDip - landingC * this.landingDipVelocity) * dt;
     this.landingDip += this.landingDipVelocity * dt;
-    _pivotPos.y += this.landingDip;
+    if (this.effectsIntensity === 1) {
+      _pivotPos.y += this.landingDip;
+    } else {
+      _pivotPos.y += this.landingDip * this.effectsIntensity;
+    }
 
     // Velocity-aware camera: look-ahead + lateral drift
     const body = this.targetBody ?? this.player.body;
@@ -348,7 +360,11 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     } else {
       this.lookAheadOffset.lerp(_zeroVec, 1 - Math.exp(-6 * dt));
     }
-    _pivotPos.add(this.lookAheadOffset);
+    if (this.effectsIntensity === 1) {
+      _pivotPos.add(this.lookAheadOffset);
+    } else {
+      _pivotPos.addScaledVector(this.lookAheadOffset, this.effectsIntensity);
+    }
 
     // Lateral drift: shift pivot when strafing
     const inputForDrift = this.target ? this.inputProvider?.() : this.player.lastInputSnapshot;
@@ -356,12 +372,18 @@ export class OrbitFollowCamera implements Updatable, Disposable {
       const drift = inputForDrift.moveX * this.config.lateralDriftScale;
       this.lateralDriftCurrent = THREE.MathUtils.damp(this.lateralDriftCurrent, drift, 5, dt);
       _camRight.set(1, 0, 0).applyAxisAngle(_worldUp, this.yaw);
-      _pivotPos.addScaledVector(_camRight, this.lateralDriftCurrent);
+      _pivotPos.addScaledVector(
+        _camRight,
+        this.effectsIntensity === 1 ? this.lateralDriftCurrent : this.lateralDriftCurrent * this.effectsIntensity,
+      );
     }
     this.driftLateralCurrent = THREE.MathUtils.damp(this.driftLateralCurrent, this.driftLateralTarget, 4.5, dt);
     if (Math.abs(this.driftLateralCurrent) > 0.0001) {
       _camRight.set(1, 0, 0).applyAxisAngle(_worldUp, this.yaw);
-      _pivotPos.addScaledVector(_camRight, this.driftLateralCurrent);
+      _pivotPos.addScaledVector(
+        _camRight,
+        this.effectsIntensity === 1 ? this.driftLateralCurrent : this.driftLateralCurrent * this.effectsIntensity,
+      );
     }
 
     if (this.pivotPosition.lengthSq() < 0.0001) {
@@ -377,9 +399,17 @@ export class OrbitFollowCamera implements Updatable, Disposable {
 
     // Detect collision along desired distance
     const ropeAttached = this.target ? false : this.player.isRopeAttached;
-    let desiredDistance = ropeAttached
-      ? Math.max(this.targetDistance, this.ropeCameraMinDistance)
-      : this.targetDistance + this.speedDistanceOffset + this.driftDistanceOffset;
+    let desiredDistance: number;
+    if (ropeAttached) {
+      desiredDistance = Math.max(this.targetDistance, this.ropeCameraMinDistance);
+    } else if (this.effectsIntensity === 1) {
+      desiredDistance = this.targetDistance + this.speedDistanceOffset + this.driftDistanceOffset;
+    } else {
+      desiredDistance =
+        this.targetDistance +
+        this.speedDistanceOffset * this.effectsIntensity +
+        this.driftDistanceOffset * this.effectsIntensity;
+    }
 
     // Collision caching at 30 Hz: run castShape only when the timer expires,
     // then reuse cachedCollisionToi every render frame in between.
@@ -444,7 +474,14 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     const sprintFov = sprinting ? this.config.sprintFovBoost : 0;
     const locomotionFov = Math.min(12, speedFov + sprintFov);
     const punchFov = this.fovPunch?.update(dt) ?? 0;
-    const targetFov = this.baseFov + locomotionFov + this.speedFovOffset + this.driftFovOffset + punchFov;
+    const targetFov =
+      this.effectsIntensity === 1
+        ? this.baseFov + locomotionFov + this.speedFovOffset + this.driftFovOffset + punchFov
+        : this.baseFov +
+          locomotionFov * this.effectsIntensity +
+          this.speedFovOffset * this.effectsIntensity +
+          this.driftFovOffset * this.effectsIntensity +
+          punchFov * this.effectsIntensity;
     const fovDamp = 1 - Math.exp(-this.config.fovDamping * dt);
     let nextFov = this.camera.fov + (targetFov - this.camera.fov) * fovDamp;
     // Avoid endless subpixel projection jitter from asymptotic damping convergence.
@@ -459,7 +496,7 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     this.camera.lookAt(this.pivotPosition);
 
     // Apply screen shake offsets after final camera positioning
-    const shake = this.screenShake.update(dt);
+    const shake = this.screenShake.update(dt, this.effectsIntensity);
     if (shake.offsetX !== 0 || shake.offsetY !== 0 || shake.offsetZ !== 0) {
       this.camera.position.x += shake.offsetX;
       this.camera.position.y += shake.offsetY;
