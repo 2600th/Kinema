@@ -11,7 +11,12 @@ export class ColliderFactory {
   constructor(private physicsWorld: PhysicsWorld) {}
 
   /** Create a fixed cuboid collider centered at `position` with full `size` dimensions. */
-  createFixedCuboid(position: THREE.Vector3, size: THREE.Vector3, friction = 0.7): RAPIER.Collider {
+  createFixedCuboid(
+    position: THREE.Vector3,
+    size: THREE.Vector3,
+    friction = 0.7,
+    rotation?: THREE.Quaternion,
+  ): RAPIER.Collider {
     const colliderDesc = RAPIER.ColliderDesc.cuboid(
       Math.max(size.x / 2, 0.01),
       Math.max(size.y / 2, 0.01),
@@ -20,7 +25,33 @@ export class ColliderFactory {
       .setTranslation(position.x, position.y, position.z)
       .setFriction(friction)
       .setCollisionGroups(COLLISION_GROUP_WORLD);
+    if (rotation) colliderDesc.setRotation(rotation);
 
+    return this.physicsWorld.world.createCollider(colliderDesc);
+  }
+
+  /** Create a body-less fixed ball collider. */
+  createFixedBall(position: THREE.Vector3, radius: number, friction = 0.7): RAPIER.Collider {
+    const colliderDesc = RAPIER.ColliderDesc.ball(Math.max(radius, 0.01))
+      .setTranslation(position.x, position.y, position.z)
+      .setFriction(friction)
+      .setCollisionGroups(COLLISION_GROUP_WORLD);
+    return this.physicsWorld.world.createCollider(colliderDesc);
+  }
+
+  /** Create a body-less fixed cylinder collider. */
+  createFixedCylinder(
+    position: THREE.Vector3,
+    halfHeight: number,
+    radius: number,
+    friction = 0.7,
+    rotation?: THREE.Quaternion,
+  ): RAPIER.Collider {
+    const colliderDesc = RAPIER.ColliderDesc.cylinder(Math.max(halfHeight, 0.01), Math.max(radius, 0.01))
+      .setTranslation(position.x, position.y, position.z)
+      .setFriction(friction)
+      .setCollisionGroups(COLLISION_GROUP_WORLD);
+    if (rotation) colliderDesc.setRotation(rotation);
     return this.physicsWorld.world.createCollider(colliderDesc);
   }
 
@@ -48,14 +79,15 @@ export class ColliderFactory {
 
     let indices: Uint32Array;
     if (index) {
-      const raw = Array.from(index.array as ArrayLike<number>).map((value) => Number(value));
-      const triangleIndexCount = raw.length - (raw.length % 3);
-      if (triangleIndexCount !== raw.length) {
+      const copiedIndices = new Uint32Array(index.array);
+      const triangleIndexCount = copiedIndices.length - (copiedIndices.length % 3);
+      if (triangleIndexCount !== copiedIndices.length) {
         console.warn(
-          `[ColliderFactory] Mesh "${mesh.name}" has ${raw.length} indices; truncating to ${triangleIndexCount} for valid triangles.`,
+          `[ColliderFactory] Mesh "${mesh.name}" has ${copiedIndices.length} indices; truncating to ${triangleIndexCount} for valid triangles.`,
         );
       }
-      indices = Uint32Array.from(raw.slice(0, triangleIndexCount));
+      indices =
+        triangleIndexCount === copiedIndices.length ? copiedIndices : copiedIndices.slice(0, triangleIndexCount);
     } else {
       // Non-indexed geometry: generate sequential indices
       const triangleVertexCount = posAttr.count - (posAttr.count % 3);

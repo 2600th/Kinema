@@ -62,6 +62,7 @@ import {
 } from "./rendererState";
 
 export { resolveCompatibilityPostEnabled } from "./rendererBootstrap";
+export { resolveShaderWarmupEnabled } from "./shaderWarmup";
 
 /**
  * Renderer notes for the r183 WebGPU path.
@@ -105,6 +106,7 @@ export class RendererManager implements Disposable {
   private currentPipelineDescriptor: RendererPipelineDescriptor | null = null;
   private gpuResourceMutations: GpuResourceMutationQueue | null = null;
   private renderingSuspendedForGpuMutation = false;
+  private shaderWarmupInProgress = false;
   private hasRenderedFrame = false;
 
   // Keep a reference for runtime SSR parameter sync/debugging.
@@ -186,7 +188,6 @@ export class RendererManager implements Disposable {
   private rendererInitialized = false;
   private lastCompatibilitySceneChildCount = -1;
   private compatibilitySanitizeRequested = false;
-  private compatibilityFrameCounter = 0;
 
   constructor(
     options: {
@@ -355,18 +356,61 @@ export class RendererManager implements Disposable {
     this.compatibilitySanitizeRequested = true;
   }
 
+  /**
+   * Precompile the complete scene while the loading overlay is still visible.
+   * This is best-effort: a driver/compiler failure must never strand loading.
+   */
+  async warmSceneForReveal(): Promise<number> {
+    const startedAt = performance.now();
+    const temporarilyUnculled: THREE.Object3D[] = [];
+    this.shaderWarmupInProgress = true;
+
+    try {
+      await this.waitForGpuResourceMutations();
+      this.scene.traverse((object) => {
+        if (
+          object.frustumCulled &&
+          (object instanceof THREE.Mesh ||
+            object instanceof THREE.Line ||
+            object instanceof THREE.Points ||
+            object instanceof THREE.Sprite)
+        ) {
+          temporarilyUnculled.push(object);
+          object.frustumCulled = false;
+        }
+      });
+
+      if (!this.isWebGPUPipeline) {
+        this.requestCompatibilitySanitize();
+      }
+
+      // Warm the exact active pipeline while the loading overlay still obscures
+      // the canvas. This intentionally avoids WebGPURenderer.compileAsync(): in
+      // Three r183, compiling this node-heavy scene leaves an ended Dawn render
+      // pass that makes the next normal WebGPU frame fail validation.
+      this.shaderWarmupInProgress = false;
+      this.render();
+      this.shaderWarmupInProgress = true;
+    } catch (error) {
+      console.warn("[RendererManager] Shader warmup failed; continuing without precompilation:", error);
+    } finally {
+      for (const object of temporarilyUnculled) object.frustumCulled = true;
+      this.shaderWarmupInProgress = false;
+    }
+
+    return performance.now() - startedAt;
+  }
+
   /** Render one frame. */
   render(): void {
-    if (this.renderingSuspendedForGpuMutation) return;
+    if (this.renderingSuspendedForGpuMutation || this.shaderWarmupInProgress) return;
     this.hasRenderedFrame = true;
 
     if (!this.isWebGPUPipeline) {
-      // Sanitize when the top-level child count changes (fast heuristic), when
-      // explicitly requested, or on a periodic sweep (~2s at 60fps) as a final
-      // safety net — a stray NodeMaterial on the WebGL path is a shader crash.
-      this.compatibilityFrameCounter++;
+      // Sanitize when the top-level child count changes (fast heuristic) or
+      // when a caller explicitly reports a same-count/deep-subtree mutation.
       const childCountChanged = this.scene.children.length !== this.lastCompatibilitySceneChildCount;
-      if (childCountChanged || this.compatibilitySanitizeRequested || this.compatibilityFrameCounter % 120 === 0) {
+      if (childCountChanged || this.compatibilitySanitizeRequested) {
         this.compatibilitySanitizeRequested = false;
         const sanitization = sanitizeSceneForCompatibility(this.scene);
         this.lastCompatibilitySceneChildCount = this.scene.children.length;

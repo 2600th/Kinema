@@ -390,6 +390,145 @@ describe("LevelManager load timing", () => {
     expect(manager.getLastLoadStats()).toEqual({ name: expectedName, durationMs: 42.5 });
     nowSpy.mockRestore();
   });
+
+  it("adds user-visible stage timings without changing the base load duration", async () => {
+    const manager = new LevelManager(
+      new THREE.Scene(),
+      { world: {}, removeCollider: vi.fn(), removeBody: vi.fn() } as unknown as PhysicsWorld,
+      { emit: vi.fn() } as unknown as EventBus,
+    );
+    const internals = manager as unknown as { loadInternal(name: string): Promise<void> };
+    vi.spyOn(internals, "loadInternal").mockResolvedValue(undefined);
+    vi.spyOn(performance, "now").mockReturnValueOnce(100).mockReturnValueOnce(142.5);
+    await manager.load("procedural");
+
+    manager.completeInteractiveLoad("procedural", {
+      prepareMs: 10,
+      setupMs: 5,
+      shaderWarmupMs: 7,
+      revealMs: 400,
+      interactiveMs: 464.5,
+    });
+
+    expect(manager.getLastLoadStats()).toEqual({
+      name: "procedural",
+      durationMs: 42.5,
+      stageMs: {
+        prepare: 10,
+        sceneBuild: 42.5,
+        setup: 5,
+        shaderWarmup: 7,
+        reveal: 400,
+        interactive: 464.5,
+      },
+    });
+  });
+
+  it("ignores late timing updates from a superseded load", async () => {
+    const manager = new LevelManager(
+      new THREE.Scene(),
+      { world: {}, removeCollider: vi.fn(), removeBody: vi.fn() } as unknown as PhysicsWorld,
+      { emit: vi.fn() } as unknown as EventBus,
+    );
+    const internals = manager as unknown as { loadInternal(name: string): Promise<void> };
+    vi.spyOn(internals, "loadInternal").mockResolvedValue(undefined);
+    vi.spyOn(performance, "now").mockReturnValueOnce(0).mockReturnValueOnce(20);
+    await manager.load("procedural");
+
+    manager.completeInteractiveLoad("station:vfx", {
+      prepareMs: 1,
+      setupMs: 1,
+      shaderWarmupMs: 1,
+      revealMs: 1,
+      interactiveMs: 4,
+    });
+
+    expect(manager.getLastLoadStats()).toEqual({ name: "procedural", durationMs: 20 });
+  });
+
+  it("records deferred navigation timing only for its owning load", async () => {
+    const manager = new LevelManager(
+      new THREE.Scene(),
+      { world: {}, removeCollider: vi.fn(), removeBody: vi.fn() } as unknown as PhysicsWorld,
+      { emit: vi.fn() } as unknown as EventBus,
+    );
+    const internals = manager as unknown as { loadInternal(name: string): Promise<void> };
+    vi.spyOn(internals, "loadInternal").mockResolvedValue(undefined);
+    vi.spyOn(performance, "now").mockReturnValueOnce(0).mockReturnValueOnce(20);
+    await manager.load("procedural");
+
+    manager.recordNavigationReady("station:navigation", { workerGenerationMs: 8, readyAfterLoadStartMs: 12 });
+    manager.recordNavigationReady("procedural", { workerGenerationMs: 14, readyAfterLoadStartMs: 31 });
+
+    expect(manager.getLastLoadStats()).toEqual({
+      name: "procedural",
+      durationMs: 20,
+      navigation: { workerGenerationMs: 14, readyAfterLoadStartMs: 31 },
+    });
+  });
+
+  it("disposes deferred navigation that completes after its load was unloaded", () => {
+    const scene = new THREE.Scene();
+    const eventBus = { emit: vi.fn() };
+    const manager = new LevelManager(
+      scene,
+      { world: {}, removeCollider: vi.fn(), removeBody: vi.fn() } as unknown as PhysicsWorld,
+      eventBus as unknown as EventBus,
+    );
+    const navMeshManager = { dispose: vi.fn() };
+    const navPatrolSystem = { dispose: vi.fn() };
+    const navDebugOverlay = { dispose: vi.fn() };
+    const internals = manager as unknown as {
+      _loadGeneration: { value: number };
+      adoptDeferredNavigation(
+        owningGeneration: number,
+        loadName: string,
+        resources: {
+          navMeshManager: typeof navMeshManager;
+          navPatrolSystem: typeof navPatrolSystem;
+          navDebugOverlay: typeof navDebugOverlay;
+          workerGenerationMs: number;
+          readyAfterLoadStartMs: number;
+        },
+      ): void;
+    };
+    const unloadedGeneration = internals._loadGeneration.value;
+
+    manager.unload();
+    internals.adoptDeferredNavigation(unloadedGeneration, "procedural", {
+      navMeshManager,
+      navPatrolSystem,
+      navDebugOverlay,
+      workerGenerationMs: 8,
+      readyAfterLoadStartMs: 16,
+    });
+
+    expect(navPatrolSystem.dispose).toHaveBeenCalledOnce();
+    expect(navDebugOverlay.dispose).toHaveBeenCalledOnce();
+    expect(navMeshManager.dispose).toHaveBeenCalledWith(scene);
+    expect(eventBus.emit).not.toHaveBeenCalledWith("navigation:ready", expect.anything());
+    expect(manager.getNavPatrolSystem()).toBeNull();
+  });
+
+  it("reports owned collider totals grouped by Rapier shape name", () => {
+    const manager = new LevelManager(
+      new THREE.Scene(),
+      { world: {}, removeCollider: vi.fn(), removeBody: vi.fn() } as unknown as PhysicsWorld,
+      { emit: vi.fn() } as unknown as EventBus,
+    );
+    const internals = manager as unknown as { levelColliders: Array<{ shapeType(): RAPIER.ShapeType }> };
+    internals.levelColliders = [
+      { shapeType: () => RAPIER.ShapeType.Cuboid },
+      { shapeType: () => RAPIER.ShapeType.Cuboid },
+      { shapeType: () => RAPIER.ShapeType.Ball },
+      { shapeType: () => RAPIER.ShapeType.TriMesh },
+    ];
+
+    expect(manager.getColliderShapeStats()).toEqual({
+      total: 4,
+      byType: { Ball: 1, Cuboid: 2, TriMesh: 1 },
+    });
+  });
 });
 
 describe("LevelManager level identity", () => {

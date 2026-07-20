@@ -27,6 +27,7 @@ import {
   type FloatingPlatformEntry,
   type MovingPlatformEntry,
   ProceduralBuilder,
+  type ProceduralNavigationReady,
 } from "./ProceduralBuilder";
 
 const _platformNextPos = new THREE.Vector3();
@@ -114,6 +115,33 @@ export type RemoveLevelObjectOptions = {
 export type LoadStats = {
   name: string;
   durationMs: number;
+  stageMs?: LoadStageTimings;
+  navigation?: {
+    workerGenerationMs: number;
+    readyAfterLoadStartMs: number;
+  };
+};
+
+export type InteractiveLoadTimings = {
+  prepareMs: number;
+  setupMs: number;
+  shaderWarmupMs: number;
+  revealMs: number;
+  interactiveMs: number;
+};
+
+export type LoadStageTimings = {
+  prepare: number;
+  sceneBuild: number;
+  setup: number;
+  shaderWarmup: number;
+  reveal: number;
+  interactive: number;
+};
+
+export type ColliderShapeStats = {
+  total: number;
+  byType: Record<string, number>;
 };
 
 export type LevelOrigin = "system" | "authored";
@@ -185,6 +213,8 @@ export class LevelManager implements Disposable {
   };
   private _loadGeneration = { value: 0 };
   private lastLoadStats: LoadStats | null = null;
+  private pendingNavigationTiming: { name: string; navigation: NonNullable<LoadStats["navigation"]> } | null = null;
+  private timingLoadName: string | null = null;
 
   constructor(
     private scene: THREE.Scene,
@@ -451,11 +481,19 @@ export class LevelManager implements Disposable {
 
   /** Load a level by name. 'procedural' generates a test level. */
   load(name: string): Promise<void> {
-    return this.enqueueLoad(async () => {
-      const start = performance.now();
-      await this.loadInternal(name);
-      this.lastLoadStats = { name, durationMs: performance.now() - start };
-    });
+    return this.enqueueLoad(() => this.runTimedLoad(name, () => this.loadInternal(name)));
+  }
+
+  private async runTimedLoad(name: string, load: () => Promise<void>): Promise<void> {
+    this.pendingNavigationTiming = null;
+    this.timingLoadName = name;
+    const start = performance.now();
+    try {
+      await load();
+      this.lastLoadStats = this.createLoadStats(name, performance.now() - start);
+    } finally {
+      this.timingLoadName = null;
+    }
   }
 
   private async loadInternal(name: string): Promise<void> {
@@ -485,11 +523,8 @@ export class LevelManager implements Disposable {
 
   /** Load a single showcase station in isolation for debugging. */
   loadStation(key: ShowcaseStationKey): Promise<void> {
-    return this.enqueueLoad(async () => {
-      const start = performance.now();
-      await this.loadStationInternal(key);
-      this.lastLoadStats = { name: `station:${key}`, durationMs: performance.now() - start };
-    });
+    const name = `station:${key}`;
+    return this.enqueueLoad(() => this.runTimedLoad(name, () => this.loadStationInternal(key)));
   }
 
   private async loadStationInternal(key: ShowcaseStationKey): Promise<void> {
@@ -530,15 +565,57 @@ export class LevelManager implements Disposable {
    * Spawns all objects, creates physics, adds lighting.
    */
   loadFromJSON(data: LevelDataV2): Promise<void> {
-    return this.enqueueLoad(async () => {
-      const start = performance.now();
-      await this.loadFromJSONInternal(data);
-      this.lastLoadStats = { name: data.name || "custom", durationMs: performance.now() - start };
-    });
+    const name = data.name || "custom";
+    return this.enqueueLoad(() => this.runTimedLoad(name, () => this.loadFromJSONInternal(data)));
   }
 
   getLastLoadStats(): LoadStats | null {
     return this.lastLoadStats;
+  }
+
+  completeInteractiveLoad(name: string, timings: InteractiveLoadTimings): void {
+    if (!this.lastLoadStats || this.lastLoadStats.name !== name) return;
+    this.lastLoadStats = {
+      ...this.lastLoadStats,
+      stageMs: {
+        prepare: timings.prepareMs,
+        sceneBuild: this.lastLoadStats.durationMs,
+        setup: timings.setupMs,
+        shaderWarmup: timings.shaderWarmupMs,
+        reveal: timings.revealMs,
+        interactive: timings.interactiveMs,
+      },
+    };
+  }
+
+  recordNavigationReady(name: string, navigation: { workerGenerationMs: number; readyAfterLoadStartMs: number }): void {
+    if (this.timingLoadName === name) {
+      this.pendingNavigationTiming = { name, navigation };
+      return;
+    }
+    if (this.lastLoadStats?.name === name) {
+      this.lastLoadStats = { ...this.lastLoadStats, navigation };
+      return;
+    }
+    this.pendingNavigationTiming = { name, navigation };
+  }
+
+  private createLoadStats(name: string, durationMs: number): LoadStats {
+    const pending = this.pendingNavigationTiming?.name === name ? this.pendingNavigationTiming.navigation : null;
+    this.pendingNavigationTiming = null;
+    return { name, durationMs, ...(pending && { navigation: pending }) };
+  }
+
+  getColliderShapeStats(): ColliderShapeStats {
+    const counts = new Map<string, number>();
+    for (const collider of this.levelColliders) {
+      const shapeName = RAPIER.ShapeType[collider.shapeType()] ?? "Unknown";
+      counts.set(shapeName, (counts.get(shapeName) ?? 0) + 1);
+    }
+    return {
+      total: this.levelColliders.length,
+      byType: Object.fromEntries([...counts].sort(([left], [right]) => left.localeCompare(right))),
+    };
   }
 
   private async loadFromJSONInternal(data: LevelDataV2): Promise<void> {
@@ -1243,7 +1320,30 @@ export class LevelManager implements Disposable {
   /**
    * Delegate procedural level construction to ProceduralBuilder and absorb its results.
    */
+  private adoptDeferredNavigation(
+    owningGeneration: number,
+    loadName: string,
+    resources: ProceduralNavigationReady,
+  ): void {
+    if (this._loadGeneration.value !== owningGeneration) {
+      resources.navPatrolSystem.dispose();
+      resources.navDebugOverlay.dispose();
+      resources.navMeshManager.dispose(this.scene);
+      return;
+    }
+    this.navMeshManager = resources.navMeshManager;
+    this.navPatrolSystem = resources.navPatrolSystem;
+    this.navDebugOverlay = resources.navDebugOverlay;
+    this.recordNavigationReady(loadName, {
+      workerGenerationMs: resources.workerGenerationMs,
+      readyAfterLoadStartMs: resources.readyAfterLoadStartMs,
+    });
+    this.eventBus.emit("navigation:ready", { name: loadName });
+  }
+
   private async buildProcedural(stationFilter: ShowcaseStationKey | null): Promise<void> {
+    const owningGeneration = this._loadGeneration.value;
+    const loadName = stationFilter ? `station:${stationFilter}` : "procedural";
     const builder = new ProceduralBuilder(
       this.scene,
       this.physicsWorld,
@@ -1253,6 +1353,7 @@ export class LevelManager implements Disposable {
       this.assetLoader,
       this.supportsAdvancedGpuEffects,
       this.graphicsProfile,
+      (resources) => this.adoptDeferredNavigation(owningGeneration, loadName, resources),
     );
     await builder.build((progress) => {
       this.eventBus.emit("loading:progress", { progress });

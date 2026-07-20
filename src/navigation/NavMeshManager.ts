@@ -9,6 +9,8 @@ import {
 import { floodFillNavMesh, generateSoloNavMesh, type SoloNavMeshResult } from "navcat/blocks";
 import { createNavMeshHelper, type DebugObject, getPositionsAndIndices } from "navcat/three";
 import type * as THREE from "three";
+import { type NavMeshGenerationRequest, requestNavMeshGeneration } from "./navMeshWorkerClient";
+import { KINEMA_NAV_MESH_OPTIONS } from "./navMeshWorkerProtocol";
 
 export class NavMeshManager {
   private navMesh: NavMesh | null = null;
@@ -16,34 +18,17 @@ export class NavMeshManager {
   private debugVisible = false;
   /** Query filter that excludes unreachable polygons (obstacle tops, etc.). */
   private reachableFilter: QueryFilter | null = null;
+  private activeGeneration: NavMeshGenerationRequest | null = null;
+  private lastGenerationStats: { workerGenerationMs: number; totalMs: number } | null = null;
+
+  constructor(private readonly requestGeneration: typeof requestNavMeshGeneration = requestNavMeshGeneration) {}
 
   generate(meshes: THREE.Mesh[], seedPoint?: THREE.Vector3): void {
     const t0 = performance.now();
 
     const [positions, indices] = getPositionsAndIndices(meshes);
 
-    const result: SoloNavMeshResult = generateSoloNavMesh(
-      { positions, indices },
-      {
-        cellSize: 0.15,
-        cellHeight: 0.15,
-        walkableRadiusVoxels: 2,
-        walkableRadiusWorld: 0.3,
-        walkableClimbVoxels: 4,
-        walkableClimbWorld: 0.6,
-        walkableHeightVoxels: 10,
-        walkableHeightWorld: 1.5,
-        walkableSlopeAngleDegrees: 45,
-        borderSize: 0,
-        minRegionArea: 8,
-        mergeRegionArea: 20,
-        maxSimplificationError: 1.3,
-        maxEdgeLength: 12,
-        maxVerticesPerPoly: 5,
-        detailSampleDistance: 0.9,
-        detailSampleMaxError: 0.15,
-      },
-    );
+    const result: SoloNavMeshResult = generateSoloNavMesh({ positions, indices }, KINEMA_NAV_MESH_OPTIONS);
 
     this.navMesh = result.navMesh;
 
@@ -61,18 +46,51 @@ export class NavMeshManager {
     }
   }
 
-  /**
-   * Yields to the main thread before/after generation to avoid blocking UI.
-   * For true off-thread generation, migrate to a Web Worker.
-   */
+  /** Generate the navmesh off the browser main thread. */
   async generateAsync(meshes: THREE.Mesh[], seedPoint?: THREE.Vector3): Promise<void> {
-    // Yield to the main thread before heavy work
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    const startedAt = performance.now();
+    const [positions, indices] = getPositionsAndIndices(meshes);
+    this.activeGeneration?.cancel();
+    const request = this.requestGeneration({
+      positions,
+      indices,
+      ...(seedPoint && { seedPoint: [seedPoint.x, seedPoint.y, seedPoint.z] }),
+    });
+    this.activeGeneration = request;
 
-    this.generate(meshes, seedPoint);
+    try {
+      const result = await request.promise;
+      if (this.activeGeneration !== request) return;
+      this.navMesh = result.navMesh;
+      if (seedPoint && result.reachableNodeRefs === null) {
+        console.warn("[NavMeshManager] Could not find seed poly for flood fill — skipping prune");
+      }
+      this.setReachableFilter(result.reachableNodeRefs);
+      this.lastGenerationStats = {
+        workerGenerationMs: result.generationMs,
+        totalMs: performance.now() - startedAt,
+      };
+      console.log(
+        `[NavMeshManager] Navmesh generated off-thread in ${result.generationMs.toFixed(1)}ms (${this.lastGenerationStats.totalMs.toFixed(1)}ms total)`,
+      );
+    } finally {
+      if (this.activeGeneration === request) this.activeGeneration = null;
+    }
+  }
 
-    // Yield to the main thread after heavy work
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  private setReachableFilter(reachableNodeRefs: NodeRef[] | null): void {
+    if (!reachableNodeRefs) {
+      this.reachableFilter = null;
+      return;
+    }
+    const defaultFilter = createDefaultQueryFilter();
+    const reachableSet = new Set<NodeRef>(reachableNodeRefs);
+    this.reachableFilter = {
+      passFilter(nodeRef: NodeRef) {
+        return reachableSet.has(nodeRef);
+      },
+      getCost: defaultFilter.getCost.bind(defaultFilter),
+    };
   }
 
   /**
@@ -93,14 +111,7 @@ export class NavMeshManager {
     }
 
     const { reachable } = floodFillNavMesh(this.navMesh, [nearestResult.nodeRef]);
-    const reachableSet = new Set<NodeRef>(reachable);
-
-    this.reachableFilter = {
-      passFilter(nodeRef: NodeRef) {
-        return reachableSet.has(nodeRef);
-      },
-      getCost: defaultFilter.getCost.bind(defaultFilter),
-    };
+    this.setReachableFilter(reachable);
   }
 
   getNavMesh(): NavMesh | null {
@@ -110,6 +121,10 @@ export class NavMeshManager {
   /** Returns a query filter that only accepts reachable polygons, or null if pruning was not performed. */
   getReachableFilter(): QueryFilter | null {
     return this.reachableFilter;
+  }
+
+  getLastGenerationStats(): { workerGenerationMs: number; totalMs: number } | null {
+    return this.lastGenerationStats;
   }
 
   toggleDebug(scene: THREE.Scene): void {
@@ -129,6 +144,8 @@ export class NavMeshManager {
   }
 
   dispose(scene: THREE.Scene): void {
+    this.activeGeneration?.cancel();
+    this.activeGeneration = null;
     if (this.debugHelper) {
       scene.remove(this.debugHelper.object);
       this.debugHelper.dispose();
@@ -137,5 +154,6 @@ export class NavMeshManager {
     this.debugVisible = false;
     this.navMesh = null;
     this.reachableFilter = null;
+    this.lastGenerationStats = null;
   }
 }

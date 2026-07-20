@@ -213,7 +213,8 @@ export interface EventMap {
   "level:willUnload": undefined;
   "level:loaded": { name: string };
   "level:unloaded": { name: string };
-  "loading:progress": { progress: number };
+  "navigation:ready": { name: string };
+  "loading:progress": { progress: number; status?: string };
   "collectible:changed": { count: number; total: number };
   "collectible:collected": { id: string; position: THREE.Vector3; count: number; total: number; value: number };
   "collectible:allCollected": { count: number; total: number; position: THREE.Vector3 };

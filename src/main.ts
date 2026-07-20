@@ -63,7 +63,7 @@ async function bootstrap(): Promise<void> {
 
   // Dynamic imports — parallelized so bundler/browser can fetch all chunks concurrently.
   const [
-    { RendererManager, resolveCompatibilityPostEnabled },
+    { RendererManager, resolveCompatibilityPostEnabled, resolveShaderWarmupEnabled },
     { PhysicsWorld },
     { GameLoop },
     { EventBus },
@@ -106,8 +106,8 @@ async function bootstrap(): Promise<void> {
 
   const settings = UserSettingsStore.load();
   const compatibilityPostEnabled = resolveCompatibilityPostEnabled(bootstrapParams);
-  const platformCompatibilityRenderer =
-    shouldUseCompatibilityRenderer(window.navigator) && !allowExperimentalRenderer;
+  const shaderWarmupEnabled = resolveShaderWarmupEnabled(bootstrapParams);
+  const platformCompatibilityRenderer = shouldUseCompatibilityRenderer(window.navigator) && !allowExperimentalRenderer;
 
   const renderer = new RendererManager({
     forceWebGL: forceWebGPUWebGL,
@@ -272,6 +272,7 @@ async function bootstrap(): Promise<void> {
 
   /** Yield to browser so CSS animations and paint can run */
   const yieldToRenderer = () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+  const yieldOneRenderFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   const parseFiniteParam = (value: string | null): number | null => {
     if (value == null) return null;
     const parsed = Number(value);
@@ -337,11 +338,53 @@ async function bootstrap(): Promise<void> {
     levelLoaded = true;
   };
 
+  const beginInteractiveLoad = (): number => {
+    performance.clearMarks("kinema:play-start");
+    performance.clearMarks("kinema:interactive");
+    performance.clearMeasures("kinema:play-to-interactive");
+    performance.mark("kinema:play-start");
+    return performance.now();
+  };
+
+  const warmAndRevealScene = async (
+    loadName: string,
+    startedAt: number,
+    prepareMs: number,
+    setupMs: number,
+    beforeReveal?: () => void,
+  ): Promise<void> => {
+    let shaderWarmupMs = 0;
+    if (shaderWarmupEnabled) {
+      const warmupStartedAt = performance.now();
+      eventBus.emit("loading:progress", { progress: 1, status: "Compiling shaders…" });
+      await yieldOneRenderFrame();
+      await renderer.warmSceneForReveal();
+      shaderWarmupMs = performance.now() - warmupStartedAt;
+    }
+
+    beforeReveal?.();
+    const revealStartedAt = performance.now();
+    await finishSceneLoad();
+    const finishedAt = performance.now();
+    levelManager.completeInteractiveLoad(loadName, {
+      prepareMs,
+      setupMs,
+      shaderWarmupMs,
+      revealMs: finishedAt - revealStartedAt,
+      interactiveMs: finishedAt - startedAt,
+    });
+    performance.mark("kinema:interactive");
+    performance.measure("kinema:play-to-interactive", "kinema:play-start", "kinema:interactive");
+  };
+
   const startGame = async (descriptor = getProceduralRunFromLocation()): Promise<void> => {
+    const startedAt = beginInteractiveLoad();
     await prepareSceneLoad();
+    const preparedAt = performance.now();
     const reviewSpawn = descriptor.reviewSpawnKey ? resolveProceduralReviewSpawn(descriptor.reviewSpawnKey) : null;
 
     await levelManager.load("procedural");
+    const setupStartedAt = performance.now();
     playerController.spawn(reviewSpawn?.spawn ?? levelManager.getSpawnPoint());
     applyCameraPose(
       descriptor.camYaw ?? reviewSpawn?.cameraYaw ?? null,
@@ -349,9 +392,11 @@ async function bootstrap(): Promise<void> {
     );
     // Warm the Rapier query pipeline so first-tick raycasts are valid.
     physicsWorld.step();
-    game.setupLevel();
+    game.setupLevel(false);
     currentRun = cloneRun(descriptor);
-    await finishSceneLoad();
+    await warmAndRevealScene("procedural", startedAt, preparedAt - startedAt, performance.now() - setupStartedAt, () =>
+      audioManager.playMusic(2.0),
+    );
   };
 
   const returnToMainMenu = async (): Promise<void> => {
@@ -379,13 +424,21 @@ async function bootstrap(): Promise<void> {
       }
       return;
     }
+    const startedAt = beginInteractiveLoad();
     await prepareSceneLoad();
+    const preparedAt = performance.now();
     await levelManager.loadFromJSON(data);
+    const setupStartedAt = performance.now();
     playerController.spawn(levelManager.getSpawnPoint());
     physicsWorld.step();
     game.setupCustomLevel();
     currentRun = { kind: "saved", key };
-    await finishSceneLoad();
+    await warmAndRevealScene(
+      data.name || "custom",
+      startedAt,
+      preparedAt - startedAt,
+      performance.now() - setupStartedAt,
+    );
   };
 
   const startBlankLevelForEditor = async (): Promise<void> => {
@@ -431,13 +484,16 @@ async function bootstrap(): Promise<void> {
   };
 
   const startStation = async (key: string): Promise<void> => {
+    const startedAt = beginInteractiveLoad();
     await prepareSceneLoad();
+    const preparedAt = performance.now();
     await levelManager.loadStation(key as import("@level/ShowcaseLayout").ShowcaseStationKey);
+    const setupStartedAt = performance.now();
     playerController.spawn(levelManager.getSpawnPoint());
     physicsWorld.step();
     game.setupStation(key as import("@level/ShowcaseLayout").ShowcaseStationKey);
     currentRun = { kind: "station", key: key as import("@level/ShowcaseLayout").ShowcaseStationKey };
-    await finishSceneLoad();
+    await warmAndRevealScene(`station:${key}`, startedAt, preparedAt - startedAt, performance.now() - setupStartedAt);
   };
 
   const restartCurrentRun = async (): Promise<void> => {
@@ -470,6 +526,9 @@ async function bootstrap(): Promise<void> {
     gameLoop.resetFrameStats();
     renderer.requestCompatibilitySanitize();
   });
+  eventBus.on("editor:objectAdded", () => renderer.requestCompatibilitySanitize());
+  eventBus.on("editor:objectRemoved", () => renderer.requestCompatibilitySanitize());
+  eventBus.on("editor:loaded", () => renderer.requestCompatibilitySanitize());
 
   // Expose debug API for automated testing (Playwright, etc.)
   // Gated behind DEV to tree-shake new Function() evaluator from production builds.
@@ -518,6 +577,15 @@ async function bootstrap(): Promise<void> {
       resetFrameStats: () => gameLoop.resetFrameStats(),
       getRendererMemoryState: () => renderer.getMemoryDebugState(),
       getLastLoadStats: () => levelManager.getLastLoadStats(),
+      getColliderShapeStats: () => levelManager.getColliderShapeStats(),
+      castWorldRay(origin: THREE.Vector3Like, direction: THREE.Vector3Like, maxToi: number) {
+        const hit = physicsWorld.castRayAndGetNormal(origin, direction, maxToi);
+        if (!hit) return null;
+        return {
+          timeOfImpact: hit.timeOfImpact,
+          normal: { x: hit.normal.x, y: hit.normal.y, z: hit.normal.z },
+        };
+      },
       restartCurrentRun,
       getVfxDebugState: () => game.getVfxDebugState(),
       get player() {

@@ -196,8 +196,9 @@ export class UIManager implements Disposable {
     );
 
     this.unsubscribers.push(
-      this.eventBus.on("loading:progress", ({ progress }) => {
+      this.eventBus.on("loading:progress", ({ progress, status }) => {
         this.loadingScreen.setProgress(progress);
+        if (status) this.loadingScreen.setStatus(status);
       }),
     );
 

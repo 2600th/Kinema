@@ -2,7 +2,7 @@ import type { PlayerController } from "@character/PlayerController";
 import type { FrameStats } from "@core/GameLoop";
 import type { GamepadMenuAction, InputState } from "@core/types";
 import type { GraphicsProfile } from "@core/UserSettings";
-import type { LevelManager, LoadStats } from "@level/LevelManager";
+import type { ColliderShapeStats, LevelManager, LoadStats } from "@level/LevelManager";
 import type { RendererDebugFlags } from "@renderer/rendererState";
 import type { CoinDebugEntry } from "@systems/CoinCollectibleSystem";
 import type { ParticleSystem } from "@systems/ParticleSystem";
@@ -154,6 +154,12 @@ export interface KinemaDebugApi {
   resetFrameStats(): void;
   getRendererMemoryState(): KinemaRendererMemoryState;
   getLastLoadStats(): LoadStats | null;
+  getColliderShapeStats(): ColliderShapeStats;
+  castWorldRay(
+    origin: KinemaVector3,
+    direction: KinemaVector3,
+    maxToi: number,
+  ): { timeOfImpact: number; normal: KinemaVector3 } | null;
   restartCurrentRun(): Promise<void>;
   readonly player: KinemaPlayerState;
   readonly config: Readonly<PlayerController["config"]>;

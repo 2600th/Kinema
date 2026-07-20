@@ -76,6 +76,76 @@ test.describe("Physics Verification", () => {
     const stayedSafe = await monitorPlayerAboveY(page, -10, 4_000);
     expect(stayedSafe).toBe(true);
   });
+
+  test("all three authored slope colliders match their rendered pose", async ({ page }) => {
+    for (const { name, angle } of [
+      { name: "Slope24_col", angle: 23.5 },
+      { name: "Slope43_col", angle: 43.1 },
+      { name: "Slope63_col", angle: 62.7 },
+    ]) {
+      const slope = await page.evaluate((objectName) => window.__KINEMA__.getLevelObjectState(objectName), name);
+      expect(slope, name).not.toBeNull();
+      const hit = await page.evaluate((state) => {
+        if (!state) return null;
+        return window.__KINEMA__.castWorldRay(
+          { x: state.position.x, y: state.position.y + 2, z: state.position.z },
+          { x: 0, y: -1, z: 0 },
+          2.5,
+        );
+      }, slope);
+      expect(hit, name).not.toBeNull();
+      expect(hit?.normal.y, name).toBeCloseTo(Math.cos((angle * Math.PI) / 180), 2);
+
+      if (angle > 45) continue;
+      await page.evaluate((state) => {
+        if (!state) return;
+        window.__KINEMA__.clearSimulatedInput();
+        window.__KINEMA__.teleportPlayer({
+          x: state.position.x,
+          y: state.position.y + state.size.y + 2,
+          z: state.position.z,
+        });
+      }, slope);
+      await expect.poll(() => page.evaluate(() => window.__KINEMA__.player.isGrounded), { timeout: 15_000 }).toBe(true);
+      expect((await getPlayer(page)).position.y, name).toBeGreaterThan((slope?.position.y ?? 0) + 0.45);
+    }
+  });
+
+  test("slopes station uses primitive collision only", async ({ page }) => {
+    const stats = await page.evaluate(() => window.__KINEMA__.getColliderShapeStats());
+    expect(stats.byType.Cuboid).toBeGreaterThanOrEqual(7);
+    expect(stats.byType.TriMesh ?? 0).toBe(0);
+  });
+});
+
+test.describe("Primitive collider integration", () => {
+  const scenarios = [
+    { station: "steps", required: { Cuboid: 18 } },
+    { station: "materials", required: { Ball: 5, Cuboid: 5 } },
+    { station: "navigation", required: { Cuboid: 6, Cylinder: 2 } },
+  ] as const;
+
+  for (const { station, required } of scenarios) {
+    test(`${station} uses primitive collision for known shapes`, async ({ page }) => {
+      await page.goto(`/?station=${station}`, { waitUntil: "domcontentloaded" });
+      await page.locator("canvas").waitFor({ state: "visible", timeout: 60_000 });
+      await waitForLoadingGone(page);
+      await waitForGrounded(page);
+      const stats = await page.evaluate(() => window.__KINEMA__.getColliderShapeStats());
+      expect(stats.byType.TriMesh ?? 0).toBe(0);
+      for (const [shape, minimum] of Object.entries(required)) {
+        expect(stats.byType[shape] ?? 0, shape).toBeGreaterThanOrEqual(minimum);
+      }
+      if (station === "navigation") {
+        await expect
+          .poll(() => page.evaluate(() => window.__KINEMA__.getNavigationDebugState().targetAvailable), {
+            timeout: 30_000,
+          })
+          .toBe(true);
+        expect(await page.evaluate(() => window.__KINEMA__.getNavAgentStates().length)).toBe(5);
+      }
+    });
+  }
 });
 
 test.describe("Bootstrap Verification", () => {
@@ -146,11 +216,12 @@ test.describe("Bootstrap Verification", () => {
     await expect.poll(() => page.evaluate(() => window.__KINEMA__.player.state)).not.toBe("carry");
     await page.evaluate(() => window.dispatchEvent(new MouseEvent("mouseup", { button: 0 })));
     await expect
-      .poll(() =>
-        page.evaluate(() => {
-          const stateWindow = window as unknown as Window & { __KINEMA_IMPACT_TOASTS__: string[] };
-          return stateWindow.__KINEMA_IMPACT_TOASTS__.length;
-        }),
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const stateWindow = window as unknown as Window & { __KINEMA_IMPACT_TOASTS__: string[] };
+            return stateWindow.__KINEMA_IMPACT_TOASTS__.length;
+          }),
         { timeout: 10_000 },
       )
       .toBe(1);

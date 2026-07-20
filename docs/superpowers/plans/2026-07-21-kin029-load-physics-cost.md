@@ -4,7 +4,7 @@
 
 **Goal:** Reduce Play-to-interactive and runtime CPU cost while preserving loading feedback, navigation correctness, compatibility rendering, and authored collision behavior.
 
-**Architecture:** `RendererManager` owns a single public shader-warmup operation: it drains queued renderer mutations, compiles the advanced scene and active `RenderPipeline`, or renders one hidden compatibility frame. Bootstrap resolves the immutable `?warmup=0` flag and records warmup/interactive timing in `LevelManager` load stats while the loading UI reports the stage. `NavMeshManager.generateAsync` transfers extracted typed geometry to a Vite module Worker; `ProceduralBuilder` starts that work without awaiting it, gates agent construction with the existing load generation, and hands completed navigation resources to `LevelManager`, which emits `navigation:ready`. `DebugRuntimeSystem` refreshes its navigation references on that event. `ColliderFactory` becomes the single body-less owner of fixed primitive construction and shape accounting remains derived from the level-owned colliders.
+**Architecture:** `RendererManager` owns a single public shader-warmup operation: it drains queued renderer mutations, temporarily disables renderable-object frustum culling, and renders the exact active pipeline once while the loading overlay is present. This covers scene and post-processing shaders on every backend without using Three r183's unsafe `WebGPURenderer.compileAsync()` transition for this node-heavy scene. Bootstrap resolves the immutable `?warmup=0` flag and records warmup/interactive timing in `LevelManager` load stats while the loading UI reports the stage. `NavMeshManager.generateAsync` transfers extracted typed geometry to a Vite module Worker; `ProceduralBuilder` starts that work without awaiting it, gates agent construction with the existing load generation, and hands completed navigation resources to `LevelManager`, which emits `navigation:ready`. `DebugRuntimeSystem` refreshes its navigation references on that event. `ColliderFactory` becomes the single body-less owner of fixed primitive construction and shape accounting remains derived from the level-owned colliders.
 
 ## Stale-Card Corrections
 
@@ -13,6 +13,7 @@
 - `ProceduralBuilder` already calls and awaits that wrapper, which gates both agents and the entire level load. True deferral needs a readiness handoff, not another `await`.
 - Several static floor/boundary sites already use primitive colliders. The remaining cited high-value sites are rounded bay pedestals, rotated rough/angle boxes, step boxes, navigation boxes/cylinders, and material sample boxes/spheres.
 - Existing renderer-path browser coverage is allowlisted through `visual-regression.ts`; new verification can extend already-allowlisted specs without editing `playwright.config.ts`.
+- Real Chrome WebGPU A/B testing found that `WebGPURenderer.compileAsync(scene, camera)` leaves an ended Dawn render pass for the next frame with this scene under Three r183. `?warmup=0` and exact hidden-render-only runs are clean, so the warmup uses the latter on all paths and records the evidence rather than shipping a WebGPU validation error.
 
 ## Commit 1 - Record the implementation contract
 
@@ -30,7 +31,7 @@
 
 1. Add a pure query resolver that defaults warmup on and disables only for `warmup=0|false`.
 2. Add `LoadingScreen.setStatus`, expose a stable status selector, and extend `loading:progress` with optional status text.
-3. Add `RendererManager.warmupSceneShaders`: await mutation idle; on advanced paths call `renderer.compileAsync(scene, camera)` and compile the active render pipeline; on compatibility paths call the normal `render()` once while the loading overlay is present.
+3. Add `RendererManager.warmSceneForReveal`: await mutation idle, temporarily include all renderable objects regardless of current frustum, and call the exact normal `render()` path once while the loading overlay is present. Preserve fail-open behavior and restore culling in `finally`.
 4. In every loading-screen run path, emit `Compiling shaders…`, await warmup unless disabled, then hide the screen. Record the warmup and Play-to-interactive durations.
 
 ### 2. RED/GREEN off-thread deferred navigation

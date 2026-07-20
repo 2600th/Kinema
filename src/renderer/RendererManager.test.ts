@@ -85,6 +85,114 @@ const BALANCED_POST_EFFECTS: PostEffectSettings = {
 };
 
 describe("RendererManager quality mutation boundaries", () => {
+  it("warms the full advanced pipeline through one hidden exact-path frame", async () => {
+    const order: string[] = [];
+    const compileScene = vi.fn(async () => {
+      order.push("scene");
+    });
+    const compilePipeline = vi.fn();
+    const manager = createManagerHarness({
+      isWebGPUPipeline: true,
+      scene: new THREE.Scene(),
+      camera: new THREE.PerspectiveCamera(),
+      renderer: { compileAsync: compileScene },
+      postProcessingEnabled: true,
+      postProcessing: { compileAsync: compilePipeline },
+      gpuResourceMutations: null,
+    } as never);
+    const render = vi.spyOn(manager, "render").mockImplementation(() => {
+      order.push("render");
+    });
+
+    await manager.warmSceneForReveal();
+
+    expect(order).toEqual(["render"]);
+    expect(compileScene).not.toHaveBeenCalled();
+    expect(compilePipeline).not.toHaveBeenCalled();
+    expect(render).toHaveBeenCalledOnce();
+  });
+
+  it("restores frustum culling and fails open when shader compilation rejects", async () => {
+    const failure = new Error("compile failed");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const scene = new THREE.Scene();
+    const visible = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+    const alreadyUnculled = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+    alreadyUnculled.frustumCulled = false;
+    scene.add(visible, alreadyUnculled);
+    const manager = createManagerHarness({
+      isWebGPUPipeline: true,
+      scene,
+      camera: new THREE.PerspectiveCamera(),
+      renderer: {},
+      postProcessingEnabled: false,
+      postProcessing: null,
+      gpuResourceMutations: null,
+    } as never);
+
+    vi.spyOn(manager, "render").mockImplementation(() => {
+      throw failure;
+    });
+
+    await expect(manager.warmSceneForReveal()).resolves.toEqual(expect.any(Number));
+
+    expect(visible.frustumCulled).toBe(true);
+    expect(alreadyUnculled.frustumCulled).toBe(false);
+    expect(warn).toHaveBeenCalledWith(
+      "[RendererManager] Shader warmup failed; continuing without precompilation:",
+      failure,
+    );
+    warn.mockRestore();
+  });
+
+  it("warms compatibility through one requested sanitize and hidden frame", async () => {
+    const manager = createManagerHarness({
+      isWebGPUPipeline: false,
+      scene: new THREE.Scene(),
+      camera: new THREE.PerspectiveCamera(),
+      renderer: {},
+      postProcessing: null,
+      gpuResourceMutations: null,
+    } as never);
+    const requestSanitize = vi.spyOn(manager, "requestCompatibilitySanitize");
+    const render = vi.spyOn(manager, "render").mockImplementation(() => {});
+
+    await manager.warmSceneForReveal();
+
+    expect(requestSanitize).toHaveBeenCalledOnce();
+    expect(render).toHaveBeenCalledOnce();
+  });
+
+  it("does not periodically rescan an unchanged compatibility scene", () => {
+    const scene = new THREE.Scene();
+    const traverse = vi.spyOn(scene, "traverse");
+    const manager = createManagerHarness({
+      renderingSuspendedForGpuMutation: false,
+      shaderWarmupInProgress: false,
+      hasRenderedFrame: false,
+      isWebGPUPipeline: false,
+      scene,
+      camera: new THREE.PerspectiveCamera(),
+      lastCompatibilitySceneChildCount: -1,
+      compatibilitySanitizeRequested: false,
+      compatibilityPostStack: null,
+      postProcessingEnabled: false,
+      postProcessing: null,
+      renderer: {
+        render: vi.fn(),
+        info: { render: { calls: 0, triangles: 0, lines: 0, points: 0 } },
+      },
+      lastRenderStats: { drawCalls: 0, triangles: 0, lines: 0, points: 0 },
+    } as never);
+
+    for (let frame = 0; frame < 121; frame++) manager.render();
+    expect(traverse).toHaveBeenCalledTimes(1);
+
+    manager.requestCompatibilitySanitize();
+    manager.render();
+    expect(traverse).toHaveBeenCalledTimes(2);
+  });
+
   it("exposes only the enabled compatibility post capabilities on the WebGL path", () => {
     const manager = createManagerHarness({
       isWebGPUPipeline: false,
@@ -152,7 +260,6 @@ describe("RendererManager quality mutation boundaries", () => {
       isWebGPUPipeline: false,
       scene: new THREE.Scene(),
       camera: new THREE.PerspectiveCamera(),
-      compatibilityFrameCounter: 0,
       lastCompatibilitySceneChildCount: 0,
       compatibilitySanitizeRequested: false,
       compatibilityPostEnabled: true,

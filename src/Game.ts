@@ -637,12 +637,12 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     });
   }
 
-  setupLevel(): void {
+  setupLevel(startMusic = true): void {
     for (const system of this.systems) {
       system.setupLevel?.();
     }
     // Ambient sci-fi drone sound
-    this.audioManager.playMusic(2.0);
+    if (startMusic) this.audioManager.playMusic(2.0);
   }
 
   /** Minimal level setup for custom/editor levels -- no procedural showcase content. */

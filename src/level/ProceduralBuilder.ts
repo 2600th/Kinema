@@ -106,6 +106,14 @@ export interface ProceduralBuildResult {
   vfxAmbientCounts: Omit<AmbientVfxCounts, "grassPerStrip"> & { grassBlades: number };
 }
 
+export type ProceduralNavigationReady = {
+  navMeshManager: NavMeshManager;
+  navPatrolSystem: NavPatrolSystem;
+  navDebugOverlay: NavDebugOverlay;
+  workerGenerationMs: number;
+  readyAfterLoadStartMs: number;
+};
+
 /**
  * Builds the procedural showcase corridor level.
  *
@@ -155,6 +163,7 @@ export class ProceduralBuilder {
   private navPatrolSystemRef: NavPatrolSystem | null = null;
   private navDebugOverlayRef: NavDebugOverlay | null = null;
   private readonly ambientVfxCounts: AmbientVfxCounts;
+  private buildStartedAt = 0;
   private readonly builtAmbientVfxCounts = {
     sparkles: 0,
     motes: 0,
@@ -175,6 +184,7 @@ export class ProceduralBuilder {
     private assetLoader?: AssetLoader,
     private supportsAdvancedGpuEffects = true,
     private graphicsProfile: GraphicsProfile = "cinematic",
+    private onNavigationReady?: (resources: ProceduralNavigationReady) => void,
   ) {
     this.colliderFactory = new ColliderFactory(physicsWorld);
     this.ambientVfxCounts = getAmbientVfxCounts(graphicsProfile);
@@ -195,6 +205,7 @@ export class ProceduralBuilder {
 
   /** Build the procedural showcase corridor and return all created resources. */
   async build(onProgress?: (progress: number) => void): Promise<void> {
+    this.buildStartedAt = performance.now();
     this.progressCallback = onProgress;
     onProgress?.(0.05);
     const gridTexture = this.createGroundGridTexture();
@@ -453,8 +464,13 @@ export class ProceduralBuilder {
       pedestal.name = `ShowcaseBay${i}_col`;
       this.scene.add(pedestal);
       this.meshes.push(pedestal);
-      pedestal.updateWorldMatrix(true, false);
-      this.colliders.push(this.colliderFactory.createTrimesh(pedestal));
+      this.colliders.push(
+        this.colliderFactory.createFixedCuboid(
+          pedestal.position,
+          new THREE.Vector3(bayWidth, bayPedestalHeight, bayLength),
+          0.7,
+        ),
+      );
       this.createBayAccessRamps(z, bayWidth, bayTopY, stationColor);
 
       // Emissive accent edge — glowing strip around the pedestal top edge for bloom.
@@ -656,8 +672,14 @@ export class ProceduralBuilder {
       roughPlane.receiveShadow = true;
       this.scene.add(roughPlane);
       this.meshes.push(roughPlane);
-      roughPlane.updateWorldMatrix(true, false);
-      this.colliders.push(this.colliderFactory.createTrimesh(roughPlane));
+      this.colliders.push(
+        this.colliderFactory.createFixedCuboid(
+          roughPlane.position,
+          new THREE.Vector3(10, 0.6, 10),
+          0.7,
+          roughPlane.quaternion,
+        ),
+      );
 
       // Step series
       const addStep = (name: string, size: THREE.Vector3, pos: THREE.Vector3) => {
@@ -667,8 +689,7 @@ export class ProceduralBuilder {
         step.receiveShadow = true;
         this.scene.add(step);
         this.meshes.push(step);
-        step.updateWorldMatrix(true, false);
-        this.colliders.push(this.colliderFactory.createTrimesh(step));
+        this.colliders.push(this.colliderFactory.createFixedCuboid(step.position, size, 0.7));
       };
       addStep("Step0_col", new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(-8, bayTopY + 0.07, zSteps - 6));
       addStep("Step1_col", new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(-8, bayTopY + 0.07, zSteps - 5));
@@ -715,8 +736,14 @@ export class ProceduralBuilder {
         slope.receiveShadow = true;
         this.scene.add(slope);
         this.meshes.push(slope);
-        slope.updateWorldMatrix(true, false);
-        this.colliders.push(this.colliderFactory.createTrimesh(slope));
+        this.colliders.push(
+          this.colliderFactory.createFixedCuboid(
+            slope.position,
+            new THREE.Vector3(width, thickness, length),
+            0.7,
+            slope.quaternion,
+          ),
+        );
       });
       this.createSectionLabel(
         "Slopes\n23.5\u00B0 \u2022 43.1\u00B0 \u2022 62.7\u00B0",
@@ -1478,7 +1505,7 @@ export class ProceduralBuilder {
         11.4,
         2.25,
       );
-      await this.createNavcatBay(zNavigation, bayTopY);
+      this.createNavcatBay(zNavigation, bayTopY);
     } // end navigation
 
     if (isTarget("futureA")) {
@@ -2063,8 +2090,9 @@ export class ProceduralBuilder {
       step.name = `StairStep${i}_col`;
       this.scene.add(step);
       this.meshes.push(step);
-      step.updateWorldMatrix(true, false);
-      this.colliders.push(this.colliderFactory.createTrimesh(step));
+      this.colliders.push(
+        this.colliderFactory.createFixedCuboid(step.position, new THREE.Vector3(width, rise, run), 0.7),
+      );
     }
   }
 
@@ -2170,8 +2198,7 @@ export class ProceduralBuilder {
     mesh.receiveShadow = true;
     this.scene.add(mesh);
     this.meshes.push(mesh);
-    mesh.updateWorldMatrix(true, false);
-    this.colliders.push(this.colliderFactory.createTrimesh(mesh));
+    this.colliders.push(this.colliderFactory.createFixedCuboid(mesh.position, size, 0.7));
   }
 
   private createLadder(name: string, base: THREE.Vector3, height: number, material: THREE.Material): void {
@@ -2539,7 +2566,7 @@ export class ProceduralBuilder {
    * Navigation showcase bay: creates a dedicated platform, generates a navmesh from it,
    * and spawns patrol agents constrained to the navigation station area.
    */
-  private async createNavcatBay(zStation: number, bayTopY: number): Promise<void> {
+  private createNavcatBay(zStation: number, bayTopY: number): void {
     const gen = this.loadGenerationRef.value;
     // Dedicated navigation platform — agents are confined to this area only.
     const platformWidth = 24;
@@ -2586,50 +2613,53 @@ export class ProceduralBuilder {
       this.meshes.push(mesh);
       obstacles.push(mesh);
     };
+    const addBoxObstacle = (mesh: THREE.Mesh, size: THREE.Vector3): void => {
+      addObstacle(mesh);
+      this.colliders.push(this.colliderFactory.createFixedCuboid(mesh.position, size, 0.7, mesh.quaternion));
+    };
+    const addCylinderObstacle = (mesh: THREE.Mesh, height: number, radius: number): void => {
+      addObstacle(mesh);
+      this.colliders.push(this.colliderFactory.createFixedCylinder(mesh.position, height * 0.5, radius));
+    };
 
     // L-wall: horizontal arm + vertical arm
     const lWallH = new THREE.Mesh(new THREE.BoxGeometry(4, obstacleH, 0.4), obstacleMat);
     lWallH.position.set(-3, surfaceY + obstacleH / 2, zStation - 1);
     lWallH.name = "NavObstacle_LWallH";
-    addObstacle(lWallH);
+    addBoxObstacle(lWallH, new THREE.Vector3(4, obstacleH, 0.4));
 
     const lWallV = new THREE.Mesh(new THREE.BoxGeometry(0.4, obstacleH, 3), obstacleMat);
     lWallV.position.set(-5, surfaceY + obstacleH / 2, zStation + 0.5);
     lWallV.name = "NavObstacle_LWallV";
-    addObstacle(lWallV);
+    addBoxObstacle(lWallV, new THREE.Vector3(0.4, obstacleH, 3));
 
     // Horizontal wall (back area)
     const hWall = new THREE.Mesh(new THREE.BoxGeometry(5, obstacleH, 0.4), obstacleAccent);
     hWall.position.set(5, surfaceY + obstacleH / 2, zStation - 4);
     hWall.name = "NavObstacle_HWall";
-    addObstacle(hWall);
+    addBoxObstacle(hWall, new THREE.Vector3(5, obstacleH, 0.4));
 
     // Vertical wall (front area)
     const vWall = new THREE.Mesh(new THREE.BoxGeometry(0.4, obstacleH, 4), obstacleAccent);
     vWall.position.set(-7, surfaceY + obstacleH / 2, zStation + 3);
     vWall.name = "NavObstacle_VWall";
-    addObstacle(vWall);
+    addBoxObstacle(vWall, new THREE.Vector3(0.4, obstacleH, 4));
 
     // Column A (back-left)
     const colA = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1.5, 12), obstacleMat);
     colA.position.set(-4, surfaceY + 1.5 / 2, zStation - 5);
     colA.name = "NavObstacle_ColA";
-    addObstacle(colA);
+    addCylinderObstacle(colA, 1.5, 0.5);
 
     // Column B (front-right)
     const colB = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1.5, 12), obstacleMat);
     colB.position.set(6, surfaceY + 1.5 / 2, zStation + 2);
     colB.name = "NavObstacle_ColB";
-    addObstacle(colB);
+    addCylinderObstacle(colB, 1.5, 0.5);
 
     // Ensure world matrices are up to date for geometry extraction
     navPlatform.updateWorldMatrix(true, false);
     for (const obs of obstacles) obs.updateWorldMatrix(true, false);
-
-    // Add physics colliders so the player can't walk through obstacles
-    for (const obs of obstacles) {
-      this.colliders.push(this.colliderFactory.createTrimesh(obs));
-    }
 
     // Create a padded invisible platform for navmesh generation.
     // walkableRadiusVoxels * cellSize = 2 * 0.15 = 0.3 erosion per side;
@@ -2648,28 +2678,45 @@ export class ProceduralBuilder {
     // Seed the flood fill at the platform center so disconnected obstacle-top
     // regions are pruned before any agents spawn.
     const seedPoint = new THREE.Vector3(0, surfaceY, zStation);
-    this.navMeshManagerRef = new NavMeshManager();
-    await this.navMeshManagerRef.generateAsync([navInputMesh, ...obstacles], seedPoint);
+    const navMeshManager = new NavMeshManager();
+    this.navMeshManagerRef = navMeshManager;
+    const generation = navMeshManager.generateAsync([navInputMesh, ...obstacles], seedPoint);
     navInputGeo.dispose();
+    void generation
+      .then(() => {
+        // Guard: unload() during worker generation increments the load generation.
+        // Never add ghost patrol agents to the scene of the next level.
+        if (this.loadGenerationRef.value !== gen) {
+          navMeshManager.dispose(this.scene);
+          if (this.navMeshManagerRef === navMeshManager) this.navMeshManagerRef = null;
+          return;
+        }
 
-    // Guard: unload() during the async navmesh generation increments the load
-    // generation. Bail out so ghost patrol agents aren't added to the scene
-    // of the next level (same pattern as the VFX bays).
-    if (this.loadGenerationRef.value !== gen) {
-      this.navMeshManagerRef.dispose(this.scene);
-      this.navMeshManagerRef = null;
-      return;
-    }
+        const navMesh = navMeshManager.getNavMesh();
+        const generationStats = navMeshManager.getLastGenerationStats();
+        if (!navMesh || !generationStats) {
+          console.warn("[LevelManager] Failed to generate navmesh for navigation bay");
+          return;
+        }
 
-    const navMesh = this.navMeshManagerRef.getNavMesh();
-    if (!navMesh) {
-      console.warn("[LevelManager] Failed to generate navmesh for navigation bay");
-      return;
-    }
-
-    const reachableFilter = this.navMeshManagerRef.getReachableFilter();
-    this.navPatrolSystemRef = new NavPatrolSystem(this.scene, navMesh, 5, reachableFilter, this.assetLoader);
-    this.navDebugOverlayRef = new NavDebugOverlay(this.scene, this.navMeshManagerRef);
+        const reachableFilter = navMeshManager.getReachableFilter();
+        const navPatrolSystem = new NavPatrolSystem(this.scene, navMesh, 5, reachableFilter, this.assetLoader);
+        const navDebugOverlay = new NavDebugOverlay(this.scene, navMeshManager);
+        this.navPatrolSystemRef = navPatrolSystem;
+        this.navDebugOverlayRef = navDebugOverlay;
+        this.onNavigationReady?.({
+          navMeshManager,
+          navPatrolSystem,
+          navDebugOverlay,
+          workerGenerationMs: generationStats.workerGenerationMs,
+          readyAfterLoadStartMs: performance.now() - this.buildStartedAt,
+        });
+      })
+      .catch((error) => {
+        if (this.loadGenerationRef.value === gen) {
+          console.warn("[NavMeshManager] Deferred navigation generation failed:", error);
+        }
+      });
   }
 
   // ---------------------------------------------------------------------------
@@ -3066,8 +3113,11 @@ export class ProceduralBuilder {
         mesh.name = `MatSample_${s.name}`;
         this.scene.add(mesh);
         this.meshes.push(mesh);
-        mesh.updateWorldMatrix(true, false);
-        this.colliders.push(this.colliderFactory.createTrimesh(mesh));
+        this.colliders.push(
+          s.shape === "sphere"
+            ? this.colliderFactory.createFixedBall(mesh.position, 0.8, 0.7)
+            : this.colliderFactory.createFixedCuboid(mesh.position, new THREE.Vector3(1.6, 1.6, 1.6), 0.7),
+        );
       });
     };
     placeRow(frontRow, frontZ);

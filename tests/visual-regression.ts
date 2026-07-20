@@ -83,6 +83,30 @@ for (const anchor of REVIEW_ANCHORS) {
 
 const VFX_PARITY_OBJECTS = ["StationFloor_col", "ShowcaseBay0_col", "ShowcaseBayAccent0", "VFX_StationSign"] as const;
 
+function installLoadingStageObserver(): void {
+  const stateWindow = window as unknown as Window & { __KINEMA_LOADING_STAGES__: string[] };
+  stateWindow.__KINEMA_LOADING_STAGES__ = [];
+  const attach = (): void => {
+    if (!document.documentElement) {
+      requestAnimationFrame(attach);
+      return;
+    }
+    const record = (): void => {
+      const text = document.querySelector(".loading-status")?.textContent?.trim();
+      if (text && stateWindow.__KINEMA_LOADING_STAGES__.at(-1) !== text) {
+        stateWindow.__KINEMA_LOADING_STAGES__.push(text);
+      }
+    };
+    new MutationObserver(record).observe(document.documentElement, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+    record();
+  };
+  attach();
+}
+
 const VFX_RENDERER_PATHS = [
   {
     backend: "WebGPU (WebGL2 backend)",
@@ -120,10 +144,18 @@ test.describe("VFX renderer-path parity", () => {
 
   for (const rendererPath of VFX_RENDERER_PATHS) {
     test(`${rendererPath.label} keeps the VFX station visible`, async ({ page }) => {
+      await page.addInitScript(installLoadingStageObserver);
       await page.goto(`/?${rendererPath.query}`, { waitUntil: "domcontentloaded" });
       await waitForKinema(page);
       await waitForLoadingGone(page);
       await waitForGrounded(page);
+
+      expect(
+        await page.evaluate(() => {
+          const stateWindow = window as unknown as Window & { __KINEMA_LOADING_STAGES__: string[] };
+          return stateWindow.__KINEMA_LOADING_STAGES__;
+        }),
+      ).toContain("Compiling shaders…");
 
       const teleported = await page.evaluate(() => window.__KINEMA__.teleportToReviewSpawn("vfx"));
       expect(teleported).toBe(true);
@@ -219,5 +251,22 @@ test.describe("VFX renderer-path parity", () => {
       lutEnabled: false,
       vignetteEnabled: false,
     });
+  });
+
+  test("warmup=0 bypasses the explicit compile stage", async ({ page }) => {
+    await page.addInitScript(installLoadingStageObserver);
+    await page.goto("/?station=vfx&warmup=0", { waitUntil: "domcontentloaded" });
+    await waitForKinema(page);
+    await waitForLoadingGone(page);
+
+    const evidence = await page.evaluate(() => {
+      const stateWindow = window as unknown as Window & { __KINEMA_LOADING_STAGES__: string[] };
+      return {
+        stages: stateWindow.__KINEMA_LOADING_STAGES__,
+        stats: window.__KINEMA__.getLastLoadStats(),
+      };
+    });
+    expect(evidence.stages).not.toContain("Compiling shaders…");
+    expect(evidence.stats?.stageMs?.shaderWarmup).toBe(0);
   });
 });

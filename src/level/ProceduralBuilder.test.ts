@@ -36,4 +36,23 @@ describe("procedural showcase instructions", () => {
     );
     expect(source.match(/"VFX_StationSign"/g)).toHaveLength(1);
   });
+
+  it("defers navigation worker readiness instead of blocking procedural load", () => {
+    const source = readFileSync(new URL("./ProceduralBuilder.ts", import.meta.url), "utf8");
+
+    expect(source).toContain("this.createNavcatBay(zNavigation, bayTopY)");
+    expect(source).not.toContain("await this.createNavcatBay(zNavigation, bayTopY)");
+    expect(source).toContain("void generation");
+    expect(source).toContain("this.onNavigationReady?.(");
+  });
+
+  it("uses primitive collision for known sphere, cylinder, rotated-box, and stair sites", () => {
+    const source = readFileSync(new URL("./ProceduralBuilder.ts", import.meta.url), "utf8");
+
+    expect(source).toContain("createFixedBall(mesh.position, 0.8, 0.7)");
+    expect(source).toContain("createFixedCylinder(mesh.position, height * 0.5, radius)");
+    expect(source).toContain("roughPlane.quaternion");
+    expect(source).toContain("slope.quaternion");
+    expect(source).toContain("new THREE.Vector3(width, rise, run)");
+  });
 });

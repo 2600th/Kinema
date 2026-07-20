@@ -42,7 +42,15 @@ export class DebugRuntimeSystem implements RuntimeSystem {
           void this.ensurePhysicsDebugView().then((v) => v.setEnabled(enabled));
         }
       }),
+      this.eventBus.on("navigation:ready", () => {
+        this.refreshNavigationResources();
+      }),
     );
+  }
+
+  private refreshNavigationResources(): void {
+    this.navPatrolSystem = this.levelManager.getNavPatrolSystem();
+    this.navDebugOverlay = this.levelManager.getNavDebugOverlay();
   }
 
   setEditorManager(manager: EditorManager): void {
@@ -50,13 +58,11 @@ export class DebugRuntimeSystem implements RuntimeSystem {
   }
 
   setupLevel(): void {
-    this.navPatrolSystem = this.levelManager.getNavPatrolSystem();
-    this.navDebugOverlay = this.levelManager.getNavDebugOverlay();
+    this.refreshNavigationResources();
   }
 
   setupStation(_key: ShowcaseStationKey): void {
-    this.navPatrolSystem = this.levelManager.getNavPatrolSystem();
-    this.navDebugOverlay = this.levelManager.getNavDebugOverlay();
+    this.refreshNavigationResources();
   }
 
   teardownLevel(): void {

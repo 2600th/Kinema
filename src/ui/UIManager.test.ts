@@ -54,6 +54,7 @@ vi.mock("./components/DebugPanel", () => ({
 vi.mock("./components/LoadingScreen", () => ({
   LoadingScreen: class {
     setProgress = vi.fn();
+    setStatus = vi.fn();
     show = vi.fn();
     hide = vi.fn(() => Promise.resolve());
     dispose = vi.fn();
@@ -81,6 +82,11 @@ vi.mock("./components/RendererStatusBadge", () => ({
 import { createDefaultKeyboardBindings } from "@input/InputBindings";
 import { UIManager } from "./UIManager";
 
+type LoadingScreenDouble = {
+  setProgress: ReturnType<typeof vi.fn>;
+  setStatus: ReturnType<typeof vi.fn>;
+};
+
 describe("UIManager", () => {
   const appendBodyChild = vi.fn();
   const createElement = vi.fn(() => ({ id: "", style: {} as Record<string, string>, remove: vi.fn() }));
@@ -99,6 +105,25 @@ describe("UIManager", () => {
       body: { appendChild: appendBodyChild },
     };
     warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  it("routes optional loading stages without replacing progress updates", () => {
+    const listeners = new Map<string, (payload: any) => void>();
+    const on = vi.fn((event: string, handler: (payload: any) => void) => {
+      listeners.set(event, handler);
+      return () => {};
+    });
+    const ui = new UIManager({ on } as any);
+    const loading = ui.loadingScreen as unknown as LoadingScreenDouble;
+
+    listeners.get("loading:progress")?.({ progress: 0.96, status: "Compiling shaders…" });
+    listeners.get("loading:progress")?.({ progress: 1 });
+
+    expect(loading.setProgress).toHaveBeenNthCalledWith(1, 0.96);
+    expect(loading.setProgress).toHaveBeenNthCalledWith(2, 1);
+    expect(loading.setStatus).toHaveBeenCalledOnce();
+    expect(loading.setStatus).toHaveBeenCalledWith("Compiling shaders…");
+    ui.dispose();
   });
 
   afterEach(() => {

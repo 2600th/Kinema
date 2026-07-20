@@ -320,6 +320,7 @@ export class LoadingScreen implements Disposable {
     content.appendChild(track);
 
     this.statusText = document.createElement("div");
+    this.statusText.className = "loading-status";
     Object.assign(this.statusText.style, {
       color: "rgba(228, 234, 255, 0.64)",
       fontFamily: "var(--k-font-body)",
@@ -334,6 +335,7 @@ export class LoadingScreen implements Disposable {
   }
 
   show(): Promise<void> {
+    this.setStatus("Loading world");
     document.body.appendChild(this.container);
     void this.container.offsetHeight;
     this.container.style.opacity = "1";
@@ -353,6 +355,10 @@ export class LoadingScreen implements Disposable {
   setProgress(value: number): void {
     const clamped = Math.max(0, Math.min(1, value));
     this.barFill.style.transform = `scaleX(${clamped})`;
+  }
+
+  setStatus(status: string): void {
+    this.statusText.textContent = status;
   }
 
   dispose(): void {
