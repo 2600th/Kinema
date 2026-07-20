@@ -1,6 +1,6 @@
 import type { PhysicsWorld } from "@physics/PhysicsWorld";
 import * as THREE from "three";
-import type { EditorTransformState } from "./EditorCommands";
+import type { EditorHierarchySnapshot, EditorTransformState } from "./EditorCommands";
 import type { EditorObject } from "./EditorObject";
 
 export interface EditorSubtreeNodeSnapshot {
@@ -200,17 +200,18 @@ export class EditorDocument {
     }
   }
 
-  reparentById(childId: string, newParentId: string | null): void {
+  reparentById(childId: string, newParentId: string | null): boolean {
     const child = this.findById(childId);
-    if (!child) return;
-    if (child.parentId === newParentId) return;
+    if (!child) return false;
+    if (child.parentId === newParentId) return false;
 
     const nextParent = newParentId ? this.findById(newParentId) : null;
+    if (newParentId && !nextParent) return false;
     if (nextParent) {
       // Prevent cycles: cannot parent under self or descendants.
       let cursor: THREE.Object3D | null = nextParent.mesh;
       while (cursor) {
-        if (cursor === child.mesh) return;
+        if (cursor === child.mesh) return false;
         cursor = cursor.parent;
       }
     }
@@ -226,11 +227,89 @@ export class EditorDocument {
       child.parentId = null;
     }
     this.syncLocalTransform(child);
+    return true;
+  }
+
+  captureHierarchySnapshot(): EditorHierarchySnapshot {
+    return Object.freeze({
+      nodes: Object.freeze(
+        this.objects.map((object, documentIndex) =>
+          Object.freeze({
+            object,
+            documentIndex,
+            parent: object.mesh.parent,
+            childIndex: object.mesh.parent?.children.indexOf(object.mesh) ?? -1,
+            parentId: object.parentId ?? null,
+            children: Object.freeze([...(object.children ?? [])]),
+            localTransform: captureLocalTransform(object),
+          }),
+        ),
+      ),
+      selection: this.selected,
+    });
+  }
+
+  applyHierarchySnapshot(snapshot: EditorHierarchySnapshot): boolean {
+    const orderedNodes = [...snapshot.nodes].sort((a, b) => a.documentIndex - b.documentIndex);
+    const desiredObjects = orderedNodes.map(({ object }) => object);
+    const desiredIds = new Set(desiredObjects.map(({ id }) => id));
+    if (desiredIds.size !== desiredObjects.length || new Set(desiredObjects).size !== desiredObjects.length)
+      return false;
+    if (orderedNodes.some(({ parentId }) => parentId !== null && !desiredIds.has(parentId))) return false;
+    if (snapshot.selection && !desiredObjects.includes(snapshot.selection)) return false;
+
+    for (const node of orderedNodes) {
+      const visited = new Set<string>([node.object.id]);
+      let parentId = node.parentId;
+      while (parentId) {
+        if (visited.has(parentId)) return false;
+        visited.add(parentId);
+        parentId = orderedNodes.find(({ object }) => object.id === parentId)?.parentId ?? null;
+      }
+    }
+
+    for (const object of this.objects) {
+      if (!desiredObjects.includes(object)) object.mesh.parent?.remove(object.mesh);
+    }
+    this.objects = desiredObjects;
+    for (const node of orderedNodes) {
+      const { object, localTransform } = node;
+      object.parentId = node.parentId;
+      object.children = [...node.children];
+      if (node.parent) node.parent.add(object.mesh);
+      else object.mesh.parent?.remove(object.mesh);
+      object.mesh.position.fromArray(localTransform.position);
+      object.mesh.rotation.set(...localTransform.rotation);
+      object.mesh.scale.fromArray(localTransform.scale);
+      object.transform = {
+        position: [...localTransform.position],
+        rotation: [...localTransform.rotation],
+        scale: [...localTransform.scale],
+      };
+    }
+
+    const nodesByParent = new Map<THREE.Object3D, typeof orderedNodes>();
+    for (const node of orderedNodes) {
+      if (!node.parent || node.childIndex < 0) continue;
+      const siblings = nodesByParent.get(node.parent) ?? [];
+      siblings.push(node);
+      nodesByParent.set(node.parent, siblings);
+    }
+    for (const [parent, nodes] of nodesByParent) {
+      for (const node of nodes.sort((a, b) => a.childIndex - b.childIndex)) {
+        const currentIndex = parent.children.indexOf(node.object.mesh);
+        if (currentIndex < 0) return false;
+        parent.children.splice(currentIndex, 1);
+        parent.children.splice(Math.min(node.childIndex, parent.children.length), 0, node.object.mesh);
+      }
+    }
+    this.selected = snapshot.selection;
+    return true;
   }
 
   getGroupingRoots(ids: string[]): EditorObject[] {
     if (ids.length === 0) return [];
-    const groupedObjects = ids.map((id) => this.findById(id)).filter((o): o is EditorObject => o != null);
+    const groupedObjects = [...new Set(ids.map((id) => this.findById(id)).filter((o): o is EditorObject => o != null))];
     if (groupedObjects.length === 0) return [];
 
     const selectedIds = new Set(groupedObjects.map((o) => o.id));
@@ -269,9 +348,7 @@ export class EditorDocument {
       nodes: Object.freeze(nodes),
       externalParent,
       externalParentObject,
-      externalParentChildren: externalParentObject
-        ? Object.freeze([...(externalParentObject.children ?? [])])
-        : null,
+      externalParentChildren: externalParentObject ? Object.freeze([...(externalParentObject.children ?? [])]) : null,
       externalChildIndex: externalParent?.children.indexOf(root.mesh) ?? -1,
     });
   }
@@ -295,7 +372,10 @@ export class EditorDocument {
   restoreSubtree(snapshot: EditorSubtreeSnapshot): boolean {
     if (snapshot.nodes.length === 0) return false;
     if (snapshot.nodes.some((node) => this.findById(node.object.id))) return false;
-    if (snapshot.externalParentObject && this.findById(snapshot.externalParentObject.id) !== snapshot.externalParentObject) {
+    if (
+      snapshot.externalParentObject &&
+      this.findById(snapshot.externalParentObject.id) !== snapshot.externalParentObject
+    ) {
       return false;
     }
 
@@ -330,7 +410,7 @@ export class EditorDocument {
     return true;
   }
 
-  groupObjects(ids: string[]): EditorObject | null {
+  createGroupObject(ids: string[]): EditorObject | null {
     const rootObjects = this.getGroupingRoots(ids);
     if (rootObjects.length === 0) return null;
 
@@ -345,12 +425,7 @@ export class EditorDocument {
     group.name = "Group";
     group.position.copy(center);
     group.userData.editorSource = { type: "primitive", primitive: "group" };
-    this.scene.add(group);
-
-    const sharedParentIds = new Set(rootObjects.map((obj) => obj.parentId ?? "__scene__"));
-    const commonParentId = sharedParentIds.size === 1 ? (rootObjects[0]?.parentId ?? null) : null;
-
-    const groupObj: EditorObject = {
+    return {
       id: group.uuid,
       name: "Group",
       mesh: group,
@@ -360,12 +435,26 @@ export class EditorDocument {
         rotation: [group.rotation.x, group.rotation.y, group.rotation.z],
         scale: [group.scale.x, group.scale.y, group.scale.z],
       },
-      parentId: commonParentId,
+      parentId: null,
       children: [],
       visible: true,
       locked: false,
       physicsType: "static",
     };
+  }
+
+  groupObjects(ids: string[], existingGroup?: EditorObject): EditorObject | null {
+    const rootObjects = this.getGroupingRoots(ids);
+    if (rootObjects.length === 0) return null;
+    const groupObj = existingGroup ?? this.createGroupObject(ids);
+    if (!groupObj || this.findById(groupObj.id)) return null;
+    const group = groupObj.mesh;
+    this.scene.add(group);
+
+    const sharedParentIds = new Set(rootObjects.map((obj) => obj.parentId ?? "__scene__"));
+    const commonParentId = sharedParentIds.size === 1 ? (rootObjects[0]?.parentId ?? null) : null;
+    groupObj.parentId = commonParentId;
+    groupObj.children = [];
 
     if (commonParentId) {
       const commonParent = this.findById(commonParentId);

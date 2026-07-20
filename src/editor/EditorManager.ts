@@ -13,18 +13,23 @@ import { BRUSH_REGISTRY, getBrushById } from "./brushes/index";
 import { CommandHistory } from "./CommandHistory";
 import {
   buildDeleteSubtreeCommand,
+  buildGroupCommand,
   buildLockCommand,
   buildMaterialCommand,
   buildRenameCommand,
+  buildReparentCommand,
   buildSetPhysicsTypeCommand,
   buildSetTransformCommand,
+  buildUngroupCommand,
   buildVisibilityCommand,
   type EditorHierarchyState,
+  type EditorHierarchyTrackingState,
   type EditorMaterialState,
   type EditorPhysicsResourceRecipe,
   type EditorPhysicsState,
   type EditorPhysicsType,
   type EditorSerializedMaterialState,
+  type EditorStructuralHierarchyState,
   type EditorSubtreeState,
   type EditorTransformState,
 } from "./EditorCommands";
@@ -171,101 +176,9 @@ export class EditorManager {
       onRename: (id, name) => this.renameById(id, name),
       onToggleVisible: (id) => this.toggleVisibilityById(id),
       onToggleLock: (id) => this.toggleLockById(id),
-      onReparent: (childId, newParentId) => {
-        if (!this.guardDocumentMutation()) return;
-        const child = this.document.findById(childId);
-        const nextParent = newParentId ? this.document.findById(newParentId)?.mesh : this.renderer.scene;
-        if (!child || !nextParent) return;
-        const validation = validatePhysicsAttachment(child.mesh, nextParent, child.physicsType ?? "static");
-        if (!validation.ok) {
-          this.showPhysicsMutationError(validation.reason);
-          this.syncHierarchy();
-          return;
-        }
-        const previousParent = this.document.findById(childId)?.parentId ?? null;
-        this.document.reparentById(childId, newParentId);
-        if (previousParent !== (this.document.findById(childId)?.parentId ?? null)) {
-          this.syncPhysicsSubtree(child, false);
-          this.markDirty();
-        }
-        this.syncHierarchy();
-      },
-      onGroup: (ids) => {
-        if (!this.guardDocumentMutation()) return;
-        const roots = this.document.getGroupingRoots(ids);
-        if (roots.length === 0) return;
-        const center = new THREE.Vector3();
-        for (const root of roots) {
-          root.mesh.updateWorldMatrix(true, false);
-          center.add(new THREE.Vector3().setFromMatrixPosition(root.mesh.matrixWorld));
-        }
-        center.multiplyScalar(1 / roots.length);
-        const prospectiveGroupWorld = new THREE.Matrix4().makeTranslation(center.x, center.y, center.z);
-        const commonParentId = roots.every((root) => (root.parentId ?? null) === (roots[0]?.parentId ?? null))
-          ? (roots[0]?.parentId ?? null)
-          : null;
-        const targetParent = commonParentId ? this.document.findById(commonParentId)?.mesh : this.renderer.scene;
-        if (!targetParent) return;
-        targetParent.updateWorldMatrix(true, false);
-        const groupValidation = validateWorldMatrixAttachment(
-          prospectiveGroupWorld,
-          targetParent.matrixWorld,
-          "static",
-        );
-        if (!groupValidation.ok) {
-          this.showPhysicsMutationError(groupValidation.reason);
-          this.syncHierarchy();
-          return;
-        }
-        for (const root of roots) {
-          const validation = validateWorldMatrixAttachment(
-            root.mesh.matrixWorld,
-            prospectiveGroupWorld,
-            root.physicsType ?? "static",
-          );
-          if (!validation.ok) {
-            this.showPhysicsMutationError(validation.reason);
-            this.syncHierarchy();
-            return;
-          }
-        }
-        const groupObj = this.document.groupObjects(ids);
-        if (groupObj) {
-          this.levelManager.addLevelObject(groupObj.mesh, this.createLevelObjectTracking(groupObj));
-          this.syncPhysicsSubtree(groupObj, false);
-          this.syncHierarchy();
-          this.setSelection(groupObj);
-          this.markDirty();
-        }
-      },
-      onUngroup: (groupId) => {
-        if (!this.guardDocumentMutation()) return;
-        const wasSelected = this.document.selected;
-        const groupObj = this.document.findById(groupId);
-        const targetParent = groupObj?.parentId ? this.document.findById(groupObj.parentId)?.mesh : this.renderer.scene;
-        if (groupObj && targetParent) {
-          for (const childId of groupObj.children ?? []) {
-            const child = this.document.findById(childId);
-            if (!child) continue;
-            const validation = validatePhysicsAttachment(child.mesh, targetParent, child.physicsType ?? "static");
-            if (!validation.ok) {
-              this.showPhysicsMutationError(validation.reason);
-              this.syncHierarchy();
-              return;
-            }
-          }
-        }
-        if (groupObj && this.document.ungroupObject(groupId)) {
-          this.levelManager.removeLevelObject(groupObj.mesh);
-          if (wasSelected && wasSelected.id === groupId) this.setSelection(null);
-          for (const childId of groupObj.children ?? []) {
-            const child = this.document.findById(childId);
-            if (child) this.syncPhysicsSubtree(child, false);
-          }
-          this.syncHierarchy();
-          this.markDirty();
-        }
-      },
+      onReparent: (childId, newParentId) => this.reparentById(childId, newParentId),
+      onGroup: (ids) => this.groupObjects(ids),
+      onUngroup: (groupId) => this.ungroupObject(groupId),
     });
 
     this.inspectorPanel = new InspectorPanel({
@@ -1369,7 +1282,294 @@ export class EditorManager {
     if (result.ok) this.history.push(result.command);
   }
 
+  private captureStructuralHierarchyState(
+    operation: EditorStructuralHierarchyState["operation"],
+    physicsRootIds: readonly string[],
+    extraObjects: readonly EditorObject[] = [],
+    trackingOverrides: ReadonlyMap<EditorObject, EditorHierarchyTrackingState> = new Map(),
+  ): EditorStructuralHierarchyState {
+    const trackedMeshes = new Set(this.levelManager.getLevelObjects());
+    const objects = [...this.document.objects];
+    for (const object of extraObjects) {
+      if (!objects.includes(object)) objects.push(object);
+    }
+    const tracking = objects.map((object) => {
+      const override = trackingOverrides.get(object);
+      if (override) return override;
+      return Object.freeze({
+        object,
+        tracked: trackedMeshes.has(object.mesh),
+        tracking: Object.freeze({ ...this.levelManager.getLevelObjectTracking(object.mesh) }),
+      });
+    });
+    return Object.freeze({
+      type: "structure",
+      operation,
+      document: this.document.captureHierarchySnapshot(),
+      tracking: Object.freeze(tracking),
+      physicsRootIds: Object.freeze([...physicsRootIds]),
+    });
+  }
+
+  private reconcileHierarchyTracking(target: readonly EditorHierarchyTrackingState[]): void {
+    const currentlyTracked = new Set(this.levelManager.getLevelObjects());
+    for (const entry of target) {
+      const tracked = currentlyTracked.has(entry.object.mesh);
+      if (tracked === entry.tracked) continue;
+      if (entry.tracked) {
+        this.levelManager.addLevelObject(entry.object.mesh, entry.tracking);
+        currentlyTracked.add(entry.object.mesh);
+      } else {
+        this.levelManager.removeLevelObject(entry.object.mesh);
+        currentlyTracked.delete(entry.object.mesh);
+      }
+    }
+  }
+
+  private syncStructuralPhysics(rootIds: readonly string[]): void {
+    for (const rootId of rootIds) {
+      const root = this.document.findById(rootId);
+      if (!root) continue;
+      const result = this.syncPhysicsSubtree(root, false);
+      if (!result.ok) throw new Error(result.reason);
+    }
+  }
+
+  private applyStructuralHierarchy(state: EditorStructuralHierarchyState): boolean {
+    const rollbackRoots = this.document.objects.filter((object) => !object.parentId).map((object) => object.id);
+    const rollback = this.captureStructuralHierarchyState(
+      state.operation,
+      rollbackRoots,
+      state.tracking.map(({ object }) => object),
+    );
+    try {
+      if (!this.document.applyHierarchySnapshot(state.document)) {
+        throw new Error("The editor document rejected the hierarchy snapshot.");
+      }
+      this.reconcileHierarchyTracking(state.tracking);
+      this.syncStructuralPhysics(state.physicsRootIds);
+    } catch (error) {
+      let rollbackFailure = "";
+      try {
+        if (!this.document.applyHierarchySnapshot(rollback.document)) {
+          throw new Error("The editor document rejected hierarchy rollback.");
+        }
+        this.reconcileHierarchyTracking(rollback.tracking);
+        this.syncStructuralPhysics(rollback.physicsRootIds);
+      } catch (rollbackError) {
+        rollbackFailure = ` Rollback also failed. ${String(rollbackError)}`;
+      }
+      this.reportFailure(
+        `Hierarchy ${state.operation} failed; no changes were kept. ${String(error)}${rollbackFailure}`,
+      );
+      return false;
+    }
+
+    this.syncSelectionAfterScalarMutation(state.document.selection?.id ?? null);
+    try {
+      this.syncHierarchy();
+    } catch (error) {
+      this.reportFailure(`Hierarchy ${state.operation} committed, but hierarchy publication failed. ${String(error)}`);
+    }
+    return true;
+  }
+
+  private hierarchyWouldCycle(child: EditorObject, nextParent: EditorObject): boolean {
+    let cursor: EditorObject | undefined = nextParent;
+    while (cursor) {
+      if (cursor === child) return true;
+      cursor = cursor.parentId ? this.document.findById(cursor.parentId) : undefined;
+    }
+    return false;
+  }
+
+  private reparentById(childId: string, newParentId: string | null): boolean {
+    if (!this.guardDocumentMutation() || !this.commitPendingMaterialEdit()) return false;
+    const child = this.document.findById(childId);
+    const nextParentObject = newParentId ? this.document.findById(newParentId) : null;
+    if (!child || (newParentId && !nextParentObject)) return false;
+    if (child.parentId === newParentId) return false;
+    if (nextParentObject && this.hierarchyWouldCycle(child, nextParentObject)) {
+      this.reportFailure(
+        nextParentObject === child
+          ? "An object cannot be parented to itself."
+          : "An object cannot be parented below one of its descendants.",
+      );
+      this.syncHierarchy();
+      return false;
+    }
+
+    const nextParent = nextParentObject?.mesh ?? this.renderer.scene;
+    const validation = validatePhysicsAttachment(child.mesh, nextParent, child.physicsType ?? "static");
+    if (!validation.ok) {
+      this.reportFailure(validation.reason);
+      this.syncHierarchy();
+      return false;
+    }
+
+    const before = this.captureStructuralHierarchyState("reparent", [child.id]);
+    if (!this.document.reparentById(child.id, newParentId)) return false;
+    const after = this.captureStructuralHierarchyState("reparent", [child.id]);
+    if (!this.document.applyHierarchySnapshot(before.document)) {
+      this.reportFailure("Reparent preparation failed while restoring the original hierarchy.");
+      return false;
+    }
+    const result = buildReparentCommand(this, before, after);
+    if (!result.ok) {
+      this.reportFailure(result.reason);
+      return false;
+    }
+    return this.history.push(result.command);
+  }
+
+  private validateGroupingRoots(roots: readonly EditorObject[]): { ok: true } | { ok: false; reason: string } {
+    const center = new THREE.Vector3();
+    for (const root of roots) {
+      root.mesh.updateWorldMatrix(true, false);
+      center.add(new THREE.Vector3().setFromMatrixPosition(root.mesh.matrixWorld));
+    }
+    center.multiplyScalar(1 / roots.length);
+    const prospectiveGroupWorld = new THREE.Matrix4().makeTranslation(center.x, center.y, center.z);
+    const commonParentId = roots.every((root) => (root.parentId ?? null) === (roots[0]?.parentId ?? null))
+      ? (roots[0]?.parentId ?? null)
+      : null;
+    const targetParent = commonParentId ? this.document.findById(commonParentId)?.mesh : this.renderer.scene;
+    if (!targetParent) return { ok: false, reason: "The common hierarchy parent no longer exists." };
+    targetParent.updateWorldMatrix(true, false);
+    const groupValidation = validateWorldMatrixAttachment(prospectiveGroupWorld, targetParent.matrixWorld, "static");
+    if (!groupValidation.ok) return groupValidation;
+    for (const root of roots) {
+      const validation = validateWorldMatrixAttachment(
+        root.mesh.matrixWorld,
+        prospectiveGroupWorld,
+        root.physicsType ?? "static",
+      );
+      if (!validation.ok) return validation;
+    }
+    return { ok: true };
+  }
+
+  private groupObjects(ids: string[]): EditorObject | null {
+    if (!this.guardDocumentMutation() || !this.commitPendingMaterialEdit()) return null;
+    const roots = this.document.getGroupingRoots(ids);
+    if (roots.length === 0) return null;
+    const validation = this.validateGroupingRoots(roots);
+    if (!validation.ok) {
+      this.reportFailure(validation.reason);
+      this.syncHierarchy();
+      return null;
+    }
+
+    const group = this.document.createGroupObject(ids);
+    if (!group) return null;
+    const detachedTracking: EditorHierarchyTrackingState = Object.freeze({
+      object: group,
+      tracked: false,
+      tracking: Object.freeze({}),
+    });
+    const before = this.captureStructuralHierarchyState(
+      "group",
+      roots.map(({ id }) => id),
+      [group],
+      new Map([[group, detachedTracking]]),
+    );
+    if (this.document.groupObjects(ids, group) !== group) {
+      this.finalizeDetachedHierarchyObject(group);
+      return null;
+    }
+    this.document.selected = group;
+    const attachedTracking: EditorHierarchyTrackingState = Object.freeze({
+      object: group,
+      tracked: true,
+      tracking: Object.freeze({ ...this.createLevelObjectTracking(group) }),
+    });
+    const after = this.captureStructuralHierarchyState(
+      "group",
+      [group.id],
+      [group],
+      new Map([[group, attachedTracking]]),
+    );
+    if (!this.document.applyHierarchySnapshot(before.document)) {
+      this.reportFailure("Group preparation failed while restoring the original hierarchy.");
+      return null;
+    }
+    const result = buildGroupCommand(this, before, after, group);
+    if (!result.ok) {
+      this.reportFailure(result.reason);
+      this.finalizeDetachedHierarchyObject(group);
+      return null;
+    }
+    if (!this.history.push(result.command)) {
+      result.command.discard?.();
+      return null;
+    }
+    return group;
+  }
+
+  private ungroupObject(groupId: string): boolean {
+    if (!this.guardDocumentMutation() || !this.commitPendingMaterialEdit()) return false;
+    const group = this.document.findById(groupId);
+    if (!group?.children || group.children.length === 0) return false;
+    const children = group.children
+      .map((childId) => this.document.findById(childId))
+      .filter((child): child is EditorObject => child !== undefined);
+    if (children.length !== group.children.length) return false;
+    const targetParent = group.parentId ? this.document.findById(group.parentId)?.mesh : this.renderer.scene;
+    if (!targetParent) return false;
+    for (const child of children) {
+      const validation = validatePhysicsAttachment(child.mesh, targetParent, child.physicsType ?? "static");
+      if (!validation.ok) {
+        this.reportFailure(validation.reason);
+        this.syncHierarchy();
+        return false;
+      }
+    }
+
+    const before = this.captureStructuralHierarchyState("ungroup", [group.id], [group]);
+    const groupTracking = before.tracking.find(({ object }) => object === group);
+    if (!groupTracking || !this.document.ungroupObject(group.id)) return false;
+    const detachedTracking: EditorHierarchyTrackingState = Object.freeze({
+      object: group,
+      tracked: false,
+      tracking: groupTracking.tracking,
+    });
+    const after = this.captureStructuralHierarchyState(
+      "ungroup",
+      children.map(({ id }) => id),
+      [group],
+      new Map([[group, detachedTracking]]),
+    );
+    if (!this.document.applyHierarchySnapshot(before.document)) {
+      this.reportFailure("Ungroup preparation failed while restoring the original hierarchy.");
+      return false;
+    }
+    const result = buildUngroupCommand(this, before, after, group);
+    if (!result.ok) {
+      this.reportFailure(result.reason);
+      return false;
+    }
+    if (!this.history.push(result.command)) {
+      result.command.discard?.();
+      return false;
+    }
+    return true;
+  }
+
+  finalizeDetachedHierarchyObject(object: EditorObject): void {
+    if (this.document.findById(object.id) === object || object.mesh.parent) return;
+    if (this.levelManager.getLevelObjects().includes(object.mesh)) {
+      this.levelManager.removeLevelObject(object.mesh, { removePhysics: true });
+    } else if (object.body) {
+      this.physicsWorld.removeBody(object.body);
+    } else if (object.collider) {
+      this.physicsWorld.removeCollider(object.collider);
+    }
+    object.body = undefined;
+    object.collider = undefined;
+  }
+
   applyHierarchy(state: EditorHierarchyState): boolean {
+    if (state.type === "structure") return this.applyStructuralHierarchy(state);
     const target = this.document.findById(state.id);
     if (!target) return false;
     if (state.type === "rename") {

@@ -1,5 +1,8 @@
 import type RAPIER from "@dimforge/rapier3d-compat";
+import type { RemovedLevelObjectTracking } from "@level/LevelManager";
+import type * as THREE from "three";
 import type { Command } from "./CommandHistory";
+import type { EditorObject } from "./EditorObject";
 
 export type EditorTransformState = Readonly<{
   position: readonly [number, number, number];
@@ -45,10 +48,36 @@ export type EditorPhysicsState = Readonly<{
   hasCollider: boolean;
   resourceRecipe?: EditorPhysicsResourceRecipe;
 }>;
-export type EditorHierarchyState =
+export type EditorHierarchyNodeState = Readonly<{
+  object: EditorObject;
+  documentIndex: number;
+  parent: THREE.Object3D | null;
+  childIndex: number;
+  parentId: string | null;
+  children: readonly string[];
+  localTransform: EditorTransformState;
+}>;
+export type EditorHierarchySnapshot = Readonly<{
+  nodes: readonly EditorHierarchyNodeState[];
+  selection: EditorObject | null;
+}>;
+export type EditorHierarchyTrackingState = Readonly<{
+  object: EditorObject;
+  tracked: boolean;
+  tracking: RemovedLevelObjectTracking;
+}>;
+export type EditorStructuralHierarchyState = Readonly<{
+  type: "structure";
+  operation: "reparent" | "group" | "ungroup";
+  document: EditorHierarchySnapshot;
+  tracking: readonly EditorHierarchyTrackingState[];
+  physicsRootIds: readonly string[];
+}>;
+export type EditorScalarHierarchyState =
   | Readonly<{ type: "rename"; id: string; name: string }>
   | Readonly<{ type: "visibility"; id: string; visible: boolean; selectionId: string | null }>
   | Readonly<{ type: "lock"; id: string; locked: boolean; selectionId: string | null }>;
+export type EditorHierarchyState = EditorScalarHierarchyState | EditorStructuralHierarchyState;
 export type EditorSubtreeState = Readonly<{ rootId: string }>;
 export type EditorMutationNotice = unknown;
 
@@ -62,6 +91,7 @@ export interface EditorMutationHost {
   detachSubtree(state: EditorSubtreeState): boolean;
   restoreSubtree(state: EditorSubtreeState): boolean;
   finalizeDetachedSubtree(state: EditorSubtreeState): void;
+  finalizeDetachedHierarchyObject(object: EditorObject): void;
   afterMutation(notice: EditorMutationNotice): void;
   reportFailure(reason: string): void;
 }
@@ -75,12 +105,12 @@ export function createStateCommand<T>(before: T, after: T, apply: (value: T) => 
   return { execute: () => apply(after), undo: () => apply(before) };
 }
 
-type ScalarMutationHost = Pick<EditorMutationHost, "applyHierarchy">;
+type ScalarMutationHost = { applyHierarchy(state: EditorScalarHierarchyState): boolean };
 
 function buildScalarCommand(
   host: ScalarMutationHost,
-  before: EditorHierarchyState,
-  after: EditorHierarchyState,
+  before: EditorScalarHierarchyState,
+  after: EditorScalarHierarchyState,
 ): CommandBuildResult {
   if (!before.id.trim()) return { ok: false, reason: "Cannot edit an object without an id." };
   if (JSON.stringify(before) === JSON.stringify(after)) {
@@ -138,6 +168,72 @@ export function buildLockCommand(
       selectionId: afterLocked && selectionId === id ? null : selectionId,
     }),
   );
+}
+
+export function buildReparentCommand(
+  host: Pick<EditorMutationHost, "applyHierarchy">,
+  before: EditorStructuralHierarchyState,
+  after: EditorStructuralHierarchyState,
+): CommandBuildResult {
+  if (before.operation !== "reparent" || after.operation !== "reparent") {
+    return { ok: false, reason: "Reparent history requires reparent snapshots." };
+  }
+  return { ok: true, command: createStateCommand(before, after, (state) => host.applyHierarchy(state)) };
+}
+
+type StructuralHierarchyMutationHost = Pick<EditorMutationHost, "applyHierarchy" | "finalizeDetachedHierarchyObject">;
+
+function buildOwnedGroupCommand(
+  host: StructuralHierarchyMutationHost,
+  before: EditorStructuralHierarchyState,
+  after: EditorStructuralHierarchyState,
+  group: EditorObject,
+  operation: "group" | "ungroup",
+  detachedWhenApplied: boolean,
+): CommandBuildResult {
+  if (before.operation !== operation || after.operation !== operation) {
+    return { ok: false, reason: `${operation} history requires ${operation} snapshots.` };
+  }
+  let applied = false;
+  let discarded = false;
+  return {
+    ok: true,
+    command: {
+      execute: () => {
+        if (applied || !host.applyHierarchy(after)) return false;
+        applied = true;
+        return true;
+      },
+      undo: () => {
+        if (!applied || !host.applyHierarchy(before)) return false;
+        applied = false;
+        return true;
+      },
+      discard: () => {
+        if (discarded) return;
+        discarded = true;
+        if (applied === detachedWhenApplied) host.finalizeDetachedHierarchyObject(group);
+      },
+    },
+  };
+}
+
+export function buildGroupCommand(
+  host: StructuralHierarchyMutationHost,
+  before: EditorStructuralHierarchyState,
+  after: EditorStructuralHierarchyState,
+  group: EditorObject,
+): CommandBuildResult {
+  return buildOwnedGroupCommand(host, before, after, group, "group", false);
+}
+
+export function buildUngroupCommand(
+  host: StructuralHierarchyMutationHost,
+  before: EditorStructuralHierarchyState,
+  after: EditorStructuralHierarchyState,
+  group: EditorObject,
+): CommandBuildResult {
+  return buildOwnedGroupCommand(host, before, after, group, "ungroup", true);
 }
 
 type MaterialMutationHost = Pick<EditorMutationHost, "applyMaterial">;

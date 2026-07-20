@@ -63,6 +63,27 @@ interface ScalarManagerHarness {
   toggleLockById(id: string): void;
 }
 
+interface HierarchyManagerHarness {
+  guardDocumentMutation(): boolean;
+  commitPendingMaterialEdit(): boolean;
+  document: EditorDocument;
+  renderer: { scene: THREE.Scene };
+  levelManager: LevelManager;
+  gizmo: { attach: ReturnType<typeof vi.fn> };
+  inspectorPanel: { setSelection: ReturnType<typeof vi.fn> };
+  hierarchyPanel: { setSelection: ReturnType<typeof vi.fn>; setObjects: ReturnType<typeof vi.fn> };
+  setSelectionHelper: ReturnType<typeof vi.fn>;
+  eventBus: { emit: ReturnType<typeof vi.fn> };
+  showPhysicsMutationError: ReturnType<typeof vi.fn>;
+  markDirty: ReturnType<typeof vi.fn>;
+  syncPhysicsSubtree: ReturnType<typeof vi.fn>;
+  finalizeDetachedHierarchyObject: ReturnType<typeof vi.fn>;
+  history: CommandHistory;
+  reparentById(childId: string, newParentId: string | null): boolean;
+  groupObjects(ids: string[]): EditorObject | null;
+  ungroupObject(groupId: string): boolean;
+}
+
 interface MaterialSelectionHarness extends MaterialManagerHarness {
   hierarchyPanel: { setSelection: ReturnType<typeof vi.fn> };
   gizmo: { attach: ReturnType<typeof vi.fn> };
@@ -434,6 +455,102 @@ function makeTrackedObject(
     locked: false,
     physicsType,
   };
+}
+
+function makeHierarchyHarness() {
+  const scene = new THREE.Scene();
+  const physicsWorld = {} as PhysicsWorld;
+  const levelManager = new LevelManager(scene, physicsWorld, new EventBus());
+  const document = new EditorDocument(scene, physicsWorld);
+  const parentA = makeTrackedObject("parent-a", null, ["child", "sibling"], "static");
+  const child = makeTrackedObject("child", parentA.id, ["grandchild"], "dynamic");
+  const sibling = makeTrackedObject("sibling", parentA.id, [], "static");
+  const grandchild = makeTrackedObject("grandchild", child.id, [], "static");
+  const parentB = makeTrackedObject("parent-b", null, [], "static");
+
+  parentA.mesh.position.set(4, -2, 3);
+  parentA.mesh.rotation.set(0.1, -0.2, 0.3);
+  child.mesh.position.set(-1, 2, 0.5);
+  child.mesh.rotation.set(-0.2, 0.4, -0.1);
+  child.mesh.scale.set(1.2, 0.8, 1.1);
+  sibling.mesh.position.set(3, 1, -2);
+  grandchild.mesh.position.set(0.25, 0.5, -0.75);
+  parentB.mesh.position.set(-5, 1, 6);
+  parentB.mesh.rotation.set(-0.1, 0.25, -0.35);
+  for (const object of [parentA, child, sibling, grandchild, parentB]) {
+    object.transform = {
+      position: object.mesh.position.toArray(),
+      rotation: object.mesh.rotation.toArray().slice(0, 3) as [number, number, number],
+      scale: object.mesh.scale.toArray(),
+    };
+  }
+  scene.add(parentA.mesh, parentB.mesh);
+  parentA.mesh.add(child.mesh, sibling.mesh);
+  child.mesh.add(grandchild.mesh);
+  document.objects = [parentB, child, parentA, grandchild, sibling];
+  document.selected = grandchild;
+  for (const object of document.objects) levelManager.addLevelObject(object.mesh);
+
+  const physicsPose = {
+    position: child.mesh.getWorldPosition(new THREE.Vector3()).toArray(),
+    rotation: child.mesh.getWorldQuaternion(new THREE.Quaternion()).toArray(),
+  };
+  const syncPhysicsSubtree = vi.fn((root: EditorObject) => {
+    let cursor: THREE.Object3D | null = child.mesh;
+    let includesChild = false;
+    while (cursor) {
+      if (cursor === root.mesh) includesChild = true;
+      cursor = cursor.parent;
+    }
+    if (includesChild) {
+      physicsPose.position = child.mesh.getWorldPosition(new THREE.Vector3()).toArray();
+      physicsPose.rotation = child.mesh.getWorldQuaternion(new THREE.Quaternion()).toArray();
+    }
+    return { ok: true as const };
+  });
+  const markDirty = vi.fn();
+  const manager = Object.create(EditorManager.prototype) as unknown as HierarchyManagerHarness;
+  Object.assign(manager, {
+    guardDocumentMutation: () => true,
+    commitPendingMaterialEdit: () => true,
+    document,
+    renderer: { scene },
+    levelManager,
+    gizmo: { attach: vi.fn() },
+    inspectorPanel: { setSelection: vi.fn() },
+    hierarchyPanel: { setSelection: vi.fn(), setObjects: vi.fn() },
+    setSelectionHelper: vi.fn(),
+    eventBus: { emit: vi.fn() },
+    showPhysicsMutationError: vi.fn(),
+    markDirty,
+    syncPhysicsSubtree,
+    finalizeDetachedHierarchyObject: vi.fn(),
+    history: new CommandHistory(markDirty),
+  });
+
+  const project = () => {
+    scene.updateMatrixWorld(true);
+    const objectByMesh = new Map(document.objects.map((object) => [object.mesh, object.id]));
+    return {
+      document: document.objects.map((object) => ({
+        id: object.id,
+        parentId: object.parentId ?? null,
+        children: [...(object.children ?? [])],
+        local: {
+          position: object.mesh.position.toArray(),
+          rotation: object.mesh.rotation.toArray().slice(0, 3),
+          scale: object.mesh.scale.toArray(),
+        },
+        world: [...object.mesh.matrixWorld.elements],
+        meshParent: object.mesh.parent ? (objectByMesh.get(object.mesh.parent) ?? null) : null,
+        meshChildren: object.mesh.children.map((mesh) => objectByMesh.get(mesh)),
+      })),
+      selected: document.selected?.id ?? null,
+      levelObjects: levelManager.getLevelObjects().map((mesh) => objectByMesh.get(mesh)),
+      physicsPose: structuredClone(physicsPose),
+    };
+  };
+  return { manager, document, scene, levelManager, parentA, child, sibling, grandchild, parentB, project, markDirty };
 }
 
 function makeDeleteHarness(eventBus = new EventBus()) {
@@ -1866,6 +1983,211 @@ describe("EditorManager collider rollback fidelity", () => {
     expect(desc.activeCollisionTypes).toBe(6);
     expect(desc.contactForceEventThreshold).toBe(8.5);
     expect(desc.contactSkin).toBe(0.0125);
+  });
+});
+
+describe("EditorManager reparent history transactions", () => {
+  it("round-trips document order, complete topology, exact transforms, selection, tracking, and physics pose", () => {
+    const harness = makeHierarchyHarness();
+    const { manager, parentA, parentB, child, grandchild, project, markDirty } = harness;
+    const before = project();
+    const worldBefore = [...child.mesh.matrixWorld.elements];
+
+    expect(manager.reparentById(child.id, parentB.id)).toBe(true);
+    const after = project();
+    expect(parentA.children).toEqual(["sibling"]);
+    expect(parentB.children).toEqual([child.id]);
+    expect(child.parentId).toBe(parentB.id);
+    expect(child.children).toEqual([grandchild.id]);
+    expect(after.document.map(({ id }) => id)).toEqual(before.document.map(({ id }) => id));
+    expect(after.selected).toBe(grandchild.id);
+    expect(after.levelObjects).toEqual(before.levelObjects);
+    child.mesh.matrixWorld.elements.forEach((value, index) => {
+      expect(value).toBeCloseTo(worldBefore[index] ?? Number.NaN, 12);
+    });
+    expect(after.physicsPose.position).toEqual(child.mesh.getWorldPosition(new THREE.Vector3()).toArray());
+    expect(after.physicsPose.rotation).toEqual(child.mesh.getWorldQuaternion(new THREE.Quaternion()).toArray());
+
+    expect(manager.history.undo()).toBe(true);
+    expect(project()).toEqual(before);
+    expect(manager.history.redo()).toBe(true);
+    expect(project()).toEqual(after);
+    expect(markDirty).toHaveBeenCalledTimes(3);
+  });
+
+  it("rejects self, cycle, shear, and no-op reparents without history or dirty state", () => {
+    const harness = makeHierarchyHarness();
+    const { manager, parentA, parentB, child, grandchild, project, markDirty } = harness;
+    const before = project();
+    parentB.mesh.scale.set(2, 1, 1);
+    parentB.mesh.rotation.set(0.2, 0.4, -0.3);
+    parentB.mesh.updateMatrixWorld(true);
+    child.mesh.rotation.set(0.35, -0.45, 0.25);
+    parentA.mesh.updateMatrixWorld(true);
+    const beforeRejected = project();
+
+    expect(manager.reparentById(child.id, child.id)).toBe(false);
+    expect(manager.reparentById(parentA.id, grandchild.id)).toBe(false);
+    expect(manager.reparentById(child.id, parentA.id)).toBe(false);
+    expect(manager.reparentById(child.id, parentB.id)).toBe(false);
+
+    expect(project()).toEqual(beforeRejected);
+    expect(before.document.map(({ id }) => id)).toEqual(beforeRejected.document.map(({ id }) => id));
+    expect(manager.history.undo()).toBe(false);
+    expect(markDirty).not.toHaveBeenCalled();
+    expect(manager.showPhysicsMutationError).toHaveBeenCalledWith(expect.stringMatching(/self|descendant|shear/i));
+  });
+
+  it("rolls a failed physics pose sync back without history or dirty state", () => {
+    const harness = makeHierarchyHarness();
+    const { manager, child, parentB, project, markDirty } = harness;
+    const before = project();
+    manager.syncPhysicsSubtree.mockReturnValueOnce({ ok: false, reason: "pose sync failed" });
+
+    expect(manager.reparentById(child.id, parentB.id)).toBe(false);
+
+    expect(project()).toEqual(before);
+    expect(manager.history.undo()).toBe(false);
+    expect(markDirty).not.toHaveBeenCalled();
+    expect(manager.showPhysicsMutationError).toHaveBeenCalledWith(expect.stringMatching(/pose sync failed/i));
+  });
+});
+
+describe("EditorManager group and ungroup history transactions", () => {
+  it("retains one group identity across multiple-parent undo and redo with exact order, selection, and tracking", () => {
+    const harness = makeHierarchyHarness();
+    const { manager, document, levelManager, parentA, parentB, child, sibling, project, markDirty } = harness;
+    document.selected = child;
+    const before = project();
+    const childWorldBefore = [...child.mesh.matrixWorld.elements];
+    const parentBWorldBefore = [...parentB.mesh.matrixWorld.elements];
+
+    const group = manager.groupObjects([child.id, parentB.id]);
+
+    expect(group).not.toBeNull();
+    if (!group) return;
+    const after = project();
+    expect(document.objects).toEqual([parentB, child, parentA, harness.grandchild, sibling, group]);
+    expect(parentA.children).toEqual([sibling.id]);
+    expect(group.children).toEqual([child.id, parentB.id]);
+    expect(child.parentId).toBe(group.id);
+    expect(parentB.parentId).toBe(group.id);
+    expect(document.selected).toBe(group);
+    expect(levelManager.getLevelObjects()).toContain(group.mesh);
+    child.mesh.matrixWorld.elements.forEach((value, index) => {
+      expect(value).toBeCloseTo(childWorldBefore[index] ?? Number.NaN, 12);
+    });
+    parentB.mesh.matrixWorld.elements.forEach((value, index) => {
+      expect(value).toBeCloseTo(parentBWorldBefore[index] ?? Number.NaN, 12);
+    });
+
+    expect(manager.history.undo()).toBe(true);
+    expect(project()).toEqual(before);
+    expect(document.findById(group.id)).toBeUndefined();
+    expect(levelManager.getLevelObjects()).not.toContain(group.mesh);
+    expect(manager.history.redo()).toBe(true);
+    expect(document.findById(group.id)).toBe(group);
+    expect(project()).toEqual(after);
+    expect(markDirty).toHaveBeenCalledTimes(3);
+  });
+
+  it("restores selected groups and preserves selected children across ungroup undo and redo", () => {
+    const selectedGroupHarness = makeHierarchyHarness();
+    const group = selectedGroupHarness.manager.groupObjects([
+      selectedGroupHarness.child.id,
+      selectedGroupHarness.parentB.id,
+    ]);
+    expect(group).not.toBeNull();
+    if (!group) return;
+    selectedGroupHarness.manager.history.clear();
+    selectedGroupHarness.markDirty.mockClear();
+    selectedGroupHarness.document.selected = group;
+    const beforeSelectedGroup = selectedGroupHarness.project();
+
+    expect(selectedGroupHarness.manager.ungroupObject(group.id)).toBe(true);
+    const afterSelectedGroup = selectedGroupHarness.project();
+    expect(selectedGroupHarness.document.findById(group.id)).toBeUndefined();
+    expect(selectedGroupHarness.levelManager.getLevelObjects()).not.toContain(group.mesh);
+    expect(selectedGroupHarness.document.selected).toBeNull();
+    expect(selectedGroupHarness.manager.history.undo()).toBe(true);
+    expect(selectedGroupHarness.document.findById(group.id)).toBe(group);
+    expect(selectedGroupHarness.project()).toEqual(beforeSelectedGroup);
+    expect(selectedGroupHarness.manager.history.redo()).toBe(true);
+    expect(selectedGroupHarness.project()).toEqual(afterSelectedGroup);
+
+    const selectedChildHarness = makeHierarchyHarness();
+    const childGroup = selectedChildHarness.manager.groupObjects([
+      selectedChildHarness.child.id,
+      selectedChildHarness.parentB.id,
+    ]);
+    expect(childGroup).not.toBeNull();
+    if (!childGroup) return;
+    selectedChildHarness.manager.history.clear();
+    selectedChildHarness.markDirty.mockClear();
+    selectedChildHarness.document.selected = selectedChildHarness.child;
+
+    expect(selectedChildHarness.manager.ungroupObject(childGroup.id)).toBe(true);
+    expect(selectedChildHarness.document.selected).toBe(selectedChildHarness.child);
+    expect(selectedChildHarness.manager.history.undo()).toBe(true);
+    expect(selectedChildHarness.document.selected).toBe(selectedChildHarness.child);
+    expect(selectedChildHarness.manager.history.redo()).toBe(true);
+    expect(selectedChildHarness.document.selected).toBe(selectedChildHarness.child);
+  });
+
+  it("rolls group and ungroup failures back without history, dirty state, or incorrect ownership cleanup", () => {
+    const groupHarness = makeHierarchyHarness();
+    const beforeGroup = groupHarness.project();
+    groupHarness.manager.syncPhysicsSubtree.mockReturnValueOnce({ ok: false, reason: "group pose failed" });
+
+    expect(groupHarness.manager.groupObjects([groupHarness.child.id, groupHarness.parentB.id])).toBeNull();
+    expect(groupHarness.project()).toEqual(beforeGroup);
+    expect(groupHarness.manager.history.undo()).toBe(false);
+    expect(groupHarness.markDirty).not.toHaveBeenCalled();
+    expect(groupHarness.manager.finalizeDetachedHierarchyObject).toHaveBeenCalledOnce();
+
+    const ungroupHarness = makeHierarchyHarness();
+    const group = ungroupHarness.manager.groupObjects([ungroupHarness.child.id, ungroupHarness.parentB.id]);
+    expect(group).not.toBeNull();
+    if (!group) return;
+    ungroupHarness.manager.history.clear();
+    ungroupHarness.markDirty.mockClear();
+    ungroupHarness.manager.finalizeDetachedHierarchyObject.mockClear();
+    const beforeUngroup = ungroupHarness.project();
+    ungroupHarness.manager.syncPhysicsSubtree.mockReturnValueOnce({ ok: false, reason: "ungroup pose failed" });
+
+    expect(ungroupHarness.manager.ungroupObject(group.id)).toBe(false);
+    expect(ungroupHarness.project()).toEqual(beforeUngroup);
+    expect(ungroupHarness.manager.history.undo()).toBe(false);
+    expect(ungroupHarness.markDirty).not.toHaveBeenCalled();
+    expect(ungroupHarness.manager.finalizeDetachedHierarchyObject).not.toHaveBeenCalled();
+  });
+
+  it("finalizes only detached command-owned groups when history is discarded", () => {
+    const groupHarness = makeHierarchyHarness();
+    const group = groupHarness.manager.groupObjects([groupHarness.child.id, groupHarness.parentB.id]);
+    expect(group).not.toBeNull();
+    if (!group) return;
+    groupHarness.manager.history.clear();
+    expect(groupHarness.manager.finalizeDetachedHierarchyObject).not.toHaveBeenCalled();
+
+    const detachedGroup = groupHarness.manager.groupObjects([groupHarness.sibling.id]);
+    expect(detachedGroup).not.toBeNull();
+    if (!detachedGroup) return;
+    expect(groupHarness.manager.history.undo()).toBe(true);
+    groupHarness.manager.history.clear();
+    expect(groupHarness.manager.finalizeDetachedHierarchyObject).toHaveBeenCalledOnce();
+    expect(groupHarness.manager.finalizeDetachedHierarchyObject).toHaveBeenCalledWith(detachedGroup);
+
+    const ungroupHarness = makeHierarchyHarness();
+    const ungrouped = ungroupHarness.manager.groupObjects([ungroupHarness.child.id, ungroupHarness.parentB.id]);
+    expect(ungrouped).not.toBeNull();
+    if (!ungrouped) return;
+    ungroupHarness.manager.history.clear();
+    ungroupHarness.manager.finalizeDetachedHierarchyObject.mockClear();
+    expect(ungroupHarness.manager.ungroupObject(ungrouped.id)).toBe(true);
+    ungroupHarness.manager.history.clear();
+    expect(ungroupHarness.manager.finalizeDetachedHierarchyObject).toHaveBeenCalledOnce();
+    expect(ungroupHarness.manager.finalizeDetachedHierarchyObject).toHaveBeenCalledWith(ungrouped);
   });
 });
 

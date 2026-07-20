@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { CommandHistory } from "./CommandHistory";
+import * as EditorCommandModule from "./EditorCommands";
 import {
   buildDeleteSubtreeCommand,
   buildLockCommand,
@@ -9,11 +10,13 @@ import {
   buildVisibilityCommand,
   type CommandBuildResult,
   createStateCommand,
-  type EditorHierarchyState,
   type EditorMutationHost,
   type EditorPhysicsState,
+  type EditorScalarHierarchyState,
+  type EditorStructuralHierarchyState,
   type EditorTransformState,
 } from "./EditorCommands";
+import type { EditorObject } from "./EditorObject";
 
 function freezeTransform(
   position: readonly [number, number, number],
@@ -99,6 +102,7 @@ function makeMutationHost(): EditorMutationHost {
     detachSubtree: vi.fn(() => true),
     restoreSubtree: vi.fn(() => true),
     finalizeDetachedSubtree: vi.fn(),
+    finalizeDetachedHierarchyObject: vi.fn(),
     afterMutation: vi.fn(),
     reportFailure: vi.fn(),
   };
@@ -115,6 +119,16 @@ function unwrapCommand(result: CommandBuildResult) {
   return result.command;
 }
 
+function emptyHierarchyState(operation: "group" | "ungroup"): EditorStructuralHierarchyState {
+  return Object.freeze({
+    type: "structure",
+    operation,
+    document: Object.freeze({ nodes: Object.freeze([]), selection: null }),
+    tracking: Object.freeze([]),
+    physicsRootIds: Object.freeze([]),
+  });
+}
+
 describe("scalar editor commands", () => {
   it("round-trips explicit rename, visibility, and lock state with one dirty notification per boundary", () => {
     const target = {
@@ -127,7 +141,7 @@ describe("scalar editor commands", () => {
     };
     let selectedId: string | null = target.id;
     const host = makeMutationHost();
-    host.applyHierarchy = vi.fn((state: EditorHierarchyState) => {
+    host.applyHierarchy = vi.fn((state: EditorScalarHierarchyState) => {
       if (state.id !== target.id) return false;
       if (state.type === "rename") {
         target.name = state.name;
@@ -181,7 +195,7 @@ describe("scalar editor commands", () => {
   it("restores the exact prior selection when undoing hide and lock commands", () => {
     const selections: Array<string | null> = [];
     const host = makeMutationHost();
-    host.applyHierarchy = vi.fn((state: EditorHierarchyState) => {
+    host.applyHierarchy = vi.fn((state: EditorScalarHierarchyState) => {
       if (state.type !== "rename") selections.push(state.selectionId);
       return true;
     });
@@ -278,5 +292,80 @@ describe("buildDeleteSubtreeCommand", () => {
     history.clear();
 
     expect(host.finalizeDetachedSubtree).not.toHaveBeenCalled();
+  });
+});
+
+describe("group and ungroup command ownership", () => {
+  it("retains one group identity and finalizes it only when a group command is discarded while undone", () => {
+    const buildGroupCommand = (
+      EditorCommandModule as unknown as {
+        buildGroupCommand?: (
+          host: EditorMutationHost,
+          before: EditorStructuralHierarchyState,
+          after: EditorStructuralHierarchyState,
+          group: EditorObject,
+        ) => CommandBuildResult;
+      }
+    ).buildGroupCommand;
+    expect(buildGroupCommand).toBeTypeOf("function");
+    if (!buildGroupCommand) return;
+    const before = emptyHierarchyState("group");
+    const after = emptyHierarchyState("group");
+    const group = { id: "group" } as EditorObject;
+    const host = {
+      ...makeMutationHost(),
+      finalizeDetachedHierarchyObject: vi.fn(),
+    };
+    const command = unwrapCommand(buildGroupCommand(host, before, after, group));
+    const history = new CommandHistory();
+
+    expect(history.push(command)).toBe(true);
+    history.clear();
+    expect(host.finalizeDetachedHierarchyObject).not.toHaveBeenCalled();
+
+    const undoneCommand = unwrapCommand(buildGroupCommand(host, before, after, group));
+    expect(history.push(undoneCommand)).toBe(true);
+    expect(history.undo()).toBe(true);
+    history.clear();
+    undoneCommand.discard?.();
+    expect(host.finalizeDetachedHierarchyObject).toHaveBeenCalledOnce();
+    expect(host.finalizeDetachedHierarchyObject).toHaveBeenCalledWith(group);
+  });
+
+  it("finalizes an ungrouped object only while the ungroup command remains applied", () => {
+    const buildUngroupCommand = (
+      EditorCommandModule as unknown as {
+        buildUngroupCommand?: (
+          host: EditorMutationHost,
+          before: EditorStructuralHierarchyState,
+          after: EditorStructuralHierarchyState,
+          group: EditorObject,
+        ) => CommandBuildResult;
+      }
+    ).buildUngroupCommand;
+    expect(buildUngroupCommand).toBeTypeOf("function");
+    if (!buildUngroupCommand) return;
+    const before = emptyHierarchyState("ungroup");
+    const after = emptyHierarchyState("ungroup");
+    const group = { id: "group" } as EditorObject;
+    const host = {
+      ...makeMutationHost(),
+      finalizeDetachedHierarchyObject: vi.fn(),
+    };
+    const command = unwrapCommand(buildUngroupCommand(host, before, after, group));
+    const history = new CommandHistory();
+
+    expect(history.push(command)).toBe(true);
+    history.clear();
+    command.discard?.();
+    expect(host.finalizeDetachedHierarchyObject).toHaveBeenCalledOnce();
+    expect(host.finalizeDetachedHierarchyObject).toHaveBeenCalledWith(group);
+
+    host.finalizeDetachedHierarchyObject.mockClear();
+    const undoneCommand = unwrapCommand(buildUngroupCommand(host, before, after, group));
+    expect(history.push(undoneCommand)).toBe(true);
+    expect(history.undo()).toBe(true);
+    history.clear();
+    expect(host.finalizeDetachedHierarchyObject).not.toHaveBeenCalled();
   });
 });
