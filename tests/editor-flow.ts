@@ -37,6 +37,123 @@ async function placeCurrentPreview(page: import("@playwright/test").Page): Promi
   });
 }
 
+const KIN022_IDS = ["kin022-root", "kin022-child", "kin022-grandchild", "kin022-sibling"] as const;
+
+const KIN022_FIXTURE = {
+  version: 2,
+  name: "kin022-browser-proof",
+  created: "2026-07-20T00:00:00.000Z",
+  modified: "2026-07-20T00:00:00.000Z",
+  spawnPoint: { position: [0, 2, 0] },
+  objects: [
+    {
+      id: KIN022_IDS[0],
+      name: "KIN-022 Root",
+      parentId: null,
+      source: { type: "primitive", primitive: "group" },
+      transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+      physics: { type: "static" },
+    },
+    {
+      id: KIN022_IDS[1],
+      name: "KIN-022 Child",
+      parentId: KIN022_IDS[0],
+      source: { type: "primitive", primitive: "group" },
+      transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+      physics: { type: "static" },
+    },
+    {
+      id: KIN022_IDS[2],
+      name: "KIN-022 Grandchild",
+      parentId: KIN022_IDS[1],
+      source: { type: "primitive", primitive: "cube" },
+      transform: { position: [-2, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+      material: {
+        color: "#4fc3f7",
+        roughness: 0.5,
+        metalness: 0,
+        emissive: "#000000",
+        emissiveIntensity: 0,
+        opacity: 1,
+      },
+      physics: { type: "static" },
+    },
+    {
+      id: KIN022_IDS[3],
+      name: "KIN-022 Sibling",
+      parentId: KIN022_IDS[0],
+      source: { type: "primitive", primitive: "cube" },
+      transform: { position: [2, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+      material: {
+        color: "#ffd166",
+        roughness: 0.35,
+        metalness: 0.15,
+        emissive: "#000000",
+        emissiveIntensity: 0,
+        opacity: 1,
+      },
+      physics: { type: "static" },
+    },
+  ],
+};
+
+async function loadKin022Fixture(page: import("@playwright/test").Page): Promise<void> {
+  const chooserPromise = page.waitForEvent("filechooser");
+  await page.getByTitle("Load", { exact: true }).click();
+  const chooser = await chooserPromise;
+  await chooser.setFiles({
+    name: "kin022-browser-proof.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(KIN022_FIXTURE)),
+  });
+  await expect(page.locator(".ke-document-title")).toHaveText("kin022-browser-proof", { timeout: 60_000 });
+  await expect.poll(() => page.evaluate(() => window.__KINEMA__.getEditorObjectCount())).toBe(KIN022_IDS.length);
+}
+
+async function selectHierarchyObject(page: import("@playwright/test").Page, id: string): Promise<void> {
+  const row = page.locator(`.ke-tree-row[data-object-id="${id}"]`);
+  await row.click();
+  await expect(row).toHaveClass(/ke-tree-row-selected/);
+}
+
+async function dragTransformGizmo(
+  page: import("@playwright/test").Page,
+  mode: "translate" | "rotate" | "scale",
+): Promise<{
+  preview: { poseSyncs: number; colliderDescriptorBuilds: number; colliderReplacements: number };
+  release: { poseSyncs: number; colliderDescriptorBuilds: number; colliderReplacements: number };
+}> {
+  const title = mode === "translate" ? "Move (W)" : mode === "rotate" ? "Rotate (E)" : "Scale (R)";
+  await page.getByTitle(title, { exact: true }).click();
+  await page.evaluate(
+    () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+  );
+  await page.evaluate(() => window.__KINEMA__.resetEditorPhysicsSyncCounters());
+  const canvas = page.locator("canvas");
+  const bounds = await canvas.boundingBox();
+  if (!bounds) throw new Error("Editor canvas has no bounding box.");
+  const center = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+  const axisOffset = mode === "rotate" ? 130 : mode === "scale" ? 105 : 0;
+  const start = { x: center.x + axisOffset, y: center.y };
+  const end =
+    mode === "rotate" ? { x: center.x, y: center.y - 130 } : { x: center.x + 180, y: center.y };
+  await page.locator("#ui-overlay, .hud-crosshair, .hud-damage-overlay").evaluateAll((elements: HTMLElement[]) => {
+    for (const element of elements) element.style.pointerEvents = "none";
+  });
+  const pointerTarget = await page.evaluate(({ x, y }) => {
+    const element = document.elementFromPoint(x, y);
+    return element ? `${element.tagName}.${element.className}` : null;
+  }, start);
+  expect(pointerTarget).toBe("CANVAS.");
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(end.x, end.y, { steps: 8 });
+  const preview = await page.evaluate(() => window.__KINEMA__.getEditorPhysicsSyncCounters());
+  await page.mouse.up();
+  const release = await page.evaluate(() => window.__KINEMA__.getEditorPhysicsSyncCounters());
+  return { preview, release };
+}
+
 test("explains session-only and missing GLB models", async ({ page }) => {
   test.setTimeout(300_000);
   await page.addInitScript(() => {
@@ -379,6 +496,132 @@ test("protects unsaved editor work and saves through Ctrl+S", async ({ page }) =
   });
   expect(await page.evaluate(() => window.__KINEMA__.getEditorObjectCount())).toBe(1);
   await expect(page.locator(".ke-save-error")).toBeHidden();
+});
+
+test("undoes every editor mutation and preserves workspace state", async ({ page }) => {
+  test.setTimeout(300_000);
+  await page.addInitScript(() => {
+    localStorage.setItem("kinema.user-settings.v1", JSON.stringify({ graphicsProfile: "performance" }));
+  });
+  await page.goto("/?station=steps", { waitUntil: "domcontentloaded" });
+  await waitForKinema(page);
+  await waitForGrounded(page);
+  await openEditor(page);
+  await loadKin022Fixture(page);
+
+  await page.locator(`.ke-tree-row[data-object-id="${KIN022_IDS[0]}"] .ke-tree-row-toggle`).click();
+  await page.locator(`.ke-tree-row[data-object-id="${KIN022_IDS[1]}"] .ke-tree-row-toggle`).click();
+  await selectHierarchyObject(page, KIN022_IDS[3]);
+  const originalMaterial = (await page.evaluate(() => window.__KINEMA__.getEditorSnapshot())).objects.find(
+    (object) => object.id === KIN022_IDS[3],
+  )?.material;
+  expect(originalMaterial).toBeDefined();
+  const colorInput = page.locator(".ke-inspector-row", { hasText: "Color" }).locator('input[type="color"]');
+  await colorInput.fill("#ff3366");
+  await colorInput.press("Enter");
+  await page.locator(".ke-document-title").click();
+  expect(
+    (await page.evaluate(() => window.__KINEMA__.getEditorSnapshot())).objects.find(
+      (object) => object.id === KIN022_IDS[3],
+    )?.material?.color,
+  ).toBe("#ff3366");
+  await page.keyboard.press("Control+Z");
+  expect(
+    (await page.evaluate(() => window.__KINEMA__.getEditorSnapshot())).objects.find(
+      (object) => object.id === KIN022_IDS[3],
+    )?.material,
+  ).toEqual(originalMaterial);
+
+  await selectHierarchyObject(page, KIN022_IDS[0]);
+  expect((await page.evaluate(() => window.__KINEMA__.getEditorSnapshot())).selectedId).toBe(KIN022_IDS[0]);
+  const transformPose = {
+    position: { x: 0, y: 0, z: 10 },
+    quaternion: { x: 0, y: 0, z: 0, w: 1 },
+  };
+  expect(await page.evaluate((pose) => window.__KINEMA__.setEditorCameraPose(pose), transformPose)).toBe(true);
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+
+  const transformBaseline = await page.evaluate(() => window.__KINEMA__.getEditorSnapshot());
+  const translate = await dragTransformGizmo(page, "translate");
+  expect(translate.preview.poseSyncs).toBeGreaterThan(0);
+  expect(translate.preview).toMatchObject({ colliderDescriptorBuilds: 0, colliderReplacements: 0 });
+  expect(translate.release).toMatchObject({ colliderDescriptorBuilds: 0, colliderReplacements: 0 });
+  await page.keyboard.press("Control+Z");
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorSnapshot())).toEqual(transformBaseline);
+  const rotate = await dragTransformGizmo(page, "rotate");
+  expect(rotate.preview.poseSyncs).toBeGreaterThan(0);
+  expect(rotate.preview).toMatchObject({ colliderDescriptorBuilds: 0, colliderReplacements: 0 });
+  expect(rotate.release).toMatchObject({ colliderDescriptorBuilds: 0, colliderReplacements: 0 });
+  await page.keyboard.press("Control+Z");
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorSnapshot())).toEqual(transformBaseline);
+  const scale = await dragTransformGizmo(page, "scale");
+  expect(scale.preview.poseSyncs).toBeGreaterThan(0);
+  expect(scale.preview).toMatchObject({ colliderDescriptorBuilds: 0, colliderReplacements: 0 });
+  expect(scale.release.colliderReplacements).toBe(2);
+  await page.keyboard.press("Control+Z");
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorSnapshot())).toEqual(transformBaseline);
+
+  const beforeDelete = await page.evaluate(() => window.__KINEMA__.getEditorSnapshot());
+  const rootRow = page.locator(`.ke-tree-row[data-object-id="${KIN022_IDS[0]}"]`);
+  const rootBounds = await rootRow.boundingBox();
+  if (!rootBounds) throw new Error("KIN-022 root hierarchy row has no bounding box.");
+  await rootRow.click({
+    button: "right",
+    position: { x: rootBounds.width - 4, y: rootBounds.height / 2 },
+  });
+  await page.locator(".ke-context-menu-item", { hasText: "Delete" }).click();
+  await expect.poll(() => page.evaluate(() => window.__KINEMA__.getEditorObjectCount())).toBe(0);
+  expect((await page.evaluate(() => window.__KINEMA__.getEditorSnapshot())).objects).toEqual([]);
+
+  page.once("dialog", (dialog) => void dialog.accept("kin022-deleted-tree"));
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByTitle(/Save \(Ctrl\+S\)/).click();
+  await downloadPromise;
+  const storedProjection = await page.evaluate(() => {
+    const index = JSON.parse(localStorage.getItem("kinema_level_index") ?? "[]") as Array<{
+      key: string;
+      name: string;
+    }>;
+    const entry = index.find((candidate) => candidate.name === "kin022-deleted-tree");
+    const stored = entry ? localStorage.getItem(entry.key) : null;
+    return stored ? (JSON.parse(stored) as { objects: Array<{ id: string; parentId?: string | null }> }) : null;
+  });
+  expect(storedProjection).not.toBeNull();
+  expect(storedProjection?.objects).toEqual([]);
+  expect(storedProjection?.objects.some((object) => object.parentId && !storedProjection.objects.some((parent) => parent.id === object.parentId))).toBe(false);
+
+  await page.keyboard.press("Control+Z");
+  await expect.poll(() => page.evaluate(() => window.__KINEMA__.getEditorObjectCount())).toBe(KIN022_IDS.length);
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorSnapshot())).toEqual(beforeDelete);
+  await page.keyboard.press("Control+Y");
+  await expect.poll(() => page.evaluate(() => window.__KINEMA__.getEditorObjectCount())).toBe(0);
+  await page.keyboard.press("Control+Z");
+  await expect.poll(() => page.evaluate(() => window.__KINEMA__.getEditorObjectCount())).toBe(KIN022_IDS.length);
+
+  const siblingRow = page.locator(`.ke-tree-row[data-object-id="${KIN022_IDS[3]}"]`);
+  await siblingRow.getByTitle("Toggle lock").click();
+  const beforeToggle = await page.evaluate(() => window.__KINEMA__.getEditorSnapshot());
+  expect(beforeToggle.objects.find((object) => object.id === KIN022_IDS[3])?.locked).toBe(true);
+  const expectedPose = {
+    position: { x: 6.25, y: 4.5, z: -7.75 },
+    quaternion: { x: 0.102, y: -0.204, z: 0.051, w: 0.972 },
+  };
+  expect(await page.evaluate((pose) => window.__KINEMA__.setEditorCameraPose(pose), expectedPose)).toBe(true);
+  expect(await page.evaluate(() => window.__KINEMA__.getCameraPose())).toEqual(expectedPose);
+  await page.keyboard.press("F1");
+  await expect.poll(() => page.evaluate(() => window.__KINEMA__.isEditorActive())).toBe(false);
+  await page.keyboard.press("F1");
+  await expect.poll(() => page.evaluate(() => window.__KINEMA__.isEditorActive())).toBe(true);
+  expect(await page.evaluate(() => window.__KINEMA__.getCameraPose())).toEqual(expectedPose);
+  const afterToggle = await page.evaluate(() => window.__KINEMA__.getEditorSnapshot());
+  expect(afterToggle.objects).toEqual(beforeToggle.objects);
+  expect(afterToggle.selectedId).toBeNull();
+
+  await page.getByTitle("Play Test (Ctrl+P)", { exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__KINEMA__.isPlayTesting())).toBe(true);
+  await page.getByTitle("Stop Play Test (Ctrl+P)", { exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__KINEMA__.isEditorActive())).toBe(true);
+  expect(await page.evaluate(() => window.__KINEMA__.getCameraPose())).toEqual(expectedPose);
 });
 
 test("rejects invalid inherited-scale physics mutations without changing the document", async ({ page }) => {
