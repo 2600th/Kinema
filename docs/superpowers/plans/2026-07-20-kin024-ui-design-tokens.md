@@ -4,7 +4,7 @@
 
 **Goal:** Consolidate Kinema's canonical UI palette, spacing, typography fallbacks, and global stacking layers in one CSS source without changing layout or stacking behavior.
 
-**Architecture:** `src/ui/tokens.css` is imported first by every independently loaded UI stylesheet. Existing surface-specific variables become aliases so selectors remain stable. Global overlays consume semantic z tokens with exact current values; component-local child layers remain numeric. DOM inline styles use CSS `var(...)`; `VirtualJoystick` resolves root hex tokens once because Canvas 2D cannot resolve custom properties.
+**Architecture:** `index.html` loads `src/ui/tokens.css` once before inline and application styles, so every lazy surface—including the runtime editor stylesheet—shares one `:root` definition without duplicating it across Vite chunks. Existing surface-specific variables become aliases so selectors remain stable. Global overlays consume semantic z tokens with exact current values; component-local child layers remain numeric. DOM inline styles use CSS `var(...)`; `VirtualJoystick` resolves root hex tokens once because Canvas 2D cannot resolve custom properties.
 
 **Research:** Google Fonts' official CSS2 API documents the `display` query parameter as the `font-display` control and lists `swap` as supported. The existing URL already uses `display=swap`; only local fallback stacks change. See https://developers.google.com/fonts/docs/css2.
 
@@ -26,7 +26,7 @@
 - Create: `src/ui/tokens.test.ts`
 
 - [ ] Run `tests/visual-regression.ts` twice serially before source changes.
-- [ ] Assert exact canonical token values, imports at the start of all four CSS entry files, and aliases for menu/editor typography and accents.
+- [ ] Assert exact canonical token values, one early `index.html` stylesheet link, and aliases for menu/editor typography and accents.
 - [ ] Assert the old `#7b2fff/#ff6b9d/#00d2ff` and RGB equivalents are absent from `src/`.
 - [ ] Assert global layer consumers no longer contain their prior raw z-index values.
 - [ ] Assert the Google Fonts URL retains `display=swap` and the shared font token contains a complete local fallback chain.
@@ -42,7 +42,7 @@
 - Modify: `src/editor/styles/editor.css`
 - Modify: `index.html`
 
-- [ ] Add token imports before all other rules.
+- [ ] Load `tokens.css` once from `index.html` before inline and application styles.
 - [ ] Alias existing menu/editor variables to shared tokens rather than rewriting selectors.
 - [ ] Replace the divergent touch/editor pink/purple/cyan values with canonical values/tokens.
 - [ ] Apply shared spacing to identical 4/8/12/16/24/32px declarations where this is a literal 1:1 substitution.
