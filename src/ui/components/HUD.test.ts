@@ -42,6 +42,7 @@ class FakeElement {
   id = "";
   className = "";
   textContent = "";
+  hidden = false;
   readonly classList = new FakeClassList();
   readonly style = new FakeStyle();
   readonly children: FakeElement[] = [];
@@ -95,13 +96,83 @@ describe("HUD damage flash intensity", () => {
     (globalThis as { window?: unknown }).window = originalWindow;
   });
 
-  function createHud(): { hud: HUD; overlay: FakeElement } {
+  function findDescendant(parent: FakeElement, predicate: (element: FakeElement) => boolean): FakeElement | null {
+    for (const child of parent.children) {
+      if (predicate(child)) return child;
+      const nested = findDescendant(child, predicate);
+      if (nested) return nested;
+    }
+    return null;
+  }
+
+  function createHud(): { hud: HUD; overlay: FakeElement; parent: FakeElement } {
     const parent = new FakeElement();
     const hud = new HUD(parent as unknown as HTMLElement);
-    const overlay = parent.children.find((child) => child.className === "hud-damage-overlay");
+    const overlay = findDescendant(parent, (child) => child.className === "hud-damage-overlay");
     if (!overlay) throw new Error("Missing damage overlay");
-    return { hud, overlay };
+    return { hud, overlay, parent };
   }
+
+  it("hides the complete HUD for editor mode without discarding live state", () => {
+    const { hud, parent } = createHud();
+    hud.showGameHUD();
+    hud.setObjective("Reach the checkpoint");
+    hud.updateCollectibles(7);
+    const root = findDescendant(parent, (child) => child.id === "hud");
+    const collectible = findDescendant(parent, (child) => child.className.includes("hud-collectible-chip"));
+    const objective = findDescendant(parent, (child) => child.id === "hud-objective");
+    expect(root).not.toBeNull();
+    if (!root) throw new Error("Missing HUD root");
+    expect(findDescendant(root, (child) => child.id === "hud-prompt")).not.toBeNull();
+    expect(findDescendant(root, (child) => child.id === "hud-hold")).not.toBeNull();
+    expect(findDescendant(root, (child) => child.className === "hud-objective-region")).not.toBeNull();
+    expect(findDescendant(root, (child) => child.className === "hud-crosshair")).not.toBeNull();
+    expect(findDescendant(root, (child) => child.className === "hud-damage-overlay")).not.toBeNull();
+    expect(collectible?.classList.contains("is-visible")).toBe(true);
+    expect(collectible?.attributes.get("aria-hidden")).toBe("false");
+    expect(objective?.classList.contains("is-visible")).toBe(true);
+    expect(objective?.attributes.get("aria-hidden")).toBe("false");
+
+    hud.setEditorActive(true);
+
+    expect(root?.hidden).toBe(true);
+    expect(root?.attributes.get("aria-hidden")).toBe("true");
+
+    hud.setEditorActive(false);
+
+    expect(root?.hidden).toBe(false);
+    expect(root?.attributes.get("aria-hidden")).toBe("false");
+    expect(collectible?.classList.contains("is-visible")).toBe(true);
+    expect(collectible?.attributes.get("aria-hidden")).toBe("false");
+    expect(objective?.classList.contains("is-visible")).toBe(true);
+    expect(objective?.attributes.get("aria-hidden")).toBe("false");
+    expect(findDescendant(parent, (child) => child.className === "collectible-count")?.textContent).toBe("7");
+    expect(findDescendant(parent, (child) => child.className === "hud-objective-text")?.textContent).toBe(
+      "Reach the checkpoint",
+    );
+  });
+
+  it("composes editor hiding with menu accessibility suppression in either release order", () => {
+    const { hud, parent } = createHud();
+    const root = findDescendant(parent, (child) => child.id === "hud");
+    expect(root).not.toBeNull();
+
+    hud.setGameplayAccessibilitySuppressed(true);
+    hud.setEditorActive(true);
+    hud.setGameplayAccessibilitySuppressed(false);
+    expect(root?.hidden).toBe(true);
+    expect(root?.attributes.get("aria-hidden")).toBe("true");
+
+    hud.setEditorActive(false);
+    hud.setGameplayAccessibilitySuppressed(true);
+    hud.setEditorActive(true);
+    hud.setEditorActive(false);
+    expect(root?.hidden).toBe(false);
+    expect(root?.attributes.get("aria-hidden")).toBe("true");
+
+    hud.setGameplayAccessibilitySuppressed(false);
+    expect(root?.attributes.get("aria-hidden")).toBe("false");
+  });
 
   it.each([
     ["spike", 1, "2500ms", "2500ms", 2500],

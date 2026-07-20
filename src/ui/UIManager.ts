@@ -72,6 +72,18 @@ export class UIManager implements Disposable {
     );
 
     this.unsubscribers.push(
+      this.eventBus.on("editor:opened", () => {
+        this.hud.setEditorActive(true);
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on("editor:closed", () => {
+        this.hud.setEditorActive(false);
+      }),
+    );
+
+    this.unsubscribers.push(
       this.eventBus.on("interaction:focusChanged", ({ id, label }) => {
         this.hud.setPrompt(id && label ? label : "");
         if (!id) {

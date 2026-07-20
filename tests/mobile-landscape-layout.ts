@@ -1,17 +1,12 @@
 import { expect, test } from "@playwright/test";
-import { waitForKinema } from "./helpers/kinema";
+import { waitForKinema, waitForLoadingGone } from "./helpers/kinema";
 
-test.use({
-  viewport: { width: 844, height: 390 },
-  hasTouch: true,
-  isMobile: true,
-});
+const LANDSCAPE_VIEWPORTS = [
+  { width: 844, height: 390 },
+  { width: 932, height: 430 },
+] as const;
 
-test("landscape touch controls stay within the viewport and avoid button overlap on iPhone-like browsers", async ({
-  page,
-}) => {
-  test.setTimeout(120_000);
-
+async function emulateIPhoneBrowser(page: import("@playwright/test").Page): Promise<void> {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "userAgent", {
       configurable: true,
@@ -27,105 +22,146 @@ test("landscape touch controls stay within the viewport and avoid button overlap
       get: () => 5,
     });
   });
+}
 
-  await page.goto("/?station=movement", { waitUntil: "domcontentloaded" });
-  await waitForKinema(page);
+for (const viewport of LANDSCAPE_VIEWPORTS) {
+  test.describe(`${viewport.width}x${viewport.height} landscape`, () => {
+    test.use({ viewport, hasTouch: true, isMobile: true });
 
-  await expect(page.locator(".touch-zone--left")).toBeVisible();
-  await expect(page.locator(".touch-zone--right")).toBeVisible();
-  await expect(page.locator(".touch-zone--buttons")).toBeVisible();
+    test("keeps every touch button inside the viewport and clear of gameplay HUD", async ({ page }, testInfo) => {
+      test.setTimeout(120_000);
+      await emulateIPhoneBrowser(page);
+      await page.goto("/?station=movement", { waitUntil: "domcontentloaded" });
+      await waitForKinema(page);
+      await waitForLoadingGone(page);
 
-  await expect
-    .poll(async () =>
-      page.evaluate(() => {
-        const getRect = (selector: string) => {
-          const element = document.querySelector(selector);
-          if (!element) return null;
-          const rect = element.getBoundingClientRect();
-          return {
-            left: rect.left,
-            top: rect.top,
-            right: rect.right,
-            bottom: rect.bottom,
-            width: rect.width,
-            height: rect.height,
-          };
-        };
+      await expect(page.locator(".touch-btn--jump")).toBeVisible();
+      await expect(page.locator(".touch-btn--interact")).toBeVisible();
+      await expect(page.locator(".touch-btn--crouch")).toBeVisible();
+      await expect(page.locator(".touch-btn--sprint")).toBeVisible();
+      await expect(page.locator(".hud-collectible-chip")).toBeVisible();
+      await expect(page.locator(".hud-health-chip")).toBeVisible();
+      await expect(page.locator(".hud-objective-card")).toBeVisible();
 
-        const intersects = (
-          a: {
-            left: number;
-            top: number;
-            right: number;
-            bottom: number;
-          } | null,
-          b: {
-            left: number;
-            top: number;
-            right: number;
-            bottom: number;
-          } | null,
-        ) => {
-          if (!a || !b) return false;
-          return !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top);
-        };
-
-        const viewportWidth = window.innerWidth;
-        const viewportHeight = window.innerHeight;
-        const left = getRect(".touch-zone--left");
-        const right = getRect(".touch-zone--right");
-        const buttons = getRect(".touch-zone--buttons");
-        const sprint = getRect(".touch-zone--sprint");
-
+      const layout = await page.evaluate(() => {
+        type Rect = { left: number; top: number; right: number; bottom: number; width: number; height: number };
+        const visibleRects = (selector: string): Array<{ label: string; rect: Rect }> =>
+          Array.from(document.querySelectorAll<HTMLElement>(selector))
+            .filter((element) => {
+              const style = getComputedStyle(element);
+              const rect = element.getBoundingClientRect();
+              return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+            })
+            .map((element) => {
+              const rect = element.getBoundingClientRect();
+              return {
+                label: element.className,
+                rect: {
+                  left: rect.left,
+                  top: rect.top,
+                  right: rect.right,
+                  bottom: rect.bottom,
+                  width: rect.width,
+                  height: rect.height,
+                },
+              };
+            });
+        const intersects = (a: Rect, b: Rect) =>
+          !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top);
+        const touch = visibleRects(".touch-btn");
+        const hud = visibleRects(".hud-collectible-chip, .hud-health-chip, .hud-objective-card");
+        const zones = visibleRects(
+          ".touch-zone--left, .touch-zone--right, .touch-zone--buttons, .touch-zone--sprint",
+        );
+        const zoneRect = (className: string) => zones.find(({ label }) => label.includes(className))?.rect;
+        const leftZone = zoneRect("touch-zone--left");
+        const rightZone = zoneRect("touch-zone--right");
+        const buttonZone = zoneRect("touch-zone--buttons");
+        const sprintZone = zoneRect("touch-zone--sprint");
+        const all = [...touch, ...hud, ...zones];
         return {
-          viewport: { width: viewportWidth, height: viewportHeight },
-          allVisible: Boolean(
-            left &&
-              right &&
-              buttons &&
-              sprint &&
-              left.left >= 0 &&
-              left.top >= 0 &&
-              left.right <= viewportWidth &&
-              left.bottom <= viewportHeight &&
-              right.left >= 0 &&
-              right.top >= 0 &&
-              right.right <= viewportWidth &&
-              right.bottom <= viewportHeight &&
-              buttons.left >= 0 &&
-              buttons.top >= 0 &&
-              buttons.right <= viewportWidth &&
-              buttons.bottom <= viewportHeight &&
-              sprint.left >= 0 &&
-              sprint.top >= 0 &&
-              sprint.right <= viewportWidth &&
-              sprint.bottom <= viewportHeight,
+          viewport: { width: window.innerWidth, height: window.innerHeight },
+          touchCount: touch.length,
+          hudCount: hud.length,
+          outsideViewport: all
+            .filter(
+              ({ rect }) =>
+                rect.left < 0 ||
+                rect.top < 0 ||
+                rect.right > window.innerWidth ||
+                rect.bottom > window.innerHeight,
+            )
+            .map(({ label }) => label),
+          overlaps: touch.flatMap((touchItem) =>
+            hud
+              .filter((hudItem) => intersects(touchItem.rect, hudItem.rect))
+              .map((hudItem) => `${touchItem.label} <-> ${hudItem.label}`),
           ),
-          joystickWidths: {
-            left: left?.width ?? 0,
-            right: right?.width ?? 0,
+          touchZoneOverlaps: {
+            buttonsRight: Boolean(buttonZone && rightZone && intersects(buttonZone, rightZone)),
+            sprintLeft: Boolean(sprintZone && leftZone && intersects(sprintZone, leftZone)),
           },
-          overlaps: {
-            buttonsRight: intersects(buttons, right),
-            sprintLeft: intersects(sprint, left),
-          },
+          joystickWidths: [leftZone?.width ?? 0, rightZone?.width ?? 0],
         };
-      }),
-    )
-    .toMatchObject({
-      viewport: { width: 844, height: 390 },
-      allVisible: true,
-      overlaps: {
-        buttonsRight: false,
-        sprintLeft: false,
-      },
-    });
+      });
 
-  const joystickWidths = await page.evaluate(() => {
-    const left = document.querySelector(".touch-zone--left")?.getBoundingClientRect();
-    const right = document.querySelector(".touch-zone--right")?.getBoundingClientRect();
-    return { left: left?.width ?? 0, right: right?.width ?? 0 };
+      expect(layout.viewport).toEqual(viewport);
+      expect(layout.touchCount).toBe(4);
+      expect(layout.hudCount).toBe(3);
+      expect(layout.outsideViewport).toEqual([]);
+      expect(layout.overlaps).toEqual([]);
+      expect(layout.touchZoneOverlaps).toEqual({ buttonsRight: false, sprintLeft: false });
+      expect(layout.joystickWidths).toHaveLength(2);
+      for (const width of layout.joystickWidths) expect(width).toBeGreaterThan(120);
+      if (viewport.width === 844) {
+        await page.screenshot({ path: testInfo.outputPath("kin023-mobile-landscape.png") });
+      }
+    });
   });
-  expect(joystickWidths.left).toBeGreaterThan(120);
-  expect(joystickWidths.right).toBeGreaterThan(120);
+}
+
+test.describe("editor HUD visibility", () => {
+  test.use({ viewport: { width: 1440, height: 900 }, hasTouch: false, isMobile: false });
+
+  test("hides the complete gameplay HUD while editing and restores its live content", async ({ page }, testInfo) => {
+    test.setTimeout(120_000);
+    await page.goto("/?station=movement", { waitUntil: "domcontentloaded" });
+    await waitForKinema(page);
+    await waitForLoadingGone(page);
+
+    const before = await page.evaluate(() => ({
+      collectibles: document.querySelector(".collectible-count")?.textContent,
+      objective: document.querySelector(".hud-objective-text")?.textContent,
+    }));
+    await expect(page.locator("#hud #hud-prompt")).toHaveCount(1);
+    await expect(page.locator("#hud #hud-hold")).toHaveCount(1);
+    await expect(page.locator("#hud .hud-objective-region")).toHaveCount(1);
+    await expect(page.locator("#hud .hud-crosshair")).toBeVisible();
+    await expect(page.locator("#hud .hud-damage-overlay")).toHaveCount(1);
+    await page.evaluate(() => window.__KINEMA__.openEditor());
+    await expect.poll(() => page.evaluate(() => window.__KINEMA__.isEditorActive())).toBe(true);
+
+    await expect(page.locator("#hud")).toHaveAttribute("aria-hidden", "true");
+    expect(await page.locator("#hud").evaluate((element) => (element as HTMLElement).hidden)).toBe(true);
+    await expect(page.locator(".hud-collectible-chip")).toBeHidden();
+    await expect(page.locator(".hud-health-chip")).toBeHidden();
+    await expect(page.locator("#hud-prompt")).toBeHidden();
+    await expect(page.locator(".hud-objective-region")).toBeHidden();
+    await expect(page.locator(".hud-crosshair")).toBeHidden();
+    await expect(page.locator(".hud-damage-overlay")).toBeHidden();
+    await page.screenshot({ path: testInfo.outputPath("kin023-editor-hud-hidden.png") });
+
+    await page.evaluate(() => window.__KINEMA__.closeEditor());
+    await expect.poll(() => page.evaluate(() => window.__KINEMA__.isEditorActive())).toBe(false);
+    await expect(page.locator("#hud")).toHaveAttribute("aria-hidden", "false");
+    expect(await page.locator("#hud").evaluate((element) => (element as HTMLElement).hidden)).toBe(false);
+    await expect(page.locator(".hud-collectible-chip")).toBeVisible();
+    await expect(page.locator(".hud-health-chip")).toBeVisible();
+    expect(
+      await page.evaluate(() => ({
+        collectibles: document.querySelector(".collectible-count")?.textContent,
+        objective: document.querySelector(".hud-objective-text")?.textContent,
+      })),
+    ).toEqual(before);
+  });
 });

@@ -5,6 +5,7 @@ import type { Disposable } from "@core/types";
  * HUD component — shows interaction prompts.
  */
 export class HUD implements Disposable {
+  private root: HTMLDivElement;
   private container: HTMLElement;
   private prompt: HTMLDivElement;
   private holdWrap: HTMLDivElement;
@@ -30,15 +31,21 @@ export class HUD implements Disposable {
   private holdResetTimer: ReturnType<typeof setTimeout> | null = null;
   private damageFlashIntensity = 1;
   private accessibilitySuppressed = false;
+  private editorActive = false;
   private gameHudVisible = false;
 
   constructor(parent: HTMLElement) {
-    this.container = parent;
+    this.root = document.createElement("div");
+    this.root.id = "hud";
+    this.root.className = "hud-root";
+    this.root.setAttribute("aria-hidden", "false");
+    parent.appendChild(this.root);
+    this.container = this.root;
     this.prompt = document.createElement("div");
     this.prompt.id = "hud-prompt";
     this.prompt.className = "hud-glass-card hud-prompt";
     this.prompt.setAttribute("aria-hidden", "true");
-    parent.appendChild(this.prompt);
+    this.container.appendChild(this.prompt);
 
     this.holdWrap = document.createElement("div");
     this.holdWrap.id = "hud-hold";
@@ -60,11 +67,11 @@ export class HUD implements Disposable {
     this.holdFill.appendChild(this.holdKey);
     this.holdFill.appendChild(holdCaption);
     this.holdWrap.appendChild(this.holdFill);
-    parent.appendChild(this.holdWrap);
+    this.container.appendChild(this.holdWrap);
 
     this.objectiveRegion = document.createElement("div");
     this.objectiveRegion.className = "hud-objective-region";
-    parent.appendChild(this.objectiveRegion);
+    this.container.appendChild(this.objectiveRegion);
 
     this.objective = document.createElement("div");
     this.objective.id = "hud-objective";
@@ -95,13 +102,13 @@ export class HUD implements Disposable {
     this.crosshair = document.createElement("div");
     this.crosshair.className = "hud-crosshair";
     this.crosshair.setAttribute("aria-hidden", "true");
-    parent.appendChild(this.crosshair);
+    this.container.appendChild(this.crosshair);
 
     this.damageOverlay = document.createElement("div");
     this.damageOverlay.className = "hud-damage-overlay";
     this.damageOverlay.setAttribute("aria-hidden", "true");
     this.damageOverlay.style.setProperty("--damage-flash-intensity", "1");
-    parent.appendChild(this.damageOverlay);
+    this.container.appendChild(this.damageOverlay);
 
     this.createCollectibleCounter();
     this.createHealthHearts();
@@ -377,6 +384,7 @@ export class HUD implements Disposable {
 
   setGameplayAccessibilitySuppressed(suppressed: boolean): void {
     this.accessibilitySuppressed = suppressed;
+    this.updateRootAccessibility();
     this.setAccessibilityVisibility(this.prompt, this.prompt.classList.contains("is-visible"));
     this.setAccessibilityVisibility(this.holdWrap, this.holdWrap.classList.contains("is-visible"));
     this.setAccessibilityVisibility(this.objective, this.objective.classList.contains("is-visible"));
@@ -389,6 +397,12 @@ export class HUD implements Disposable {
       this.gameHudVisible && this.healthEl.classList.contains("is-visible"),
     );
     this.setAccessibilityVisibility(this.statusLane, this.gameHudVisible);
+  }
+
+  setEditorActive(active: boolean): void {
+    this.editorActive = active;
+    this.root.hidden = active;
+    this.updateRootAccessibility();
   }
 
   dispose(): void {
@@ -421,6 +435,7 @@ export class HUD implements Disposable {
     this.damageOverlay.remove();
     this.collectibleEl.remove();
     this.healthEl.remove();
+    this.root.remove();
   }
 
   private clearStatus(status: HTMLDivElement, immediate: boolean): void {
@@ -473,6 +488,10 @@ export class HUD implements Disposable {
 
   private setAccessibilityVisibility(element: HTMLElement, visible: boolean): void {
     element.setAttribute("aria-hidden", String(this.accessibilitySuppressed || !visible));
+  }
+
+  private updateRootAccessibility(): void {
+    this.root.setAttribute("aria-hidden", String(this.editorActive || this.accessibilitySuppressed));
   }
 
   private spawnFloatingDelta(parent: HTMLElement, text: string, className: string): void {

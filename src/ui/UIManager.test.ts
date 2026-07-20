@@ -22,6 +22,7 @@ vi.mock("./components/HUD", () => ({
     setDamageFlashIntensity = vi.fn();
     showGameHUD = vi.fn();
     hideGameHUD = vi.fn();
+    setEditorActive = vi.fn();
     setGameplayAccessibilitySuppressed = vi.fn();
     dispose = hudDispose;
     constructor(_parent: HTMLElement) {
@@ -287,6 +288,23 @@ describe("UIManager", () => {
 
     expect(hud.setGameplayAccessibilitySuppressed).toHaveBeenNthCalledWith(1, true);
     expect(hud.setGameplayAccessibilitySuppressed).toHaveBeenNthCalledWith(2, false);
+    ui.dispose();
+  });
+
+  it("hides and restores the gameplay HUD around editor sessions", () => {
+    const listeners = new Map<string, (payload: unknown) => void>();
+    const on = vi.fn((event: string, handler: (payload: unknown) => void) => {
+      listeners.set(event, handler);
+      return () => {};
+    });
+    const ui = new UIManager({ on } as never);
+    const hud = hudInstances[0];
+
+    listeners.get("editor:opened")?.(undefined);
+    listeners.get("editor:closed")?.(undefined);
+
+    expect(hud.setEditorActive).toHaveBeenNthCalledWith(1, true);
+    expect(hud.setEditorActive).toHaveBeenNthCalledWith(2, false);
     ui.dispose();
   });
 });

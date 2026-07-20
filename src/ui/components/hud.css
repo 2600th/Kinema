@@ -1,3 +1,13 @@
+.hud-root {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.hud-root[hidden] {
+  display: none;
+}
+
 .hud-glass-card,
 .hud-stat-chip,
 .kinema-ui-hint {
@@ -842,6 +852,68 @@
 
   .hud-hold-track {
     bottom: calc(18% - 100px);
+  }
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .hud-stat-chip {
+    gap: 6px;
+    padding: 7px 10px;
+    border-radius: 13px;
+  }
+
+  .hud-stat-icon {
+    width: 24px;
+    height: 24px;
+    font-size: 12px;
+  }
+
+  .collectible-count {
+    font-size: 16px;
+  }
+
+  .hud-heart {
+    font-size: 18px;
+  }
+
+  .hud-collectible-chip {
+    top: max(env(safe-area-inset-top), 10px);
+    right: calc(50% + 8px);
+    left: auto;
+  }
+
+  .hud-health-chip {
+    top: max(env(safe-area-inset-top), 10px);
+    right: auto;
+    left: calc(50% + 8px);
+  }
+
+  .hud-objective-region {
+    top: max(calc(env(safe-area-inset-top) + 54px), 64px);
+    right: auto;
+    left: 50%;
+    width: min(
+      320px,
+      calc(
+        100dvw - max(env(safe-area-inset-left), 12px) - max(env(safe-area-inset-right), 12px) - 232px
+      )
+    );
+    transform: translateX(-50%);
+  }
+
+  .hud-objective-card {
+    padding: 8px 11px 9px;
+    border-radius: 13px;
+  }
+
+  .hud-card-eyebrow {
+    margin-bottom: 3px;
+    font-size: 9px;
+  }
+
+  .hud-objective-text {
+    font-size: 12px;
+    line-height: 1.3;
   }
 }
 
