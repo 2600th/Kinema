@@ -22,6 +22,7 @@ import {
   buildSetTransformCommand,
   buildUngroupCommand,
   buildVisibilityCommand,
+  createOwnedCreationCommand,
   type EditorHierarchyState,
   type EditorHierarchyTrackingState,
   type EditorMaterialState,
@@ -70,6 +71,26 @@ import { SelectionTool } from "./tools/SelectionTool";
 type EditorLoadResult = "completed" | "failed" | "superseded";
 type EditorTransformSnapshot = EditorTransformState;
 const neverRebuildCollider = (_entry: EditorObject, _nextPose: ObjectWorldPhysicsPose): boolean => false;
+
+export function handleEditorHistoryShortcut(
+  event: Pick<KeyboardEvent, "code" | "ctrlKey" | "metaKey" | "shiftKey" | "preventDefault">,
+  undo: () => void,
+  redo: () => void,
+): boolean {
+  if (!event.ctrlKey && !event.metaKey) return false;
+  if (event.code === "KeyY" || (event.code === "KeyZ" && event.shiftKey)) {
+    redo();
+    event.preventDefault();
+    return true;
+  }
+  if (event.code === "KeyZ") {
+    undo();
+    event.preventDefault();
+    return true;
+  }
+  return false;
+}
+
 export interface EditorWorkspaceObjectSnapshot {
   id: string;
   name: string;
@@ -383,7 +404,8 @@ export class EditorManager {
   }
 
   dispose(): void {
-    this.cancelPendingMaterialEdit();
+    this.cancelPendingEdit();
+    this.history.clear();
     this.loadTransaction.invalidate();
     this.glbPlacementTool.cancelPendingImport(this.buildToolContext());
     this.abortPlayTest();
@@ -735,7 +757,7 @@ export class EditorManager {
 
   startPlayTest(): void {
     if (!this.active || this.playTestActive || !this.guardDocumentMutation()) return;
-    if (!this.commitPendingMaterialEdit()) return;
+    if (!this.commitPendingEdit()) return;
 
     // Undo entries capture mesh/parent references that the play-test
     // restore (applyLoadedLevel) tears down and rebuilds; running them
@@ -998,14 +1020,7 @@ export class EditorManager {
       this.grid.toggleGrid();
       this.toolbarPanel.setGridActive(this.grid.isVisible());
     }
-    if (e.code === "KeyZ" && cmd) {
-      this.undo();
-      e.preventDefault();
-    }
-    if ((e.code === "KeyY" && cmd) || (e.code === "KeyZ" && cmd && e.shiftKey)) {
-      this.redo();
-      e.preventDefault();
-    }
+    if (handleEditorHistoryShortcut(e, () => this.undo(), () => this.redo())) return;
     if (e.code === "Delete" || e.code === "Backspace") {
       this.deleteSelection();
       e.preventDefault();
@@ -1097,17 +1112,7 @@ export class EditorManager {
   }
 
   private setSelection(obj: EditorObject | null): void {
-    if (this.document.selected?.id !== obj?.id && !this.commitPendingMaterialEdit()) return;
-    if (
-      this.inspectorEditStartTransform &&
-      this.document.selected &&
-      this.inspectorEditObjectId === this.document.selected.id &&
-      this.document.selected.id !== obj?.id
-    ) {
-      this.restoreObjectTransform(this.document.selected, this.inspectorEditStartTransform);
-      this.syncPhysicsSubtree(this.document.selected, neverRebuildCollider);
-      this.clearInspectorEditSession();
-    }
+    if (this.document.selected?.id !== obj?.id && !this.commitPendingEdit()) return;
     this.document.selected = obj;
     this.gizmo.attach(obj?.mesh ?? null);
     this.inspectorPanel.setSelection(obj);
@@ -1302,7 +1307,7 @@ export class EditorManager {
    * ================================================================== */
 
   private renameById(id: string, name: string): void {
-    if (!this.guardDocumentMutation() || !this.commitPendingMaterialEdit()) return;
+    if (!this.guardDocumentMutation() || !this.commitPendingEdit()) return;
     const target = this.document.findById(id);
     if (!target) return;
     const result = buildRenameCommand(this, id, target.name, name);
@@ -1310,7 +1315,7 @@ export class EditorManager {
   }
 
   private toggleVisibilityById(id: string): void {
-    if (!this.guardDocumentMutation() || !this.commitPendingMaterialEdit()) return;
+    if (!this.guardDocumentMutation() || !this.commitPendingEdit()) return;
     const target = this.document.findById(id);
     if (!target) return;
     const visible = target.visible ?? true;
@@ -1319,7 +1324,7 @@ export class EditorManager {
   }
 
   private toggleLockById(id: string): void {
-    if (!this.guardDocumentMutation() || !this.commitPendingMaterialEdit()) return;
+    if (!this.guardDocumentMutation() || !this.commitPendingEdit()) return;
     const target = this.document.findById(id);
     if (!target) return;
     const locked = target.locked ?? false;
@@ -1431,7 +1436,7 @@ export class EditorManager {
   }
 
   private reparentById(childId: string, newParentId: string | null): boolean {
-    if (!this.guardDocumentMutation() || !this.commitPendingMaterialEdit()) return false;
+    if (!this.guardDocumentMutation() || !this.commitPendingEdit()) return false;
     const child = this.document.findById(childId);
     const nextParentObject = newParentId ? this.document.findById(newParentId) : null;
     if (!child || (newParentId && !nextParentObject)) return false;
@@ -1497,7 +1502,7 @@ export class EditorManager {
   }
 
   private groupObjects(ids: string[]): EditorObject | null {
-    if (!this.guardDocumentMutation() || !this.commitPendingMaterialEdit()) return null;
+    if (!this.guardDocumentMutation() || !this.commitPendingEdit()) return null;
     const roots = this.document.getGroupingRoots(ids);
     if (roots.length === 0) return null;
     const validation = this.validateGroupingRoots(roots);
@@ -1554,7 +1559,7 @@ export class EditorManager {
   }
 
   private ungroupObject(groupId: string): boolean {
-    if (!this.guardDocumentMutation() || !this.commitPendingMaterialEdit()) return false;
+    if (!this.guardDocumentMutation() || !this.commitPendingEdit()) return false;
     const group = this.document.findById(groupId);
     if (!group?.children || group.children.length === 0) return false;
     const children = group.children
@@ -1661,6 +1666,7 @@ export class EditorManager {
 
   deleteSubtree(rootId: string): boolean {
     if (!this.guardDocumentMutation()) return false;
+    if (!this.commitPendingEdit()) return false;
     const result = buildDeleteSubtreeCommand(this, rootId);
     if (!result.ok) {
       this.reportFailure(result.reason);
@@ -1674,7 +1680,7 @@ export class EditorManager {
   }
 
   private duplicateById(id: string): void {
-    if (!this.guardDocumentMutation()) return;
+    if (!this.guardDocumentMutation() || !this.commitPendingEdit()) return;
     const newObj = this.document.duplicateById(id);
     if (!newObj) return;
     let body: RAPIER.RigidBody | null = null;
@@ -1716,19 +1722,22 @@ export class EditorManager {
       }
 
       publicationAttempted = true;
-      const published = this.history.push({
-        execute: () => {
-          this.addTrackedEditorObject(newObj, this.renderer.scene);
-          this.syncHierarchy();
-          this.eventBus.emit("editor:objectAdded", { id: newObj.id });
-          this.setSelection(newObj);
-        },
-        undo: () => {
-          this.removeTrackedEditorObject(newObj);
-          this.syncHierarchy();
-          this.eventBus.emit("editor:objectRemoved", { id: newObj.id });
-        },
-      });
+      const published = this.history.push(
+        createOwnedCreationCommand(
+          () => {
+            this.addTrackedEditorObject(newObj, this.renderer.scene);
+            this.syncHierarchy();
+            this.eventBus.emit("editor:objectAdded", { id: newObj.id });
+            this.setSelection(newObj);
+          },
+          () => {
+            this.removeTrackedEditorObject(newObj);
+            this.syncHierarchy();
+            this.eventBus.emit("editor:objectRemoved", { id: newObj.id });
+          },
+          () => this.rollbackEditorObject(newObj),
+        ),
+      );
       if (!published) throw new Error("History rejected duplicate placement.");
     } catch (error) {
       if (publicationAttempted) this.rollbackEditorObject(newObj);
@@ -1747,7 +1756,7 @@ export class EditorManager {
     const target = this.document.findById(id);
     if (!target) return;
     if (this.materialEditSession?.objectId !== id) {
-      if (!this.commitPendingMaterialEdit()) return;
+      if (!this.commitPendingEdit()) return;
       const before = this.captureMaterialState(target);
       if (before.live.length === 0) return;
       this.materialEditSession = { objectId: id, before };
@@ -1758,7 +1767,7 @@ export class EditorManager {
       this.materialEditSession = null;
       return;
     }
-    if (phase === "commit") this.commitPendingMaterialEdit();
+    if (phase === "commit") this.commitPendingEdit();
   }
 
   private collectLiveMaterials(root: THREE.Object3D): THREE.MeshStandardMaterial[] {
@@ -1860,8 +1869,41 @@ export class EditorManager {
     this.applyMaterial(session.objectId, session.before);
   }
 
-  private prepareForExternalUnload(): void {
+  private commitPendingTransformEdit(): boolean {
+    const before = this.inspectorEditStartTransform;
+    const objectId = this.inspectorEditObjectId;
+    if (!before || !objectId) return true;
+    const target = this.document.findById(objectId);
+    this.clearInspectorEditSession();
+    if (!target) return false;
+    return this.commitTransform(target, before, this.captureTransformState(target));
+  }
+
+  private cancelPendingTransformEdit(): void {
+    const before = this.inspectorEditStartTransform;
+    const objectId = this.inspectorEditObjectId;
+    if (!before || !objectId) return;
+    this.clearInspectorEditSession();
+    const target = this.document.findById(objectId);
+    if (!target) return;
+    this.restoreObjectTransform(target, before);
+    const restored = this.syncPhysicsSubtree(target, neverRebuildCollider);
+    if (!restored.ok) {
+      this.showPhysicsMutationError(`Transform preview cancellation failed. ${restored.reason}`);
+    }
+  }
+
+  private commitPendingEdit(): boolean {
+    return this.commitPendingTransformEdit() && this.commitPendingMaterialEdit();
+  }
+
+  private cancelPendingEdit(): void {
+    this.cancelPendingTransformEdit();
     this.cancelPendingMaterialEdit();
+  }
+
+  private prepareForExternalUnload(): void {
+    this.cancelPendingEdit();
     this.history.clear();
   }
 
@@ -1870,7 +1912,7 @@ export class EditorManager {
    * ================================================================== */
 
   private applyPhysicsTypeChange(id: string, type: "static" | "dynamic" | "kinematic"): void {
-    if (!this.guardDocumentMutation()) return;
+    if (!this.guardDocumentMutation() || !this.commitPendingEdit()) return;
     const obj = this.document.findById(id);
     if (!obj || obj.physicsType === type) return;
 
@@ -2116,24 +2158,7 @@ export class EditorManager {
       }
     }
 
-    if (phase === "preview") return;
-    const editStart = this.inspectorEditStartTransform;
-    if (!editStart || this.inspectorEditObjectId !== selected.id) return;
-    const hasCommittedChange =
-      !selected.mesh.position.toArray().every((value, index) => value === editStart.position[index]) ||
-      !selected.mesh.rotation
-        .toArray()
-        .slice(0, 3)
-        .every((value, index) => value === editStart.rotation[index]) ||
-      !selected.mesh.scale.toArray().every((value, index) => value === editStart.scale[index]);
-    if (!hasCommittedChange) {
-      this.clearInspectorEditSession();
-      return;
-    }
-
-    const after = this.captureTransformState(selected);
-    this.clearInspectorEditSession();
-    this.commitTransform(selected, editStart, after);
+    if (phase === "commit") this.commitPendingTransformEdit();
   }
 
   /* ==================================================================
@@ -2440,6 +2465,7 @@ export class EditorManager {
       buildColliderDesc: (obj) => this.buildEditorColliderDesc(obj),
       createCollider: (desc, body) => this.physicsWorld.world.createCollider(desc, body as RAPIER.RigidBody),
       removeCollider: (collider) => this.physicsWorld.world.removeCollider(collider, true),
+      isColliderLive: (collider) => collider.isValid(),
       prepareColliderRestore: (obj, collider) => this.prepareEditorColliderRestore(obj, collider),
       commitCollider: (obj, replacement) => {
         obj.collider = replacement;
@@ -2547,7 +2573,7 @@ export class EditorManager {
    * ================================================================== */
 
   private async saveLevel(): Promise<void> {
-    if (!this.commitPendingMaterialEdit()) return;
+    if (!this.commitPendingEdit()) return;
     const currentName = this.documentState.value.name;
     const name = window.prompt("Level name:", currentName === "Untitled" ? "custom" : currentName)?.trim();
     if (!name) return;
@@ -2637,7 +2663,7 @@ export class EditorManager {
       }
     }
     if (!this.loadTransaction.isCurrent(loadToken)) return "superseded";
-    if (intent === "user-load") this.cancelPendingMaterialEdit();
+    if (intent === "user-load") this.cancelPendingEdit();
     if (intent === "user-load") this.history.clear();
 
     try {

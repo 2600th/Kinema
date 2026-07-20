@@ -1,6 +1,7 @@
 import type { LevelManager } from "@level/LevelManager";
 import * as THREE from "three";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { CommandHistory } from "../CommandHistory";
 import type { EditorToolContext } from "./EditorTool";
 import { GLBPlacementTool } from "./GLBPlacementTool";
 
@@ -306,5 +307,71 @@ describe("GLBPlacementTool import boundaries", () => {
     expect(internals.pendingGLBAsset).toBeNull();
     expect(onFinished).toHaveBeenCalledOnce();
     expect(onError).toHaveBeenCalledWith(expect.stringMatching(/could not be placed/i));
+  });
+
+  it("retires undone placed physics exactly once on history clear without disposing shared GLB assets", () => {
+    const body = { id: "body", setEnabled: vi.fn() };
+    const collider = { id: "collider", setEnabled: vi.fn() };
+    const removeBody = vi.fn();
+    const disposeObject = vi.fn();
+    const scene = new THREE.Scene();
+    const preview = new THREE.Group();
+    preview.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial()));
+    scene.add(preview);
+    const history = new CommandHistory();
+    const editorObjects: import("../EditorObject").EditorObject[] = [];
+    const context = {
+      scene,
+      physicsWorld: {
+        world: { createRigidBody: vi.fn(() => body), createCollider: vi.fn(() => collider) },
+        removeBody,
+      },
+      history,
+      eventBus: { emit: vi.fn() },
+      addEditorObject: vi.fn((object: import("../EditorObject").EditorObject) => {
+        editorObjects.push(object);
+        scene.add(object.mesh);
+        object.body?.setEnabled(true);
+        object.collider?.setEnabled(true);
+      }),
+      removeEditorObject: vi.fn((id: string) => {
+        const index = editorObjects.findIndex((object) => object.id === id);
+        const [object] = index < 0 ? [] : editorObjects.splice(index, 1);
+        object?.mesh.parent?.remove(object.mesh);
+        object?.body?.setEnabled(false);
+        object?.collider?.setEnabled(false);
+      }),
+      rollbackEditorObject: vi.fn((object: import("../EditorObject").EditorObject) => {
+        object.mesh.parent?.remove(object.mesh);
+        if (object.body) removeBody(object.body);
+        object.body = undefined;
+        object.collider = undefined;
+      }),
+      syncHierarchy: vi.fn(),
+      setSelection: vi.fn(),
+    } as unknown as EditorToolContext;
+    const tool = new GLBPlacementTool({
+      levelManager: { getAssetLoader: () => ({ disposeObject }) } as unknown as LevelManager,
+      onFinished: vi.fn(),
+      onImported: vi.fn(),
+      onError: vi.fn(),
+    });
+    const internals = tool as unknown as {
+      glbPreview: THREE.Group | null;
+      pendingGLBAsset: string | null;
+      placementPhase: "idle" | "position";
+    };
+    internals.glbPreview = preview;
+    internals.pendingGLBAsset = "/assets/models/owned.glb";
+    internals.placementPhase = "position";
+
+    expect(tool.onPointerDown(context, { button: 0 } as MouseEvent)).toBe(true);
+    expect(history.undo()).toBe(true);
+    history.clear();
+    history.clear();
+
+    expect(removeBody).toHaveBeenCalledOnce();
+    expect(context.rollbackEditorObject).toHaveBeenCalledOnce();
+    expect(disposeObject).not.toHaveBeenCalled();
   });
 });

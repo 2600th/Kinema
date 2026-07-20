@@ -2,6 +2,7 @@ import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
 import type { BrushDefinition, BrushParams } from "../brushes/Brush";
 import { getBrushById } from "../brushes/index";
+import { createOwnedCreationCommand } from "../EditorCommands";
 import type { EditorObject } from "../EditorObject";
 import type { EditorTool, EditorToolContext } from "./EditorTool";
 
@@ -275,19 +276,22 @@ export class BrushPlacementTool implements EditorTool {
 
       publicationAttempted = true;
       const publishedObj = editorObj;
-      const published = ctx.history.push({
-        execute: () => {
-          ctx.addEditorObject(publishedObj, ctx.scene);
-          ctx.syncHierarchy();
-          ctx.eventBus.emit("editor:objectAdded", { id: publishedObj.id });
-          ctx.setSelection(publishedObj);
-        },
-        undo: () => {
-          ctx.removeEditorObject(publishedObj.id);
-          ctx.syncHierarchy();
-          ctx.eventBus.emit("editor:objectRemoved", { id: publishedObj.id });
-        },
-      });
+      const published = ctx.history.push(
+        createOwnedCreationCommand(
+          () => {
+            ctx.addEditorObject(publishedObj, ctx.scene);
+            ctx.syncHierarchy();
+            ctx.eventBus.emit("editor:objectAdded", { id: publishedObj.id });
+            ctx.setSelection(publishedObj);
+          },
+          () => {
+            ctx.removeEditorObject(publishedObj.id);
+            ctx.syncHierarchy();
+            ctx.eventBus.emit("editor:objectRemoved", { id: publishedObj.id });
+          },
+          () => ctx.rollbackEditorObject(publishedObj),
+        ),
+      );
       if (!published) throw new Error("History rejected brush placement.");
       this.cleanupPreview(ctx);
       this.placementPhase = "idle";

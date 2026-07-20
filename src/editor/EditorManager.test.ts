@@ -7,6 +7,7 @@ import type { PhysicsWorld } from "../physics/PhysicsWorld";
 import { CommandHistory } from "./CommandHistory";
 import { EditorDocument } from "./EditorDocument";
 import { type EditorLoadToken, EditorLoadTransaction } from "./EditorLoadTransaction";
+import * as EditorManagerModule from "./EditorManager";
 import { EditorManager } from "./EditorManager";
 import type { EditorObject } from "./EditorObject";
 import {
@@ -190,6 +191,7 @@ interface DeleteManagerHarness {
   deleteSubtree(rootId: string): boolean;
   cancelPendingMaterialEdit(): void;
   materialEditSession: MaterialManagerHarness["materialEditSession"];
+  applyInspectorTransform(transform: TransformTuple, phase: "preview" | "commit"): void;
   applyMaterialChange(id: string, material: NonNullable<EditorObject["material"]>, phase: "preview" | "commit"): void;
   deleteById(id: string): void;
   deleteSelection(): void;
@@ -1077,6 +1079,143 @@ describe("EditorManager inspector transform transactions", () => {
     expect(manager.markDirty).not.toHaveBeenCalled();
     expect(manager.showPhysicsMutationError).toHaveBeenCalledWith(expect.stringMatching(/preliminary/i));
   });
+
+  it("commits a real pending transform before selection and round-trips it through history", () => {
+    const target = makeObject();
+    const other = { ...makeObject(), id: "other", mesh: new THREE.Mesh(new THREE.BoxGeometry()) };
+    const manager = makeManager(target) as unknown as EditorManagerHarness & {
+      document: EditorDocument;
+      gizmo: { attach: ReturnType<typeof vi.fn> };
+      hierarchyPanel: { setSelection: ReturnType<typeof vi.fn> };
+      setSelectionHelper: ReturnType<typeof vi.fn>;
+      eventBus: { emit: ReturnType<typeof vi.fn> };
+      materialEditSession: null;
+      setSelection(object: EditorObject | null): void;
+    };
+    const document = new EditorDocument(new THREE.Scene(), {} as PhysicsWorld);
+    document.objects = [target, other];
+    document.selected = target;
+    Object.assign(manager, {
+      document,
+      gizmo: { attach: vi.fn() },
+      hierarchyPanel: { setSelection: vi.fn() },
+      setSelectionHelper: vi.fn(),
+      eventBus: { emit: vi.fn() },
+      materialEditSession: null,
+      history: new CommandHistory(manager.markDirty as unknown as () => void),
+      syncPhysicsSubtree: vi.fn(() => ({ ok: true })),
+    });
+    const after: TransformTuple = { position: [3, 4, 5], rotation: [0.1, 0.2, 0.3], scale: [2, 2, 2] };
+
+    manager.applyInspectorTransform(after, "preview");
+    manager.setSelection(other);
+
+    expect(document.selected).toBe(other);
+    expect(manager.inspectorEditStartTransform).toBeNull();
+    expect(manager.markDirty).toHaveBeenCalledOnce();
+    expect(manager.history.undo()).toBe(true);
+    expect(target.transform).toEqual({ position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] });
+  });
+
+  it("restores a failed real transform preview and aborts selection, save, and playtest continuation", async () => {
+    type BoundaryManager = EditorManagerHarness & {
+      active: boolean;
+      playTestActive: boolean;
+      materialEditSession: null;
+      loadTransaction: EditorLoadTransaction;
+      documentState: { value: { name: string } };
+      gizmo: { attach: ReturnType<typeof vi.fn> };
+      hierarchyPanel: { setSelection: ReturnType<typeof vi.fn> };
+      setSelectionHelper: ReturnType<typeof vi.fn>;
+      eventBus: { emit: ReturnType<typeof vi.fn> };
+      setSelection(object: EditorObject | null): void;
+      saveLevel(): Promise<void>;
+      startPlayTest(): void;
+    };
+    const after: TransformTuple = { position: [9, 8, 7], rotation: [0.3, 0.2, 0.1], scale: [2, 2, 2] };
+    const makeBoundary = (): { manager: BoundaryManager; target: EditorObject; other: EditorObject } => {
+      const target = makeObject();
+      const other = { ...makeObject(), id: "other", mesh: new THREE.Mesh(new THREE.BoxGeometry()) };
+      const manager = makeManager(target) as unknown as BoundaryManager;
+      const document = new EditorDocument(new THREE.Scene(), {} as PhysicsWorld);
+      document.objects = [target, other];
+      document.selected = target;
+      let canMutate = true;
+      Object.assign(manager, {
+        active: true,
+        playTestActive: false,
+        document,
+        gizmo: { attach: vi.fn() },
+        hierarchyPanel: { setSelection: vi.fn() },
+        setSelectionHelper: vi.fn(),
+        eventBus: { emit: vi.fn() },
+        materialEditSession: null,
+        loadTransaction: new EditorLoadTransaction(),
+        documentState: { value: { name: "Untitled" } },
+        history: new CommandHistory(manager.markDirty as unknown as () => void, () => canMutate),
+        syncPhysicsSubtree: vi.fn(() => ({ ok: true })),
+      });
+      manager.applyInspectorTransform(after, "preview");
+      canMutate = false;
+      return { manager, target, other };
+    };
+
+    const selection = makeBoundary();
+    selection.manager.setSelection(selection.other);
+    expect((selection.manager.document as EditorDocument).selected).toBe(selection.target);
+    expect(selection.target.transform.position).toEqual([0, 0, 0]);
+    expect(selection.manager.markDirty).not.toHaveBeenCalled();
+
+    const save = makeBoundary();
+    const prompt = vi.fn(() => null);
+    vi.stubGlobal("window", { prompt });
+    await save.manager.saveLevel();
+    expect(prompt).not.toHaveBeenCalled();
+    expect(save.target.transform.position).toEqual([0, 0, 0]);
+    expect(save.manager.markDirty).not.toHaveBeenCalled();
+
+    const playtest = makeBoundary();
+    const clear = vi.spyOn(playtest.manager.history, "clear");
+    expect(() => playtest.manager.startPlayTest()).not.toThrow();
+    expect(clear).not.toHaveBeenCalled();
+    expect(playtest.manager.playTestActive).toBe(false);
+    expect(playtest.target.transform.position).toEqual([0, 0, 0]);
+    expect(playtest.manager.markDirty).not.toHaveBeenCalled();
+  });
+});
+
+describe("EditorManager history keyboard shortcuts", () => {
+  it.each([
+    { code: "KeyZ", shiftKey: false, expected: "undo" },
+    { code: "KeyY", shiftKey: false, expected: "redo" },
+    { code: "KeyZ", shiftKey: true, expected: "redo" },
+  ] as const)("routes Ctrl+$code with shift=$shiftKey to exactly one $expected", ({ code, shiftKey, expected }) => {
+    const handleEditorHistoryShortcut = (
+      EditorManagerModule as unknown as {
+        handleEditorHistoryShortcut?: (
+          event: Pick<KeyboardEvent, "code" | "ctrlKey" | "metaKey" | "shiftKey" | "preventDefault">,
+          undo: () => void,
+          redo: () => void,
+        ) => boolean;
+      }
+    ).handleEditorHistoryShortcut;
+    expect(handleEditorHistoryShortcut).toBeTypeOf("function");
+    if (!handleEditorHistoryShortcut) return;
+    const undo = vi.fn();
+    const redo = vi.fn();
+    const event = {
+      code,
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey,
+      preventDefault: vi.fn(),
+    };
+
+    expect(handleEditorHistoryShortcut(event, undo, redo)).toBe(true);
+    expect(undo).toHaveBeenCalledTimes(expected === "undo" ? 1 : 0);
+    expect(redo).toHaveBeenCalledTimes(expected === "redo" ? 1 : 0);
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+  });
 });
 
 describe("EditorManager scalar and material history transactions", () => {
@@ -1443,6 +1582,7 @@ describe("EditorManager scalar and material history transactions", () => {
       loadTransaction: { invalidate: vi.fn(() => disposeOrder.push("invalidate")) },
       glbPlacementTool: { cancelPendingImport: vi.fn() },
       buildToolContext: vi.fn(() => ({})),
+      history: { clear: vi.fn(() => disposeOrder.push("clear")) },
       abortPlayTest: vi.fn(),
       unsubs: [],
       panels: [],
@@ -1452,7 +1592,56 @@ describe("EditorManager scalar and material history transactions", () => {
       clearSelectionHelper: vi.fn(),
     });
     disposeManager.dispose();
-    expect(disposeOrder.slice(0, 2)).toEqual(["cancel", "invalidate"]);
+    expect(disposeOrder.slice(0, 3)).toEqual(["cancel", "clear", "invalidate"]);
+  });
+
+  it("cancels a real transform preview and clears detached command ownership before dispose teardown", () => {
+    const target = makeObject();
+    const manager = makeManager(target) as unknown as EditorManagerHarness & {
+      materialEditSession: null;
+      loadTransaction: { invalidate(): void };
+      glbPlacementTool: { cancelPendingImport(context: object): void };
+      buildToolContext(): object;
+      abortPlayTest(): void;
+      unsubs: (() => void)[];
+      panels: { dispose(): void }[];
+      gizmo: { dispose(scene: THREE.Scene): void };
+      renderer: { scene: THREE.Scene };
+      grid: { dispose(scene: THREE.Scene): void };
+      clearSelectionHelper(): void;
+      dispose(): void;
+    };
+    const order: string[] = [];
+    const history = new CommandHistory(manager.markDirty as unknown as () => void);
+    history.push({ execute: () => true, undo: () => true, discard: () => order.push("discard") });
+    history.undo();
+    Object.assign(manager, {
+      materialEditSession: null,
+      history,
+      syncPhysicsSubtree: vi.fn(() => ({ ok: true })),
+      loadTransaction: { invalidate: vi.fn(() => order.push("invalidate")) },
+      glbPlacementTool: { cancelPendingImport: vi.fn() },
+      buildToolContext: vi.fn(() => ({})),
+      abortPlayTest: vi.fn(() => order.push("teardown")),
+      unsubs: [],
+      panels: [],
+      gizmo: { dispose: vi.fn(() => order.push("gizmo")) },
+      renderer: { scene: new THREE.Scene() },
+      grid: { dispose: vi.fn() },
+      clearSelectionHelper: vi.fn(),
+    });
+    manager.applyInspectorTransform(
+      { position: [5, 6, 7], rotation: [0.1, 0.2, 0.3], scale: [2, 2, 2] },
+      "preview",
+    );
+
+    manager.dispose();
+
+    expect(target.transform).toEqual({ position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] });
+    expect(manager.inspectorEditStartTransform).toBeNull();
+    expect(order.indexOf("discard")).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf("discard")).toBeLessThan(order.indexOf("teardown"));
+    expect(order.indexOf("discard")).toBeLessThan(order.indexOf("gizmo"));
   });
 });
 
@@ -1780,6 +1969,58 @@ describe("EditorManager gizmo history transactions", () => {
     expect(levelManager.getLevelObjects()).toHaveLength(0);
     expect(removeCollider).toHaveBeenCalledWith(collider);
     expect(removeBody).toHaveBeenCalledWith(body);
+  });
+
+  it("retires an undone duplicate body and collider exactly once when history is cleared", () => {
+    const scene = new THREE.Scene();
+    const body = { id: "duplicate-body", setEnabled: vi.fn() };
+    const collider = { id: "duplicate-collider", setEnabled: vi.fn() };
+    const removeBody = vi.fn();
+    const removeCollider = vi.fn();
+    const physicsWorld = {
+      world: { createRigidBody: vi.fn(() => body), createCollider: vi.fn(() => collider) },
+      removeBody,
+      removeCollider,
+    };
+    const levelManager = new LevelManager(scene, physicsWorld as unknown as PhysicsWorld, new EventBus());
+    const document = new EditorDocument(scene, physicsWorld as unknown as PhysicsWorld);
+    const source = makeObject();
+    document.addObject(source, scene);
+    const selected: EditorObject[] = [];
+    const manager = Object.create(EditorManager.prototype) as unknown as DuplicateManagerHarness & {
+      document: EditorDocument;
+      levelManager: LevelManager;
+      renderer: { scene: THREE.Scene };
+      eventBus: EventBus;
+      syncHierarchy(): void;
+    };
+    Object.assign(manager, {
+      guardDocumentMutation: () => true,
+      document,
+      physicsWorld,
+      levelManager,
+      renderer: { scene },
+      eventBus: new EventBus(),
+      syncHierarchy: vi.fn(),
+      setSelection: vi.fn((object: EditorObject) => selected.push(object)),
+      history: new CommandHistory(),
+      showPhysicsMutationError: vi.fn(),
+    });
+
+    manager.duplicateById(source.id);
+    const duplicate = selected[0];
+    const history = manager.history as unknown as CommandHistory;
+    expect(duplicate).toBeDefined();
+    expect(history.undo()).toBe(true);
+    history.clear();
+    history.clear();
+
+    expect(removeBody).toHaveBeenCalledOnce();
+    expect(removeBody).toHaveBeenCalledWith(body);
+    expect(removeCollider).toHaveBeenCalledOnce();
+    expect(removeCollider).toHaveBeenCalledWith(collider);
+    expect(duplicate?.body).toBeUndefined();
+    expect(duplicate?.collider).toBeUndefined();
   });
 });
 
@@ -2584,6 +2825,23 @@ describe("EditorManager group and ungroup history transactions", () => {
 });
 
 describe("EditorManager subtree delete transactions", () => {
+  it("commits a real selected-root transform preview before deleting the subtree", () => {
+    const harness = makeDeleteHarness();
+    const { manager, document, root } = harness;
+    document.selected = root;
+    manager.applyInspectorTransform(
+      { position: [4, 5, 6], rotation: [0.1, 0.2, 0.3], scale: [1, 1, 1] },
+      "preview",
+    );
+
+    expect(manager.deleteSubtree(root.id)).toBe(true);
+    expect(manager.history.undo()).toBe(true);
+    expect(root.transform.position).toEqual([4, 5, 6]);
+    expect(manager.history.undo()).toBe(true);
+    expect(root.transform.position).toEqual([0, 0, 0]);
+    expect(harness.markDirty).toHaveBeenCalledTimes(4);
+  });
+
   it("round-trips mixed tracking and selected descendants, then finalizes an applied redo exactly once", () => {
     const harness = makeDeleteHarness();
     const { manager, document, levelManager, root, child, grandchild, sibling } = harness;

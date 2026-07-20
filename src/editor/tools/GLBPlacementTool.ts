@@ -1,6 +1,7 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import type { LevelManager } from "@level/LevelManager";
 import * as THREE from "three";
+import { createOwnedCreationCommand } from "../EditorCommands";
 import type { EditorObject } from "../EditorObject";
 import type { EditorTool, EditorToolContext } from "./EditorTool";
 
@@ -238,19 +239,22 @@ export class GLBPlacementTool implements EditorTool {
       ctx.scene.remove(finalObj);
 
       publicationAttempted = true;
-      published = ctx.history.push({
-        execute: () => {
-          ctx.addEditorObject(editorObj, ctx.scene);
-          ctx.syncHierarchy();
-          ctx.eventBus.emit("editor:objectAdded", { id: editorObj.id });
-          ctx.setSelection(editorObj);
-        },
-        undo: () => {
-          ctx.removeEditorObject(editorObj.id);
-          ctx.syncHierarchy();
-          ctx.eventBus.emit("editor:objectRemoved", { id: editorObj.id });
-        },
-      });
+      published = ctx.history.push(
+        createOwnedCreationCommand(
+          () => {
+            ctx.addEditorObject(editorObj, ctx.scene);
+            ctx.syncHierarchy();
+            ctx.eventBus.emit("editor:objectAdded", { id: editorObj.id });
+            ctx.setSelection(editorObj);
+          },
+          () => {
+            ctx.removeEditorObject(editorObj.id);
+            ctx.syncHierarchy();
+            ctx.eventBus.emit("editor:objectRemoved", { id: editorObj.id });
+          },
+          () => ctx.rollbackEditorObject(editorObj),
+        ),
+      );
       if (!published) throw new Error("History rejected GLB placement.");
       this.glbPreview = null;
       this.pendingGLBAsset = null;

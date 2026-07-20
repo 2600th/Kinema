@@ -335,6 +335,7 @@ export type AtomicPhysicsSyncOptions<TEntry, TCollider, TColliderDesc> = {
   buildColliderDesc(entry: TEntry): TColliderDesc;
   createCollider(desc: TColliderDesc, body: WorldPoseBody): TCollider;
   removeCollider(collider: TCollider): void;
+  isColliderLive(collider: TCollider): boolean;
   prepareColliderRestore?(entry: TEntry, collider: TCollider): () => TCollider;
   commitCollider(entry: TEntry, replacement: TCollider): void;
 };
@@ -366,7 +367,6 @@ export function syncPhysicsSubtreeAtomically<
     };
   }> = [];
 
-  const retired = new Set<TCollider>();
   try {
     for (const entry of entries) {
       if (!entry.body || !nodes.has(entry.mesh)) continue;
@@ -443,7 +443,6 @@ export function syncPhysicsSubtreeAtomically<
     }
     for (const replacement of replacements) {
       options.removeCollider(replacement.oldCollider);
-      retired.add(replacement.oldCollider);
     }
     return { ok: true };
   } catch {
@@ -459,9 +458,9 @@ export function syncPhysicsSubtreeAtomically<
     }
     for (const replacement of replacements) {
       try {
-        const rollbackCollider = retired.has(replacement.oldCollider)
-          ? replacement.restore?.()
-          : replacement.oldCollider;
+        const rollbackCollider = options.isColliderLive(replacement.oldCollider)
+          ? replacement.oldCollider
+          : replacement.restore?.();
         if (rollbackCollider) options.commitCollider(replacement.entry, rollbackCollider);
       } catch {
         // Best effort for an external tracking callback that is itself failing.

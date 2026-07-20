@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BrushDefinition } from "../brushes/Brush";
 import { getBrushById } from "../brushes/index";
+import { CommandHistory } from "../CommandHistory";
 import { BrushPlacementTool } from "./BrushPlacementTool";
 import type { EditorToolContext } from "./EditorTool";
 
@@ -239,5 +240,70 @@ describe("BrushPlacementTool physics ownership", () => {
     expect(onError).toHaveBeenCalledWith(expect.stringMatching(/could not be placed/i));
     expect(internals.activeBrush).toBeNull();
     expect(internals.placementPhase).toBe("idle");
+  });
+
+  it("retires an undone placed brush exactly once when redo is invalidated", () => {
+    const body = { id: "body", setEnabled: vi.fn() };
+    const collider = { id: "collider", setEnabled: vi.fn() };
+    const removeBody = vi.fn();
+    const scene = new THREE.Scene();
+    const preview = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+    scene.add(preview);
+    const history = new CommandHistory();
+    const editorObjects: import("../EditorObject").EditorObject[] = [];
+    const context = {
+      scene,
+      physicsWorld: {
+        world: { createRigidBody: vi.fn(() => body), createCollider: vi.fn(() => collider) },
+        removeBody,
+      },
+      history,
+      eventBus: { emit: vi.fn() },
+      addEditorObject: vi.fn((object: import("../EditorObject").EditorObject) => {
+        editorObjects.push(object);
+        scene.add(object.mesh);
+        object.body?.setEnabled(true);
+        object.collider?.setEnabled(true);
+      }),
+      removeEditorObject: vi.fn((id: string) => {
+        const index = editorObjects.findIndex((object) => object.id === id);
+        const [object] = index < 0 ? [] : editorObjects.splice(index, 1);
+        object?.mesh.parent?.remove(object.mesh);
+        object?.body?.setEnabled(false);
+        object?.collider?.setEnabled(false);
+      }),
+      rollbackEditorObject: vi.fn((object: import("../EditorObject").EditorObject) => {
+        object.mesh.parent?.remove(object.mesh);
+        if (object.body) removeBody(object.body);
+        object.body = undefined;
+        object.collider = undefined;
+      }),
+      syncHierarchy: vi.fn(),
+      setSelection: vi.fn(),
+    } as unknown as EditorToolContext;
+    const brush = {
+      id: "block",
+      label: "Block",
+      defaultParams: {},
+      buildPreviewGeometry: () => new THREE.BoxGeometry(),
+      getDefaultMaterial: () => new THREE.MeshStandardMaterial(),
+    } as unknown as BrushDefinition;
+    const tool = new BrushPlacementTool({ onFinished: vi.fn(), onBrushChanged: vi.fn(), onError: vi.fn() });
+    const internals = tool as unknown as {
+      activeBrush: BrushDefinition | null;
+      placementPhase: "idle" | "position";
+      previewMesh: THREE.Mesh | null;
+    };
+    internals.activeBrush = brush;
+    internals.placementPhase = "position";
+    internals.previewMesh = preview;
+
+    expect(tool.onPointerDown(context, { button: 0 } as MouseEvent)).toBe(true);
+    expect(history.undo()).toBe(true);
+    expect(history.push({ execute: () => true, undo: () => true })).toBe(true);
+    history.clear();
+
+    expect(removeBody).toHaveBeenCalledOnce();
+    expect(context.rollbackEditorObject).toHaveBeenCalledOnce();
   });
 });

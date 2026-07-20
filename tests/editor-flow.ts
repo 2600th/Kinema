@@ -737,6 +737,67 @@ test("rejects invalid inherited-scale physics mutations without changing the doc
   });
 });
 
+test("commits transform input before Ctrl+S and treats Ctrl+Shift+Z as redo only", async ({ page }) => {
+  test.setTimeout(180_000);
+  await page.addInitScript(() => {
+    localStorage.setItem("kinema.user-settings.v1", JSON.stringify({ graphicsProfile: "performance" }));
+  });
+  await page.goto("/?station=steps", { waitUntil: "domcontentloaded" });
+  await waitForKinema(page);
+  await waitForGrounded(page);
+  await openEditor(page);
+  await loadKin022Fixture(page);
+  await selectHierarchyObject(page, KIN022_IDS[0]);
+
+  const positionX = page.getByTitle("Position X");
+  const readTransform = () =>
+    page.evaluate(
+      (id) => window.__KINEMA__.getEditorSnapshot().objects.find((object) => object.id === id)?.transform,
+      KIN022_IDS[0],
+    );
+  const baseline = await readTransform();
+  expect(baseline).toBeDefined();
+  const savedX = (baseline?.position[0] ?? 0) + 1;
+  await positionX.fill(String(savedX));
+  page.once("dialog", (dialog) => void dialog.accept("kin022-transform-shortcuts"));
+  const downloadPromise = page.waitForEvent("download");
+  await page.keyboard.press("Control+S");
+  await downloadPromise;
+
+  const storedTransform = await page.evaluate((id) => {
+    const index = JSON.parse(localStorage.getItem("kinema_level_index") ?? "[]") as Array<{
+      key: string;
+      name: string;
+    }>;
+    const entry = index.find((candidate) => candidate.name === "kin022-transform-shortcuts");
+    const stored = entry ? localStorage.getItem(entry.key) : null;
+    if (!stored) return null;
+    const level = JSON.parse(stored) as { objects: Array<{ id: string; transform: unknown }> };
+    return level.objects.find((object) => object.id === id)?.transform ?? null;
+  }, KIN022_IDS[0]);
+  expect(storedTransform).toEqual(await readTransform());
+
+  await page.locator(".ke-document-title").click();
+  await page.keyboard.press("Control+Z");
+  expect(await readTransform()).toEqual(baseline);
+  await page.keyboard.press("Control+Shift+Z");
+  expect(await readTransform()).toEqual(storedTransform);
+
+  await positionX.fill(String(savedX + 1));
+  await positionX.press("Enter");
+  await page.locator(".ke-document-title").click();
+  const first = await readTransform();
+  await positionX.fill(String(savedX + 2));
+  await positionX.press("Enter");
+  await page.locator(".ke-document-title").click();
+  const second = await readTransform();
+  expect(second).not.toEqual(first);
+  await page.keyboard.press("Control+Z");
+  expect(await readTransform()).toEqual(first);
+  await page.keyboard.press("Control+Shift+Z");
+  expect(await readTransform()).toEqual(second);
+});
+
 test("rejects stale async editor lifecycle completions", async ({ page }) => {
   test.setTimeout(300_000);
   await page.addInitScript(() => {

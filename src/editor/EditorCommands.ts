@@ -105,6 +105,34 @@ export function createStateCommand<T>(before: T, after: T, apply: (value: T) => 
   return { execute: () => apply(after), undo: () => apply(before) };
 }
 
+export function createOwnedCreationCommand(
+  execute: () => unknown,
+  undo: () => unknown,
+  discardDetached: () => void,
+): Command {
+  let applied = false;
+  let discarded = false;
+  return {
+    execute: () => {
+      if (discarded || applied) return false;
+      if (execute() === false) return false;
+      applied = true;
+      return true;
+    },
+    undo: () => {
+      if (discarded || !applied) return false;
+      if (undo() === false) return false;
+      applied = false;
+      return true;
+    },
+    discard: () => {
+      if (discarded) return;
+      discarded = true;
+      if (!applied) discardDetached();
+    },
+  };
+}
+
 type ScalarMutationHost = { applyHierarchy(state: EditorScalarHierarchyState): boolean };
 
 function buildScalarCommand(

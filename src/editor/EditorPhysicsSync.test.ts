@@ -355,6 +355,7 @@ describe("syncRigidBodyToObjectWorldPose", () => {
       buildColliderDesc: (entry) => ({ mesh: entry.mesh }),
       createCollider: (_desc, _body) => ({ id: "replacement" }),
       removeCollider: vi.fn(),
+      isColliderLive: () => true,
       commitCollider: (entry, replacement) => {
         entry.collider = replacement;
       },
@@ -382,6 +383,7 @@ describe("syncRigidBodyToObjectWorldPose", () => {
       buildColliderDesc,
       createCollider,
       removeCollider: vi.fn(),
+      isColliderLive: () => true,
       commitCollider: vi.fn(),
     });
 
@@ -429,6 +431,7 @@ describe("syncRigidBodyToObjectWorldPose", () => {
         buildColliderDesc: (entry) => ({ mesh: entry.mesh }),
         createCollider,
         removeCollider,
+        isColliderLive: () => true,
         commitCollider,
       },
     );
@@ -484,6 +487,7 @@ describe("syncRigidBodyToObjectWorldPose", () => {
       buildColliderDesc: (entry) => ({ mesh: entry.mesh }),
       createCollider: vi.fn().mockReturnValueOnce(firstReplacement).mockReturnValueOnce(secondReplacement),
       removeCollider,
+      isColliderLive: () => true,
       commitCollider,
     });
 
@@ -543,6 +547,7 @@ describe("syncRigidBodyToObjectWorldPose", () => {
       buildColliderDesc: () => ({}),
       createCollider: vi.fn().mockReturnValueOnce(firstNew).mockReturnValueOnce(secondNew),
       removeCollider,
+      isColliderLive: (collider) => collider !== firstOld,
       prepareColliderRestore: restoreCollider,
       commitCollider,
     });
@@ -555,5 +560,63 @@ describe("syncRigidBodyToObjectWorldPose", () => {
     expect(secondEntry.collider).toBe(secondOld);
     expect(removeCollider).toHaveBeenCalledWith(firstNew);
     expect(removeCollider).toHaveBeenCalledWith(secondNew);
+  });
+
+  it("recreates every invalidated old collider when the second retirement invalidates then throws", () => {
+    type Collider = { id: string };
+    const root = new THREE.Group();
+    const firstMesh = new THREE.Mesh(new THREE.BoxGeometry());
+    const secondMesh = new THREE.Mesh(new THREE.BoxGeometry());
+    root.add(firstMesh, secondMesh);
+    const body = () => ({
+      translation: () => ({ x: 0, y: 0, z: 0 }),
+      rotation: () => ({ x: 0, y: 0, z: 0, w: 1 }),
+      setTranslation: vi.fn(),
+      setRotation: vi.fn(),
+    });
+    const firstOld: Collider = { id: "first-old" };
+    const secondOld: Collider = { id: "second-old" };
+    const firstNew: Collider = { id: "first-new" };
+    const secondNew: Collider = { id: "second-new" };
+    const firstRestored: Collider = { id: "first-restored" };
+    const secondRestored: Collider = { id: "second-restored" };
+    const firstEntry = { mesh: firstMesh, body: body(), collider: firstOld };
+    const secondEntry = { mesh: secondMesh, body: body(), collider: secondOld };
+    const live = new Set<Collider>([firstOld, secondOld, firstNew, secondNew]);
+    const removeCollider = vi.fn((collider: Collider) => {
+      live.delete(collider);
+      if (collider === secondOld) throw new Error("second retirement invalidated then failed");
+    });
+    const restoreFirst = vi.fn(() => {
+      live.add(firstRestored);
+      return firstRestored;
+    });
+    const restoreSecond = vi.fn(() => {
+      live.add(secondRestored);
+      return secondRestored;
+    });
+    const commitCollider = vi.fn((entry: typeof firstEntry, collider: Collider) => {
+      entry.collider = collider;
+    });
+
+    const result = syncPhysicsSubtreeAtomically(root, [firstEntry, secondEntry], {
+      shouldRebuildCollider: () => true,
+      buildColliderDesc: () => ({}),
+      createCollider: vi.fn().mockReturnValueOnce(firstNew).mockReturnValueOnce(secondNew),
+      removeCollider,
+      isColliderLive: (collider) => live.has(collider),
+      prepareColliderRestore: (entry) => (entry === firstEntry ? restoreFirst : restoreSecond),
+      commitCollider,
+    });
+
+    expect(result).toEqual(expect.objectContaining({ ok: false }));
+    expect(firstEntry.collider).toBe(firstRestored);
+    expect(secondEntry.collider).toBe(secondRestored);
+    expect(live).toEqual(new Set([firstRestored, secondRestored]));
+    expect(restoreFirst).toHaveBeenCalledOnce();
+    expect(restoreSecond).toHaveBeenCalledOnce();
+    for (const collider of [firstOld, secondOld, firstNew, secondNew]) {
+      expect(removeCollider.mock.calls.filter(([removed]) => removed === collider)).toHaveLength(1);
+    }
   });
 });

@@ -45,6 +45,64 @@ describe("createStateCommand", () => {
   });
 });
 
+describe("created-object command ownership", () => {
+  it("finalizes detached ownership exactly once on clear and redo invalidation, but never while applied", () => {
+    const createOwnedCreationCommand = (
+      EditorCommandModule as unknown as {
+        createOwnedCreationCommand?: (
+          execute: () => boolean,
+          undo: () => boolean,
+          discardDetached: () => void,
+        ) => import("./CommandHistory").Command;
+      }
+    ).createOwnedCreationCommand;
+    expect(createOwnedCreationCommand).toBeTypeOf("function");
+    if (!createOwnedCreationCommand) return;
+
+    const appliedDiscard = vi.fn();
+    const appliedHistory = new CommandHistory();
+    expect(
+      appliedHistory.push(
+        createOwnedCreationCommand(
+          () => true,
+          () => true,
+          appliedDiscard,
+        ),
+      ),
+    ).toBe(true);
+    appliedHistory.clear();
+    expect(appliedDiscard).not.toHaveBeenCalled();
+
+    const clearDiscard = vi.fn();
+    const clearHistory = new CommandHistory();
+    const clearCommand = createOwnedCreationCommand(
+      () => true,
+      () => true,
+      clearDiscard,
+    );
+    expect(clearHistory.push(clearCommand)).toBe(true);
+    expect(clearHistory.undo()).toBe(true);
+    clearHistory.clear();
+    clearCommand.discard?.();
+    expect(clearDiscard).toHaveBeenCalledOnce();
+
+    const invalidatedDiscard = vi.fn();
+    const invalidatedHistory = new CommandHistory();
+    expect(
+      invalidatedHistory.push(
+        createOwnedCreationCommand(
+          () => true,
+          () => true,
+          invalidatedDiscard,
+        ),
+      ),
+    ).toBe(true);
+    expect(invalidatedHistory.undo()).toBe(true);
+    expect(invalidatedHistory.push({ execute: () => true, undo: () => true })).toBe(true);
+    expect(invalidatedDiscard).toHaveBeenCalledOnce();
+  });
+});
+
 describe("buildSetTransformCommand", () => {
   it("round-trips exact immutable transform tuples through history", () => {
     const host = makeMutationHost();
