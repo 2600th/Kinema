@@ -123,6 +123,7 @@ export interface KinemaEditorWorkspaceSnapshot {
 export interface KinemaLevelObjectState {
   name: string;
   visible: boolean;
+  labelText: string | null;
   position: KinemaVector3;
   size: KinemaVector3;
   material: {

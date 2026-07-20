@@ -39,10 +39,19 @@ test("iPhone-like compatibility renderer loads the full procedural level without
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await waitForKinema(page);
 
+  const fallbackToast = page.locator(".renderer-fallback-toast");
+  await expect(fallbackToast).toBeVisible();
+  await expect(fallbackToast).toHaveAttribute("role", "status");
+  await expect(fallbackToast).toHaveAttribute("aria-live", "polite");
+  await expect(fallbackToast).toHaveText("Compatibility renderer active — some effects reduced");
+  await expect(page.locator("#renderer-status-badge")).toHaveText(/^WebGL · /);
+  await expect(fallbackToast).toBeHidden({ timeout: 5_000 });
+
   await expect(page.getByRole("button", { name: /^play$/i })).toBeVisible();
   await page.getByRole("button", { name: /^play$/i }).click();
   await waitForLoadingGone(page);
   await waitForGrounded(page);
+  await expect(fallbackToast).toBeHidden();
 
   await expect
     .poll(

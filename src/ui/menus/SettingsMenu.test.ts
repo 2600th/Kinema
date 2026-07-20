@@ -151,6 +151,12 @@ describe("SettingsMenu comfort controls", () => {
 
   function createMenu() {
     let current = structuredClone(DEFAULT_USER_SETTINGS);
+    let rendererStatus = {
+      settingsLabel:
+        "Renderer: WebGPU (WebGL2 backend) · Applied profile: balanced · Available post: SSAO, SSR, Bloom, Vignette, LUT",
+    };
+    let rendererPresentationListener: (() => void) | null = null;
+    const unsubscribeRendererPresentation = vi.fn();
     const order: string[] = [];
     const settings = {
       get value() {
@@ -189,6 +195,11 @@ describe("SettingsMenu comfort controls", () => {
           vignetteEnabled: true,
           lutEnabled: true,
         }),
+        getPresentationState: () => rendererStatus,
+        subscribePresentationState: vi.fn((listener: () => void) => {
+          rendererPresentationListener = listener;
+          return unsubscribeRendererPresentation;
+        }),
         setResolutionScale: vi.fn(),
       } as never,
       audioManager: {
@@ -205,6 +216,11 @@ describe("SettingsMenu comfort controls", () => {
       settings,
       comfortController,
       order,
+      setRendererStatus: (settingsLabel: string) => {
+        rendererStatus = { settingsLabel };
+        rendererPresentationListener?.();
+      },
+      unsubscribeRendererPresentation,
       setCurrent: (patch: Partial<typeof current>) => {
         current = { ...current, ...patch };
       },
@@ -273,6 +289,26 @@ describe("SettingsMenu comfort controls", () => {
     expect(camera.listeners.get("input")).toHaveLength(1);
     expect(motion.listeners.get("change")).toHaveLength(1);
     expect(oldCamera.isConnected).toBe(false);
+  });
+
+  it("keeps one full renderer status line synchronized with applied state", () => {
+    const { menu, setRendererStatus, unsubscribeRendererPresentation } = createMenu();
+    const statusLines = () => (menu.root as unknown as FakeElement).querySelectorAll(".menu-renderer-status");
+
+    expect(statusLines()).toHaveLength(1);
+    expect(statusLines()[0].textContent).toBe(
+      "Renderer: WebGPU (WebGL2 backend) · Applied profile: balanced · Available post: SSAO, SSR, Bloom, Vignette, LUT",
+    );
+
+    setRendererStatus("Renderer: WebGLRenderer · Applied profile: performance · Post effects unavailable");
+    expect(statusLines()[0].textContent).toBe(
+      "Renderer: WebGLRenderer · Applied profile: performance · Post effects unavailable",
+    );
+
+    menu.show();
+    expect(statusLines()).toHaveLength(1);
+    menu.dispose();
+    expect(unsubscribeRendererPresentation).toHaveBeenCalledOnce();
   });
 });
 

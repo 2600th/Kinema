@@ -16,6 +16,7 @@ import {
   STATION_SPAWN_OVERRIDES,
 } from "@level/ShowcaseLayout";
 import { SparkleParticles } from "@level/SparkleParticles";
+import { getVfxStationLabel } from "@level/vfxStationPresentation";
 import { NavDebugOverlay } from "@navigation/NavDebugOverlay";
 import { NavMeshManager } from "@navigation/NavMeshManager";
 import { NavPatrolSystem } from "@navigation/NavPatrolSystem";
@@ -1460,7 +1461,7 @@ export class ProceduralBuilder {
     if (isTarget("vfx")) {
       // VFX bay.
       this.createSectionLabel(
-        "Visual Effects\nDissolve \u2022 Fire & Smoke \u2022 Lightning & Rain \u2022 Glowing Ring",
+        getVfxStationLabel(this.supportsAdvancedGpuEffects),
         new THREE.Vector3(0, 3.2, zVfx + 6),
         11.4,
         2.15,
@@ -2775,6 +2776,7 @@ export class ProceduralBuilder {
       sprite.position.copy(position);
       sprite.scale.set(scaleX * 0.92, scaleY * 0.9, 1);
       sprite.name = spriteName;
+      sprite.userData.labelText = text;
       sprite.renderOrder = 20;
       this.scene.add(sprite);
       this.meshes.push(sprite);
@@ -2975,6 +2977,7 @@ export class ProceduralBuilder {
     sprite.position.copy(position);
     sprite.scale.set(scaleX * 0.92, scaleY * 0.9, 1);
     sprite.name = spriteName;
+    sprite.userData.labelText = text;
     sprite.renderOrder = 20;
     this.scene.add(sprite);
     this.meshes.push(sprite);

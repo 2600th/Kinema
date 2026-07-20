@@ -30,6 +30,7 @@ test("runtime graphics profiles rebuild without rendering lifecycle errors", asy
   expect(activeBackend).toMatch(/^WebGPU/);
   expect(await page.evaluate(() => window.__KINEMA__.setGraphicsProfile("balanced"))).toBe("balanced");
   await waitForRenderedFrames(page);
+  await expect(page.locator("#renderer-status-badge")).toHaveText(/ · balanced$/);
 
   for (const profile of PROFILE_SEQUENCE) {
     const returnedProfile = await page.evaluate((nextProfile) => {
@@ -43,6 +44,7 @@ test("runtime graphics profiles rebuild without rendering lifecycle errors", asy
       return window.__KINEMA__.getRendererDebugFlags().graphicsProfile;
     });
     expect(effectiveProfile).toBe(profile);
+    await expect(page.locator("#renderer-status-badge")).toHaveText(new RegExp(` · ${profile}$`));
   }
 
   // A same-profile request still queues the lighting resource boundary. On

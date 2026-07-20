@@ -11,6 +11,18 @@
   --menu-overlay-padding: clamp(var(--k-space-4), 3dvw, var(--k-space-6));
 }
 
+.menu-renderer-status {
+  margin: 0 0 var(--k-space-3);
+  padding: var(--k-space-2) 10px;
+  border: 1px solid var(--menu-line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--menu-bg) 72%, transparent);
+  color: var(--menu-muted);
+  font-family: var(--k-font-debug);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 @keyframes menuPaneGlow {
   0%,
   100% {

@@ -48,6 +48,8 @@ export class SettingsMenu {
   private controlId = 0;
   private bindingLabels = new Map<KeyboardBindingAction, HTMLElement>();
   private bindingStatus: HTMLParagraphElement | null = null;
+  private rendererStatusLine: HTMLParagraphElement | null = null;
+  private readonly unsubscribeRendererPresentation: () => void;
   private activeCapture: { action: KeyboardBindingAction; button: HTMLButtonElement } | null = null;
   private readonly onCaptureKeyDown = (event: KeyboardEvent): void => this.handleCaptureKeyDown(event);
 
@@ -86,6 +88,9 @@ export class SettingsMenu {
     this.buildControlsSection();
     this.buildGraphicsSection();
     this.buildAudioSection();
+    this.unsubscribeRendererPresentation = this.options.renderer.subscribePresentationState(() => {
+      this.syncRendererStatus();
+    });
 
     const backBtn = document.createElement("button");
     backBtn.className = "menu-button";
@@ -115,6 +120,7 @@ export class SettingsMenu {
 
   dispose(): void {
     this.stopBindingCapture(undefined, false);
+    this.unsubscribeRendererPresentation();
     this.root.remove();
   }
 
@@ -308,6 +314,10 @@ export class SettingsMenu {
 
     // --- Profile & Resolution ---
     this.graphicsSection.appendChild(this.createSectionHeader("Profile & Resolution"));
+    this.rendererStatusLine = document.createElement("p");
+    this.rendererStatusLine.className = "menu-renderer-status";
+    this.syncRendererStatus();
+    this.graphicsSection.appendChild(this.rendererStatusLine);
 
     this.graphicsSection.appendChild(
       this.createSelect(
@@ -458,6 +468,12 @@ export class SettingsMenu {
         eventBus.emit("debug:toggle", undefined);
       }),
     );
+  }
+
+  private syncRendererStatus(): void {
+    if (this.rendererStatusLine) {
+      this.rendererStatusLine.textContent = this.options.renderer.getPresentationState().settingsLabel;
+    }
   }
 
   private buildAudioSection(): void {

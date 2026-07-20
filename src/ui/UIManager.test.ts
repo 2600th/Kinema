@@ -4,6 +4,10 @@ const hudDispose = vi.fn();
 const fadeDispose = vi.fn();
 const debugDispose = vi.fn();
 const hudInstances: any[] = [];
+const rendererStatusInstances: Array<{
+  notifyUiReady: ReturnType<typeof vi.fn>;
+  dispose: ReturnType<typeof vi.fn>;
+}> = [];
 
 vi.mock("./components/HUD", () => ({
   HUD: class {
@@ -64,6 +68,16 @@ vi.mock("./components/DeathEffect", () => ({
   },
 }));
 
+vi.mock("./components/RendererStatusBadge", () => ({
+  RendererStatusBadge: class {
+    notifyUiReady = vi.fn();
+    dispose = vi.fn();
+    constructor(_parent: HTMLElement, _source: unknown) {
+      rendererStatusInstances.push(this);
+    }
+  },
+}));
+
 import { createDefaultKeyboardBindings } from "@input/InputBindings";
 import { UIManager } from "./UIManager";
 
@@ -75,6 +89,7 @@ describe("UIManager", () => {
 
   beforeEach(() => {
     hudInstances.length = 0;
+    rendererStatusInstances.length = 0;
     appendBodyChild.mockClear();
     createElement.mockClear();
     getElementById.mockClear();
@@ -323,5 +338,27 @@ describe("UIManager", () => {
     expect(hud.setEditorActive).toHaveBeenNthCalledWith(1, true);
     expect(hud.setEditorActive).toHaveBeenNthCalledWith(2, false);
     ui.dispose();
+  });
+
+  it("reveals automatic renderer fallback status only when a visible UI surface is ready", () => {
+    const listeners = new Map<string, (payload: unknown) => void>();
+    const on = vi.fn((event: string, handler: (payload: unknown) => void) => {
+      listeners.set(event, handler);
+      return () => {};
+    });
+    const source = {
+      getPresentationState: vi.fn(),
+      subscribePresentationState: vi.fn(),
+    };
+    const ui = new UIManager({ on } as never, undefined, source as never);
+    const rendererStatus = rendererStatusInstances[0];
+
+    expect(rendererStatus.notifyUiReady).not.toHaveBeenCalled();
+    listeners.get("menu:opened")?.({ screen: "main" });
+    listeners.get("level:loaded")?.(undefined);
+    expect(rendererStatus.notifyUiReady).toHaveBeenCalledTimes(2);
+
+    ui.dispose();
+    expect(rendererStatus.dispose).toHaveBeenCalledOnce();
   });
 });

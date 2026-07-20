@@ -24,6 +24,11 @@ import {
 } from "./rendererBootstrap";
 import { clampFiniteNumber, resolveCasStrengthMutation } from "./rendererMutations";
 import {
+  buildRendererPresentationState,
+  type CompatibilityActivationReason,
+  type RendererPresentationState,
+} from "./rendererPresentation";
+import {
   buildRendererPipeline,
   type RendererLutPassNode,
   type RendererPostFxUniforms,
@@ -172,6 +177,8 @@ export class RendererManager implements Disposable {
   private orientationSettleTimer: number | null = null;
   private readonly preferCompatibilityRenderer: boolean;
   private readonly compatibilityPostEnabled: boolean;
+  private compatibilityActivationReason: CompatibilityActivationReason;
+  private readonly presentationListeners = new Set<(state: RendererPresentationState) => void>();
   private lastCompatibilitySceneChildCount = -1;
   private compatibilitySanitizeRequested = false;
   private compatibilityFrameCounter = 0;
@@ -181,11 +188,14 @@ export class RendererManager implements Disposable {
       forceWebGL?: boolean;
       preferCompatibilityRenderer?: boolean;
       compatibilityPostEnabled?: boolean;
+      compatibilityActivationReason?: CompatibilityActivationReason;
     } = {},
   ) {
     this.forceWebGL = options.forceWebGL ?? false;
     this.preferCompatibilityRenderer = options.preferCompatibilityRenderer ?? false;
     this.compatibilityPostEnabled = options.compatibilityPostEnabled ?? true;
+    this.compatibilityActivationReason =
+      options.compatibilityActivationReason ?? (this.preferCompatibilityRenderer ? "explicit" : null);
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0xe8d8c8);
     this.scene.fog = new THREE.Fog(0xe8d8c8, 140, 400);
@@ -272,6 +282,7 @@ export class RendererManager implements Disposable {
           bootstrapRenderer.dispose();
         }
         this.isWebGPUPipeline = false;
+        this.compatibilityActivationReason = "bootstrap-failure";
         this.tslRuntime = null;
         this.currentPipelineDescriptor = null;
         // Fallback: constructor already created a WebGLRenderer; we keep it and render via render().
@@ -288,6 +299,7 @@ export class RendererManager implements Disposable {
     window.visualViewport?.addEventListener("resize", this._onViewportMetricsChanged);
     window.visualViewport?.addEventListener("scroll", this._onViewportMetricsChanged);
     this.handleResize();
+    this.notifyPresentationState();
     console.log("[RendererManager] Initialized");
 
     // Load the default HDR environment if it's not the procedural Room Environment
@@ -844,6 +856,24 @@ export class RendererManager implements Disposable {
     });
   }
 
+  getPresentationState(): RendererPresentationState {
+    return buildRendererPresentationState(
+      this.getDebugFlags(),
+      this.compatibilityActivationReason,
+      this.getPostEffectCapabilities(),
+    );
+  }
+
+  subscribePresentationState(listener: (state: RendererPresentationState) => void): () => void {
+    this.presentationListeners.add(listener);
+    return () => this.presentationListeners.delete(listener);
+  }
+
+  private notifyPresentationState(): void {
+    const state = this.getPresentationState();
+    for (const listener of this.presentationListeners) listener(state);
+  }
+
   /**
    * Syncs post-FX uniforms, pixel ratio budget, rebuilds the node graph, and resizes.
    */
@@ -898,6 +928,7 @@ export class RendererManager implements Disposable {
     }
 
     this.handleResize();
+    this.notifyPresentationState();
   }
 
   private scheduleQualitySettingsApply(): void {
@@ -988,6 +1019,7 @@ export class RendererManager implements Disposable {
     this.currentPipelineDescriptor = null;
     this.tslRuntime = null;
     this.assetLibrary.dispose();
+    this.presentationListeners.clear();
 
     // Clean up custom device-lost handler to avoid dangling closure references.
     if (this.isWebGPUPipeline && typeof (this.renderer as any).onDeviceLost !== "undefined") {

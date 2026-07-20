@@ -106,12 +106,18 @@ async function bootstrap(): Promise<void> {
 
   const settings = UserSettingsStore.load();
   const compatibilityPostEnabled = resolveCompatibilityPostEnabled(bootstrapParams);
+  const platformCompatibilityRenderer =
+    shouldUseCompatibilityRenderer(window.navigator) && !allowExperimentalRenderer;
 
   const renderer = new RendererManager({
     forceWebGL: forceWebGPUWebGL,
-    preferCompatibilityRenderer:
-      forceCompatibilityRenderer || (shouldUseCompatibilityRenderer(window.navigator) && !allowExperimentalRenderer),
+    preferCompatibilityRenderer: forceCompatibilityRenderer || platformCompatibilityRenderer,
     compatibilityPostEnabled,
+    compatibilityActivationReason: forceCompatibilityRenderer
+      ? "explicit"
+      : platformCompatibilityRenderer
+        ? "platform"
+        : null,
   });
   await renderer.init();
   // Wire KTX2 support early so all AssetLoader instances detect compressed texture formats.
@@ -159,7 +165,7 @@ async function bootstrap(): Promise<void> {
   const interactionManager = new InteractionManager(physicsWorld, playerController, eventBus, () =>
     getInputGlyph("interact", inputManager.lastInputSource, settings.value.keyboardBindings),
   );
-  const uiManager = new UIManager(eventBus, () => settings.value.keyboardBindings);
+  const uiManager = new UIManager(eventBus, () => settings.value.keyboardBindings, renderer);
   const comfortPreferences = new ComfortPreferencesController({
     camera,
     hud: uiManager,
@@ -758,6 +764,7 @@ async function bootstrap(): Promise<void> {
         return {
           name,
           visible: object.visible,
+          labelText: typeof object.userData.labelText === "string" ? object.userData.labelText : null,
           position: { x: object.position.x, y: object.position.y, z: object.position.z },
           size: { x: size.x, y: size.y, z: size.z },
           material: material

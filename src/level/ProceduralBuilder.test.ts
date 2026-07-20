@@ -32,7 +32,7 @@ describe("procedural showcase instructions", () => {
     const source = readFileSync(new URL("./ProceduralBuilder.ts", import.meta.url), "utf8");
 
     expect(source).toMatch(
-      /this\.createSectionLabel\(\s*"Visual Effects\\n[^"]+",\s*new THREE\.Vector3\(0, 3\.2, zVfx \+ 6\),\s*11\.4,\s*2\.15,\s*"VFX_StationSign",\s*\)/,
+      /this\.createSectionLabel\(\s*getVfxStationLabel\(this\.supportsAdvancedGpuEffects\),\s*new THREE\.Vector3\(0, 3\.2, zVfx \+ 6\),\s*11\.4,\s*2\.15,\s*"VFX_StationSign",\s*\)/,
     );
     expect(source.match(/"VFX_StationSign"/g)).toHaveLength(1);
   });

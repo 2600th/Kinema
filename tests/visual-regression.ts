@@ -41,6 +41,9 @@ async function freezeForCapture(
   expect(state.profile).toBe("performance");
   expect(state.pixelRatio).toBeCloseTo(1, 2);
   expect(state.backend).toBe(expectedBackend);
+  const compactBackend = expectedBackend === "WebGLRenderer" ? "WebGL" : "WebGPU / WebGL2";
+  await expect(page.locator("#renderer-status-badge")).toBeVisible();
+  await expect(page.locator("#renderer-status-badge")).toHaveText(`${compactBackend} · performance`);
 }
 
 async function getCanvasAntialias(page: import("@playwright/test").Page): Promise<boolean | null> {
@@ -141,6 +144,15 @@ test.describe("VFX renderer-path parity", () => {
       expect(parityObjects).toEqual(referenceObjects ?? parityObjects);
       referenceObjects = parityObjects;
 
+      const stationLabel = await page.evaluate(
+        () => window.__KINEMA__.getLevelObjectState("VFX_StationSign")?.labelText,
+      );
+      expect(stationLabel).toBe(
+        rendererPath.backend === "WebGLRenderer"
+          ? "Compatibility VFX\nTornado • Fire • Lasers • Lightning Ribbons • Scanner"
+          : "Visual Effects\nDissolve • Fire & Smoke • Lightning & Rain • Glowing Ring",
+      );
+
       await expect(page).toHaveScreenshot(`vfx-${rendererPath.label}.png`, ANIMATED_VFX_CAPTURE_OPTIONS);
     });
   }
@@ -151,6 +163,7 @@ test.describe("VFX renderer-path parity", () => {
 
     expect(await getCanvasAntialias(page)).toBe(true);
     expect(await page.evaluate(() => window.__KINEMA__.getRendererDebugFlags().activeBackend)).toBe("WebGLRenderer");
+    await expect(page.locator(".renderer-fallback-toast")).toHaveCount(0);
 
     await page.goto("/?forceCompat=1&compatPost=0", { waitUntil: "domcontentloaded" });
     await waitForKinema(page);

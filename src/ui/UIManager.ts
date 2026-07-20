@@ -4,11 +4,13 @@ import type { Disposable, InputSource } from "@core/types";
 import type { ReadonlyKeyboardBindings } from "@input/InputBindings";
 import type { InputAction } from "@input/InputGlyphs";
 import { getInputGlyph } from "@input/InputGlyphs";
+import type { RendererPresentationSource } from "@renderer/rendererPresentation";
 import { DeathEffect } from "./components/DeathEffect";
 import { DebugPanel } from "./components/DebugPanel";
 import { FadeScreen } from "./components/FadeScreen";
 import { HUD } from "./components/HUD";
 import { LoadingScreen } from "./components/LoadingScreen";
+import { RendererStatusBadge } from "./components/RendererStatusBadge";
 
 /**
  * DOM-based UI overlay manager.
@@ -20,6 +22,7 @@ export class UIManager implements Disposable {
   public readonly debugPanel: DebugPanel;
   public readonly loadingScreen: LoadingScreen;
   private readonly deathEffect: DeathEffect;
+  private readonly rendererStatus: RendererStatusBadge | null;
 
   private unsubscribers: (() => void)[] = [];
   private overlayEl: HTMLElement | null = null;
@@ -32,6 +35,7 @@ export class UIManager implements Disposable {
   constructor(
     private eventBus: EventBus,
     private getKeyboardBindings: () => ReadonlyKeyboardBindings | undefined = () => undefined,
+    rendererPresentationSource?: RendererPresentationSource,
   ) {
     let overlay = document.getElementById("ui-overlay");
     if (!overlay) {
@@ -53,6 +57,10 @@ export class UIManager implements Disposable {
     this.debugPanel = new DebugPanel(overlay, this.eventBus);
     this.loadingScreen = new LoadingScreen();
     this.deathEffect = new DeathEffect(this.eventBus);
+    this.rendererStatus =
+      rendererPresentationSource && document.body
+        ? new RendererStatusBadge(document.body, rendererPresentationSource)
+        : null;
 
     // "Click to start" hint for audio activation
     this.createInteractionHint();
@@ -62,6 +70,7 @@ export class UIManager implements Disposable {
     this.unsubscribers.push(
       this.eventBus.on("menu:opened", () => {
         this.hud.setGameplayAccessibilitySuppressed(true);
+        this.rendererStatus?.notifyUiReady();
       }),
     );
 
@@ -226,6 +235,7 @@ export class UIManager implements Disposable {
     this.unsubscribers.push(
       this.eventBus.on("level:loaded", () => {
         this.hud.showGameHUD();
+        this.rendererStatus?.notifyUiReady();
       }),
     );
 
@@ -255,6 +265,7 @@ export class UIManager implements Disposable {
     this.debugPanel.dispose();
     this.loadingScreen.dispose();
     this.deathEffect.dispose();
+    this.rendererStatus?.dispose();
     this.hintEl?.remove();
     this.orientationHintEl?.remove();
     this.overlayEl?.remove();

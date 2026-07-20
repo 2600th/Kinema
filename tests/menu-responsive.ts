@@ -131,6 +131,11 @@ test.describe("KIN-020 settings journeys", () => {
     await openSettings(page);
     await page.getByRole("button", { name: "Graphics" }).click();
 
+    await expect(page.locator(".menu-renderer-status")).toHaveText(
+      "Renderer: WebGPU (WebGL2 backend) · Applied profile: cinematic · Available post: SSAO, SSR, Bloom, Vignette, LUT",
+    );
+    await expect(page.locator("#renderer-status-badge")).toHaveText("WebGPU / WebGL2 · cinematic");
+
     await expect(page.getByRole("combobox", { name: "Graphics profile" })).toHaveValue("cinematic");
     for (const [name, checked] of [
       ["Post-processing", true],
@@ -183,6 +188,12 @@ test.describe("KIN-020 settings journeys", () => {
     });
     await openSettings(page, "/?forceCompat=1");
     await page.getByRole("button", { name: "Graphics" }).click();
+
+    await expect(page.locator(".menu-renderer-status")).toHaveText(
+      "Renderer: WebGLRenderer · Applied profile: balanced · Post effects unavailable",
+    );
+    await expect(page.locator("#renderer-status-badge")).toHaveText("WebGL · balanced");
+    await expect(page.locator(".renderer-fallback-toast")).toHaveCount(0);
 
     const expectedUnsupported = ["Post-processing", "SSAO", "SSR", "Bloom", "Vignette", "LUT"];
     for (const name of expectedUnsupported) {
