@@ -2,13 +2,13 @@
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: 1000;
+  z-index: var(--k-z-touch, 1000);
   user-select: none;
   -webkit-user-select: none;
-  --touch-safe-left: max(12px, env(safe-area-inset-left));
-  --touch-safe-right: max(12px, env(safe-area-inset-right));
-  --touch-safe-bottom: max(12px, env(safe-area-inset-bottom));
-  --touch-safe-top: max(12px, env(safe-area-inset-top));
+  --touch-safe-left: max(var(--k-space-3), env(safe-area-inset-left));
+  --touch-safe-right: max(var(--k-space-3), env(safe-area-inset-right));
+  --touch-safe-bottom: max(var(--k-space-3), env(safe-area-inset-bottom));
+  --touch-safe-top: max(var(--k-space-3), env(safe-area-inset-top));
   --touch-joystick-zone-width: clamp(180px, 34dvw, 320px);
   --touch-joystick-zone-height: clamp(180px, 34dvh, 320px);
 }
@@ -53,7 +53,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: var(--k-space-3);
 }
 
 .touch-zone--sprint {
@@ -67,11 +67,11 @@
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  border: 2px solid rgba(123, 47, 255, 0.27);
+  border: 2px solid rgba(var(--k-accent-rgb), 0.27);
   background: rgba(26, 16, 64, 0.5);
   color: #ffffff;
   font-size: 20px;
-  font-family: "Outfit", sans-serif;
+  font-family: var(--k-font-body);
   cursor: pointer;
   touch-action: none;
   user-select: none;
@@ -85,20 +85,20 @@
 }
 
 .touch-btn:focus-visible {
-  outline: 2px solid #62e6ff;
+  outline: 2px solid var(--k-accent-cyan);
   outline-offset: 2px;
 }
 
 .touch-btn--jump {
-  background: rgba(123, 47, 255, 0.35);
-  border-color: rgba(255, 107, 157, 0.5);
-  box-shadow: 0 0 10px rgba(255, 107, 157, 0.15);
+  background: rgba(var(--k-accent-rgb), 0.35);
+  border-color: rgba(var(--k-accent-hover-rgb), 0.5);
+  box-shadow: 0 0 10px rgba(var(--k-accent-hover-rgb), 0.15);
   font-size: 24px;
 }
 
 .touch-btn--interact {
-  border-color: rgba(0, 210, 255, 0.27);
-  box-shadow: 0 0 8px rgba(0, 210, 255, 0.1);
+  border-color: rgba(var(--k-accent-cyan-rgb), 0.27);
+  box-shadow: 0 0 8px rgba(var(--k-accent-cyan-rgb), 0.1);
 }
 
 .touch-btn--crouch {
@@ -107,16 +107,16 @@
 }
 
 .touch-btn--sprint {
-  border-color: rgba(255, 107, 157, 0.27);
-  box-shadow: 0 0 8px rgba(255, 107, 157, 0.1);
+  border-color: rgba(var(--k-accent-hover-rgb), 0.27);
+  box-shadow: 0 0 8px rgba(var(--k-accent-hover-rgb), 0.1);
 }
 
 .touch-btn--active {
   transform: scale(0.92);
   opacity: 0.85;
-  border-color: rgba(123, 47, 255, 0.8);
-  box-shadow: 0 0 12px rgba(123, 47, 255, 0.27);
-  background: rgba(123, 47, 255, 0.4);
+  border-color: rgba(var(--k-accent-rgb), 0.8);
+  box-shadow: 0 0 12px rgba(var(--k-accent-rgb), 0.27);
+  background: rgba(var(--k-accent-rgb), 0.4);
 }
 
 @media (orientation: landscape) and (max-height: 500px) {
@@ -141,7 +141,7 @@
     top: var(--touch-safe-top);
     right: var(--touch-safe-right);
     bottom: auto;
-    gap: 8px;
+    gap: var(--k-space-2);
   }
 
   .touch-zone--sprint {

@@ -36,6 +36,26 @@ test("mobile touch controls stay active without pointer lock and can trigger a j
   await expect(page.locator(".hud-health-chip")).toHaveAttribute("aria-hidden", "false");
   await expect(page.locator("#hud-status-lane")).toHaveAttribute("aria-hidden", "false");
 
+  const tokenStyles = await page.evaluate(() => {
+    const root = getComputedStyle(document.documentElement);
+    const touch = document.querySelector<HTMLElement>(".touch-controls-container");
+    const hud = document.querySelector<HTMLElement>(".hud-objective-region");
+    return {
+      accent: root.getPropertyValue("--k-accent").trim(),
+      accentHover: root.getPropertyValue("--k-accent-hover").trim(),
+      accentCyan: root.getPropertyValue("--k-accent-cyan").trim(),
+      touchZ: touch ? getComputedStyle(touch).zIndex : null,
+      hudZ: hud ? getComputedStyle(hud).zIndex : null,
+    };
+  });
+  expect(tokenStyles).toEqual({
+    accent: "#7b6cff",
+    accentHover: "#ff79ba",
+    accentCyan: "#62e6ff",
+    touchZ: "1000",
+    hudZ: "1000",
+  });
+
   await page.keyboard.press("Tab");
   const sprintButton = page.getByRole("button", { name: "Sprint" });
   await expect(sprintButton).toBeFocused();
@@ -68,9 +88,7 @@ test("mobile touch controls stay active without pointer lock and can trigger a j
   const jumpButton = page.getByRole("button", { name: "Jump" });
   await jumpButton.tap();
 
-  const jumped = await page.evaluate(() =>
-    window.__KINEMA__.waitFor("p.vy > 0.5 && p.state !== 'idle'", 4_000),
-  );
+  const jumped = await page.evaluate(() => window.__KINEMA__.waitFor("p.vy > 0.5 && p.state !== 'idle'", 4_000));
   expect(jumped).toBe(true);
   await waitForGrounded(page);
 

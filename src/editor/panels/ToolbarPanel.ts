@@ -47,7 +47,7 @@ export class ToolbarPanel extends EditorPanel {
       top: "12px",
       left: "50%",
       transform: "translateX(-50%)",
-      zIndex: "10000",
+      zIndex: "var(--k-z-editor-panels, 10000)",
     });
 
     // ── Left section: File operations ──

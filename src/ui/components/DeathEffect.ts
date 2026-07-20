@@ -4,7 +4,12 @@ import type { Disposable } from "@core/types";
 const IRIS_CLOSE_MS = 400;
 const IRIS_HOLD_MS = 500;
 const IRIS_OPEN_MS = 400;
-const PARTICLE_COLORS = ["#ff6b9d", "#7b2fff", "#00d2ff", "#FFD700"];
+const PARTICLE_COLORS = [
+  { fill: "var(--k-accent-hover)", glow: "rgba(var(--k-accent-hover-rgb), 0.53)" },
+  { fill: "var(--k-accent)", glow: "rgba(var(--k-accent-rgb), 0.53)" },
+  { fill: "var(--k-accent-cyan)", glow: "rgba(var(--k-accent-cyan-rgb), 0.53)" },
+  { fill: "#ffd700", glow: "rgba(255, 215, 0, 0.53)" },
+];
 const PARTICLE_COUNT = 14;
 
 /**
@@ -77,7 +82,7 @@ export class DeathEffect implements Disposable {
       .iris-container {
         position: fixed;
         inset: 0;
-        z-index: 1100;
+        z-index: var(--k-z-death, 1100);
         pointer-events: none;
       }
       .iris-mask {
@@ -101,7 +106,7 @@ export class DeathEffect implements Disposable {
         transition: opacity 200ms ease, transform 200ms ease;
         font-size: 48px;
         z-index: 1;
-        filter: drop-shadow(0 0 12px #7b2fff88);
+        filter: drop-shadow(0 0 12px rgba(var(--k-accent-rgb), 0.53));
       }
       @keyframes deathParticleBurst {
         0% {
@@ -143,6 +148,7 @@ export class DeathEffect implements Disposable {
       const dy = Math.sin(angle) * dist;
 
       const particle = document.createElement("div");
+      const color = PARTICLE_COLORS[i % PARTICLE_COLORS.length];
       Object.assign(particle.style, {
         position: "fixed",
         left: "50%",
@@ -150,9 +156,9 @@ export class DeathEffect implements Disposable {
         width: `${size}px`,
         height: `${size}px`,
         borderRadius: "50%",
-        background: PARTICLE_COLORS[i % PARTICLE_COLORS.length],
-        boxShadow: `0 0 6px ${PARTICLE_COLORS[i % PARTICLE_COLORS.length]}88`,
-        zIndex: "1101",
+        background: color.fill,
+        boxShadow: `0 0 6px ${color.glow}`,
+        zIndex: "var(--k-z-death-particles, 1101)",
         pointerEvents: "none",
         animation: `deathParticleBurst 400ms ease-out forwards`,
       });

@@ -16,6 +16,46 @@ export interface JoystickState {
 
 const DEFAULT_SIZE = 140;
 const DEFAULT_DEADZONE = 0.1;
+const DEFAULT_ACCENT = "#7b6cff";
+const DEFAULT_ACCENT_HOVER = "#ff79ba";
+
+export interface JoystickPalette {
+  ringActive: string;
+  ringInactive: string;
+  ringShadow: string;
+  thumbCenter: string;
+  thumbEdge: string;
+}
+
+function validatedHexColor(value: string, fallback: string): string {
+  const trimmed = value.trim();
+  return /^#[\da-f]{6}$/i.test(trimmed) ? trimmed : fallback;
+}
+
+function hexToRgba(hex: string, alpha: number): string {
+  const value = Number.parseInt(hex.slice(1), 16);
+  const red = (value >> 16) & 0xff;
+  const green = (value >> 8) & 0xff;
+  const blue = value & 0xff;
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
+function readRootToken(name: string): string {
+  if (typeof document === "undefined" || typeof getComputedStyle !== "function") return "";
+  return getComputedStyle(document.documentElement).getPropertyValue(name);
+}
+
+export function resolveJoystickPalette(readToken: (name: string) => string = readRootToken): JoystickPalette {
+  const accent = validatedHexColor(readToken("--k-accent"), DEFAULT_ACCENT);
+  const accentHover = validatedHexColor(readToken("--k-accent-hover"), DEFAULT_ACCENT_HOVER);
+  return {
+    ringActive: hexToRgba(accent, 0.5),
+    ringInactive: hexToRgba(accent, 0.27),
+    ringShadow: hexToRgba(accent, 0.53),
+    thumbCenter: accentHover,
+    thumbEdge: accent,
+  };
+}
 
 /**
  * Canvas-rendered virtual joystick for touch input.
@@ -29,6 +69,7 @@ export class VirtualJoystick implements Disposable {
   private thumbRadius: number;
   private deadzone: number;
   private fixed: boolean;
+  private palette: JoystickPalette;
 
   private trackingId: number | null = null;
   private originX = 0;
@@ -50,6 +91,7 @@ export class VirtualJoystick implements Disposable {
     this.thumbRadius = this.radius * 0.35;
     this.deadzone = options.deadzone ?? DEFAULT_DEADZONE;
     this.fixed = options.fixed ?? false;
+    this.palette = resolveJoystickPalette();
 
     // Use devicePixelRatio for crisp rendering
     const dpr = window.devicePixelRatio || 1;
@@ -230,11 +272,11 @@ export class VirtualJoystick implements Disposable {
     // Outer ring
     ctx.beginPath();
     ctx.arc(this.originX, this.originY, r - 2, 0, Math.PI * 2);
-    ctx.strokeStyle = this.active ? "rgba(123, 47, 255, 0.5)" : "rgba(123, 47, 255, 0.27)";
+    ctx.strokeStyle = this.active ? this.palette.ringActive : this.palette.ringInactive;
     ctx.lineWidth = 2;
     if (this.active) {
       ctx.shadowBlur = 12;
-      ctx.shadowColor = "rgba(123, 47, 255, 0.53)";
+      ctx.shadowColor = this.palette.ringShadow;
     }
     ctx.stroke();
     ctx.shadowBlur = 0;
@@ -251,8 +293,8 @@ export class VirtualJoystick implements Disposable {
     const thumbY = this.thumbY;
     const thumbR = this.thumbRadius;
     const grad = ctx.createRadialGradient(thumbX, thumbY, 0, thumbX, thumbY, thumbR);
-    grad.addColorStop(0, "#ff6b9d");
-    grad.addColorStop(1, "#7b2fff");
+    grad.addColorStop(0, this.palette.thumbCenter);
+    grad.addColorStop(1, this.palette.thumbEdge);
     ctx.beginPath();
     ctx.arc(thumbX, thumbY, thumbR, 0, Math.PI * 2);
     ctx.fillStyle = grad;

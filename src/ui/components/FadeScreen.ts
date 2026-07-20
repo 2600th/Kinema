@@ -18,7 +18,7 @@ export class FadeScreen implements Disposable {
       opacity: 0;
       pointer-events: none;
       transition: opacity 0.5s ease;
-      z-index: 100;
+      z-index: var(--k-z-fade, 100);
     `;
     parent.appendChild(this.overlay);
   }

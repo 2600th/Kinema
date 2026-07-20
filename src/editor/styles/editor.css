@@ -12,25 +12,25 @@
   --ke-border-hover: rgba(255, 255, 255, 0.2);
   --ke-text: #dde8ff;
   --ke-text-dim: #91a2c6;
-  --ke-text-bright: #ffffff;
-  --ke-accent: #62e6ff;
-  --ke-accent-2: #7b6cff;
-  --ke-accent-3: #ff79ba;
-  --ke-accent-dim: rgba(98, 230, 255, 0.18);
-  --ke-accent-glow: rgba(98, 230, 255, 0.28);
+  --ke-text-bright: var(--k-text);
+  --ke-accent: var(--k-accent-cyan);
+  --ke-accent-2: var(--k-accent);
+  --ke-accent-3: var(--k-accent-hover);
+  --ke-accent-dim: rgba(var(--k-accent-cyan-rgb), 0.18);
+  --ke-accent-glow: rgba(var(--k-accent-cyan-rgb), 0.28);
   --ke-input-bg: rgba(255, 255, 255, 0.05);
   --ke-input-bg-hover: rgba(255, 255, 255, 0.1);
-  --ke-danger: #ff79ba;
+  --ke-danger: var(--k-accent-hover);
   --ke-success: #82e47f;
   --ke-warning: #ffcf67;
   --ke-radius: 12px;
   --ke-radius-sm: 6px;
   --ke-radius-pill: 100px;
   --ke-blur: 18px;
-  --ke-shadow: 0 18px 48px rgba(0, 0, 0, 0.36), 0 0 24px rgba(98, 230, 255, 0.08);
+  --ke-shadow: 0 18px 48px rgba(0, 0, 0, 0.36), 0 0 24px rgba(var(--k-accent-cyan-rgb), 0.08);
   --ke-transition: 150ms ease;
-  --ke-font: "Outfit", system-ui, sans-serif;
-  --ke-font-mono: "JetBrains Mono", "Fira Code", monospace;
+  --ke-font: var(--k-font-body);
+  --ke-font-mono: var(--k-font-mono);
   --ke-font-size: 13px;
   --ke-font-size-sm: 11px;
   --ke-line-height: 1.5;
@@ -58,7 +58,7 @@
   font-size: var(--ke-font-size);
   line-height: var(--ke-line-height);
   overflow: hidden;
-  z-index: 1000;
+  z-index: var(--k-z-editor-default, 1000);
   user-select: none;
 }
 
@@ -72,7 +72,7 @@
       rgba(255, 255, 255, 0.08),
       transparent 18%,
       transparent 62%,
-      rgba(98, 230, 255, 0.06) 74%,
+      rgba(var(--k-accent-cyan-rgb), 0.06) 74%,
       transparent 86%
     ),
     linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 30%);
@@ -83,7 +83,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: var(--k-space-2) var(--k-space-3);
   border-bottom: 1px solid var(--ke-border);
   cursor: grab;
   font-weight: 600;
@@ -97,7 +97,7 @@
 }
 
 .ke-panel-body {
-  padding: 8px;
+  padding: var(--k-space-2);
   overflow-y: auto;
   overflow-x: hidden;
   max-height: 70vh;
@@ -111,8 +111,8 @@
 .ke-toolbar {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 5px 8px;
+  gap: var(--k-space-1);
+  padding: 5px var(--k-space-2);
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02) 32%, rgba(255, 255, 255, 0.04)),
     linear-gradient(180deg, rgba(16, 23, 43, 0.9), rgba(10, 14, 26, 0.94));
@@ -154,7 +154,7 @@
 }
 
 .ke-btn-dirty {
-  border-color: rgba(98, 230, 255, 0.62);
+  border-color: rgba(var(--k-accent-cyan-rgb), 0.62);
 }
 
 .ke-dirty-dot {
@@ -177,15 +177,17 @@
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--k-space-2);
 }
 
 .ke-save-error {
   padding: 10px 14px;
-  border: 1px solid rgba(255, 121, 186, 0.55);
+  border: 1px solid rgba(var(--k-accent-hover-rgb), 0.55);
   border-radius: var(--ke-radius-sm);
   background: rgba(38, 12, 30, 0.96);
-  box-shadow: var(--ke-shadow), 0 0 18px rgba(255, 121, 186, 0.18);
+  box-shadow:
+    var(--ke-shadow),
+    0 0 18px rgba(var(--k-accent-hover-rgb), 0.18);
   color: #ffd6e9;
   font-size: var(--ke-font-size);
   line-height: 1.4;
@@ -196,12 +198,14 @@
 .ke-session-import-notice {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 12px 10px 14px;
+  gap: var(--k-space-3);
+  padding: 10px var(--k-space-3) 10px 14px;
   border: 1px solid rgba(255, 207, 103, 0.55);
   border-radius: var(--ke-radius-sm);
   background: rgba(38, 30, 12, 0.96);
-  box-shadow: var(--ke-shadow), 0 0 18px rgba(255, 207, 103, 0.16);
+  box-shadow:
+    var(--ke-shadow),
+    0 0 18px rgba(255, 207, 103, 0.16);
   color: #fff0c2;
   font-size: var(--ke-font-size);
   line-height: 1.4;
@@ -210,7 +214,7 @@
 
 .ke-session-import-dismiss {
   flex-shrink: 0;
-  padding: 4px 8px;
+  padding: var(--k-space-1) var(--k-space-2);
   border: 1px solid rgba(255, 207, 103, 0.5);
   border-radius: var(--ke-radius-sm);
   background: rgba(255, 207, 103, 0.12);
@@ -230,8 +234,8 @@
 .ke-toolbar-transport {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 0 4px;
+  gap: var(--k-space-1);
+  padding: 0 var(--k-space-1);
 }
 
 /* Play button */
@@ -240,11 +244,11 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 6px 16px;
+  padding: 6px var(--k-space-4);
   height: 32px;
   border-radius: var(--ke-radius-sm);
-  border: 1px solid rgba(98, 230, 255, 0.35);
-  background: linear-gradient(135deg, rgba(98, 230, 255, 0.18), rgba(123, 108, 255, 0.16));
+  border: 1px solid rgba(var(--k-accent-cyan-rgb), 0.35);
+  background: linear-gradient(135deg, rgba(var(--k-accent-cyan-rgb), 0.18), rgba(var(--k-accent-rgb), 0.16));
   color: #dff8ff;
   font-family: var(--ke-font);
   cursor: pointer;
@@ -252,9 +256,9 @@
 }
 
 .ke-btn-play:hover {
-  background: linear-gradient(135deg, rgba(98, 230, 255, 0.28), rgba(123, 108, 255, 0.24));
-  border-color: rgba(98, 230, 255, 0.62);
-  box-shadow: 0 0 16px rgba(98, 230, 255, 0.26);
+  background: linear-gradient(135deg, rgba(var(--k-accent-cyan-rgb), 0.28), rgba(var(--k-accent-rgb), 0.24));
+  border-color: rgba(var(--k-accent-cyan-rgb), 0.62);
+  box-shadow: 0 0 16px rgba(var(--k-accent-cyan-rgb), 0.26);
   color: #ffffff;
 }
 
@@ -270,8 +274,8 @@
   gap: 6px;
   padding: 5px 14px;
   border-radius: var(--ke-radius-sm);
-  border: 1px solid rgba(255, 107, 157, 0.5);
-  background: rgba(255, 107, 157, 0.2);
+  border: 1px solid rgba(var(--k-accent-hover-rgb), 0.5);
+  background: rgba(var(--k-accent-hover-rgb), 0.2);
   color: var(--ke-danger);
   cursor: pointer;
   font-family: var(--ke-font);
@@ -279,9 +283,9 @@
 }
 
 .ke-btn-stop:hover {
-  background: rgba(255, 107, 157, 0.35);
+  background: rgba(var(--k-accent-hover-rgb), 0.35);
   border-color: var(--ke-danger);
-  box-shadow: 0 0 12px rgba(255, 107, 157, 0.3);
+  box-shadow: 0 0 12px rgba(var(--k-accent-hover-rgb), 0.3);
 }
 
 .ke-btn-stop:active {
@@ -301,7 +305,7 @@
   50% {
     box-shadow:
       var(--ke-shadow),
-      0 0 16px rgba(255, 107, 157, 0.2);
+      0 0 16px rgba(var(--k-accent-hover-rgb), 0.2);
   }
 }
 
@@ -334,14 +338,14 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
-  padding: 4px 0;
+  padding: var(--k-space-1) 0;
 }
 
 .ke-tree-row {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 8px;
+  padding: var(--k-space-1) var(--k-space-2);
   border-radius: var(--ke-radius-sm);
   cursor: pointer;
   transition: background var(--ke-transition);
@@ -420,7 +424,7 @@
 .ke-inspector-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--k-space-2);
   padding: 3px 0;
 }
 
@@ -440,8 +444,8 @@
 }
 
 .ke-inspector-warning {
-  margin-bottom: 8px;
-  padding: 8px 10px;
+  margin-bottom: var(--k-space-2);
+  padding: var(--k-space-2) 10px;
   border: 1px solid rgba(255, 207, 103, 0.42);
   border-radius: var(--ke-radius-sm);
   background: rgba(255, 207, 103, 0.1);
@@ -455,7 +459,7 @@
 .ke-brush-bar {
   display: flex;
   align-items: stretch;
-  gap: 4px;
+  gap: var(--k-space-1);
   padding: 6px 10px;
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02) 32%, rgba(255, 255, 255, 0.04)),
@@ -473,9 +477,9 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: var(--k-space-1);
   width: 56px;
-  padding: 8px 4px 6px;
+  padding: var(--k-space-2) var(--k-space-1) 6px;
   border-radius: var(--ke-radius-sm);
   border: 1px solid transparent;
   background: transparent;
@@ -531,7 +535,7 @@
 .ke-brush-badge {
   position: absolute;
   top: 3px;
-  right: 4px;
+  right: var(--k-space-1);
   min-width: 14px;
   height: 14px;
   display: flex;
@@ -557,7 +561,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 4px;
+  padding: 6px var(--k-space-1);
   font-size: var(--ke-font-size-sm);
   font-weight: 600;
   color: var(--ke-text-dim);
@@ -565,7 +569,7 @@
   letter-spacing: 0.05em;
   cursor: pointer;
   border-bottom: 1px solid var(--ke-border);
-  margin-bottom: 4px;
+  margin-bottom: var(--k-space-1);
   transition: color var(--ke-transition);
 }
 
@@ -588,7 +592,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: var(--k-space-1);
   padding: 5px 14px;
   border: 1px solid var(--ke-border);
   border-radius: var(--ke-radius-sm);
@@ -650,19 +654,19 @@
 }
 
 .ke-btn-danger {
-  border-color: rgba(255, 107, 157, 0.3);
+  border-color: rgba(var(--k-accent-hover-rgb), 0.3);
   color: var(--ke-danger);
 }
 
 .ke-btn-danger:hover {
-  background: rgba(255, 107, 157, 0.15);
+  background: rgba(var(--k-accent-hover-rgb), 0.15);
   border-color: var(--ke-danger);
 }
 
 /* ----- Inputs ----- */
 .ke-input {
   width: 100%;
-  padding: 5px 8px;
+  padding: 5px var(--k-space-2);
   background: var(--ke-input-bg);
   border: 1px solid transparent;
   border-radius: var(--ke-radius-sm);
@@ -683,7 +687,7 @@
 .ke-input:focus {
   border-color: var(--ke-accent);
   background: var(--ke-input-bg-hover);
-  box-shadow: 0 0 0 1px rgba(98, 230, 255, 0.18);
+  box-shadow: 0 0 0 1px rgba(var(--k-accent-cyan-rgb), 0.18);
 }
 
 .ke-input::placeholder {
@@ -783,8 +787,8 @@
   border: 1px solid var(--ke-border);
   border-radius: var(--ke-radius);
   box-shadow: var(--ke-shadow);
-  padding: 4px 0;
-  z-index: 2000;
+  padding: var(--k-space-1) 0;
+  z-index: var(--k-z-editor-context, 2000);
   font-family: var(--ke-font);
   font-size: var(--ke-font-size);
 }
@@ -792,8 +796,8 @@
 .ke-context-menu-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
+  gap: var(--k-space-2);
+  padding: 6px var(--k-space-3);
   cursor: pointer;
   color: var(--ke-text);
   transition: background var(--ke-transition);
@@ -825,15 +829,15 @@
 .ke-context-menu-divider {
   height: 1px;
   background: var(--ke-border);
-  margin: 4px 0;
+  margin: var(--k-space-1) 0;
 }
 
 /* ----- Status Bar ----- */
 .ke-status-bar {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 4px 12px;
+  gap: var(--k-space-4);
+  padding: var(--k-space-1) var(--k-space-3);
   background: var(--ke-bg);
   backdrop-filter: blur(var(--ke-blur));
   -webkit-backdrop-filter: blur(var(--ke-blur));
@@ -847,7 +851,7 @@
 .ke-status-bar-item {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--k-space-1);
 }
 
 .ke-status-bar-accent {
@@ -894,11 +898,11 @@
 }
 
 .ke-gap-4 {
-  gap: 4px;
+  gap: var(--k-space-1);
 }
 
 .ke-gap-8 {
-  gap: 8px;
+  gap: var(--k-space-2);
 }
 
 .ke-flex-1 {

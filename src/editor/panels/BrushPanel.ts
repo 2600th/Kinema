@@ -17,7 +17,7 @@ export class BrushPanel extends EditorPanel {
       bottom: "16px",
       left: "50%",
       transform: "translateX(-50%)",
-      zIndex: "10000",
+      zIndex: "var(--k-z-editor-panels, 10000)",
     });
 
     for (const brush of BRUSH_REGISTRY) {

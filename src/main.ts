@@ -24,7 +24,7 @@ function showBootstrapError(err: unknown): void {
     "color:#f7f7f7",
     'font:14px/1.5 Consolas, "Courier New", monospace',
     "white-space:pre-wrap",
-    "z-index:99999",
+    "z-index:var(--k-z-fatal, 99999)",
   ].join(";");
   pre.textContent = `[Kinema] Fatal bootstrap error\n\n${message}`;
   if (document.body) {

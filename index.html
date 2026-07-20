@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Kinema</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="stylesheet" href="/src/ui/tokens.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
@@ -37,7 +38,7 @@
       width: var(--app-width);
       height: var(--app-height);
       pointer-events: none;
-      z-index: 10;
+      z-index: var(--k-z-ui, 10);
     }
     :where(#ui-overlay *) { pointer-events: auto; }
   </style>

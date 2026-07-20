@@ -814,7 +814,7 @@ export class EditorManager {
       top: "12px",
       left: "50%",
       transform: "translateX(-50%)",
-      zIndex: "10001",
+      zIndex: "var(--k-z-editor-playtest, 10001)",
     });
 
     const stopBtn = document.createElement("button");
@@ -1025,7 +1025,14 @@ export class EditorManager {
       this.grid.toggleGrid();
       this.toolbarPanel.setGridActive(this.grid.isVisible());
     }
-    if (handleEditorHistoryShortcut(e, () => this.undo(), () => this.redo())) return;
+    if (
+      handleEditorHistoryShortcut(
+        e,
+        () => this.undo(),
+        () => this.redo(),
+      )
+    )
+      return;
     if (e.code === "Delete" || e.code === "Backspace") {
       this.deleteSelection();
       e.preventDefault();

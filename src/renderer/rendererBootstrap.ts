@@ -68,7 +68,7 @@ export function attachRendererCanvas(renderer: THREE.WebGLRenderer | WebGPURende
   if (canvas.parentElement === document.body) return;
   canvas.style.position = "fixed";
   canvas.style.inset = "0";
-  canvas.style.zIndex = "0";
+  canvas.style.zIndex = "var(--k-z-canvas, 0)";
   document.body.appendChild(canvas);
 }
 
@@ -79,7 +79,7 @@ export function showDeviceLostOverlay(info: DeviceLostInfo): void {
   Object.assign(overlay.style, {
     position: "fixed",
     inset: "0",
-    zIndex: "99999",
+    zIndex: "var(--k-z-fatal, 99999)",
     background: "rgba(0,0,0,0.85)",
     display: "flex",
     flexDirection: "column",

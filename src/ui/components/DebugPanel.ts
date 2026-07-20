@@ -89,17 +89,17 @@ export class DebugPanel implements Disposable {
       "top:12px",
       "display:none",
       "width:min(350px, calc(100vw - 24px))",
-      "padding:12px 12px 10px",
+      "padding:var(--k-space-3) var(--k-space-3) 10px",
       "background:rgba(16, 18, 22, 0.76)",
       "backdrop-filter:blur(8px)",
       "border:1px solid rgba(130,148,170,0.32)",
       "border-radius:10px",
       "box-shadow:0 10px 30px rgba(0,0,0,0.35)",
       "color:#d8e6f6",
-      "font:12px/1.4 Inter, Segoe UI, Arial, sans-serif",
+      "font:12px/1.4 var(--k-font-debug)",
       "user-select:none",
       "pointer-events:auto",
-      "z-index:1100",
+      "z-index:var(--k-z-debug, 1100)",
       "max-height:100vh",
       "overflow-y:auto",
       "overflow-x:hidden",
@@ -110,7 +110,7 @@ export class DebugPanel implements Disposable {
     style.textContent = `
       .kinema-debug input[type="range"] {
         -webkit-appearance: none; appearance: none;
-        width: 100%; background: transparent; cursor: pointer; margin: 4px 0;
+        width: 100%; background: transparent; cursor: pointer; margin: var(--k-space-1) 0;
       }
       .kinema-debug input[type="range"]::-webkit-slider-runnable-track {
         height: 4px; background: rgba(200,220,255,0.2); border-radius: 2px;
@@ -118,7 +118,7 @@ export class DebugPanel implements Disposable {
       .kinema-debug input[type="range"]::-webkit-slider-thumb {
         -webkit-appearance: none; appearance: none;
         height: 12px; width: 12px; border-radius: 50%;
-        background: #4ca3ff; margin-top: -4px;
+        background: #4ca3ff; margin-top: calc(-1 * var(--k-space-1));
         box-shadow: 0 0 6px rgba(76,163,255,0.6);
         transition: transform 0.1s;
       }
@@ -134,7 +134,7 @@ export class DebugPanel implements Disposable {
         background: #4ca3ff; border-color: #4ca3ff;
       }
       .kinema-debug input[type="checkbox"]:checked::after {
-        content: ''; position: absolute; left: 4px; top: 1px;
+        content: ''; position: absolute; left: var(--k-space-1); top: 1px;
         width: 3px; height: 7px; border: solid #fff; border-width: 0 2px 2px 0;
         transform: rotate(45deg);
       }

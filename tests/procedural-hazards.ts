@@ -74,6 +74,9 @@ test.describe("Procedural Hazards", () => {
     });
 
     await page.evaluate((hazardId) => window.__KINEMA__.teleportToHazard(hazardId), initialHazards[2].id);
+    const deathEffect = page.locator(".iris-container");
+    await expect(deathEffect).toBeVisible({ timeout: 10_000 });
+    await expect(deathEffect).toHaveCSS("z-index", "1100");
     await page.waitForFunction(
       (hazardCount) => {
         const health = window.__KINEMA__.getHealth();
@@ -87,6 +90,44 @@ test.describe("Procedural Hazards", () => {
       { timeout: 30_000 },
     );
     await waitForGrounded(page);
+  });
+
+  test("renders the tokenized death iris and particle layers", async ({ page }, testInfo) => {
+    await waitForRuntimeReady(page, "/?station=platformsPhysics");
+
+    await page.evaluate(async () => {
+      const [{ EventBus }, { DeathEffect }] = await Promise.all([
+        import("/src/core/EventBus.ts"),
+        import("/src/ui/components/DeathEffect.ts"),
+      ]);
+      const originalSetTimeout = window.setTimeout;
+      window.setTimeout = (() => 0) as typeof window.setTimeout;
+      const effect = new DeathEffect(new EventBus());
+      void effect.play();
+      (effect as unknown as { burstParticles(): void }).burstParticles();
+      window.setTimeout = originalSetTimeout;
+
+      const mask = document.querySelector<HTMLElement>(".iris-mask");
+      if (mask) {
+        mask.style.transition = "none";
+        mask.style.setProperty("--iris-size", "36%");
+      }
+      const icon = document.querySelector<HTMLElement>(".iris-icon");
+      if (icon) {
+        icon.style.opacity = "1";
+        icon.style.transform = "translate(-50%, -50%) scale(1)";
+      }
+    });
+
+    const deathEffect = page.locator(".iris-container");
+    const particles = page.locator('#ui-overlay > div[style*="deathParticleBurst"]');
+    await expect(deathEffect).toHaveCSS("z-index", "1100");
+    await expect(particles).toHaveCount(14);
+    await expect(particles.first()).toHaveCSS("z-index", "1101");
+    await expect(particles.nth(0)).toHaveCSS("background-color", "rgb(255, 121, 186)");
+    await expect(particles.nth(1)).toHaveCSS("background-color", "rgb(123, 108, 255)");
+    await expect(particles.nth(2)).toHaveCSS("background-color", "rgb(98, 230, 255)");
+    await page.screenshot({ path: testInfo.outputPath("kin024-death-effect.png") });
   });
 
   test("falls consume hearts and lethal falls fully restart the current station run", async ({ page }) => {

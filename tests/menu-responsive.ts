@@ -649,6 +649,33 @@ for (const viewport of VIEWPORTS) {
 test.describe("menu accessibility", () => {
   test.use({ viewport: { width: 1280, height: 720 } });
 
+  test("loads the shared palette and menu stacking tokens before application styles", async ({ page }) => {
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    const mainDialog = page.getByRole("dialog", { name: "Kinema" });
+    await expect(mainDialog).toBeVisible({ timeout: 60_000 });
+
+    const styles = await page.evaluate(() => {
+      const root = getComputedStyle(document.documentElement);
+      const menu = document.querySelector<HTMLElement>(".menu-overlay.active");
+      return {
+        accent: root.getPropertyValue("--k-accent").trim(),
+        accentHover: root.getPropertyValue("--k-accent-hover").trim(),
+        accentCyan: root.getPropertyValue("--k-accent-cyan").trim(),
+        bodyFont: root.getPropertyValue("--k-font-body").replace(/\s+/g, " ").trim(),
+        menuZ: menu ? getComputedStyle(menu).zIndex : null,
+      };
+    });
+
+    expect(styles).toEqual({
+      accent: "#7b6cff",
+      accentHover: "#ff79ba",
+      accentCyan: "#62e6ff",
+      bodyFont:
+        '"Outfit", "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+      menuZ: "1200",
+    });
+  });
+
   test("keeps visible keyboard focus inside named dialogs and restores the invoker", async ({ page }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
 

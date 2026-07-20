@@ -126,7 +126,7 @@ export class InspectorPanel extends EditorPanel {
       right: "12px",
       width: "280px",
       maxHeight: "calc(100vh - 80px)",
-      zIndex: "10000",
+      zIndex: "var(--k-z-editor-panels, 10000)",
       overflowY: "auto",
     });
 

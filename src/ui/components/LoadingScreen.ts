@@ -17,7 +17,7 @@ export class LoadingScreen implements Disposable {
     Object.assign(this.container.style, {
       position: "fixed",
       inset: "0",
-      zIndex: "1300",
+      zIndex: "var(--k-z-loading, 1300)",
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
@@ -72,7 +72,7 @@ export class LoadingScreen implements Disposable {
         top: "4%",
         left: "-10%",
         background:
-          "radial-gradient(circle at 48% 50%, rgba(98,230,255,0.28), rgba(98,230,255,0.1) 34%, transparent 72%)",
+          "radial-gradient(circle at 48% 50%, rgba(var(--k-accent-cyan-rgb), 0.28), rgba(var(--k-accent-cyan-rgb), 0.1) 34%, transparent 72%)",
         animation: "loadingGlowDrift 24s ease-in-out infinite alternate",
       },
       {
@@ -81,7 +81,7 @@ export class LoadingScreen implements Disposable {
         top: "-4%",
         right: "-8%",
         background:
-          "radial-gradient(circle at 50% 50%, rgba(255,121,186,0.24), rgba(255,121,186,0.08) 34%, transparent 72%)",
+          "radial-gradient(circle at 50% 50%, rgba(var(--k-accent-hover-rgb), 0.24), rgba(var(--k-accent-hover-rgb), 0.08) 34%, transparent 72%)",
         animation: "loadingGlowDrift 28s ease-in-out infinite alternate-reverse",
       },
       {
@@ -90,7 +90,7 @@ export class LoadingScreen implements Disposable {
         bottom: "-10%",
         left: "22%",
         background:
-          "radial-gradient(circle at 50% 50%, rgba(123,108,255,0.2), rgba(123,108,255,0.08) 34%, transparent 74%)",
+          "radial-gradient(circle at 50% 50%, rgba(var(--k-accent-rgb), 0.2), rgba(var(--k-accent-rgb), 0.08) 34%, transparent 74%)",
         animation: "loadingGlowDrift 30s ease-in-out infinite alternate",
       },
     ];
@@ -131,7 +131,7 @@ export class LoadingScreen implements Disposable {
         "linear-gradient(130deg, rgba(255,255,255,0.11), rgba(255,255,255,0.025) 28%, rgba(255,255,255,0.06) 56%, rgba(255,255,255,0.025) 76%), linear-gradient(180deg, rgba(15, 23, 44, 0.52), rgba(8, 12, 24, 0.3))",
       border: "1px solid rgba(255,255,255,0.08)",
       boxShadow:
-        "inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(98,230,255,0.08), 0 55px 140px rgba(0,0,0,0.34)",
+        "inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(var(--k-accent-cyan-rgb), 0.08), 0 55px 140px rgba(0,0,0,0.34)",
       backdropFilter: "blur(40px) saturate(128%)",
       animation: "loadingPaneBreathe 16s ease-in-out infinite",
       pointerEvents: "none",
@@ -145,7 +145,7 @@ export class LoadingScreen implements Disposable {
       inset: "0",
       borderRadius: "inherit",
       background:
-        "linear-gradient(118deg, rgba(255,255,255,0.08), transparent 18%, transparent 58%, rgba(98,230,255,0.06) 70%, transparent 84%), linear-gradient(180deg, rgba(255,255,255,0.035), transparent 28%)",
+        "linear-gradient(118deg, rgba(255,255,255,0.08), transparent 18%, transparent 58%, rgba(var(--k-accent-cyan-rgb), 0.06) 70%, transparent 84%), linear-gradient(180deg, rgba(255,255,255,0.035), transparent 28%)",
       mixBlendMode: "screen",
       opacity: "0.88",
     });
@@ -153,10 +153,38 @@ export class LoadingScreen implements Disposable {
 
     const particleConfigs = [
       { left: "12%", top: "70%", size: "240px", color: "rgba(97,229,255,0.16)", duration: "22s", delay: "-4s" },
-      { left: "25%", top: "26%", size: "150px", color: "rgba(255,121,186,0.18)", duration: "18s", delay: "-9s" },
-      { left: "42%", top: "76%", size: "280px", color: "rgba(123,108,255,0.16)", duration: "26s", delay: "-5s" },
-      { left: "60%", top: "16%", size: "190px", color: "rgba(98,230,255,0.13)", duration: "20s", delay: "-11s" },
-      { left: "82%", top: "30%", size: "320px", color: "rgba(255,121,186,0.13)", duration: "28s", delay: "-8s" },
+      {
+        left: "25%",
+        top: "26%",
+        size: "150px",
+        color: "rgba(var(--k-accent-hover-rgb), 0.18)",
+        duration: "18s",
+        delay: "-9s",
+      },
+      {
+        left: "42%",
+        top: "76%",
+        size: "280px",
+        color: "rgba(var(--k-accent-rgb), 0.16)",
+        duration: "26s",
+        delay: "-5s",
+      },
+      {
+        left: "60%",
+        top: "16%",
+        size: "190px",
+        color: "rgba(var(--k-accent-cyan-rgb), 0.13)",
+        duration: "20s",
+        delay: "-11s",
+      },
+      {
+        left: "82%",
+        top: "30%",
+        size: "320px",
+        color: "rgba(var(--k-accent-hover-rgb), 0.13)",
+        duration: "28s",
+        delay: "-8s",
+      },
     ];
 
     for (const cfg of particleConfigs) {
@@ -184,7 +212,7 @@ export class LoadingScreen implements Disposable {
       position: "absolute",
       inset: "-3%",
       background:
-        "repeating-radial-gradient(circle at 24% 40%, rgba(98,230,255,0.08) 0 2px, transparent 2px 18px), repeating-radial-gradient(circle at 76% 24%, rgba(255,121,186,0.06) 0 2px, transparent 2px 20px), repeating-radial-gradient(circle at 58% 76%, rgba(123,108,255,0.07) 0 2px, transparent 2px 22px)",
+        "repeating-radial-gradient(circle at 24% 40%, rgba(var(--k-accent-cyan-rgb), 0.08) 0 2px, transparent 2px 18px), repeating-radial-gradient(circle at 76% 24%, rgba(var(--k-accent-hover-rgb), 0.06) 0 2px, transparent 2px 20px), repeating-radial-gradient(circle at 58% 76%, rgba(var(--k-accent-rgb), 0.07) 0 2px, transparent 2px 22px)",
       opacity: "0.22",
       animation: "loadingFieldShift 18s ease-in-out infinite",
       willChange: "transform, opacity",
@@ -199,7 +227,7 @@ export class LoadingScreen implements Disposable {
       flexDirection: "column",
       alignItems: "center",
       gap: "18px",
-      padding: "40px 24px",
+      padding: "40px var(--k-space-5)",
     });
     this.container.appendChild(content);
 
@@ -207,10 +235,10 @@ export class LoadingScreen implements Disposable {
     Object.assign(badge.style, {
       padding: "7px 14px",
       borderRadius: "999px",
-      border: "1px solid rgba(98,230,255,0.14)",
+      border: "1px solid rgba(var(--k-accent-cyan-rgb), 0.14)",
       background: "linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))",
       color: "rgba(224, 238, 255, 0.72)",
-      fontFamily: "'Outfit', sans-serif",
+      fontFamily: "var(--k-font-body)",
       fontSize: "11px",
       fontWeight: "700",
       letterSpacing: "2px",
@@ -222,13 +250,13 @@ export class LoadingScreen implements Disposable {
 
     const title = document.createElement("div");
     Object.assign(title.style, {
-      fontFamily: "'Outfit', sans-serif",
+      fontFamily: "var(--k-font-body)",
       fontWeight: "800",
       fontSize: "clamp(30px, 5dvw, 44px)",
-      color: "#ffffff",
+      color: "var(--k-text)",
       letterSpacing: "5px",
       textTransform: "uppercase",
-      textShadow: "0 8px 30px rgba(98,230,255,0.12), 0 0 40px rgba(123,108,255,0.14)",
+      textShadow: "0 8px 30px rgba(var(--k-accent-cyan-rgb), 0.12), 0 0 40px rgba(var(--k-accent-rgb), 0.14)",
       animation: "loadingTitleGlow 3s ease-in-out infinite",
       willChange: "transform, opacity",
     });
@@ -239,7 +267,7 @@ export class LoadingScreen implements Disposable {
     Object.assign(subtitle.style, {
       maxWidth: "520px",
       color: "rgba(228, 234, 255, 0.74)",
-      fontFamily: "'Outfit', sans-serif",
+      fontFamily: "var(--k-font-body)",
       fontSize: "14px",
       letterSpacing: "0.4px",
       textAlign: "center",
@@ -266,9 +294,9 @@ export class LoadingScreen implements Disposable {
       top: "0",
       width: "100%",
       height: "100%",
-      background: "linear-gradient(90deg, #62e6ff 0%, #7b6cff 52%, #ff79ba 100%)",
+      background: "linear-gradient(90deg, var(--k-accent-cyan) 0%, var(--k-accent) 52%, var(--k-accent-hover) 100%)",
       borderRadius: "999px",
-      boxShadow: "0 0 22px rgba(98,230,255,0.28)",
+      boxShadow: "0 0 22px rgba(var(--k-accent-cyan-rgb), 0.28)",
       transformOrigin: "left center",
       transform: "scaleX(0)",
       transition: "transform 0.4s ease",
@@ -294,7 +322,7 @@ export class LoadingScreen implements Disposable {
     this.statusText = document.createElement("div");
     Object.assign(this.statusText.style, {
       color: "rgba(228, 234, 255, 0.64)",
-      fontFamily: "'Outfit', sans-serif",
+      fontFamily: "var(--k-font-body)",
       fontSize: "12px",
       letterSpacing: "1.8px",
       textTransform: "uppercase",

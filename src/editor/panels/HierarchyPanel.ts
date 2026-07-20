@@ -93,7 +93,7 @@ export class HierarchyPanel extends EditorPanel {
       left: "12px",
       width: "240px",
       maxHeight: "calc(100vh - 80px)",
-      zIndex: "10000",
+      zIndex: "var(--k-z-editor-panels, 10000)",
       overflowY: "auto",
     });
 

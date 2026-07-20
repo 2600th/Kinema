@@ -70,9 +70,7 @@ for (const viewport of LANDSCAPE_VIEWPORTS) {
           !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top);
         const touch = visibleRects(".touch-btn");
         const hud = visibleRects(".hud-collectible-chip, .hud-health-chip, .hud-objective-card");
-        const zones = visibleRects(
-          ".touch-zone--left, .touch-zone--right, .touch-zone--buttons, .touch-zone--sprint",
-        );
+        const zones = visibleRects(".touch-zone--left, .touch-zone--right, .touch-zone--buttons, .touch-zone--sprint");
         const zoneRect = (className: string) => zones.find(({ label }) => label.includes(className))?.rect;
         const leftZone = zoneRect("touch-zone--left");
         const rightZone = zoneRect("touch-zone--right");
@@ -86,10 +84,7 @@ for (const viewport of LANDSCAPE_VIEWPORTS) {
           outsideViewport: all
             .filter(
               ({ rect }) =>
-                rect.left < 0 ||
-                rect.top < 0 ||
-                rect.right > window.innerWidth ||
-                rect.bottom > window.innerHeight,
+                rect.left < 0 || rect.top < 0 || rect.right > window.innerWidth || rect.bottom > window.innerHeight,
             )
             .map(({ label }) => label),
           overlaps: touch.flatMap((touchItem) =>
@@ -140,6 +135,8 @@ test.describe("editor HUD visibility", () => {
     await expect(page.locator("#hud .hud-damage-overlay")).toHaveCount(1);
     await page.evaluate(() => window.__KINEMA__.openEditor());
     await expect.poll(() => page.evaluate(() => window.__KINEMA__.isEditorActive())).toBe(true);
+
+    await expect(page.locator(".ke-toolbar")).toHaveCSS("z-index", "10000");
 
     await expect(page.locator("#hud")).toHaveAttribute("aria-hidden", "true");
     expect(await page.locator("#hud").evaluate((element) => (element as HTMLElement).hidden)).toBe(true);
