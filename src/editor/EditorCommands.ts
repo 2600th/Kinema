@@ -1,3 +1,4 @@
+import type RAPIER from "@dimforge/rapier3d-compat";
 import type { Command } from "./CommandHistory";
 
 export type EditorTransformState = Readonly<{
@@ -32,11 +33,17 @@ export type EditorMaterialState = Readonly<{
 }>;
 
 export type EditorPhysicsType = "static" | "dynamic" | "kinematic";
+export type EditorPhysicsResourceRecipe = Readonly<{
+  bodyDesc?: RAPIER.RigidBodyDesc;
+  colliderDesc?: RAPIER.ColliderDesc;
+  colliderAttachedToBody: boolean;
+}>;
 export type EditorPhysicsState = Readonly<{
   type: EditorPhysicsType;
   levelTracked: boolean;
   hasBody: boolean;
   hasCollider: boolean;
+  resourceRecipe?: EditorPhysicsResourceRecipe;
 }>;
 export type EditorHierarchyState =
   | Readonly<{ type: "rename"; id: string; name: string }>

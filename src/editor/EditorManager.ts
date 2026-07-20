@@ -21,6 +21,7 @@ import {
   buildVisibilityCommand,
   type EditorHierarchyState,
   type EditorMaterialState,
+  type EditorPhysicsResourceRecipe,
   type EditorPhysicsState,
   type EditorPhysicsType,
   type EditorSerializedMaterialState,
@@ -1638,6 +1639,7 @@ export class EditorManager {
       levelTracked: before.levelTracked,
       hasBody: true,
       hasCollider: true,
+      resourceRecipe: this.createPhysicsResourceRecipe(obj, type, true, true, false),
     });
     const result = buildSetPhysicsTypeCommand(this, id, before, after);
     if (result.ok) this.history.push(result.command);
@@ -1649,6 +1651,13 @@ export class EditorManager {
       levelTracked: this.levelManager.getLevelObjects().includes(obj.mesh),
       hasBody: obj.body !== undefined,
       hasCollider: obj.collider !== undefined,
+      resourceRecipe: this.createPhysicsResourceRecipe(
+        obj,
+        obj.physicsType ?? "static",
+        obj.body !== undefined,
+        obj.collider !== undefined,
+        true,
+      ),
     });
   }
 
@@ -1662,19 +1671,11 @@ export class EditorManager {
       return false;
     }
 
-    const pose = getObjectWorldPhysicsPose(obj.mesh);
-    const bodyDesc = state.hasBody
-      ? state.type === "static"
-        ? RAPIER.RigidBodyDesc.fixed()
-        : state.type === "kinematic"
-          ? RAPIER.RigidBodyDesc.kinematicPositionBased()
-          : RAPIER.RigidBodyDesc.dynamic()
-      : undefined;
-    bodyDesc?.setTranslation(pose.position.x, pose.position.y, pose.position.z);
-    bodyDesc?.setRotation(new RAPIER.Quaternion(pose.rotation.x, pose.rotation.y, pose.rotation.z, pose.rotation.w));
-    let colliderDesc: RAPIER.ColliderDesc | undefined;
+    let recipe: EditorPhysicsResourceRecipe;
     try {
-      colliderDesc = state.hasCollider ? this.buildEditorColliderDesc(obj, pose.scale) : undefined;
+      recipe =
+        state.resourceRecipe ??
+        this.createPhysicsResourceRecipe(obj, state.type, state.hasBody, state.hasCollider, false);
     } catch (error) {
       this.showPhysicsMutationError(`Physics type change failed; the existing physics was kept. ${String(error)}`);
       this.inspectorPanel.setSelection(obj);
@@ -1700,6 +1701,13 @@ export class EditorManager {
         tracking: this.levelManager.getLevelObjectTracking(obj.mesh),
       },
     };
+    const currentRecipe = this.createPhysicsResourceRecipe(
+      obj,
+      current.tracking.type,
+      current.body !== undefined,
+      current.collider !== undefined,
+      true,
+    );
     const publish = (resources: Resources): void => {
       if (this.levelManager.getLevelObjects().includes(obj.mesh)) {
         this.levelManager.updateLevelObjectPhysics(obj.mesh, {
@@ -1719,9 +1727,60 @@ export class EditorManager {
       if (resources.body) this.physicsWorld.removeBody(resources.body);
       else if (resources.collider) this.physicsWorld.removeCollider(resources.collider);
     };
+    const createBody = (resourceRecipe: EditorPhysicsResourceRecipe): RAPIER.RigidBody | undefined =>
+      resourceRecipe.bodyDesc ? this.physicsWorld.world.createRigidBody(resourceRecipe.bodyDesc) : undefined;
+    const createCollider = (
+      resourceRecipe: EditorPhysicsResourceRecipe,
+      body: RAPIER.RigidBody | undefined,
+    ): RAPIER.Collider | undefined => {
+      if (!resourceRecipe.colliderDesc) return undefined;
+      if (resourceRecipe.colliderAttachedToBody && !body) {
+        throw new Error("Cannot recreate an attached collider without its rigid body.");
+      }
+      return this.physicsWorld.world.createCollider(
+        resourceRecipe.colliderDesc,
+        resourceRecipe.colliderAttachedToBody ? body : undefined,
+      );
+    };
+    const createResources = (resourceRecipe: EditorPhysicsResourceRecipe, publication: Publication): Resources => {
+      const body = createBody(resourceRecipe);
+      let collider: RAPIER.Collider | undefined;
+      try {
+        collider = createCollider(resourceRecipe, body);
+      } catch (error) {
+        if (body) {
+          try {
+            this.physicsWorld.removeBody(body);
+          } catch (cleanupError) {
+            throw new Error(`${String(error)} Rollback cleanup failed: ${String(cleanupError)}`);
+          }
+        }
+        throw error;
+      }
+      return {
+        body,
+        collider,
+        tracking: {
+          type: publication.type,
+          levelTracked: publication.levelTracked,
+          tracking: publication.levelTracked
+            ? this.createLevelObjectTracking(obj, { type: publication.type, body, collider })
+            : {},
+        },
+      };
+    };
+    const resourceIsLive = (resource: RAPIER.RigidBody | RAPIER.Collider | undefined): boolean => {
+      if (!resource) return true;
+      if (typeof resource.isValid !== "function") return true;
+      try {
+        return resource.isValid();
+      } catch {
+        return false;
+      }
+    };
     const result = replacePhysicsResourcesAtomically(current, {
-      createBody: () => (bodyDesc ? this.physicsWorld.world.createRigidBody(bodyDesc) : undefined),
-      createCollider: (body) => (colliderDesc ? this.physicsWorld.world.createCollider(colliderDesc, body) : undefined),
+      createBody: () => createBody(recipe),
+      createCollider: (body) => createCollider(recipe, body),
       createTracking: (body, collider) => ({
         type: state.type,
         levelTracked: state.levelTracked,
@@ -1732,6 +1791,8 @@ export class EditorManager {
       retireCurrent: retire,
       removeBody: (body) => this.physicsWorld.removeBody(body),
       removeCollider: (collider) => this.physicsWorld.removeCollider(collider),
+      isCurrentLive: (resources) => resourceIsLive(resources.body) && resourceIsLive(resources.collider),
+      recreateCurrent: () => createResources(currentRecipe, current.tracking),
     });
     if (!result.ok) {
       console.error("[Editor] Physics type change failed:", result.reason);
@@ -1991,9 +2052,30 @@ export class EditorManager {
     ).setTranslation(bounds.center.x, bounds.center.y, bounds.center.z);
   }
 
-  private prepareEditorColliderRestore(obj: EditorObject, collider: RAPIER.Collider): () => RAPIER.Collider {
-    const translation = collider.translationWrtParent();
-    const rotation = collider.rotationWrtParent();
+  private snapshotEditorColliderDesc(collider: RAPIER.Collider, attachedToBody: boolean): RAPIER.ColliderDesc | null {
+    const candidate = collider as unknown as Record<string, unknown>;
+    const requiredMethods = [
+      attachedToBody ? "translationWrtParent" : "translation",
+      attachedToBody ? "rotationWrtParent" : "rotation",
+      "isSensor",
+      "isEnabled",
+      "friction",
+      "restitution",
+      "mass",
+      "frictionCombineRule",
+      "restitutionCombineRule",
+      "collisionGroups",
+      "solverGroups",
+      "activeHooks",
+      "activeEvents",
+      "activeCollisionTypes",
+      "contactForceEventThreshold",
+      "contactSkin",
+    ];
+    if (!candidate.shape || requiredMethods.some((method) => typeof candidate[method] !== "function")) return null;
+
+    const translation = attachedToBody ? collider.translationWrtParent() : collider.translation();
+    const rotation = attachedToBody ? collider.rotationWrtParent() : collider.rotation();
     const desc = new RAPIER.ColliderDesc(collider.shape)
       .setSensor(collider.isSensor())
       .setEnabled(collider.isEnabled())
@@ -2011,6 +2093,73 @@ export class EditorManager {
       .setContactSkin(collider.contactSkin());
     if (translation) desc.setTranslation(translation.x, translation.y, translation.z);
     if (rotation) desc.setRotation(rotation);
+    return desc;
+  }
+
+  private createPhysicsResourceRecipe(
+    obj: EditorObject,
+    type: EditorPhysicsType,
+    hasBody: boolean,
+    hasCollider: boolean,
+    preserveLiveResources: boolean,
+  ): EditorPhysicsResourceRecipe {
+    const pose = getObjectWorldPhysicsPose(obj.mesh);
+    let bodyDesc: RAPIER.RigidBodyDesc | undefined;
+    if (hasBody) {
+      bodyDesc =
+        type === "static"
+          ? RAPIER.RigidBodyDesc.fixed()
+          : type === "kinematic"
+            ? RAPIER.RigidBodyDesc.kinematicPositionBased()
+            : RAPIER.RigidBodyDesc.dynamic();
+      let bodyPosition = pose.position;
+      let bodyRotation = pose.rotation;
+      if (
+        preserveLiveResources &&
+        obj.body &&
+        typeof obj.body.translation === "function" &&
+        typeof obj.body.rotation === "function"
+      ) {
+        bodyPosition = obj.body.translation() as THREE.Vector3;
+        bodyRotation = obj.body.rotation() as THREE.Quaternion;
+      }
+      bodyDesc.setTranslation(bodyPosition.x, bodyPosition.y, bodyPosition.z);
+      bodyDesc.setRotation(new RAPIER.Quaternion(bodyRotation.x, bodyRotation.y, bodyRotation.z, bodyRotation.w));
+    }
+
+    let colliderDesc: RAPIER.ColliderDesc | undefined;
+    if (hasCollider) {
+      colliderDesc =
+        preserveLiveResources && obj.collider
+          ? (this.snapshotEditorColliderDesc(obj.collider, hasBody) ?? undefined)
+          : undefined;
+      if (!colliderDesc) {
+        colliderDesc = this.buildEditorColliderDesc(obj, pose.scale);
+        if (!hasBody) {
+          const localPosition = new THREE.Vector3(
+            colliderDesc.translation.x,
+            colliderDesc.translation.y,
+            colliderDesc.translation.z,
+          );
+          const localRotation = new THREE.Quaternion(
+            colliderDesc.rotation.x,
+            colliderDesc.rotation.y,
+            colliderDesc.rotation.z,
+            colliderDesc.rotation.w,
+          );
+          const worldPosition = localPosition.applyQuaternion(pose.rotation).add(pose.position);
+          const worldRotation = pose.rotation.clone().multiply(localRotation);
+          colliderDesc.setTranslation(worldPosition.x, worldPosition.y, worldPosition.z);
+          colliderDesc.setRotation(worldRotation);
+        }
+      }
+    }
+    return Object.freeze({ bodyDesc, colliderDesc, colliderAttachedToBody: hasBody });
+  }
+
+  private prepareEditorColliderRestore(obj: EditorObject, collider: RAPIER.Collider): () => RAPIER.Collider {
+    const desc = this.snapshotEditorColliderDesc(collider, true);
+    if (!desc) throw new Error("Cannot capture the collider restore recipe.");
     return () => {
       if (!obj.body) throw new Error("Cannot restore a collider without its rigid body.");
       return this.physicsWorld.world.createCollider(desc, obj.body);
@@ -2070,8 +2219,12 @@ export class EditorManager {
     this.restoreObjectTransform(obj, before);
     const restored = this.syncPhysicsSubtree(obj, false);
     if (!restored.ok) {
+      const reconciled = this.syncPhysicsSubtree(obj, false);
       this.inspectorPanel.setSelection(obj);
-      this.showPhysicsMutationError(`Transform failed; the preview could not be restored. ${restored.reason}`);
+      const rollbackFailure = reconciled.ok ? "" : ` Rollback pose reconciliation also failed. ${reconciled.reason}`;
+      this.showPhysicsMutationError(
+        `Transform failed; the preview could not be restored. ${restored.reason}${rollbackFailure}`,
+      );
       return false;
     }
     const result = buildSetTransformCommand(this, obj.id, before, after);

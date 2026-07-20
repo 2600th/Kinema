@@ -209,6 +209,192 @@ function makeManager(selected: EditorObject): EditorManagerHarness {
   return manager;
 }
 
+type PhysicsFailurePhase =
+  | "allocation"
+  | "collider"
+  | "publication"
+  | "destructive-retirement"
+  | "replacement-cleanup"
+  | "restoration";
+
+type FakePhysicsBody = {
+  id: string;
+  live: boolean;
+  setEnabled: ReturnType<typeof vi.fn>;
+  isValid(): boolean;
+};
+
+type FakePhysicsCollider = {
+  id: string;
+  live: boolean;
+  body?: FakePhysicsBody;
+  setEnabled: ReturnType<typeof vi.fn>;
+  isValid(): boolean;
+};
+
+function makePhysicsFailureHarness(phase: PhysicsFailurePhase) {
+  const scene = new THREE.Scene();
+  const liveBodies = new Set<FakePhysicsBody>();
+  const liveColliders = new Set<FakePhysicsCollider>();
+  const removedBodies: FakePhysicsBody[] = [];
+  const removedColliders: FakePhysicsCollider[] = [];
+  let nextBody = 0;
+  let nextCollider = 0;
+  const makeBody = (id: string): FakePhysicsBody => {
+    const body = {
+      id,
+      live: true,
+      setEnabled: vi.fn(),
+      isValid() {
+        return this.live;
+      },
+    };
+    liveBodies.add(body);
+    return body;
+  };
+  const makeCollider = (id: string, body?: FakePhysicsBody): FakePhysicsCollider => {
+    const collider = {
+      id,
+      body,
+      live: true,
+      setEnabled: vi.fn(),
+      isValid() {
+        return this.live;
+      },
+    };
+    liveColliders.add(collider);
+    return collider;
+  };
+  const destroyBody = (body: FakePhysicsBody): void => {
+    body.live = false;
+    liveBodies.delete(body);
+    for (const collider of [...liveColliders]) {
+      if (collider.body !== body) continue;
+      collider.live = false;
+      liveColliders.delete(collider);
+    }
+  };
+  const destroyCollider = (collider: FakePhysicsCollider): void => {
+    collider.live = false;
+    liveColliders.delete(collider);
+  };
+
+  const oldBody = makeBody("old-body");
+  const oldCollider = makeCollider("old-collider", oldBody);
+  const createRigidBody = vi.fn(() => {
+    if (phase === "allocation") throw new Error("body allocation failed");
+    return makeBody(`replacement-body-${++nextBody}`);
+  });
+  const createCollider = vi.fn((_desc: RAPIER.ColliderDesc, body?: FakePhysicsBody) => {
+    if (phase === "collider" || phase === "replacement-cleanup") {
+      throw new Error("collider creation failed");
+    }
+    return makeCollider(`replacement-collider-${++nextCollider}`, body);
+  });
+  const removeBody = vi.fn((body: FakePhysicsBody) => {
+    removedBodies.push(body);
+    if (phase === "destructive-retirement" && body === oldBody) {
+      destroyBody(body);
+      throw new Error("old body retirement failed after destruction");
+    }
+    if (phase === "replacement-cleanup" && body !== oldBody) {
+      destroyBody(body);
+      throw new Error("replacement cleanup failed after destruction");
+    }
+    destroyBody(body);
+  });
+  const removeCollider = vi.fn((collider: FakePhysicsCollider) => {
+    removedColliders.push(collider);
+    destroyCollider(collider);
+  });
+  const physicsWorld = {
+    world: { createRigidBody, createCollider },
+    removeBody,
+    removeCollider,
+  } as unknown as PhysicsWorld;
+  const levelManager = new LevelManager(scene, physicsWorld, new EventBus());
+  const document = new EditorDocument(scene, physicsWorld);
+  const target = makeObject();
+  target.body = oldBody as unknown as RAPIER.RigidBody;
+  target.collider = oldCollider as unknown as RAPIER.Collider;
+  scene.add(target.mesh);
+  document.objects = [target];
+  document.selected = target;
+  levelManager.addLevelObject(target.mesh, {
+    physics: { body: target.body, collider: target.collider },
+  });
+
+  const originalAdd = levelManager.addLevelObject.bind(levelManager);
+  if (phase === "publication" || phase === "restoration") {
+    let failedPublications = 0;
+    vi.spyOn(levelManager, "addLevelObject").mockImplementation((mesh, options) => {
+      originalAdd(mesh, options);
+      if (failedPublications === 0) {
+        failedPublications += 1;
+        throw new Error("replacement LevelManager publication failed");
+      }
+      if (phase === "restoration" && failedPublications === 1) {
+        failedPublications += 1;
+        throw new Error("current LevelManager restoration failed");
+      }
+    });
+  }
+
+  const dirty = vi.fn();
+  const manager = Object.create(EditorManager.prototype) as PhysicsTypeManagerHarness;
+  Object.assign(manager, {
+    guardDocumentMutation: () => true,
+    document,
+    physicsWorld,
+    levelManager,
+    inspectorPanel: { setSelection: vi.fn() },
+    showPhysicsMutationError: vi.fn(),
+    markDirty: dirty,
+    history: new CommandHistory(dirty),
+  });
+  const metadataKey = "__kinemaLevelObjectPhysics";
+  const project = () => {
+    const tracking = levelManager.getLevelObjectTracking(target.mesh);
+    const internals = levelManager as unknown as {
+      levelBodies: RAPIER.RigidBody[];
+      levelColliders: RAPIER.Collider[];
+      objectPhysics: Map<THREE.Object3D, { body?: RAPIER.RigidBody; collider?: RAPIER.Collider }>;
+    };
+    const metadata = target.mesh.userData[metadataKey] as
+      | { body?: RAPIER.RigidBody; collider?: RAPIER.Collider }
+      | undefined;
+    return {
+      type: target.physicsType,
+      body: target.body,
+      collider: target.collider,
+      tracked: levelManager.getLevelObjects().includes(target.mesh),
+      dynamicBody: levelManager.getDynamicBodies()[0]?.body,
+      trackingBody: tracking.physics?.body,
+      trackingCollider: tracking.physics?.collider,
+      levelBodies: [...internals.levelBodies],
+      levelColliders: [...internals.levelColliders],
+      mapBody: internals.objectPhysics.get(target.mesh)?.body,
+      mapCollider: internals.objectPhysics.get(target.mesh)?.collider,
+      metadataBody: metadata?.body,
+      metadataCollider: metadata?.collider,
+      liveBodies: [...liveBodies],
+      liveColliders: [...liveColliders],
+    };
+  };
+  return {
+    manager,
+    target,
+    oldBody,
+    oldCollider,
+    dirty,
+    project,
+    removedBodies,
+    removedColliders,
+    liveBodies,
+    liveColliders,
+  };
+}
+
 function makeTrackedObject(
   id: string,
   parentId: string | null,
@@ -459,6 +645,40 @@ describe("EditorManager inspector transform transactions", () => {
     expect(manager.showPhysicsMutationError).toHaveBeenCalledWith(
       expect.stringMatching(/reverted.*second descendant/i),
     );
+  });
+
+  it("reconciles the before body pose when preliminary inspector restore sync rolls back to preview", () => {
+    const selected = makeObject();
+    const manager = makeManager(selected);
+    const before: TransformTuple = { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] };
+    const after: TransformTuple = { position: [7, 8, 9], rotation: [0.2, 0.3, 0.4], scale: [1, 1, 1] };
+    const bodyPose = { position: [...before.position], rotation: [...before.rotation] };
+    selected.body = { id: "body" } as unknown as RAPIER.RigidBody;
+    manager.history = new CommandHistory(() => (manager.markDirty as unknown as () => void)());
+    let failPreliminaryRestore = true;
+    manager.syncPhysicsSubtree = vi.fn((root: EditorObject) => {
+      const previous = structuredClone(bodyPose);
+      bodyPose.position = root.mesh.position.toArray();
+      bodyPose.rotation = root.mesh.rotation.toArray().slice(0, 3) as number[];
+      if (root.mesh.position.x === before.position[0] && failPreliminaryRestore) {
+        failPreliminaryRestore = false;
+        bodyPose.position = previous.position;
+        bodyPose.rotation = previous.rotation;
+        return { ok: false, reason: "preliminary pose sync failed and rolled back" };
+      }
+      return { ok: true };
+    });
+
+    manager.applyInspectorTransform(after, "preview");
+    manager.applyInspectorTransform(after, "commit");
+
+    expect(selected.mesh.position.toArray()).toEqual(before.position);
+    expect(selected.mesh.rotation.toArray().slice(0, 3)).toEqual(before.rotation);
+    expect(selected.transform).toEqual(before);
+    expect(bodyPose).toEqual({ position: before.position, rotation: before.rotation });
+    expect(manager.history.undo()).toBe(false);
+    expect(manager.markDirty).not.toHaveBeenCalled();
+    expect(manager.showPhysicsMutationError).toHaveBeenCalledWith(expect.stringMatching(/preliminary/i));
   });
 });
 
@@ -840,6 +1060,90 @@ describe("EditorManager scalar and material history transactions", () => {
 });
 
 describe("EditorManager gizmo history transactions", () => {
+  it("reconciles the before body pose when preliminary gizmo restore sync rolls back to preview", () => {
+    const selected = makeObject();
+    const manager = makeManager(selected);
+    const before: TransformTuple = { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] };
+    const after: TransformTuple = { position: [5, 6, 7], rotation: [0.4, 0.3, 0.2], scale: [1, 1, 1] };
+    const bodyPose = { position: [...after.position], rotation: [...after.rotation] };
+    selected.body = { id: "body" } as unknown as RAPIER.RigidBody;
+    selected.mesh.position.fromArray(after.position);
+    selected.mesh.rotation.set(...after.rotation);
+    selected.transform = structuredClone(after);
+    manager.dragStartTransform = before;
+    manager.history = new CommandHistory(() => (manager.markDirty as unknown as () => void)());
+    let failPreliminaryRestore = true;
+    manager.syncPhysicsSubtree = vi.fn((root: EditorObject) => {
+      const previous = structuredClone(bodyPose);
+      bodyPose.position = root.mesh.position.toArray();
+      bodyPose.rotation = root.mesh.rotation.toArray().slice(0, 3) as number[];
+      if (failPreliminaryRestore) {
+        failPreliminaryRestore = false;
+        bodyPose.position = previous.position;
+        bodyPose.rotation = previous.rotation;
+        return { ok: false, reason: "preliminary pose sync failed and rolled back" };
+      }
+      return { ok: true };
+    });
+
+    manager.onDragStateChanged(false);
+
+    expect(selected.mesh.position.toArray()).toEqual(before.position);
+    expect(selected.mesh.rotation.toArray().slice(0, 3)).toEqual(before.rotation);
+    expect(selected.transform).toEqual(before);
+    expect(bodyPose).toEqual({ position: before.position, rotation: before.rotation });
+    expect(manager.history.undo()).toBe(false);
+    expect(manager.markDirty).not.toHaveBeenCalled();
+    expect(manager.showPhysicsMutationError).toHaveBeenCalledWith(expect.stringMatching(/preliminary/i));
+  });
+
+  it("commits one successful gizmo transform and round-trips exact local state", () => {
+    const selected = makeObject();
+    const manager = makeManager(selected);
+    const before: TransformTuple = structuredClone(selected.transform);
+    const after: TransformTuple = { position: [3, 2, 1], rotation: [0.4, 0.5, 0.6], scale: [2, 3, 4] };
+    const bodyPose = { position: [...before.position], rotation: [...before.rotation] };
+    selected.body = { id: "body" } as unknown as RAPIER.RigidBody;
+    manager.history = new CommandHistory(() => (manager.markDirty as unknown as () => void)());
+    manager.syncPhysicsSubtree = vi.fn((root: EditorObject) => {
+      bodyPose.position = root.mesh.position.toArray();
+      bodyPose.rotation = root.mesh.rotation.toArray().slice(0, 3) as number[];
+      return { ok: true };
+    });
+
+    manager.onDragStateChanged(true);
+    selected.mesh.position.fromArray(after.position);
+    selected.mesh.rotation.set(...after.rotation);
+    selected.mesh.scale.fromArray(after.scale);
+    selected.transform = structuredClone(after);
+    bodyPose.position = [...after.position];
+    bodyPose.rotation = [...after.rotation];
+    manager.onDragStateChanged(false);
+    manager.onDragStateChanged(false);
+
+    expect(manager.markDirty).toHaveBeenCalledOnce();
+    expect(manager.history.undo()).toBe(true);
+    expect(selected.transform).toEqual(before);
+    expect(bodyPose).toEqual({ position: before.position, rotation: before.rotation });
+    expect(manager.history.redo()).toBe(true);
+    expect(selected.transform).toEqual(after);
+    expect(bodyPose).toEqual({ position: after.position, rotation: after.rotation });
+    expect(manager.markDirty).toHaveBeenCalledTimes(3);
+  });
+
+  it.each<[string, TransformTuple]>([
+    ["translation", { position: [9, 8, 7], rotation: [0, 0, 0], scale: [1, 1, 1] }],
+    ["rotation", { position: [0, 0, 0], rotation: [0.7, 0.8, 0.9], scale: [1, 1, 1] }],
+  ])("does not rebuild colliders for a pure %s replay", (_label, transform) => {
+    const selected = makeObject();
+    const manager = makeManager(selected);
+    manager.syncPhysicsSubtree = vi.fn(() => ({ ok: true }));
+
+    expect(manager.applyTransform(selected.id, transform)).toBe(true);
+
+    expect(manager.syncPhysicsSubtree).toHaveBeenCalledWith(selected, false);
+  });
+
   it("rolls a failed gizmo commit back and does not dirty or retain history", () => {
     const selected = makeObject();
     const manager = makeManager(selected);
@@ -1011,6 +1315,103 @@ describe("EditorManager gizmo history transactions", () => {
 });
 
 describe("EditorManager physics type history transactions", () => {
+  it.each([
+    "allocation",
+    "collider",
+    "publication",
+  ] as const)("keeps the complete live physics projection unchanged when %s fails", (phase) => {
+    const harness = makePhysicsFailureHarness(phase);
+    const before = harness.project();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    harness.manager.applyPhysicsTypeChange(harness.target.id, "dynamic");
+
+    expect(harness.project()).toEqual(before);
+    expect(harness.oldBody.isValid()).toBe(true);
+    expect(harness.oldCollider.isValid()).toBe(true);
+    expect(harness.manager.history.undo()).toBe(false);
+    expect(harness.dirty).not.toHaveBeenCalled();
+    expect(harness.manager.showPhysicsMutationError).toHaveBeenCalledWith(expect.stringMatching(new RegExp(phase)));
+    const replacementRemovals = harness.removedBodies.filter((body) => body !== harness.oldBody);
+    expect(replacementRemovals).toHaveLength(phase === "allocation" ? 0 : 1);
+    expect(new Set(replacementRemovals).size).toBe(replacementRemovals.length);
+    expect(harness.removedBodies).not.toContain(harness.oldBody);
+    expect(harness.removedColliders).not.toContain(harness.oldCollider);
+    consoleError.mockRestore();
+  });
+
+  it("recreates the previous recipe instead of republishing destroyed handles after destructive retirement", () => {
+    const harness = makePhysicsFailureHarness("destructive-retirement");
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    harness.manager.applyPhysicsTypeChange(harness.target.id, "dynamic");
+
+    const restored = harness.project();
+    expect(restored).toMatchObject({
+      type: "static",
+      body: restored.body,
+      collider: restored.collider,
+      tracked: true,
+      dynamicBody: undefined,
+      trackingBody: restored.body,
+      trackingCollider: restored.collider,
+      levelBodies: [restored.body],
+      levelColliders: [restored.collider],
+      mapBody: restored.body,
+      mapCollider: restored.collider,
+      metadataBody: restored.body,
+      metadataCollider: restored.collider,
+      liveBodies: [restored.body],
+      liveColliders: [restored.collider],
+    });
+    expect(restored.body).not.toBe(harness.oldBody);
+    expect(restored.collider).not.toBe(harness.oldCollider);
+    expect((restored.body as unknown as FakePhysicsBody).isValid()).toBe(true);
+    expect((restored.collider as unknown as FakePhysicsCollider).isValid()).toBe(true);
+    expect(harness.oldBody.isValid()).toBe(false);
+    expect(harness.oldCollider.isValid()).toBe(false);
+    const replacementRemovals = harness.removedBodies.filter((body) => body !== harness.oldBody);
+    expect(replacementRemovals).toHaveLength(1);
+    expect(harness.manager.history.undo()).toBe(false);
+    expect(harness.dirty).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it("reports replacement cleanup failure without retrying cleanup or retaining partial resources", () => {
+    const harness = makePhysicsFailureHarness("replacement-cleanup");
+    const before = harness.project();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    harness.manager.applyPhysicsTypeChange(harness.target.id, "dynamic");
+
+    expect(harness.project()).toEqual(before);
+    const replacementRemovals = harness.removedBodies.filter((body) => body !== harness.oldBody);
+    expect(replacementRemovals).toHaveLength(1);
+    expect(new Set(replacementRemovals).size).toBe(1);
+    expect(harness.liveBodies).toEqual(new Set([harness.oldBody]));
+    expect(harness.manager.showPhysicsMutationError).toHaveBeenCalledWith(expect.stringMatching(/rollback.*cleanup/i));
+    expect(harness.manager.history.undo()).toBe(false);
+    expect(harness.dirty).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it("reports restoration failure while leaving the prior live projection coherent", () => {
+    const harness = makePhysicsFailureHarness("restoration");
+    const before = harness.project();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    harness.manager.applyPhysicsTypeChange(harness.target.id, "dynamic");
+
+    expect(harness.project()).toEqual(before);
+    const replacementRemovals = harness.removedBodies.filter((body) => body !== harness.oldBody);
+    expect(replacementRemovals).toHaveLength(1);
+    expect(new Set(replacementRemovals).size).toBe(1);
+    expect(harness.manager.showPhysicsMutationError).toHaveBeenCalledWith(expect.stringMatching(/rollback.*restor/i));
+    expect(harness.manager.history.undo()).toBe(false);
+    expect(harness.dirty).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
   it("recreates fresh static and dynamic handles across change, undo, and redo", () => {
     const scene = new THREE.Scene();
     const removeBody = vi.fn();
@@ -1100,9 +1501,36 @@ describe("EditorManager physics type history transactions", () => {
     });
     expect(dynamicRedo.body).not.toBe(dynamicFirst.body);
     expect(dynamicRedo.body).not.toBe(restoredStatic.body);
-    expect(removeBody.mock.calls.map(([body]) => body)).toEqual([oldBody, dynamicFirst.body, restoredStatic.body]);
+    manager.applyPhysicsTypeChange(target.id, "kinematic");
+    const kinematicFirst = projection();
+    expect(kinematicFirst).toMatchObject({
+      type: "kinematic",
+      tracked: true,
+      trackedBody: kinematicFirst.body,
+      trackedCollider: kinematicFirst.collider,
+      dynamicBody: undefined,
+      levelBodies: [kinematicFirst.body],
+      levelColliders: [kinematicFirst.collider],
+    });
+    expect(manager.history.undo()).toBe(true);
+    const restoredDynamic = projection();
+    expect(restoredDynamic.type).toBe("dynamic");
+    expect(restoredDynamic.dynamicBody).toBe(restoredDynamic.body);
+    expect(manager.history.redo()).toBe(true);
+    const kinematicRedo = projection();
+    expect(kinematicRedo.type).toBe("kinematic");
+    expect(kinematicRedo.dynamicBody).toBeUndefined();
+    expect(kinematicRedo.body).not.toBe(kinematicFirst.body);
+    expect(removeBody.mock.calls.map(([body]) => body)).toEqual([
+      oldBody,
+      dynamicFirst.body,
+      restoredStatic.body,
+      dynamicRedo.body,
+      kinematicFirst.body,
+      restoredDynamic.body,
+    ]);
     expect(removeCollider).not.toHaveBeenCalled();
-    expect(dirty).toHaveBeenCalledTimes(3);
+    expect(dirty).toHaveBeenCalledTimes(6);
   });
 
   it("restores an originally body-less tracked object without retaining destroyed replacement tracking", () => {
@@ -1149,6 +1577,156 @@ describe("EditorManager physics type history transactions", () => {
     expect(restoredTracking.physics?.collider).toBeUndefined();
     expect(removeBody).toHaveBeenCalledOnce();
     expect(removeBody).toHaveBeenCalledWith(replacementBody);
+  });
+
+  it("round-trips a translated and rotated standalone collider with its exact descriptor recipe", () => {
+    const scene = new THREE.Scene();
+    const createdColliderDescs: Array<{ desc: RAPIER.ColliderDesc; body?: FakePhysicsBody }> = [];
+    const liveBodies = new Set<FakePhysicsBody>();
+    const liveColliders = new Set<FakePhysicsCollider>();
+    let bodyId = 0;
+    let colliderId = 0;
+    const createRigidBody = vi.fn(() => {
+      const body: FakePhysicsBody = {
+        id: `body-${++bodyId}`,
+        live: true,
+        setEnabled: vi.fn(),
+        isValid() {
+          return this.live;
+        },
+      };
+      liveBodies.add(body);
+      return body;
+    });
+    const createCollider = vi.fn((desc: RAPIER.ColliderDesc, body?: FakePhysicsBody) => {
+      createdColliderDescs.push({ desc, body });
+      const collider: FakePhysicsCollider = {
+        id: `collider-${++colliderId}`,
+        body,
+        live: true,
+        setEnabled: vi.fn(),
+        isValid() {
+          return this.live;
+        },
+      };
+      liveColliders.add(collider);
+      return collider;
+    });
+    const removeBody = vi.fn((body: FakePhysicsBody) => {
+      body.live = false;
+      liveBodies.delete(body);
+      for (const collider of [...liveColliders]) {
+        if (collider.body !== body) continue;
+        collider.live = false;
+        liveColliders.delete(collider);
+      }
+    });
+    const removeCollider = vi.fn((collider: FakePhysicsCollider) => {
+      collider.live = false;
+      liveColliders.delete(collider);
+    });
+    const physicsWorld = {
+      world: { createRigidBody, createCollider },
+      removeBody,
+      removeCollider,
+    } as unknown as PhysicsWorld;
+    const levelManager = new LevelManager(scene, physicsWorld, new EventBus());
+    const document = new EditorDocument(scene, physicsWorld);
+    const target = makeObject();
+    target.mesh.position.set(4.5, -2.25, 7.75);
+    target.mesh.rotation.set(0.35, -0.6, 0.2);
+    target.mesh.updateWorldMatrix(true, true);
+    target.transform.position = target.mesh.position.toArray();
+    target.transform.rotation = target.mesh.rotation.toArray().slice(0, 3) as [number, number, number];
+    const worldPosition = target.mesh.getWorldPosition(new THREE.Vector3());
+    const worldRotation = target.mesh.getWorldQuaternion(new THREE.Quaternion());
+    const oldCollider = {
+      id: "standalone-old",
+      live: true,
+      shape: RAPIER.ColliderDesc.cuboid(0.5, 0.75, 1.25).shape,
+      setEnabled: vi.fn(),
+      isValid() {
+        return this.live;
+      },
+      translation: () => worldPosition,
+      rotation: () => worldRotation,
+      translationWrtParent: () => null,
+      rotationWrtParent: () => null,
+      isSensor: () => true,
+      isEnabled: () => false,
+      friction: () => 0.37,
+      restitution: () => 0.62,
+      density: () => 9,
+      mass: () => 7.5,
+      frictionCombineRule: () => 2,
+      restitutionCombineRule: () => 3,
+      collisionGroups: () => 0x12340056,
+      solverGroups: () => 0x43210065,
+      activeHooks: () => 4,
+      activeEvents: () => 5,
+      activeCollisionTypes: () => 6,
+      contactForceEventThreshold: () => 8.5,
+      contactSkin: () => 0.0125,
+    };
+    liveColliders.add(oldCollider as unknown as FakePhysicsCollider);
+    target.collider = oldCollider as unknown as RAPIER.Collider;
+    scene.add(target.mesh);
+    document.objects = [target];
+    document.selected = target;
+    levelManager.addLevelObject(target.mesh, { physics: { collider: target.collider } });
+    const manager = Object.create(EditorManager.prototype) as PhysicsTypeManagerHarness;
+    Object.assign(manager, {
+      guardDocumentMutation: () => true,
+      document,
+      physicsWorld,
+      levelManager,
+      inspectorPanel: { setSelection: vi.fn() },
+      showPhysicsMutationError: vi.fn(),
+      markDirty: vi.fn(),
+      history: new CommandHistory(),
+    });
+
+    manager.applyPhysicsTypeChange(target.id, "dynamic");
+    expect(manager.history.undo()).toBe(true);
+
+    const standaloneCreation = [...createdColliderDescs].reverse().find(({ body }) => body === undefined);
+    expect(standaloneCreation).toBeDefined();
+    const restoredDesc = standaloneCreation?.desc;
+    expect(restoredDesc?.translation).toMatchObject({
+      x: expect.closeTo(worldPosition.x, 8),
+      y: expect.closeTo(worldPosition.y, 8),
+      z: expect.closeTo(worldPosition.z, 8),
+    });
+    expect(restoredDesc?.rotation).toMatchObject({
+      x: expect.closeTo(worldRotation.x, 8),
+      y: expect.closeTo(worldRotation.y, 8),
+      z: expect.closeTo(worldRotation.z, 8),
+      w: expect.closeTo(worldRotation.w, 8),
+    });
+    expect(restoredDesc).toMatchObject({
+      isSensor: true,
+      enabled: false,
+      friction: 0.37,
+      restitution: 0.62,
+      massPropsMode: RAPIER.MassPropsMode.Mass,
+      mass: 7.5,
+      frictionCombineRule: 2,
+      restitutionCombineRule: 3,
+      collisionGroups: 0x12340056,
+      solverGroups: 0x43210065,
+      activeHooks: 4,
+      activeEvents: 5,
+      activeCollisionTypes: 6,
+      contactForceEventThreshold: 8.5,
+      contactSkin: 0.0125,
+    });
+    expect(target.body).toBeUndefined();
+    expect(target.collider).toBeDefined();
+    expect(levelManager.getLevelObjectTracking(target.mesh).physics).toEqual({ collider: target.collider });
+    expect(manager.history.redo()).toBe(true);
+    expect(target.physicsType).toBe("dynamic");
+    expect(target.body).toBeDefined();
+    expect(target.collider).toBeDefined();
   });
 });
 

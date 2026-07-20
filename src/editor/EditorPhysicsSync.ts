@@ -34,9 +34,11 @@ export type AtomicPhysicsReplacementOptions<TBody, TCollider, TTracking> = {
   retireCurrent(current: AtomicPhysicsResourceSnapshot<TBody, TCollider, TTracking>): void;
   removeBody(body: TBody): void;
   removeCollider(collider: TCollider): void;
+  isCurrentLive?(current: AtomicPhysicsResourceSnapshot<TBody, TCollider, TTracking>): boolean;
+  recreateCurrent?(): AtomicPhysicsResourceSnapshot<TBody, TCollider, TTracking>;
 };
 
-function physicsReplacementFailure(phase: string, error: unknown): PhysicsTransformValidationResult {
+function physicsReplacementFailure(phase: string, error: unknown): { ok: false; reason: string } {
   const detail = error instanceof Error ? error.message : String(error);
   return { ok: false, reason: `Physics ${phase} failed. ${detail}` };
 }
@@ -48,15 +50,51 @@ export function replacePhysicsResourcesAtomically<TBody, TCollider, TTracking>(
   let body: TBody | undefined;
   let collider: TCollider | undefined;
   let removed = false;
-  const removeReplacement = (): void => {
-    if (removed) return;
+  const removeReplacement = (): unknown => {
+    if (removed) return undefined;
     removed = true;
     try {
       if (body !== undefined) options.removeBody(body);
       else if (collider !== undefined) options.removeCollider(collider);
-    } catch {
-      // The replacement is no longer published; cleanup failure must not stop rollback.
+      return undefined;
+    } catch (error) {
+      return error;
     }
+  };
+  const failWithRollback = (
+    phase: string,
+    error: unknown,
+    restorePublishedCurrent: boolean,
+  ): PhysicsTransformValidationResult => {
+    const rollbackFailures: string[] = [];
+    if (restorePublishedCurrent) {
+      let rollbackCurrent = current;
+      if (options.isCurrentLive && !options.isCurrentLive(current)) {
+        if (!options.recreateCurrent) {
+          rollbackFailures.push("current resources were destroyed and no recreation recipe was available");
+        } else {
+          try {
+            rollbackCurrent = options.recreateCurrent();
+          } catch (recreationError) {
+            rollbackFailures.push(`resource recreation failed: ${describePhysicsFailure(recreationError)}`);
+          }
+        }
+      }
+      if (rollbackFailures.length === 0) {
+        try {
+          options.restoreCurrent(rollbackCurrent);
+        } catch (restorationError) {
+          rollbackFailures.push(`restoration failed: ${describePhysicsFailure(restorationError)}`);
+        }
+      }
+    }
+    const cleanupError = removeReplacement();
+    if (cleanupError !== undefined) {
+      rollbackFailures.push(`cleanup failed: ${describePhysicsFailure(cleanupError)}`);
+    }
+    const primary = physicsReplacementFailure(phase, error);
+    if (rollbackFailures.length === 0) return primary;
+    return { ok: false, reason: `${primary.reason} Rollback ${rollbackFailures.join("; ")}.` };
   };
 
   try {
@@ -67,41 +105,31 @@ export function replacePhysicsResourcesAtomically<TBody, TCollider, TTracking>(
   try {
     collider = options.createCollider(body);
   } catch (error) {
-    removeReplacement();
-    return physicsReplacementFailure("collider creation", error);
+    return failWithRollback("collider creation", error, false);
   }
 
   let tracking: TTracking;
   try {
     tracking = options.createTracking(body, collider);
   } catch (error) {
-    removeReplacement();
-    return physicsReplacementFailure("tracking preparation", error);
+    return failWithRollback("tracking preparation", error, false);
   }
   const replacement = Object.freeze({ body, collider, tracking });
   try {
     options.publishReplacement(replacement);
   } catch (error) {
-    try {
-      options.restoreCurrent(current);
-    } catch {
-      // Continue removing the unpublished replacement even if external rollback reports failure.
-    }
-    removeReplacement();
-    return physicsReplacementFailure("publication", error);
+    return failWithRollback("publication", error, true);
   }
   try {
     options.retireCurrent(current);
   } catch (error) {
-    try {
-      options.restoreCurrent(current);
-    } catch {
-      // Continue removing the unpublished replacement even if external rollback reports failure.
-    }
-    removeReplacement();
-    return physicsReplacementFailure("old-resource retirement", error);
+    return failWithRollback("old-resource retirement", error, true);
   }
   return { ok: true };
+}
+
+function describePhysicsFailure(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function matrixHasNonUniformScale(matrix: THREE.Matrix4): boolean {
