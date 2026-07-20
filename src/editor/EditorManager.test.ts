@@ -210,6 +210,7 @@ function makeManager(selected: EditorObject): EditorManagerHarness {
 }
 
 type PhysicsFailurePhase =
+  | "success"
   | "allocation"
   | "collider"
   | "publication"
@@ -220,7 +221,8 @@ type PhysicsFailurePhase =
 type FakePhysicsBody = {
   id: string;
   live: boolean;
-  setEnabled: ReturnType<typeof vi.fn>;
+  setEnabled(enabled: boolean): void;
+  isEnabled(): boolean;
   isValid(): boolean;
 };
 
@@ -228,7 +230,8 @@ type FakePhysicsCollider = {
   id: string;
   live: boolean;
   body?: FakePhysicsBody;
-  setEnabled: ReturnType<typeof vi.fn>;
+  setEnabled(enabled: boolean): void;
+  isEnabled(): boolean;
   isValid(): boolean;
 };
 
@@ -240,11 +243,17 @@ function makePhysicsFailureHarness(phase: PhysicsFailurePhase) {
   const removedColliders: FakePhysicsCollider[] = [];
   let nextBody = 0;
   let nextCollider = 0;
-  const makeBody = (id: string): FakePhysicsBody => {
+  const makeBody = (id: string, initiallyEnabled = true): FakePhysicsBody => {
+    let enabled = initiallyEnabled;
     const body = {
       id,
       live: true,
-      setEnabled: vi.fn(),
+      setEnabled: vi.fn((next: boolean) => {
+        enabled = next;
+      }),
+      isEnabled() {
+        return enabled;
+      },
       isValid() {
         return this.live;
       },
@@ -252,12 +261,18 @@ function makePhysicsFailureHarness(phase: PhysicsFailurePhase) {
     liveBodies.add(body);
     return body;
   };
-  const makeCollider = (id: string, body?: FakePhysicsBody): FakePhysicsCollider => {
+  const makeCollider = (id: string, body?: FakePhysicsBody, initiallyEnabled = true): FakePhysicsCollider => {
+    let enabled = initiallyEnabled;
     const collider = {
       id,
       body,
       live: true,
-      setEnabled: vi.fn(),
+      setEnabled: vi.fn((next: boolean) => {
+        enabled = next;
+      }),
+      isEnabled() {
+        return enabled;
+      },
       isValid() {
         return this.live;
       },
@@ -281,15 +296,15 @@ function makePhysicsFailureHarness(phase: PhysicsFailurePhase) {
 
   const oldBody = makeBody("old-body");
   const oldCollider = makeCollider("old-collider", oldBody);
-  const createRigidBody = vi.fn(() => {
+  const createRigidBody = vi.fn((desc: RAPIER.RigidBodyDesc) => {
     if (phase === "allocation") throw new Error("body allocation failed");
-    return makeBody(`replacement-body-${++nextBody}`);
+    return makeBody(`replacement-body-${++nextBody}`, desc.enabled);
   });
-  const createCollider = vi.fn((_desc: RAPIER.ColliderDesc, body?: FakePhysicsBody) => {
+  const createCollider = vi.fn((desc: RAPIER.ColliderDesc, body?: FakePhysicsBody) => {
     if (phase === "collider" || phase === "replacement-cleanup") {
       throw new Error("collider creation failed");
     }
-    return makeCollider(`replacement-collider-${++nextCollider}`, body);
+    return makeCollider(`replacement-collider-${++nextCollider}`, body, desc.enabled);
   });
   const removeBody = vi.fn((body: FakePhysicsBody) => {
     removedBodies.push(body);
@@ -1412,6 +1427,48 @@ describe("EditorManager physics type history transactions", () => {
     consoleError.mockRestore();
   });
 
+  it("restores a disabled tracked body as disabled after undo publication", () => {
+    const harness = makePhysicsFailureHarness("success");
+    harness.oldBody.setEnabled(false);
+
+    harness.manager.applyPhysicsTypeChange(harness.target.id, "dynamic");
+    const dynamicFirst = harness.project();
+    expect((dynamicFirst.body as unknown as FakePhysicsBody).isEnabled()).toBe(true);
+    expect(harness.manager.history.undo()).toBe(true);
+
+    const restored = harness.project();
+    expect(restored).toMatchObject({
+      type: "static",
+      body: restored.body,
+      collider: restored.collider,
+      tracked: true,
+      dynamicBody: undefined,
+      trackingBody: restored.body,
+      trackingCollider: restored.collider,
+      levelBodies: [restored.body],
+      levelColliders: [restored.collider],
+      mapBody: restored.body,
+      mapCollider: restored.collider,
+      metadataBody: restored.body,
+      metadataCollider: restored.collider,
+      liveBodies: [restored.body],
+      liveColliders: [restored.collider],
+    });
+    expect(restored.body).not.toBe(harness.oldBody);
+    expect((restored.body as unknown as FakePhysicsBody).isEnabled()).toBe(false);
+    expect((restored.body as unknown as FakePhysicsBody).isValid()).toBe(true);
+    expect((restored.collider as unknown as FakePhysicsCollider).isValid()).toBe(true);
+
+    expect(harness.manager.history.redo()).toBe(true);
+    const dynamicRedo = harness.project();
+    expect(dynamicRedo.type).toBe("dynamic");
+    expect(dynamicRedo.body).not.toBe(dynamicFirst.body);
+    expect(dynamicRedo.body).not.toBe(restored.body);
+    expect(dynamicRedo.dynamicBody).toBe(dynamicRedo.body);
+    expect(dynamicRedo.liveBodies).toEqual([dynamicRedo.body]);
+    expect(dynamicRedo.liveColliders).toEqual([dynamicRedo.collider]);
+  });
+
   it("recreates fresh static and dynamic handles across change, undo, and redo", () => {
     const scene = new THREE.Scene();
     const removeBody = vi.fn();
@@ -1586,11 +1643,17 @@ describe("EditorManager physics type history transactions", () => {
     const liveColliders = new Set<FakePhysicsCollider>();
     let bodyId = 0;
     let colliderId = 0;
-    const createRigidBody = vi.fn(() => {
+    const createRigidBody = vi.fn((desc: RAPIER.RigidBodyDesc) => {
+      let enabled = desc.enabled;
       const body: FakePhysicsBody = {
         id: `body-${++bodyId}`,
         live: true,
-        setEnabled: vi.fn(),
+        setEnabled: vi.fn((next: boolean) => {
+          enabled = next;
+        }),
+        isEnabled() {
+          return enabled;
+        },
         isValid() {
           return this.live;
         },
@@ -1600,11 +1663,17 @@ describe("EditorManager physics type history transactions", () => {
     });
     const createCollider = vi.fn((desc: RAPIER.ColliderDesc, body?: FakePhysicsBody) => {
       createdColliderDescs.push({ desc, body });
+      let enabled = desc.enabled;
       const collider: FakePhysicsCollider = {
         id: `collider-${++colliderId}`,
         body,
         live: true,
-        setEnabled: vi.fn(),
+        setEnabled: vi.fn((next: boolean) => {
+          enabled = next;
+        }),
+        isEnabled() {
+          return enabled;
+        },
         isValid() {
           return this.live;
         },
@@ -1640,11 +1709,15 @@ describe("EditorManager physics type history transactions", () => {
     target.transform.rotation = target.mesh.rotation.toArray().slice(0, 3) as [number, number, number];
     const worldPosition = target.mesh.getWorldPosition(new THREE.Vector3());
     const worldRotation = target.mesh.getWorldQuaternion(new THREE.Quaternion());
+    let oldColliderEnabled = false;
     const oldCollider = {
       id: "standalone-old",
       live: true,
       shape: RAPIER.ColliderDesc.cuboid(0.5, 0.75, 1.25).shape,
-      setEnabled: vi.fn(),
+      setEnabled: vi.fn((enabled: boolean) => {
+        oldColliderEnabled = enabled;
+      }),
+      isEnabled: () => oldColliderEnabled,
       isValid() {
         return this.live;
       },
@@ -1653,7 +1726,6 @@ describe("EditorManager physics type history transactions", () => {
       translationWrtParent: () => null,
       rotationWrtParent: () => null,
       isSensor: () => true,
-      isEnabled: () => false,
       friction: () => 0.37,
       restitution: () => 0.62,
       density: () => 9,
@@ -1674,6 +1746,7 @@ describe("EditorManager physics type history transactions", () => {
     document.objects = [target];
     document.selected = target;
     levelManager.addLevelObject(target.mesh, { physics: { collider: target.collider } });
+    oldCollider.setEnabled(false);
     const manager = Object.create(EditorManager.prototype) as PhysicsTypeManagerHarness;
     Object.assign(manager, {
       guardDocumentMutation: () => true,
@@ -1722,11 +1795,23 @@ describe("EditorManager physics type history transactions", () => {
     });
     expect(target.body).toBeUndefined();
     expect(target.collider).toBeDefined();
+    const restoredStandalone = target.collider as unknown as FakePhysicsCollider;
+    expect(restoredStandalone.isEnabled()).toBe(false);
+    expect(restoredStandalone.isValid()).toBe(true);
+    expect(liveBodies).toEqual(new Set());
+    expect(liveColliders).toEqual(new Set([restoredStandalone]));
     expect(levelManager.getLevelObjectTracking(target.mesh).physics).toEqual({ collider: target.collider });
     expect(manager.history.redo()).toBe(true);
     expect(target.physicsType).toBe("dynamic");
     expect(target.body).toBeDefined();
     expect(target.collider).toBeDefined();
+    const dynamicRedoBody = target.body as unknown as FakePhysicsBody;
+    const dynamicRedoCollider = target.collider as unknown as FakePhysicsCollider;
+    expect(dynamicRedoBody.isValid()).toBe(true);
+    expect(dynamicRedoCollider.isValid()).toBe(true);
+    expect(dynamicRedoCollider).not.toBe(restoredStandalone);
+    expect(liveBodies).toEqual(new Set([dynamicRedoBody]));
+    expect(liveColliders).toEqual(new Set([dynamicRedoCollider]));
   });
 });
 

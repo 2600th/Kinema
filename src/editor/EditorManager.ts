@@ -1686,28 +1686,32 @@ export class EditorManager {
       type: EditorPhysicsType;
       levelTracked: boolean;
       tracking: RemovedLevelObjectTracking;
+      resourceRecipe: EditorPhysicsResourceRecipe;
     }>;
     type Resources = Readonly<{
       body?: RAPIER.RigidBody;
       collider?: RAPIER.Collider;
       tracking: Publication;
     }>;
+    const currentType = obj.physicsType ?? "static";
+    const currentLevelTracked = this.levelManager.getLevelObjects().includes(obj.mesh);
+    const currentRecipe = this.createPhysicsResourceRecipe(
+      obj,
+      currentType,
+      obj.body !== undefined,
+      obj.collider !== undefined,
+      true,
+    );
     const current: Resources = {
       body: obj.body,
       collider: obj.collider,
       tracking: {
-        type: obj.physicsType ?? "static",
-        levelTracked: this.levelManager.getLevelObjects().includes(obj.mesh),
+        type: currentType,
+        levelTracked: currentLevelTracked,
         tracking: this.levelManager.getLevelObjectTracking(obj.mesh),
+        resourceRecipe: currentRecipe,
       },
     };
-    const currentRecipe = this.createPhysicsResourceRecipe(
-      obj,
-      current.tracking.type,
-      current.body !== undefined,
-      current.collider !== undefined,
-      true,
-    );
     const publish = (resources: Resources): void => {
       if (this.levelManager.getLevelObjects().includes(obj.mesh)) {
         this.levelManager.updateLevelObjectPhysics(obj.mesh, {
@@ -1721,6 +1725,13 @@ export class EditorManager {
       obj.physicsType = resources.tracking.type;
       if (resources.tracking.levelTracked) {
         this.levelManager.addLevelObject(obj.mesh, resources.tracking.tracking);
+      }
+      const { bodyDesc, colliderDesc } = resources.tracking.resourceRecipe;
+      if (resources.body && bodyDesc && typeof resources.body.setEnabled === "function") {
+        resources.body.setEnabled(bodyDesc.enabled);
+      }
+      if (resources.collider && colliderDesc && typeof resources.collider.setEnabled === "function") {
+        resources.collider.setEnabled(colliderDesc.enabled);
       }
     };
     const retire = (resources: Resources): void => {
@@ -1766,6 +1777,7 @@ export class EditorManager {
           tracking: publication.levelTracked
             ? this.createLevelObjectTracking(obj, { type: publication.type, body, collider })
             : {},
+          resourceRecipe,
         },
       };
     };
@@ -1785,6 +1797,7 @@ export class EditorManager {
         type: state.type,
         levelTracked: state.levelTracked,
         tracking: state.levelTracked ? this.createLevelObjectTracking(obj, { type: state.type, body, collider }) : {},
+        resourceRecipe: recipe,
       }),
       publishReplacement: publish,
       restoreCurrent: publish,
@@ -2125,6 +2138,9 @@ export class EditorManager {
       }
       bodyDesc.setTranslation(bodyPosition.x, bodyPosition.y, bodyPosition.z);
       bodyDesc.setRotation(new RAPIER.Quaternion(bodyRotation.x, bodyRotation.y, bodyRotation.z, bodyRotation.w));
+      if (preserveLiveResources && obj.body && typeof obj.body.isEnabled === "function") {
+        bodyDesc.setEnabled(obj.body.isEnabled());
+      }
     }
 
     let colliderDesc: RAPIER.ColliderDesc | undefined;
