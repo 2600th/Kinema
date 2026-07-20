@@ -146,6 +146,7 @@ async function beginTransformGizmoDrag(
   mode: "translate" | "rotate" | "scale",
 ): Promise<{
   preview: EditorPhysicsCounters;
+  moveAgain(): Promise<void>;
   release(): Promise<EditorPhysicsCounters>;
 }> {
   const title = mode === "translate" ? "Move (W)" : mode === "rotate" ? "Rotate (E)" : "Scale (R)";
@@ -173,6 +174,12 @@ async function beginTransformGizmoDrag(
   const preview = await page.evaluate(() => window.__KINEMA__.getEditorPhysicsSyncCounters());
   return {
     preview,
+    moveAgain: async () => {
+      await page.mouse.move(end.x + 120, end.y, { steps: 6 });
+      await page.evaluate(
+        () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+      );
+    },
     release: async () => {
       await page.mouse.up();
       return page.evaluate(() => window.__KINEMA__.getEditorPhysicsSyncCounters());
@@ -835,7 +842,10 @@ test("commits a held gizmo drag at Ctrl+S and ignores the later pointer release"
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
   const readTransform = () =>
     page.evaluate(
-      (id) => window.__KINEMA__.getEditorSnapshot().objects.find((object) => object.id === id)?.transform,
+      (id) => {
+        const transform = window.__KINEMA__.getEditorSnapshot().objects.find((object) => object.id === id)?.transform;
+        return transform ? JSON.parse(JSON.stringify(transform)) : undefined;
+      },
       KIN022_IDS[0],
     );
   const baseline = await readTransform();
@@ -860,6 +870,17 @@ test("commits a held gizmo drag at Ctrl+S and ignores the later pointer release"
     return level.objects.find((object) => object.id === id)?.transform ?? null;
   }, KIN022_IDS[0]);
   expect(storedTransform).toEqual(dragged);
+  await expect.poll(() => page.evaluate(() => window.__KINEMA__.getEditorDocumentState())).toEqual({
+    name: "kin022-held-gizmo-save",
+    dirty: false,
+  });
+
+  await drag.moveAgain();
+  expect(await readTransform()).toEqual(dragged);
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorDocumentState())).toEqual({
+    name: "kin022-held-gizmo-save",
+    dirty: false,
+  });
 
   await page.keyboard.press("Control+Z");
   expect(await readTransform()).toEqual(baseline);

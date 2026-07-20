@@ -40,6 +40,7 @@ interface EditorManagerHarness {
   onGizmoObjectChanged(): void;
   gizmoDragSession: { objectId: string; object: EditorObject; before: TransformTuple } | null;
   grid: { enabled: boolean };
+  gizmo: { finishDrag: ReturnType<typeof vi.fn> };
   history: CommandHistory;
 }
 
@@ -177,7 +178,7 @@ interface DeleteManagerHarness {
   levelManager: LevelManager;
   renderer: { scene: THREE.Scene };
   eventBus: { emit: ReturnType<typeof vi.fn> };
-  gizmo: { attach: ReturnType<typeof vi.fn> };
+  gizmo: { attach: ReturnType<typeof vi.fn>; finishDrag: ReturnType<typeof vi.fn> };
   inspectorPanel: { setSelection: ReturnType<typeof vi.fn> };
   hierarchyPanel: { setSelection: ReturnType<typeof vi.fn>; setObjects: ReturnType<typeof vi.fn> };
   inspectorEditStartTransform: TransformTuple | null;
@@ -349,6 +350,7 @@ function makeManager(selected: EditorObject): EditorManagerHarness {
   manager.inspectorEditStartTransform = null;
   manager.inspectorEditObjectId = null;
   manager.grid = { enabled: false };
+  manager.gizmo = { finishDrag: vi.fn() };
   return manager;
 }
 
@@ -878,7 +880,7 @@ function makeDeleteHarness(eventBus = new EventBus()) {
     levelManager,
     renderer: { scene },
     eventBus,
-    gizmo: { attach: vi.fn() },
+    gizmo: { attach: vi.fn(), finishDrag: vi.fn() },
     inspectorPanel: { setSelection: vi.fn() },
     hierarchyPanel: { setSelection: vi.fn(), setObjects: vi.fn() },
     inspectorEditStartTransform: null,
@@ -1639,6 +1641,7 @@ describe("EditorManager scalar and material history transactions", () => {
       "completed",
     );
     expect(currentHarness.manager.gizmoDragSession).toBeNull();
+    expect(currentHarness.manager.gizmo.finishDrag).toHaveBeenCalledOnce();
     expect(currentHarness.markDirty).not.toHaveBeenCalled();
     expect(currentHarness.manager.history.undo()).toBe(false);
   });
@@ -1699,6 +1702,7 @@ describe("EditorManager scalar and material history transactions", () => {
     expect(target.transform).toEqual(before);
     expect(bodyPose).toEqual(before.position);
     expect(manager.gizmoDragSession).toBeNull();
+    expect(manager.gizmo.finishDrag).toHaveBeenCalledOnce();
     expect(manager.markDirty).not.toHaveBeenCalled();
     expect(manager.history.undo()).toBe(false);
   });
@@ -1762,7 +1766,7 @@ describe("EditorManager scalar and material history transactions", () => {
       abortPlayTest(): void;
       unsubs: (() => void)[];
       panels: { dispose(): void }[];
-      gizmo: { dispose(scene: THREE.Scene): void };
+      gizmo: { finishDrag: ReturnType<typeof vi.fn>; dispose(scene: THREE.Scene): void };
       renderer: { scene: THREE.Scene };
       grid: { enabled: boolean; dispose(scene: THREE.Scene): void };
       clearSelectionHelper(): void;
@@ -1788,7 +1792,7 @@ describe("EditorManager scalar and material history transactions", () => {
       abortPlayTest: teardown,
       unsubs: [],
       panels: [],
-      gizmo: { dispose: vi.fn() },
+      gizmo: { finishDrag: vi.fn(), dispose: vi.fn() },
       renderer: { scene: new THREE.Scene() },
       grid: { enabled: false, dispose: vi.fn() },
       clearSelectionHelper: vi.fn(),
@@ -1801,6 +1805,7 @@ describe("EditorManager scalar and material history transactions", () => {
     expect(target.mesh.position.toArray()).toEqual(before.position);
     expect(target.transform).toEqual(before);
     expect(manager.gizmoDragSession).toBeNull();
+    expect(manager.gizmo.finishDrag).toHaveBeenCalledOnce();
     expect(manager.markDirty).not.toHaveBeenCalled();
     expect(manager.history.undo()).toBe(false);
   });
@@ -1814,7 +1819,7 @@ describe("EditorManager gizmo history transactions", () => {
     const manager = makeManager(target) as unknown as EditorManagerHarness & {
       document: EditorDocument;
       materialEditSession: null;
-      gizmo: { attach: ReturnType<typeof vi.fn> };
+      gizmo: { attach: ReturnType<typeof vi.fn>; finishDrag: ReturnType<typeof vi.fn> };
       hierarchyPanel: { setSelection: ReturnType<typeof vi.fn> };
       setSelectionHelper: ReturnType<typeof vi.fn>;
       eventBus: { emit: ReturnType<typeof vi.fn> };
@@ -1826,7 +1831,7 @@ describe("EditorManager gizmo history transactions", () => {
     Object.assign(manager, {
       document,
       materialEditSession: null,
-      gizmo: { attach: vi.fn() },
+      gizmo: { attach: vi.fn(), finishDrag: vi.fn() },
       hierarchyPanel: { setSelection: vi.fn() },
       setSelectionHelper: vi.fn(),
       eventBus: { emit: vi.fn() },
@@ -1840,10 +1845,19 @@ describe("EditorManager gizmo history transactions", () => {
     expect(manager.gizmoDragSession).toMatchObject({ objectId: target.id, object: target, before });
     manager.setSelection(other);
     manager.onDragStateChanged(false);
+    const syncCallsAfterBoundary = manager.syncPhysicsSubtree.mock.calls.length;
+    other.mesh.position.set(99, 0, 0);
+    const guardAfterBoundary = vi.fn(() => true);
+    manager.guardDocumentMutation = guardAfterBoundary;
+    manager.onGizmoObjectChanged();
 
     expect(document.selected).toBe(other);
     expect(target.transform).toEqual(after);
+    expect(other.transform.position).toEqual([0, 0, 0]);
+    expect(guardAfterBoundary).not.toHaveBeenCalled();
+    expect(manager.syncPhysicsSubtree).toHaveBeenCalledTimes(syncCallsAfterBoundary);
     expect(manager.gizmoDragSession).toBeNull();
+    expect(manager.gizmo.finishDrag).toHaveBeenCalledOnce();
     expect(manager.markDirty).toHaveBeenCalledOnce();
     expect(manager.history.undo()).toBe(true);
     expect(target.transform).toEqual(before);
@@ -1854,7 +1868,7 @@ describe("EditorManager gizmo history transactions", () => {
     const manager = makeManager(target) as unknown as EditorManagerHarness & {
       document: EditorDocument;
       materialEditSession: null;
-      gizmo: { attach: ReturnType<typeof vi.fn> };
+      gizmo: { attach: ReturnType<typeof vi.fn>; finishDrag: ReturnType<typeof vi.fn> };
       hierarchyPanel: {
         setSelection: ReturnType<typeof vi.fn>;
         setObjects: ReturnType<typeof vi.fn>;
@@ -1870,7 +1884,7 @@ describe("EditorManager gizmo history transactions", () => {
     Object.assign(manager, {
       document,
       materialEditSession: null,
-      gizmo: { attach: vi.fn() },
+      gizmo: { attach: vi.fn(), finishDrag: vi.fn() },
       hierarchyPanel: { setSelection: vi.fn(), setObjects: vi.fn() },
       setSelectionHelper: vi.fn(),
       eventBus: { emit: vi.fn() },
@@ -1885,6 +1899,7 @@ describe("EditorManager gizmo history transactions", () => {
     manager.onDragStateChanged(false);
 
     expect(manager.gizmoDragSession).toBeNull();
+    expect(manager.gizmo.finishDrag).toHaveBeenCalledOnce();
     expect(target.transform).toEqual(after);
     expect(target.name).toBe("Renamed after drag");
     expect(manager.markDirty).toHaveBeenCalledTimes(2);
@@ -1921,6 +1936,7 @@ describe("EditorManager gizmo history transactions", () => {
 
     expect(prompt).toHaveBeenCalledOnce();
     expect(manager.gizmoDragSession).toBeNull();
+    expect(manager.gizmo.finishDrag).toHaveBeenCalledOnce();
     expect(manager.markDirty).toHaveBeenCalledOnce();
     expect(manager.history.undo()).toBe(true);
     expect(target.transform).toEqual(before);
@@ -1997,7 +2013,7 @@ describe("EditorManager gizmo history transactions", () => {
       playTestActive: boolean;
       materialEditSession: null;
       documentState: { value: { name: string } };
-      gizmo: { attach: ReturnType<typeof vi.fn> };
+      gizmo: { attach: ReturnType<typeof vi.fn>; finishDrag: ReturnType<typeof vi.fn> };
       hierarchyPanel: { setSelection: ReturnType<typeof vi.fn> };
       setSelectionHelper: ReturnType<typeof vi.fn>;
       eventBus: { emit: ReturnType<typeof vi.fn> };
@@ -2020,7 +2036,7 @@ describe("EditorManager gizmo history transactions", () => {
         document,
         materialEditSession: null,
         documentState: { value: { name: "Untitled" } },
-        gizmo: { attach: vi.fn() },
+        gizmo: { attach: vi.fn(), finishDrag: vi.fn() },
         hierarchyPanel: { setSelection: vi.fn() },
         setSelectionHelper: vi.fn(),
         eventBus: { emit: vi.fn() },
@@ -2036,6 +2052,7 @@ describe("EditorManager gizmo history transactions", () => {
     expect((selection.manager.document as EditorDocument).selected).toBe(selection.target);
     expect(selection.target.transform.position).toEqual([0, 0, 0]);
     expect(selection.manager.gizmoDragSession).toBeNull();
+    expect(selection.manager.gizmo.finishDrag).toHaveBeenCalledOnce();
 
     const save = makeBoundary();
     const prompt = vi.fn(() => null);
@@ -2048,6 +2065,7 @@ describe("EditorManager gizmo history transactions", () => {
     expect(prompt).not.toHaveBeenCalled();
     expect(save.target.transform.position).toEqual([0, 0, 0]);
     expect(save.manager.gizmoDragSession).toBeNull();
+    expect(save.manager.gizmo.finishDrag).toHaveBeenCalledOnce();
 
     const playtest = makeBoundary();
     const clear = vi.spyOn(playtest.manager.history, "clear");
@@ -2056,6 +2074,7 @@ describe("EditorManager gizmo history transactions", () => {
     expect(playtest.manager.playTestActive).toBe(false);
     expect(playtest.target.transform.position).toEqual([0, 0, 0]);
     expect(playtest.manager.gizmoDragSession).toBeNull();
+    expect(playtest.manager.gizmo.finishDrag).toHaveBeenCalledOnce();
     expect(playtest.manager.markDirty).not.toHaveBeenCalled();
   });
 
@@ -2120,6 +2139,7 @@ describe("EditorManager gizmo history transactions", () => {
     manager.onDragStateChanged(false);
     manager.onDragStateChanged(false);
 
+    expect(manager.gizmo.finishDrag).toHaveBeenCalledOnce();
     expect(manager.markDirty).toHaveBeenCalledOnce();
     expect(manager.history.undo()).toBe(true);
     expect(selected.transform).toEqual(before);

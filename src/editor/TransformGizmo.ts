@@ -45,6 +45,11 @@ export class TransformGizmo {
     this.controls.setScaleSnap(scale ?? null);
   }
 
+  finishDrag(): void {
+    if (!this.controls.dragging) return;
+    this.controls.pointerUp(null);
+  }
+
   dispose(scene: THREE.Scene): void {
     scene.remove(this.helper);
     this.controls.dispose();

@@ -108,3 +108,23 @@
   lifecycle boundary.
 - [x] Run focused/full unit, typecheck, scoped Biome, build, and serial targeted browser verification.
 - [x] Append the evidence report and commit the extension separately.
+
+### Task 6: Terminate physical gizmo interaction at lifecycle boundaries
+
+**Files:**
+- Modify: `src/editor/TransformGizmo.ts`
+- Create: `src/editor/TransformGizmo.test.ts`
+- Modify: `src/editor/EditorManager.ts`
+- Modify: `src/editor/EditorManager.test.ts`
+- Modify: `tests/editor-flow.ts`
+
+**Interfaces:**
+- Adds idempotent `TransformGizmo.finishDrag()` using the public TransformControls pointer-up API.
+- Requires pending drag commit/cancel to end physical control ownership after clearing logical session
+  ownership, so recursive drag-end publication cannot create a second command.
+
+- [x] Add strict-RED wrapper, manager, and held-pointer browser regressions.
+- [x] Terminate the physical gizmo interaction during commit/cancel and ignore object-change events
+  when no owned drag session exists.
+- [x] Run focused/full unit, typecheck, scoped Biome, build, and serial targeted browser verification.
+- [x] Append the evidence report and commit the termination fix separately.

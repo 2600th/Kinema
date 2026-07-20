@@ -1878,6 +1878,7 @@ export class EditorManager {
     const session = this.gizmoDragSession;
     if (!session) return true;
     this.gizmoDragSession = null;
+    this.gizmo.finishDrag();
     const current = this.document.findById(session.objectId);
     if (current !== session.object) {
       this.restorePendingGizmoDrag(session);
@@ -1891,6 +1892,7 @@ export class EditorManager {
     const session = this.gizmoDragSession;
     if (!session) return;
     this.gizmoDragSession = null;
+    this.gizmo.finishDrag();
     this.restorePendingGizmoDrag(session);
   }
 
@@ -2202,6 +2204,7 @@ export class EditorManager {
    * ================================================================== */
 
   private onDragStateChanged(dragging: boolean): void {
+    if (!dragging && !this.gizmoDragSession) return;
     if (!this.guardDocumentMutation()) return;
     if (dragging) {
       if (this.gizmoDragSession || !this.document.selected) return;
@@ -2217,9 +2220,9 @@ export class EditorManager {
   }
 
   private onGizmoObjectChanged(): void {
-    if (!this.guardDocumentMutation()) return;
-    const selected = this.gizmoDragSession?.object ?? this.document.selected;
+    const selected = this.gizmoDragSession?.object;
     if (!selected) return;
+    if (!this.guardDocumentMutation()) return;
     if (this.grid.enabled) {
       this.applySnapToObject(selected);
     }
