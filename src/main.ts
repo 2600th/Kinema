@@ -131,6 +131,7 @@ async function bootstrap(): Promise<void> {
   renderer.setShadowsEnabled(settings.value.shadowsEnabled);
   renderer.setShadowQualityTier(settings.value.shadowQuality);
   renderer.setEnvironmentRotationDegrees(settings.value.envRotationDegrees);
+  renderer.finalizeInitialSettings();
   console.log("[Kinema] Renderer initialized");
 
   const eventBus = new EventBus();

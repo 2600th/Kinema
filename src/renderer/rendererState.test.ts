@@ -92,9 +92,7 @@ describe("renderer post-effect state", () => {
 
   it("reports profile and renderer capability gates without rewriting requested intent", () => {
     const requested = { ...ALL_ENABLED };
-    expect(
-      getEffectivePostEffectSettings(requested, "performance", getRendererPostEffectCapabilities(true)),
-    ).toEqual({
+    expect(getEffectivePostEffectSettings(requested, "performance", getRendererPostEffectCapabilities(true))).toEqual({
       postProcessingEnabled: true,
       ssaoEnabled: false,
       ssrEnabled: false,
@@ -102,9 +100,7 @@ describe("renderer post-effect state", () => {
       vignetteEnabled: true,
       lutEnabled: true,
     });
-    expect(
-      getEffectivePostEffectSettings(requested, "cinematic", getRendererPostEffectCapabilities(false)),
-    ).toEqual({
+    expect(getEffectivePostEffectSettings(requested, "cinematic", getRendererPostEffectCapabilities(false))).toEqual({
       postProcessingEnabled: false,
       ssaoEnabled: false,
       ssrEnabled: false,
@@ -113,5 +109,59 @@ describe("renderer post-effect state", () => {
       lutEnabled: false,
     });
     expect(requested).toEqual(ALL_ENABLED);
+  });
+
+  it("advertises only LUT and vignette when the compatibility post feature is enabled", () => {
+    expect(getRendererPostEffectCapabilities(false, true)).toEqual({
+      postProcessingEnabled: true,
+      ssaoEnabled: false,
+      ssrEnabled: false,
+      bloomEnabled: false,
+      vignetteEnabled: true,
+      lutEnabled: true,
+    });
+    expect(getRendererPostEffectCapabilities(false, false)).toEqual({
+      postProcessingEnabled: false,
+      ssaoEnabled: false,
+      ssrEnabled: false,
+      bloomEnabled: false,
+      vignetteEnabled: false,
+      lutEnabled: false,
+    });
+  });
+
+  it("applies the compatibility profile floor without changing advanced profile behavior", () => {
+    const capabilities = getRendererPostEffectCapabilities(false, true);
+
+    expect(getEffectivePostEffectSettings(ALL_ENABLED, "performance", capabilities, "compatibility")).toEqual({
+      postProcessingEnabled: false,
+      ssaoEnabled: false,
+      ssrEnabled: false,
+      bloomEnabled: false,
+      vignetteEnabled: false,
+      lutEnabled: false,
+    });
+    expect(getEffectivePostEffectSettings(ALL_ENABLED, "balanced", capabilities, "compatibility")).toEqual({
+      postProcessingEnabled: true,
+      ssaoEnabled: false,
+      ssrEnabled: false,
+      bloomEnabled: false,
+      vignetteEnabled: false,
+      lutEnabled: true,
+    });
+    expect(getEffectivePostEffectSettings(ALL_ENABLED, "cinematic", capabilities, "compatibility")).toEqual({
+      postProcessingEnabled: true,
+      ssaoEnabled: false,
+      ssrEnabled: false,
+      bloomEnabled: false,
+      vignetteEnabled: true,
+      lutEnabled: true,
+    });
+    expect(
+      getEffectivePostEffectSettings(ALL_ENABLED, "performance", getRendererPostEffectCapabilities(true)),
+    ).toMatchObject({
+      vignetteEnabled: true,
+      lutEnabled: true,
+    });
   });
 });

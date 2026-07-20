@@ -1,4 +1,5 @@
 import type { GraphicsProfile } from "@core/UserSettings";
+import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
 import { GpuResourceMutationQueue, type GpuResourceMutationScheduler } from "./gpuResourceMutationQueue";
 import { buildRendererPipelineDescriptor, type RendererPipelineDescriptor } from "./pipelineProfile";
@@ -24,6 +25,10 @@ interface RendererManagerHarness {
   appliedPostEffectSettings: PostEffectSettings;
   appliedQualityDebugState: AppliedQualityDebugState;
   isWebGPUPipeline: boolean;
+  compatibilityPostEnabled: boolean;
+  compatibilityPostAvailable: boolean;
+  compatibilityInitialSettingsPending: boolean;
+  compatibilityPostStack: { render(): void; setState(): void; dispose(): void } | null;
   renderer: { backend?: { isWebGPUBackend?: boolean } };
   shadowsEnabled: boolean;
   shadowQualityTier: "auto" | GraphicsProfile;
@@ -80,6 +85,107 @@ const BALANCED_POST_EFFECTS: PostEffectSettings = {
 };
 
 describe("RendererManager quality mutation boundaries", () => {
+  it("exposes only the enabled compatibility post capabilities on the WebGL path", () => {
+    const manager = createManagerHarness({
+      isWebGPUPipeline: false,
+      compatibilityPostEnabled: true,
+      compatibilityPostAvailable: true,
+    });
+
+    expect(manager.getPostEffectCapabilities()).toEqual({
+      postProcessingEnabled: true,
+      ssaoEnabled: false,
+      ssrEnabled: false,
+      bloomEnabled: false,
+      vignetteEnabled: true,
+      lutEnabled: true,
+    });
+  });
+
+  it("stops advertising compatibility post effects after the stack becomes unavailable", () => {
+    const manager = createManagerHarness({
+      isWebGPUPipeline: false,
+      compatibilityPostEnabled: true,
+      compatibilityPostAvailable: false,
+    });
+
+    expect(manager.getPostEffectCapabilities()).toEqual({
+      postProcessingEnabled: false,
+      ssaoEnabled: false,
+      ssrEnabled: false,
+      bloomEnabled: false,
+      vignetteEnabled: false,
+      lutEnabled: false,
+    });
+  });
+
+  it("defers compatibility post allocation until persisted initial settings are finalized", () => {
+    const applyQualitySettings = vi.fn();
+    const manager = createManagerHarness({
+      graphicsProfile: "balanced",
+      compatibilityInitialSettingsPending: true,
+      scheduleGpuResourceMutation: (_key, mutation) => mutation(),
+      applyQualitySettings,
+    });
+
+    manager.setGraphicsProfile("performance");
+    expect(applyQualitySettings).not.toHaveBeenCalled();
+
+    manager.finalizeInitialSettings();
+    expect(applyQualitySettings).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed to direct WebGL rendering when the compatibility composer throws", () => {
+    const failure = new Error("post render failed");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const directRender = vi.fn();
+    const stack = {
+      render: vi.fn(() => {
+        throw failure;
+      }),
+      setState: vi.fn(),
+      dispose: vi.fn(),
+    };
+    const manager = createManagerHarness({
+      renderingSuspendedForGpuMutation: false,
+      hasRenderedFrame: false,
+      isWebGPUPipeline: false,
+      scene: new THREE.Scene(),
+      camera: new THREE.PerspectiveCamera(),
+      compatibilityFrameCounter: 0,
+      lastCompatibilitySceneChildCount: 0,
+      compatibilitySanitizeRequested: false,
+      compatibilityPostEnabled: true,
+      compatibilityPostAvailable: true,
+      compatibilityPostStack: stack,
+      renderer: {
+        render: directRender,
+        info: { render: { calls: 3, triangles: 7, lines: 0, points: 0 } },
+      },
+      lastRenderStats: { drawCalls: 0, triangles: 0, lines: 0, points: 0 },
+      presentationListeners: new Set(),
+      notifyPresentationState: vi.fn(),
+      graphicsProfile: "balanced",
+      postProcessingEnabled: true,
+      gtaoEnabled: true,
+      ssrEnabled: false,
+      bloomEnabled: true,
+      vignetteEnabled: true,
+      lutEnabled: true,
+      appliedPostEffectSettings: BALANCED_POST_EFFECTS,
+    } as never);
+
+    expect(() => manager.render()).not.toThrow();
+    expect(stack.dispose).toHaveBeenCalledOnce();
+    expect(directRender).toHaveBeenCalledOnce();
+    expect(manager.getPostEffectCapabilities().postProcessingEnabled).toBe(false);
+    expect(warn).toHaveBeenCalledWith(
+      "[RendererManager] Compatibility post render failed; continuing with direct WebGL rendering:",
+      failure,
+    );
+    warn.mockRestore();
+  });
+
   it("coalesces profile, AA, CAS, and post changes behind one keyed GPU boundary", async () => {
     const barrier = deferred();
     const applyQualitySettings = vi.fn();
@@ -279,5 +385,36 @@ describe("RendererManager quality mutation boundaries", () => {
     });
     expect(bloomNode.strength.value).toBe(0.6);
     expect(ssrNode.resolutionScale).toBe(0.75);
+  });
+
+  it("reports live compatibility grade changes without TSL uniforms", () => {
+    const setState = vi.fn();
+    const manager = createManagerHarness({
+      appliedPostEffectSettings: { ...BALANCED_POST_EFFECTS, ssaoEnabled: false, bloomEnabled: false },
+      appliedQualityDebugState: {
+        aoOnlyView: false,
+        ssrOpacity: 0,
+        ssrResolutionScale: 0,
+        bloomStrength: 0,
+        casStrength: 0,
+        vignetteDarkness: 0.42,
+        lutStrength: 0.42,
+      },
+      postFXUniforms: null,
+      compatibilityPostStack: { render: vi.fn(), setState, dispose: vi.fn() },
+      vignetteDarkness: 0.42,
+      lutStrength: 0.42,
+      assetLibrary: { getCachedLut: vi.fn(() => null) },
+      lutName: "Cubicle 99",
+    } as never);
+
+    manager.setVignetteDarkness(0.5);
+    manager.setLutStrength(0.7);
+
+    expect((manager as unknown as RendererManagerHarness).appliedQualityDebugState).toMatchObject({
+      vignetteDarkness: 0.5,
+      lutStrength: 0.7,
+    });
+    expect(setState).toHaveBeenCalledTimes(2);
   });
 });

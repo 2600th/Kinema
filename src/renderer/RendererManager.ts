@@ -9,6 +9,7 @@ import type { GraphicsProfile, ShadowQualityTier } from "@core/UserSettings";
 import * as THREE from "three";
 import { PMREMGenerator, type RenderPipeline, WebGPURenderer } from "three/webgpu";
 import { sanitizeSceneForCompatibility } from "./compatibilityMaterialSanitizer";
+import { CompatPostStack, type CompatPostStackState } from "./compatPostStack";
 import { GpuResourceMutationQueue, type GpuResourceMutationScheduler } from "./gpuResourceMutationQueue";
 import {
   buildRendererPipelineDescriptor,
@@ -24,15 +25,15 @@ import {
 } from "./rendererBootstrap";
 import { clampFiniteNumber, resolveCasStrengthMutation } from "./rendererMutations";
 import {
-  buildRendererPresentationState,
-  type CompatibilityActivationReason,
-  type RendererPresentationState,
-} from "./rendererPresentation";
-import {
   buildRendererPipeline,
   type RendererLutPassNode,
   type RendererPostFxUniforms,
 } from "./rendererPipelineBuilder";
+import {
+  buildRendererPresentationState,
+  type CompatibilityActivationReason,
+  type RendererPresentationState,
+} from "./rendererPresentation";
 import { ENV_PRESETS } from "./rendererPresets";
 import { getEffectiveCasStrength, syncCasTexelSize, syncGtaoSettings, syncRuntimePostFxState } from "./rendererQuality";
 import {
@@ -177,8 +178,12 @@ export class RendererManager implements Disposable {
   private orientationSettleTimer: number | null = null;
   private readonly preferCompatibilityRenderer: boolean;
   private readonly compatibilityPostEnabled: boolean;
+  private compatibilityPostAvailable: boolean;
+  private compatibilityInitialSettingsPending = false;
+  private compatibilityPostStack: CompatPostStack | null = null;
   private compatibilityActivationReason: CompatibilityActivationReason;
   private readonly presentationListeners = new Set<(state: RendererPresentationState) => void>();
+  private rendererInitialized = false;
   private lastCompatibilitySceneChildCount = -1;
   private compatibilitySanitizeRequested = false;
   private compatibilityFrameCounter = 0;
@@ -194,6 +199,7 @@ export class RendererManager implements Disposable {
     this.forceWebGL = options.forceWebGL ?? false;
     this.preferCompatibilityRenderer = options.preferCompatibilityRenderer ?? false;
     this.compatibilityPostEnabled = options.compatibilityPostEnabled ?? true;
+    this.compatibilityPostAvailable = this.compatibilityPostEnabled;
     this.compatibilityActivationReason =
       options.compatibilityActivationReason ?? (this.preferCompatibilityRenderer ? "explicit" : null);
     this.scene = new THREE.Scene();
@@ -236,6 +242,9 @@ export class RendererManager implements Disposable {
       this.resetPipelineResources();
       this.pipelineRebuildNeeded = false;
       this.initializeFallbackEnvironment();
+      this.rendererInitialized = true;
+      this.pipelineRebuildNeeded = true;
+      this.compatibilityInitialSettingsPending = true;
     } else {
       const fallbackRenderer = this.renderer as THREE.WebGLRenderer;
       let bootstrapRenderer: WebGPURenderer | null = null;
@@ -269,6 +278,7 @@ export class RendererManager implements Disposable {
         this.isWebGPUPipeline = true;
         this.initializeGpuResourceMutationQueue(bootstrapRenderer);
 
+        this.rendererInitialized = true;
         this.pipelineRebuildNeeded = true;
         this.applyQualitySettings();
         fallbackRenderer.dispose();
@@ -288,8 +298,10 @@ export class RendererManager implements Disposable {
         // Fallback: constructor already created a WebGLRenderer; we keep it and render via render().
         // When init() succeeds, WebGPURenderer may still use WebGL2 backend internally if WebGPU is unavailable.
         this.resetPipelineResources();
-        this.pipelineRebuildNeeded = false;
         this.initializeFallbackEnvironment();
+        this.rendererInitialized = true;
+        this.pipelineRebuildNeeded = true;
+        this.compatibilityInitialSettingsPending = true;
       }
     }
 
@@ -366,7 +378,14 @@ export class RendererManager implements Disposable {
       }
     }
 
-    if (this.postProcessingEnabled && this.isWebGPUPipeline && this.postProcessing) {
+    if (this.compatibilityPostStack) {
+      try {
+        this.compatibilityPostStack.render();
+      } catch (error) {
+        this.disableCompatibilityPost("render", error);
+        this.renderer.render(this.scene, this.camera);
+      }
+    } else if (this.postProcessingEnabled && this.isWebGPUPipeline && this.postProcessing) {
       this.postProcessing.render();
     } else {
       this.renderer.render(this.scene, this.camera);
@@ -473,6 +492,60 @@ export class RendererManager implements Disposable {
     this.ssrNode = null;
     this.postFXUniforms = null;
     this.lutPassNode = null;
+  }
+
+  private resetCompatibilityPostStack(): void {
+    this.compatibilityPostStack?.dispose();
+    this.compatibilityPostStack = null;
+  }
+
+  private disableCompatibilityPost(stage: "construction" | "render", error: unknown): void {
+    console.warn(
+      `[RendererManager] Compatibility post ${stage} failed; continuing with direct WebGL rendering:`,
+      error,
+    );
+    this.resetCompatibilityPostStack();
+    this.compatibilityPostAvailable = false;
+    this.appliedPostEffectSettings = getEffectivePostEffectSettings(
+      this.getRequestedPostEffectSettings(),
+      this.graphicsProfile,
+      this.getPostEffectCapabilities(),
+      "compatibility",
+    );
+    this.pipelineRebuildNeeded = false;
+    this.notifyPresentationState();
+  }
+
+  private getCompatibilityPostState(): CompatPostStackState {
+    const lutTexture = this.appliedPostEffectSettings.lutEnabled ? this.assetLibrary.getCachedLut(this.lutName) : null;
+    return {
+      lutTexture,
+      lutStrength: lutTexture ? this.lutStrength : 0,
+      vignetteDarkness: this.appliedPostEffectSettings.vignetteEnabled ? this.vignetteDarkness : 0,
+    };
+  }
+
+  private rebuildCompatibilityPostStack(): void {
+    this.resetCompatibilityPostStack();
+    if (
+      !this.rendererInitialized ||
+      this.isWebGPUPipeline ||
+      !this.compatibilityPostEnabled ||
+      !this.appliedPostEffectSettings.postProcessingEnabled ||
+      (!this.appliedPostEffectSettings.lutEnabled && !this.appliedPostEffectSettings.vignetteEnabled)
+    ) {
+      return;
+    }
+    try {
+      this.compatibilityPostStack = new CompatPostStack(
+        this.renderer as THREE.WebGLRenderer,
+        this.scene,
+        this.camera,
+        this.getCompatibilityPostState(),
+      );
+    } catch (error) {
+      this.disableCompatibilityPost("construction", error);
+    }
   }
 
   private rebuildPostProcessingPipeline(): void {
@@ -736,10 +809,11 @@ export class RendererManager implements Disposable {
       this.postFXUniforms.vignetteDarkness.value = this.appliedPostEffectSettings.vignetteEnabled
         ? this.vignetteDarkness
         : 0;
-      if (this.appliedPostEffectSettings.vignetteEnabled) {
-        this.appliedQualityDebugState.vignetteDarkness = this.vignetteDarkness;
-      }
     }
+    if (this.appliedPostEffectSettings.vignetteEnabled) {
+      this.appliedQualityDebugState.vignetteDarkness = this.vignetteDarkness;
+    }
+    this.compatibilityPostStack?.setState(this.getCompatibilityPostState());
   }
 
   setLutEnabled(enabled: boolean): void {
@@ -776,7 +850,10 @@ export class RendererManager implements Disposable {
   }
 
   getPostEffectCapabilities(): RendererPostEffectCapabilities {
-    return getRendererPostEffectCapabilities(this.isWebGPUPipeline);
+    return getRendererPostEffectCapabilities(
+      this.isWebGPUPipeline,
+      this.compatibilityPostEnabled && this.compatibilityPostAvailable,
+    );
   }
 
   setLutStrength(value: number): void {
@@ -785,8 +862,9 @@ export class RendererManager implements Disposable {
     this.lutStrength = nextValue;
     if (this.postFXUniforms) {
       this.postFXUniforms.lutIntensity.value = this.appliedPostEffectSettings.lutEnabled ? this.lutStrength : 0;
-      if (this.appliedPostEffectSettings.lutEnabled) this.appliedQualityDebugState.lutStrength = this.lutStrength;
     }
+    if (this.appliedPostEffectSettings.lutEnabled) this.appliedQualityDebugState.lutStrength = this.lutStrength;
+    this.compatibilityPostStack?.setState(this.getCompatibilityPostState());
   }
 
   setLutName(name: string): void {
@@ -796,6 +874,8 @@ export class RendererManager implements Disposable {
     const cached = this.assetLibrary.getCachedLut(name);
     if (cached && this.lutPassNode) {
       applyLutTexture(this.lutPassNode, this.postProcessing, cached);
+    } else if (cached) {
+      this.compatibilityPostStack?.setState(this.getCompatibilityPostState());
     } else if (!cached) {
       // LUT not yet loaded — attempt async load then apply
       void this.loadSingleLut(name);
@@ -816,6 +896,7 @@ export class RendererManager implements Disposable {
     if (!tex) return;
     this.lutReady = true;
     applyLutTexture(this.lutPassNode, this.postProcessing, tex);
+    this.compatibilityPostStack?.setState(this.getCompatibilityPostState());
   }
 
   getRenderStats(): Readonly<{ drawCalls: number; triangles: number; lines: number; points: number }> {
@@ -831,6 +912,7 @@ export class RendererManager implements Disposable {
     const qualityState = this.appliedQualityDebugState;
     return buildRendererDebugFlags({
       isWebGPUPipeline: this.isWebGPUPipeline,
+      compatibilityPostActive: this.compatibilityPostStack !== null,
       backendInfo: backend,
       postEffectCapabilities,
       postProcessingEnabled: effectivePostEffects.postProcessingEnabled,
@@ -885,6 +967,7 @@ export class RendererManager implements Disposable {
       this.getRequestedPostEffectSettings(),
       this.graphicsProfile,
       this.getPostEffectCapabilities(),
+      this.isWebGPUPipeline ? "advanced" : "compatibility",
     );
     this.appliedQualityDebugState = {
       aoOnlyView: this.aoOnlyView,
@@ -922,17 +1005,31 @@ export class RendererManager implements Disposable {
     this.renderer.shadowMap.enabled = this.shadowsEnabled;
 
     // 3. Rebuild the TSL node graph only when structural settings changed
-    if (this.pipelineRebuildNeeded && this.isWebGPUPipeline) {
-      this.rebuildPostProcessingPipeline();
+    if (this.pipelineRebuildNeeded && this.rendererInitialized) {
+      if (this.isWebGPUPipeline) {
+        this.rebuildPostProcessingPipeline();
+      } else {
+        this.rebuildCompatibilityPostStack();
+      }
       this.pipelineRebuildNeeded = false;
     }
+
+    this.compatibilityPostStack?.setState(this.getCompatibilityPostState());
 
     this.handleResize();
     this.notifyPresentationState();
   }
 
   private scheduleQualitySettingsApply(): void {
+    if (this.compatibilityInitialSettingsPending) return;
     this.scheduleGpuResourceMutation("renderer-quality", () => this.applyQualitySettings());
+  }
+
+  /** Applies persisted compatibility settings once, before UI and the first rendered frame. */
+  finalizeInitialSettings(): void {
+    if (!this.compatibilityInitialSettingsPending) return;
+    this.compatibilityInitialSettingsPending = false;
+    this.applyQualitySettings();
   }
 
   getGraphicsProfile(): GraphicsProfile {
@@ -995,6 +1092,7 @@ export class RendererManager implements Disposable {
     const maxPR = this.getProfileMaxPixelRatio(this.graphicsProfile);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPR) * this.resolutionScale);
     this.renderer.setSize(w, h);
+    this.compatibilityPostStack?.setSize(w, h, this.renderer.getPixelRatio());
     syncCasTexelSize(this.renderer, this.postFXUniforms);
   }
 
@@ -1015,6 +1113,7 @@ export class RendererManager implements Disposable {
     this.gpuResourceMutations = null;
     this.setAnimationLoop(null);
     this.resetPipelineResources();
+    this.resetCompatibilityPostStack();
     this.pipelineRebuildNeeded = false;
     this.currentPipelineDescriptor = null;
     this.tslRuntime = null;

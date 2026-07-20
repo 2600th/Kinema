@@ -177,7 +177,7 @@ test.describe("KIN-020 settings journeys", () => {
       .toEqual({ ssao: false, ssr: false });
   });
 
-  test("keeps requested post effects visible but unavailable in plain compatibility mode", async ({ page }) => {
+  test("exposes only LUT and vignette in compatibility mode", async ({ page }) => {
     await seedSettings(page, {
       postProcessingEnabled: true,
       ssaoEnabled: true,
@@ -190,12 +190,12 @@ test.describe("KIN-020 settings journeys", () => {
     await page.getByRole("button", { name: "Graphics" }).click();
 
     await expect(page.locator(".menu-renderer-status")).toHaveText(
-      "Renderer: WebGLRenderer · Applied profile: balanced · Post effects unavailable",
+      "Renderer: WebGLRenderer · Applied profile: balanced · Available post: Vignette, LUT",
     );
     await expect(page.locator("#renderer-status-badge")).toHaveText("WebGL · balanced");
     await expect(page.locator(".renderer-fallback-toast")).toHaveCount(0);
 
-    const expectedUnsupported = ["Post-processing", "SSAO", "SSR", "Bloom", "Vignette", "LUT"];
+    const expectedUnsupported = ["SSAO", "SSR", "Bloom"];
     for (const name of expectedUnsupported) {
       const checkbox = page.getByRole("checkbox", { name });
       await expect(checkbox).toBeChecked();
@@ -203,6 +203,14 @@ test.describe("KIN-020 settings journeys", () => {
       await expect(
         checkbox.locator("xpath=ancestor::div[contains(@class,'menu-field')]").locator(".menu-field-help"),
       ).toBeVisible();
+    }
+    for (const name of ["Post-processing", "Vignette", "LUT"]) {
+      const checkbox = page.getByRole("checkbox", { name });
+      await expect(checkbox).toBeChecked();
+      await expect(checkbox).toBeEnabled();
+      await expect(
+        checkbox.locator("xpath=ancestor::div[contains(@class,'menu-field')]").locator(".menu-field-help"),
+      ).toHaveCount(0);
     }
 
     await expect
@@ -222,12 +230,12 @@ test.describe("KIN-020 settings journeys", () => {
       )
       .toEqual({
         backend: "WebGLRenderer",
-        post: false,
+        post: true,
         ssao: false,
         ssr: false,
         bloom: false,
         vignette: false,
-        lut: false,
+        lut: true,
       });
   });
 

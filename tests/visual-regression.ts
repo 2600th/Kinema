@@ -86,17 +86,30 @@ const VFX_PARITY_OBJECTS = ["StationFloor_col", "ShowcaseBay0_col", "ShowcaseBay
 const VFX_RENDERER_PATHS = [
   {
     backend: "WebGPU (WebGL2 backend)",
+    compatibilityPostActive: false,
     label: "default",
+    profile: "performance",
     query: "station=vfx",
   },
   {
     backend: "WebGPU (WebGL2 backend)",
+    compatibilityPostActive: false,
     label: "forced-webgpu-webgl2",
+    profile: "performance",
     query: "station=vfx&forceWebGPUWebGL=1",
   },
   {
     backend: "WebGLRenderer",
+    compatibilityPostActive: true,
+    label: "compat-webgl",
+    profile: "balanced",
+    query: "station=vfx&forceCompat=1",
+  },
+  {
+    backend: "WebGLRenderer",
+    compatibilityPostActive: false,
     label: "bare-compat-webgl",
+    profile: "performance",
     query: "station=vfx&forceCompat=1&compatPost=0",
   },
 ] as const;
@@ -116,6 +129,17 @@ test.describe("VFX renderer-path parity", () => {
       expect(teleported).toBe(true);
       await waitForGrounded(page);
       await freezeForCapture(page, rendererPath.backend);
+      if (rendererPath.profile !== "performance") {
+        expect(
+          await page.evaluate((profile) => window.__KINEMA__.setGraphicsProfile(profile), rendererPath.profile),
+        ).toBe(rendererPath.profile);
+        await expect(page.locator("#renderer-status-badge")).toHaveText(
+          `${rendererPath.backend === "WebGLRenderer" ? "WebGL" : "WebGPU / WebGL2"} · ${rendererPath.profile}`,
+        );
+      }
+      expect(await page.evaluate(() => window.__KINEMA__.getRendererDebugFlags().compatibilityPostActive)).toBe(
+        rendererPath.compatibilityPostActive,
+      );
 
       const parityObjects = await page.evaluate((names) => {
         const round = (value: number) => Math.round(value * 1_000) / 1_000;
@@ -162,12 +186,38 @@ test.describe("VFX renderer-path parity", () => {
     await waitForKinema(page);
 
     expect(await getCanvasAntialias(page)).toBe(true);
-    expect(await page.evaluate(() => window.__KINEMA__.getRendererDebugFlags().activeBackend)).toBe("WebGLRenderer");
+    expect(await page.evaluate(() => window.__KINEMA__.getRendererDebugFlags())).toMatchObject({
+      activeBackend: "WebGLRenderer",
+      compatibilityPostActive: true,
+      lutEnabled: true,
+      vignetteEnabled: false,
+    });
     await expect(page.locator(".renderer-fallback-toast")).toHaveCount(0);
+
+    expect(await page.evaluate(() => window.__KINEMA__.setGraphicsProfile("performance"))).toBe("performance");
+    expect(await page.evaluate(() => window.__KINEMA__.getRendererDebugFlags())).toMatchObject({
+      compatibilityPostActive: false,
+      postProcessingEnabled: false,
+      lutEnabled: false,
+      vignetteEnabled: false,
+    });
+    expect(await page.evaluate(() => window.__KINEMA__.setGraphicsProfile("cinematic"))).toBe("cinematic");
+    expect(await page.evaluate(() => window.__KINEMA__.getRendererDebugFlags())).toMatchObject({
+      compatibilityPostActive: true,
+      postProcessingEnabled: true,
+      lutEnabled: true,
+      vignetteEnabled: true,
+    });
 
     await page.goto("/?forceCompat=1&compatPost=0", { waitUntil: "domcontentloaded" });
     await waitForKinema(page);
 
     expect(await getCanvasAntialias(page)).toBe(false);
+    expect(await page.evaluate(() => window.__KINEMA__.getRendererDebugFlags())).toMatchObject({
+      compatibilityPostActive: false,
+      postProcessingEnabled: false,
+      lutEnabled: false,
+      vignetteEnabled: false,
+    });
   });
 });

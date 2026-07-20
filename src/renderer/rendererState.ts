@@ -3,12 +3,7 @@ import type { RendererPipelineDescriptor } from "./pipelineProfile";
 
 export type PostEffectSettings = Pick<
   UserSettings,
-  | "postProcessingEnabled"
-  | "ssaoEnabled"
-  | "ssrEnabled"
-  | "bloomEnabled"
-  | "vignetteEnabled"
-  | "lutEnabled"
+  "postProcessingEnabled" | "ssaoEnabled" | "ssrEnabled" | "bloomEnabled" | "vignetteEnabled" | "lutEnabled"
 >;
 
 export type RendererPostEffectCapabilities = Readonly<{
@@ -49,7 +44,18 @@ export function applyPostEffectSettingsBatch(
 
 export function getRendererPostEffectCapabilities(
   supportsPostPipeline: boolean,
+  compatibilityPostEnabled = false,
 ): RendererPostEffectCapabilities {
+  if (!supportsPostPipeline && compatibilityPostEnabled) {
+    return {
+      postProcessingEnabled: true,
+      ssaoEnabled: false,
+      ssrEnabled: false,
+      bloomEnabled: false,
+      vignetteEnabled: true,
+      lutEnabled: true,
+    };
+  }
   return {
     postProcessingEnabled: supportsPostPipeline,
     ssaoEnabled: supportsPostPipeline,
@@ -64,17 +70,22 @@ export function getEffectivePostEffectSettings(
   requested: Readonly<PostEffectSettings>,
   profile: GraphicsProfile,
   capabilities: RendererPostEffectCapabilities,
+  rendererMode: "advanced" | "compatibility" = "advanced",
 ): PostEffectSettings {
-  const postProcessingEnabled = capabilities.postProcessingEnabled && requested.postProcessingEnabled;
+  const postRequested = capabilities.postProcessingEnabled && requested.postProcessingEnabled;
+  const compatibilityLutEnabled = rendererMode !== "compatibility" || profile !== "performance";
+  const compatibilityVignetteEnabled = rendererMode !== "compatibility" || profile === "cinematic";
+  const vignetteEnabled =
+    postRequested && capabilities.vignetteEnabled && requested.vignetteEnabled && compatibilityVignetteEnabled;
+  const lutEnabled = postRequested && capabilities.lutEnabled && requested.lutEnabled && compatibilityLutEnabled;
+  const postProcessingEnabled = postRequested && (rendererMode !== "compatibility" || vignetteEnabled || lutEnabled);
   return {
     postProcessingEnabled,
-    ssaoEnabled:
-      postProcessingEnabled && capabilities.ssaoEnabled && requested.ssaoEnabled && profile !== "performance",
-    ssrEnabled: postProcessingEnabled && capabilities.ssrEnabled && requested.ssrEnabled && profile === "cinematic",
-    bloomEnabled:
-      postProcessingEnabled && capabilities.bloomEnabled && requested.bloomEnabled && profile !== "performance",
-    vignetteEnabled: postProcessingEnabled && capabilities.vignetteEnabled && requested.vignetteEnabled,
-    lutEnabled: postProcessingEnabled && capabilities.lutEnabled && requested.lutEnabled,
+    ssaoEnabled: postRequested && capabilities.ssaoEnabled && requested.ssaoEnabled && profile !== "performance",
+    ssrEnabled: postRequested && capabilities.ssrEnabled && requested.ssrEnabled && profile === "cinematic",
+    bloomEnabled: postRequested && capabilities.bloomEnabled && requested.bloomEnabled && profile !== "performance",
+    vignetteEnabled,
+    lutEnabled,
   };
 }
 
@@ -96,6 +107,7 @@ export interface RendererProfileDefaults {
 
 export interface RendererDebugFlags {
   activeBackend: string;
+  compatibilityPostActive: boolean;
   postProcessingEnabled: boolean;
   shadowsEnabled: boolean;
   shadowQuality: ShadowQualityTier;
@@ -124,6 +136,7 @@ export interface RendererDebugFlags {
 
 export interface BuildRendererDebugFlagsArgs {
   isWebGPUPipeline: boolean;
+  compatibilityPostActive: boolean;
   backendInfo?: { isWebGPUBackend?: boolean };
   postEffectCapabilities: RendererPostEffectCapabilities;
   postProcessingEnabled: boolean;
@@ -211,6 +224,7 @@ export function buildRendererDebugFlags(args: BuildRendererDebugFlagsArgs): Rend
 
   return {
     activeBackend,
+    compatibilityPostActive: args.compatibilityPostActive,
     postProcessingEnabled: args.postProcessingEnabled,
     shadowsEnabled: args.shadowsEnabled,
     shadowQuality: args.shadowQuality,
