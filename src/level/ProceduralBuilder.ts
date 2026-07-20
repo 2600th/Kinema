@@ -1,5 +1,7 @@
 import { COLLISION_GROUP_WORLD } from "@core/constants";
 import type { SpawnPointData } from "@core/types";
+import type { GraphicsProfile } from "@core/UserSettings";
+import { type AmbientVfxCounts, getAmbientVfxCounts } from "@core/vfxProfile";
 import RAPIER from "@dimforge/rapier3d-compat";
 import type { AssetLoader } from "@level/AssetLoader";
 import { GrassEffect } from "@level/GrassEffect";
@@ -21,6 +23,8 @@ import { ColliderFactory } from "@physics/ColliderFactory";
 import type { PhysicsWorld } from "@physics/PhysicsWorld";
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
+
+const billboardWorldPosition = new THREE.Vector3();
 
 // ---------------------------------------------------------------------------
 // Result type returned to LevelManager after a procedural build.
@@ -97,6 +101,8 @@ export interface ProceduralBuildResult {
   navDebugOverlay: NavDebugOverlay | null;
   vfxDisposeCallbacks: Array<() => void>;
   vfxUpdateCallbacks: Array<(dt: number) => void>;
+  vfxBuildProfile: GraphicsProfile;
+  vfxAmbientCounts: Omit<AmbientVfxCounts, "grassPerStrip"> & { grassBlades: number };
 }
 
 /**
@@ -147,6 +153,15 @@ export class ProceduralBuilder {
   private navMeshManagerRef: NavMeshManager | null = null;
   private navPatrolSystemRef: NavPatrolSystem | null = null;
   private navDebugOverlayRef: NavDebugOverlay | null = null;
+  private readonly ambientVfxCounts: AmbientVfxCounts;
+  private readonly builtAmbientVfxCounts = {
+    sparkles: 0,
+    motes: 0,
+    grassBlades: 0,
+    rain: 0,
+    embers: 0,
+    orbit: 0,
+  };
 
   private colliderFactory: ColliderFactory;
 
@@ -158,8 +173,10 @@ export class ProceduralBuilder {
     private stationFilterKey: ShowcaseStationKey | null,
     private assetLoader?: AssetLoader,
     private supportsAdvancedGpuEffects = true,
+    private graphicsProfile: GraphicsProfile = "cinematic",
   ) {
     this.colliderFactory = new ColliderFactory(physicsWorld);
+    this.ambientVfxCounts = getAmbientVfxCounts(graphicsProfile);
   }
 
   /** Yield control to the browser so CSS animations can paint a frame. */
@@ -372,7 +389,7 @@ export class ProceduralBuilder {
 
       // ── Floating sparkle particles throughout the corridor ──
       const sparkles = new SparkleParticles({
-        count: 400,
+        count: this.ambientVfxCounts.sparkles,
         areaWidth: hallWidth - 4,
         areaHeight: 14,
         areaDepth: hallLength - 20,
@@ -382,6 +399,7 @@ export class ProceduralBuilder {
       this.meshes.push(sparkles.points);
       // Store sparkles for update in fixedUpdate
       (this as unknown as { _sparkles?: SparkleParticles })._sparkles = sparkles;
+      this.builtAmbientVfxCounts.sparkles = this.ambientVfxCounts.sparkles;
     } // end buildAll corridor structure
 
     await this.yieldProgress(0.2);
@@ -465,7 +483,7 @@ export class ProceduralBuilder {
             const grass = new GrassEffect({
               width: bayWidth - 6,
               depth: edgeDepth,
-              bladeCount: 400,
+              bladeCount: this.ambientVfxCounts.grassPerStrip,
               bladeHeight: 0.35,
               bladeWidth: 0.06,
               position: stripPosition,
@@ -474,6 +492,7 @@ export class ProceduralBuilder {
             });
             this.scene.add(grass.mesh);
             this.meshes.push(grass.mesh);
+            this.builtAmbientVfxCounts.grassBlades += this.ambientVfxCounts.grassPerStrip;
           } else {
             const grassStrip = new THREE.Mesh(
               new THREE.BoxGeometry(bayWidth - 6, 0.08, edgeDepth),
@@ -2686,7 +2705,8 @@ export class ProceduralBuilder {
     });
     moteMat.premultipliedAlpha = false;
 
-    const count = 60;
+    const count = this.ambientVfxCounts.motes;
+    this.builtAmbientVfxCounts.motes = count;
     const halfW = hallWidth / 2 - 1;
     const halfL = hallLength / 2 - 2;
 
@@ -3145,14 +3165,16 @@ export class ProceduralBuilder {
     try {
       const { createVfxShowcase } = await import("@level/VfxShowcase");
       if (this.loadGenerationRef.value !== gen) return;
-      const result = await createVfxShowcase(this.scene, base, bayWidth);
+      const result = await createVfxShowcase(this.scene, base, bayWidth, this.graphicsProfile);
       if (this.loadGenerationRef.value !== gen) {
         result.dispose();
         return;
       }
       this.meshes.push(...result.objects);
-      this.vfxDisposeCallbacks.push(result.dispose);
       this.vfxUpdateCallbacks.push(result.update);
+      this.builtAmbientVfxCounts.embers += result.ambientCounts.embers;
+      this.builtAmbientVfxCounts.rain += result.ambientCounts.rain;
+      this.builtAmbientVfxCounts.orbit += result.ambientCounts.orbit;
     } catch (err) {
       console.warn("[ProceduralBuilder] VFX showcase V2 failed, falling back to legacy:", err);
       // Fall back to old VFX bay
@@ -4056,7 +4078,8 @@ export class ProceduralBuilder {
 
     const animateBillboard = (mesh: THREE.Object3D) => {
       this.vfxUpdateCallbacks.push(() => {
-        mesh.lookAt(this.scene.position.x, mesh.getWorldPosition(new THREE.Vector3()).y, this.scene.position.z);
+        mesh.getWorldPosition(billboardWorldPosition);
+        mesh.lookAt(this.scene.position.x, billboardWorldPosition.y, this.scene.position.z);
       });
     };
 
@@ -4124,6 +4147,8 @@ export class ProceduralBuilder {
       navDebugOverlay: this.navDebugOverlayRef,
       vfxDisposeCallbacks: this.vfxDisposeCallbacks,
       vfxUpdateCallbacks: this.vfxUpdateCallbacks,
+      vfxBuildProfile: this.graphicsProfile,
+      vfxAmbientCounts: { ...this.builtAmbientVfxCounts },
     };
   }
 }

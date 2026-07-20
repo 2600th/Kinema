@@ -30,6 +30,7 @@ function createSystem() {
   const renderer = {
     scene: new THREE.Scene(),
     camera: new THREE.PerspectiveCamera(),
+    getGraphicsProfile: vi.fn(() => "performance"),
   };
   const playerController = {
     body: { linvel: () => ({ x: 0, z: 0 }) },
@@ -61,7 +62,7 @@ describe("ParticleSystem", () => {
     });
     await vi.dynamicImportSettled();
 
-    expect(renderer.scene.children).toHaveLength(7);
+    expect(renderer.scene.children).toHaveLength(10);
   });
 
   it("does not retain a particle instance created after dispose", async () => {
@@ -89,7 +90,7 @@ describe("ParticleSystem", () => {
 
     await system.freezeForCapture();
 
-    expect(renderer.scene.children).toHaveLength(7);
+    expect(renderer.scene.children).toHaveLength(10);
     expect(renderer.scene.children.every((child) => !child.visible)).toBe(true);
     expect(renderer.scene.children.every((child) => (child as THREE.InstancedMesh).count === 0)).toBe(true);
   });
@@ -115,5 +116,47 @@ describe("ParticleSystem", () => {
     expect(celebration).toHaveBeenCalledExactlyOnceWith(completionPosition);
     expect(vehicleDust).toHaveBeenNthCalledWith(1, seatPosition);
     expect(vehicleDust).toHaveBeenNthCalledWith(2, vehiclePosition);
+  });
+
+  it("advances retained grounded handling and boost state with current profile density", async () => {
+    const { eventBus, system } = createSystem();
+    eventBus.emit("level:loaded", { name: "vehicles" });
+    await vi.dynamicImportSettled();
+    const particles = (system as any).gameParticles;
+    const motionSpy = vi.spyOn(particles, "updateVehicleMotion");
+    const handling = {
+      speedNorm: 0.8,
+      forwardSpeed: 12,
+      lateralSpeed: 1,
+      slipAngle: 0.2,
+      slipRatio: 0.1,
+      slipSign: 1,
+      driftAmount: 0.7,
+      driftState: "drift" as const,
+      handbrake: true,
+      grounded: true,
+      groundedWheelCount: 2,
+      wheelContactPositions: [new THREE.Vector3(-1, 0, -1), new THREE.Vector3(1, 0, -1), null, null],
+    };
+
+    eventBus.emit("vehicle:handlingUpdate", handling);
+    eventBus.emit("vehicle:boostChanged", { active: true });
+    system.update(0.25, 0);
+
+    expect(motionSpy).toHaveBeenLastCalledWith(handling, true, 0.25, 0.35);
+    expect(system.getDebugState().vehicle.emitted).toMatchObject({
+      dust: expect.any(Number),
+      skid: expect.any(Number),
+      boost: expect.any(Number),
+    });
+    expect(system.getDebugState().vehicle.emitted.dust).toBeGreaterThan(0);
+    expect(system.getDebugState().vehicle.emitted.skid).toBeGreaterThan(0);
+    expect(system.getDebugState().vehicle.emitted.boost).toBeGreaterThan(0);
+
+    eventBus.emit("vehicle:handlingUpdate", null);
+    eventBus.emit("vehicle:boostChanged", { active: false });
+    system.update(1, 0);
+    expect(motionSpy).toHaveBeenLastCalledWith(null, false, 1, 0.35);
+    expect(system.getDebugState().vehicle.active).toEqual({ dust: 0, skid: 0, boost: 0 });
   });
 });

@@ -4,6 +4,7 @@ import type { PhysicsWorld } from "@physics/PhysicsWorld";
 import * as THREE from "three";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LevelManager } from "./LevelManager";
+import { SparkleParticles } from "./SparkleParticles";
 
 describe("LevelManager spawn handling", () => {
   const defaultSpawn = new THREE.Vector3(0, 2, 0);
@@ -250,44 +251,44 @@ describe("LevelManager transactional editor JSON loading", () => {
 });
 
 describe("LevelManager non-mesh GLTF physics ownership", () => {
-  it.each(["collider", "sensor"] as const)(
-    "finishes the non-mesh %s descriptor before allocating or tracking a body",
-    async (type) => {
-      const scene = new THREE.Scene();
-      const physicsWorld = {
-        world: { createRigidBody: vi.fn(), createCollider: vi.fn() },
-        removeCollider: vi.fn(),
-        removeBody: vi.fn(),
-      };
-      const manager = new LevelManager(scene, physicsWorld as any, { emit: vi.fn() } as any);
-      const group = new THREE.Group();
-      group.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()));
-      vi.spyOn(manager.getAssetLoader(), "load").mockResolvedValue({ scene: new THREE.Group(), animations: [] } as any);
-      vi.spyOn((manager as any).meshParser, "parse").mockReturnValue([{ type, object: group, mesh: null }]);
-      vi.spyOn((manager as any).levelValidator, "validate").mockImplementation(() => {});
-      const descriptorError = new Error(`${type} descriptor failed`);
-      const cuboidSpy = vi.spyOn(RAPIER.ColliderDesc, "cuboid");
-      if (type === "collider") {
-        cuboidSpy.mockImplementation(() => {
+  it.each([
+    "collider",
+    "sensor",
+  ] as const)("finishes the non-mesh %s descriptor before allocating or tracking a body", async (type) => {
+    const scene = new THREE.Scene();
+    const physicsWorld = {
+      world: { createRigidBody: vi.fn(), createCollider: vi.fn() },
+      removeCollider: vi.fn(),
+      removeBody: vi.fn(),
+    };
+    const manager = new LevelManager(scene, physicsWorld as any, { emit: vi.fn() } as any);
+    const group = new THREE.Group();
+    group.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()));
+    vi.spyOn(manager.getAssetLoader(), "load").mockResolvedValue({ scene: new THREE.Group(), animations: [] } as any);
+    vi.spyOn((manager as any).meshParser, "parse").mockReturnValue([{ type, object: group, mesh: null }]);
+    vi.spyOn((manager as any).levelValidator, "validate").mockImplementation(() => {});
+    const descriptorError = new Error(`${type} descriptor failed`);
+    const cuboidSpy = vi.spyOn(RAPIER.ColliderDesc, "cuboid");
+    if (type === "collider") {
+      cuboidSpy.mockImplementation(() => {
+        throw descriptorError;
+      });
+    } else {
+      cuboidSpy.mockReturnValue({
+        setSensor: vi.fn(() => {
           throw descriptorError;
-        });
-      } else {
-        cuboidSpy.mockReturnValue({
-          setSensor: vi.fn(() => {
-            throw descriptorError;
-          }),
-        } as unknown as RAPIER.ColliderDesc);
-      }
+        }),
+      } as unknown as RAPIER.ColliderDesc);
+    }
 
-      await expect((manager as any).loadGLTF("descriptor-order-test")).rejects.toThrow(descriptorError);
-      cuboidSpy.mockRestore();
+    await expect((manager as any).loadGLTF("descriptor-order-test")).rejects.toThrow(descriptorError);
+    cuboidSpy.mockRestore();
 
-      expect(physicsWorld.world.createRigidBody).not.toHaveBeenCalled();
-      expect(physicsWorld.world.createCollider).not.toHaveBeenCalled();
-      expect((manager as any).levelBodies).toHaveLength(0);
-      expect((manager as any).levelColliders).toHaveLength(0);
-    },
-  );
+    expect(physicsWorld.world.createRigidBody).not.toHaveBeenCalled();
+    expect(physicsWorld.world.createCollider).not.toHaveBeenCalled();
+    expect((manager as any).levelBodies).toHaveLength(0);
+    expect((manager as any).levelColliders).toHaveLength(0);
+  });
 
   it.each(["collider", "sensor"] as const)("removes the %s body when collider creation fails", async (type) => {
     const scene = new THREE.Scene();
@@ -1097,6 +1098,92 @@ describe("LevelManager VFX timing", () => {
 
     expect(geometryDispose).toHaveBeenCalledTimes(1);
     expect(materialDispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("disposes owned sparkle resources exactly once during unload", () => {
+    const scene = new THREE.Scene();
+    const manager = new LevelManager(
+      scene,
+      { world: {}, removeCollider: vi.fn(), removeBody: vi.fn() } as unknown as PhysicsWorld,
+      { emit: vi.fn() } as unknown as EventBus,
+    );
+    const sparkles = new SparkleParticles({
+      count: 4,
+      areaWidth: 20,
+      areaHeight: 8,
+      areaDepth: 400,
+      position: new THREE.Vector3(0, 4, -100),
+    });
+    const region = sparkles.points.children[0] as THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>;
+    const geometryDispose = vi.spyOn(region.geometry, "dispose");
+    const materialDispose = vi.spyOn(region.material, "dispose");
+    scene.add(sparkles.points);
+    const internals = manager as unknown as {
+      levelObjects: THREE.Object3D[];
+      sparkleParticles: SparkleParticles | null;
+    };
+    internals.levelObjects = [sparkles.points];
+    internals.sparkleParticles = sparkles;
+
+    manager.unload();
+
+    expect(geometryDispose).toHaveBeenCalledTimes(1);
+    expect(materialDispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("retains the selected VFX profile for the next build without rewriting the active build", () => {
+    const manager = new LevelManager(
+      new THREE.Scene(),
+      { world: {}, removeCollider: vi.fn(), removeBody: vi.fn() } as unknown as PhysicsWorld,
+      { emit: vi.fn() } as unknown as EventBus,
+    );
+
+    expect(manager.getVfxDebugState()).toMatchObject({ selectedProfile: "cinematic", buildProfile: null });
+
+    manager.setGraphicsProfile("performance");
+
+    expect(manager.getVfxDebugState()).toMatchObject({ selectedProfile: "performance", buildProfile: null });
+  });
+
+  it("excludes explicitly hidden motes and sparkles from the visible ambient count", () => {
+    const manager = new LevelManager(
+      new THREE.Scene(),
+      { world: {}, removeCollider: vi.fn(), removeBody: vi.fn() } as unknown as PhysicsWorld,
+      { emit: vi.fn() } as unknown as EventBus,
+    );
+    const sparkles = new SparkleParticles({
+      count: 4,
+      areaWidth: 20,
+      areaHeight: 8,
+      areaDepth: 400,
+      position: new THREE.Vector3(0, 4, -100),
+    });
+    const mote = new THREE.Sprite(new THREE.SpriteMaterial());
+    const internals = manager as unknown as {
+      dustMotes: Array<{ sprite: THREE.Sprite }>;
+      sparkleParticles: SparkleParticles | null;
+      vfxAmbientCounts: {
+        sparkles: number;
+        motes: number;
+        grassBlades: number;
+        rain: number;
+        embers: number;
+        orbit: number;
+      };
+      vfxMotesVisible: boolean;
+    };
+    internals.dustMotes = [{ sprite: mote }];
+    internals.sparkleParticles = sparkles;
+    internals.vfxAmbientCounts = { sparkles: 4, motes: 10, grassBlades: 20, rain: 30, embers: 40, orbit: 50 };
+    internals.vfxMotesVisible = true;
+
+    expect(manager.getVfxDebugState().ambient).toMatchObject({ configured: 154, visible: 154 });
+
+    manager.freezeForCapture();
+
+    expect(manager.getVfxDebugState().ambient).toMatchObject({ configured: 154, visible: 140 });
+    sparkles.dispose();
+    mote.material.dispose();
   });
 });
 

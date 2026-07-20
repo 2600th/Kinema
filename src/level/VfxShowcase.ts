@@ -1,9 +1,79 @@
+import type { GraphicsProfile } from "@core/UserSettings";
+import { getAmbientVfxCounts } from "@core/vfxProfile";
 import * as THREE from "three";
 
 export interface VfxShowcaseResult {
   objects: THREE.Object3D[];
   dispose: () => void;
   update: (dt: number) => void;
+  ambientCounts: { embers: number; rain: number; orbit: number };
+}
+
+function collectMaterialTextures(material: THREE.Material, textures: Set<THREE.Texture>): void {
+  const collect = (value: unknown): void => {
+    if (value instanceof THREE.Texture) {
+      textures.add(value);
+    } else if (Array.isArray(value)) {
+      for (const item of value) collect(item);
+    }
+  };
+
+  for (const value of Object.values(material)) collect(value);
+
+  const uniforms = (material as THREE.Material & { uniforms?: Record<string, { value?: unknown }> }).uniforms;
+  if (uniforms) {
+    for (const uniform of Object.values(uniforms)) collect(uniform.value);
+  }
+}
+
+/**
+ * Creates an idempotent disposer for roots that have not been accepted by
+ * LevelManager. Accepted roots are disposed by the level's single owner.
+ */
+export function createVfxDisposer(roots: readonly THREE.Object3D[]): () => void {
+  let disposed = false;
+
+  return () => {
+    if (disposed) return;
+    disposed = true;
+
+    const geometries = new Set<THREE.BufferGeometry>();
+    const materials = new Set<THREE.Material>();
+    const textures = new Set<THREE.Texture>();
+    const instancedMeshes = new Set<THREE.InstancedMesh>();
+
+    for (const root of roots) {
+      root.removeFromParent();
+      root.traverse((object) => {
+        if (object instanceof THREE.InstancedMesh) instancedMeshes.add(object);
+
+        const renderable = object as THREE.Object3D & {
+          geometry?: THREE.BufferGeometry;
+          material?: THREE.Material | THREE.Material[];
+        };
+        if (renderable.geometry instanceof THREE.BufferGeometry) geometries.add(renderable.geometry);
+
+        const objectMaterials = Array.isArray(renderable.material)
+          ? renderable.material
+          : renderable.material
+            ? [renderable.material]
+            : [];
+        for (const material of objectMaterials) {
+          materials.add(material);
+          collectMaterialTextures(material, textures);
+        }
+      });
+    }
+
+    for (const mesh of instancedMeshes) mesh.dispose();
+    for (const texture of textures) texture.dispose();
+    for (const geometry of geometries) geometry.dispose();
+    for (const material of materials) material.dispose();
+  };
+}
+
+export function rollbackVfxRoots(roots: THREE.Object3D[], startIndex: number): void {
+  createVfxDisposer(roots.splice(startIndex))();
 }
 
 /**
@@ -21,9 +91,12 @@ export async function createVfxShowcase(
   base: THREE.Vector3,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _bayWidth: number,
+  graphicsProfile: GraphicsProfile = "cinematic",
 ): Promise<VfxShowcaseResult> {
   const created: THREE.Object3D[] = [];
   const updateFns: Array<(dt: number) => void> = [];
+  const targetCounts = getAmbientVfxCounts(graphicsProfile);
+  const builtCounts = { embers: 0, rain: 0, orbit: 0 };
 
   try {
     // ── Dynamic TSL / WebGPU imports ─────────────────────────────────────
@@ -156,7 +229,7 @@ export async function createVfxShowcase(
       fireGroup.add(emberDisc);
 
       // --- EMBER PARTICLES (tiny hot sparks rising) ---
-      const emberParticleCount = 40;
+      const emberParticleCount = targetCounts.embers;
       const emberPositions = new Float32Array(emberParticleCount * 3);
       for (let e = 0; e < emberParticleCount; e++) {
         const a = Math.random() * Math.PI * 2;
@@ -178,6 +251,7 @@ export async function createVfxShowcase(
       const emberPts = new THREE.Points(emberGeo, emberPMat);
       emberPts.castShadow = false;
       fireGroup.add(emberPts);
+      builtCounts.embers = emberParticleCount;
 
       // Animate embers rising
       const emberSpeeds = new Float32Array(emberParticleCount);
@@ -450,11 +524,15 @@ export async function createVfxShowcase(
     {
       const { GLTFLoader } = await import("three/addons/loaders/GLTFLoader.js");
       const loader = new GLTFLoader();
+      const lightningRootStart = created.length;
       try {
         const gltf = await new Promise<{ scene: THREE.Group }>((resolve, reject) => {
           loader.load("assets/models/cloud_lightning.glb", resolve as (gltf: unknown) => void, undefined, reject);
         });
         const model = gltf.scene;
+        // Register ownership before any processing that can throw. The inner
+        // catch rolls this whole section back atomically.
+        created.push(model);
         const posX = base.x + 5;
         const posZ = base.z;
 
@@ -464,7 +542,6 @@ export async function createVfxShowcase(
 
         // Categorize meshes: keep cloud, collect bolts, extract ONE rain drop for particles
         const boltMeshes: THREE.Mesh[] = [];
-        let rainDropGeo: THREE.BufferGeometry | null = null;
         let rainDropMat: THREE.Material | null = null;
 
         model.traverse((child) => {
@@ -479,10 +556,7 @@ export async function createVfxShowcase(
           }
           // Grab geometry/material from the first rain drop mesh, hide ALL rain meshes
           if (child.name.includes("Sphere") && child instanceof THREE.Mesh) {
-            if (!rainDropGeo) {
-              rainDropGeo = child.geometry.clone();
-              rainDropMat = child.material;
-            }
+            if (!rainDropMat && !Array.isArray(child.material)) rainDropMat = child.material;
             child.visible = false; // hide all original rain drop meshes
           }
         });
@@ -547,7 +621,6 @@ export async function createVfxShowcase(
         });
 
         scene.add(model);
-        created.push(model);
 
         // --- Create instanced rain particles from the single drop mesh ---
         // Rain spawns directly under the cloud's visual center.
@@ -560,7 +633,7 @@ export async function createVfxShowcase(
         const rainCenterX = posX + 2.5;
         const rainCenterZ = posZ;
 
-        const RAIN_COUNT = 200;
+        const RAIN_COUNT = targetCounts.rain;
         const RAIN_AREA_W = 7.5;
         const RAIN_AREA_D = 5.4;
         const RAIN_TOP = base.y + 3.0; // just below cloud visual bottom
@@ -605,6 +678,7 @@ export async function createVfxShowcase(
           rainInstancedMesh.instanceMatrix.needsUpdate = true;
           scene.add(rainInstancedMesh);
           created.push(rainInstancedMesh);
+          builtCounts.rain = RAIN_COUNT;
         }
 
         // Flash point light
@@ -674,6 +748,7 @@ export async function createVfxShowcase(
           }
         });
       } catch (err) {
+        rollbackVfxRoots(created, lightningRootStart);
         console.warn("[VfxShowcase] Failed to load cloud_lightning.glb:", err);
       }
     }
@@ -711,7 +786,7 @@ export async function createVfxShowcase(
       });
 
       // --- Orbiting particles ---
-      const particleCount = 100;
+      const particleCount = targetCounts.orbit;
       const particlePositions = new Float32Array(particleCount * 3);
       const torusRadius = 1.5;
 
@@ -741,6 +816,7 @@ export async function createVfxShowcase(
       sparkPoints.castShadow = false;
       // Nest inside ring group so they rotate together
       ringGroup.add(sparkPoints);
+      builtCounts.orbit = particleCount;
 
       // --- Point light at ring center ---
       const ringLight = new THREE.PointLight(0x00ffcc, 5, 12, 2);
@@ -751,17 +827,16 @@ export async function createVfxShowcase(
     }
   } catch (err) {
     console.warn("[VfxShowcase] Failed to create VFX demos, cleaning up:", err);
-    for (const obj of created) obj.removeFromParent();
+    createVfxDisposer(created)();
     throw err;
   }
 
   return {
     objects: created,
-    dispose: () => {
-      for (const obj of created) obj.removeFromParent();
-    },
+    dispose: createVfxDisposer(created),
     update: (dt: number) => {
       for (const fn of updateFns) fn(dt);
     },
+    ambientCounts: builtCounts,
   };
 }

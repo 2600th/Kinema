@@ -24,6 +24,7 @@ export interface VehicleHandlingFeelState {
   readonly handbrake: boolean;
   readonly grounded: boolean;
   readonly groundedWheelCount: number;
+  readonly wheelContactPositions?: readonly (THREE.Vector3 | null)[];
 }
 
 export interface VehicleController extends FixedUpdatable, PostPhysicsUpdatable, Updatable, Disposable {

@@ -114,3 +114,54 @@ The serial Playwright correctness run separately reported `WebGPU (WebGL2
 backend)` under SwiftShader; those headless timings are intentionally excluded
 from this representative hardware table. Raw results are retained in
 `.superpowers/sdd/kin022-hardware-results.json`.
+
+## KIN-026 VFX density and vehicle-motion proof
+
+Captured 2026-07-20 with headed Chromium 147 on the same 1920 x 1080,
+120 Hz hardware-WebGPU setup described above. Each VFX profile used a fresh
+browser context and the isolated VFX station. The runtime reported `WebGPU`,
+the exact configured ambient count, and a complete rolling 600-frame window.
+
+| Profile | Density | Embers / rain / orbit | Configured total | p50 (ms) | p95 (ms) | max (ms) | long frames |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Performance | 0.35 | 14 / 70 / 35 | 119 | 8.3 | 8.5 | 4,192.4 | 6 |
+| Cinematic | 1.00 | 40 / 200 / 100 | 340 | 8.3 | 8.4 | 3,709.0 | 4 |
+
+The display cadence still caps steady-state p95, so this hardware result is a
+non-regression observation, not a claim that density scaling improves p95 on a
+high-end 120 Hz system. The deterministic performance gate is the exact 65%
+ambient-count reduction. Startup `max` and `long` values include GLB/shader
+work and retain the same interpretation as the KIN-001 matrix.
+
+The headed vehicle run also reported true `WebGPU` while dust, skid, and boost
+were simultaneously active (`1 / 1 / 3` active instances), then completed the
+normal exit lifecycle without page errors. Raw data and the hardware vehicle
+capture are retained in `.superpowers/sdd/kin026-hardware-results.json` and
+`.superpowers/sdd/kin026-vehicle-hardware-webgpu.png`.
+
+Serial headless Playwright supplied the complementary low-end and lifecycle
+evidence:
+
+- WebGPURenderer's WebGL2 backend and the compatibility `WebGLRenderer` both
+  emitted dust, skid, and boost, and all sustained pools drained to zero after
+  exit. The automatic headless route also selected WebGPU-on-WebGL2 because
+  SwiftShader exposed no native WebGPU adapter.
+- The full showcase reported 1,120 configured ambient instances on performance
+  versus 3,200 on cinematic. At the VFX review spawn, distance culling left two
+  of four sparkle regions visible: 70 of 140 performance sparkles and 200 of
+  400 cinematic sparkles.
+- Three cinematic unload/rebuild cycles, each followed by CDP garbage
+  collection, measured 41,646,116, 42,144,236, and 42,537,172 bytes of used JS
+  heap. The 891,056-byte (0.85 MiB) range stayed well inside the 20 MiB
+  stability gate. Renderer memory was exactly 30 geometries and 38 textures
+  after every cycle, satisfying the zero-drift renderer-resource gate.
+- After a 30-frame warmup and explicit stats reset, SwiftShader's fresh
+  30-frame windows were p95 533.4 ms performance and 2,149.9 ms cinematic.
+  The automated profile non-regression gate allows 10% plus 2 ms and therefore
+  confirms that the reduced-density profile is not slower. These software-GPU
+  timings are not substituted for the 600-frame hardware baseline above.
+
+The inspected performance/cinematic review captures and three vehicle renderer
+captures are retained under `output/kin026/`; the profile metrics JSON is under
+`output/kin026/vfx-review-final/`. These workspace-local artifacts are not
+committed.

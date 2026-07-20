@@ -17,6 +17,7 @@ import {
   resolveCarDriveCommand,
   resolveCarHandlingFeelState,
   resolveCarYawAssistEffectiveAuthority,
+  updateWheelContactPositions,
 } from "./CarController";
 
 describe("CarController helpers", () => {
@@ -136,6 +137,51 @@ describe("CarController helpers", () => {
       const selected = pickFirstClearCarExitCandidate(candidates, () => false);
 
       expect(selected).toBeNull();
+    });
+  });
+
+  describe("wheel contact projection", () => {
+    it("mutates persistent world-position slots without replacing arrays or vectors", () => {
+      const slots = [new THREE.Vector3(), new THREE.Vector3()];
+      const contacts: Array<THREE.Vector3 | null> = [null, null];
+      const slotIdentities = [...slots];
+      const rotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
+
+      const first = updateWheelContactPositions(
+        slots,
+        contacts,
+        [new THREE.Vector3(1, 0, 2), new THREE.Vector3(-1, 0, -2)],
+        [true, false],
+        [0.5, 0.5],
+        1,
+        0.25,
+        { x: 10, y: 2, z: 3 },
+        rotation,
+      );
+
+      expect(first).toBe(contacts);
+      expect(slots).toEqual(slotIdentities);
+      expect(first[0]).toBe(slotIdentities[0]);
+      expect(first[0]?.x).toBeCloseTo(12, 8);
+      expect(first[0]?.y).toBeCloseTo(2.25, 8);
+      expect(first[0]?.z).toBeCloseTo(2, 8);
+      expect(first[1]).toBeNull();
+
+      const second = updateWheelContactPositions(
+        slots,
+        contacts,
+        [new THREE.Vector3(1, 0, 2), new THREE.Vector3(-1, 0, -2)],
+        [false, true],
+        [0.5, 0.5],
+        1,
+        0.25,
+        { x: 10, y: 2, z: 3 },
+        rotation,
+      );
+
+      expect(second).toBe(first);
+      expect(second[0]).toBeNull();
+      expect(second[1]).toBe(slotIdentities[1]);
     });
   });
 

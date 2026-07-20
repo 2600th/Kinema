@@ -1,30 +1,43 @@
 import * as THREE from "three";
 
+interface SparkleRegion {
+  readonly points: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>;
+  readonly count: number;
+  readonly worldCenterZ: number;
+  readonly boundsMin: THREE.Vector3;
+  readonly boundsMax: THREE.Vector3;
+  readonly velocities: Float32Array;
+  readonly baseSizes: Float32Array;
+  readonly phaseSin: Float32Array;
+  readonly phaseCos: Float32Array;
+  readonly phaseSin13: Float32Array;
+  readonly phaseCos13: Float32Array;
+  distanceVisible: boolean;
+}
+
+export interface SparkleParticlesDebugState {
+  readonly configuredCount: number;
+  readonly visibleCount: number;
+  readonly regionCount: number;
+  readonly visibleRegionCount: number;
+}
+
 /**
- * Floating sparkle particles that drift gently through the corridor.
- * Creates an Astro Bot-style magical atmosphere with colorful star-shaped points.
+ * Floating corridor sparkles split into independently culled Z regions.
+ * Regions outside the explicit observer-distance band skip both rendering and
+ * CPU animation, while visible regions retain Three.js view-frustum culling.
  */
 export class SparkleParticles {
-  readonly points: THREE.Points;
+  readonly root = new THREE.Group();
+  /** Backward-compatible scene root used by ProceduralBuilder. */
+  readonly points = this.root;
 
-  private readonly geometry: THREE.BufferGeometry;
-  private readonly material: THREE.PointsMaterial;
-
-  private readonly velocities: Float32Array;
-  private readonly phases: Float32Array;
-  private readonly baseSizes: Float32Array;
-  // Precomputed sin/cos of each particle's phase (and 1.3x phase) so the
-  // per-tick wobble/twinkle reduces to angle-addition multiply-adds instead
-  // of 3 trig calls per particle per tick (~1200/tick at 400 particles).
-  private readonly phaseSin: Float32Array;
-  private readonly phaseCos: Float32Array;
-  private readonly phaseSin13: Float32Array;
-  private readonly phaseCos13: Float32Array;
-
-  private readonly boundsMin: THREE.Vector3;
-  private readonly boundsMax: THREE.Vector3;
-
+  private readonly regions: SparkleRegion[] = [];
+  private readonly configuredCount: number;
+  private readonly visibilityDistance: number;
+  private globallyVisible = true;
   private elapsed = 0;
+  private disposed = false;
 
   constructor(options: {
     count: number;
@@ -35,6 +48,8 @@ export class SparkleParticles {
     colors?: number[];
     minSize?: number;
     maxSize?: number;
+    regionCount?: number;
+    visibilityDistance?: number;
   }) {
     const {
       count,
@@ -45,73 +60,145 @@ export class SparkleParticles {
       colors = [0x00d4ff, 0xffd700, 0xff69b4, 0x00ff88, 0xffffff],
       minSize = 0.08,
       maxSize = 0.2,
+      regionCount = 4,
+      visibilityDistance,
     } = options;
 
-    const halfW = areaWidth / 2;
-    const halfH = areaHeight / 2;
-    const halfD = areaDepth / 2;
+    this.configuredCount = Math.max(0, Math.floor(count));
+    const actualRegionCount = Math.max(1, Math.min(Math.floor(regionCount), Math.max(1, this.configuredCount)));
+    const regionDepth = areaDepth / actualRegionCount;
+    this.visibilityDistance = visibilityDistance ?? Math.max(120, regionDepth * 1.5);
+    this.root.name = "SparkleRegions";
+    this.root.position.copy(position);
 
-    this.boundsMin = new THREE.Vector3(-halfW, -halfH, -halfD);
-    this.boundsMax = new THREE.Vector3(halfW, halfH, halfD);
+    const baseCount = Math.floor(this.configuredCount / actualRegionCount);
+    const remainder = this.configuredCount % actualRegionCount;
+    for (let index = 0; index < actualRegionCount; index += 1) {
+      const regionParticleCount = baseCount + (index < remainder ? 1 : 0);
+      const localCenterZ = -areaDepth * 0.5 + regionDepth * (index + 0.5);
+      const region = this.createRegion({
+        count: regionParticleCount,
+        areaWidth,
+        areaHeight,
+        areaDepth: regionDepth,
+        localCenterZ,
+        worldCenterZ: position.z + localCenterZ,
+        colors,
+        minSize,
+        maxSize,
+        index,
+      });
+      this.regions.push(region);
+      this.root.add(region.points);
+    }
+  }
 
-    // Per-particle arrays
+  update(dt: number, observerWorldZ?: number): void {
+    if (this.disposed) return;
+    this.elapsed += dt;
+
+    for (const region of this.regions) {
+      if (observerWorldZ !== undefined && Number.isFinite(observerWorldZ)) {
+        region.distanceVisible = Math.abs(region.worldCenterZ - observerWorldZ) <= this.visibilityDistance;
+      }
+      region.points.visible = this.globallyVisible && region.distanceVisible;
+      if (!region.points.visible || dt <= 0) continue;
+      this.updateRegion(region, dt);
+    }
+  }
+
+  setVisible(visible: boolean): void {
+    this.globallyVisible = visible;
+    for (const region of this.regions) {
+      region.points.visible = visible && region.distanceVisible;
+    }
+  }
+
+  getDebugState(): SparkleParticlesDebugState {
+    let visibleCount = 0;
+    let visibleRegionCount = 0;
+    for (const region of this.regions) {
+      if (!region.points.visible) continue;
+      visibleRegionCount += 1;
+      visibleCount += region.count;
+    }
+    return {
+      configuredCount: this.configuredCount,
+      visibleCount,
+      regionCount: this.regions.length,
+      visibleRegionCount,
+    };
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    for (const region of this.regions) {
+      region.points.geometry.dispose();
+      region.points.material.dispose();
+    }
+    this.root.removeFromParent();
+    this.root.clear();
+  }
+
+  private createRegion(options: {
+    count: number;
+    areaWidth: number;
+    areaHeight: number;
+    areaDepth: number;
+    localCenterZ: number;
+    worldCenterZ: number;
+    colors: number[];
+    minSize: number;
+    maxSize: number;
+    index: number;
+  }): SparkleRegion {
+    const { count, areaWidth, areaHeight, areaDepth, localCenterZ, worldCenterZ, colors, minSize, maxSize, index } =
+      options;
+    const halfW = areaWidth * 0.5;
+    const halfH = areaHeight * 0.5;
+    const halfD = areaDepth * 0.5;
     const positions = new Float32Array(count * 3);
-    const colorsArr = new Float32Array(count * 3);
+    const colorsArray = new Float32Array(count * 3);
     const sizes = new Float32Array(count);
-    this.velocities = new Float32Array(count * 3);
-    this.phases = new Float32Array(count);
-    this.baseSizes = new Float32Array(count);
-    this.phaseSin = new Float32Array(count);
-    this.phaseCos = new Float32Array(count);
-    this.phaseSin13 = new Float32Array(count);
-    this.phaseCos13 = new Float32Array(count);
+    const velocities = new Float32Array(count * 3);
+    const baseSizes = new Float32Array(count);
+    const phaseSin = new Float32Array(count);
+    const phaseCos = new Float32Array(count);
+    const phaseSin13 = new Float32Array(count);
+    const phaseCos13 = new Float32Array(count);
+    const color = new THREE.Color();
 
-    const tmpColor = new THREE.Color();
+    for (let particleIndex = 0; particleIndex < count; particleIndex += 1) {
+      const offset = particleIndex * 3;
+      positions[offset] = (Math.random() - 0.5) * areaWidth;
+      positions[offset + 1] = (Math.random() - 0.5) * areaHeight;
+      positions[offset + 2] = (Math.random() - 0.5) * areaDepth;
+      velocities[offset] = (Math.random() - 0.5) * 0.05;
+      velocities[offset + 1] = 0.2 + Math.random() * 0.2;
+      velocities[offset + 2] = (Math.random() - 0.5) * 0.05;
 
-    for (let i = 0; i < count; i++) {
-      const i3 = i * 3;
-
-      // Random position within bounds
-      positions[i3] = (Math.random() - 0.5) * areaWidth;
-      positions[i3 + 1] = (Math.random() - 0.5) * areaHeight;
-      positions[i3 + 2] = (Math.random() - 0.5) * areaDepth;
-
-      // Slow upward drift with slight horizontal variance
-      this.velocities[i3] = (Math.random() - 0.5) * 0.05; // x drift
-      this.velocities[i3 + 1] = 0.2 + Math.random() * 0.2; // y drift ~0.2-0.4
-      this.velocities[i3 + 2] = (Math.random() - 0.5) * 0.05; // z drift
-
-      // Phase offset for twinkle and wobble
       const phase = Math.random() * Math.PI * 2;
-      this.phases[i] = phase;
-      this.phaseSin[i] = Math.sin(phase);
-      this.phaseCos[i] = Math.cos(phase);
-      this.phaseSin13[i] = Math.sin(phase * 1.3);
-      this.phaseCos13[i] = Math.cos(phase * 1.3);
+      phaseSin[particleIndex] = Math.sin(phase);
+      phaseCos[particleIndex] = Math.cos(phase);
+      phaseSin13[particleIndex] = Math.sin(phase * 1.3);
+      phaseCos13[particleIndex] = Math.cos(phase * 1.3);
 
-      // Size
       const size = minSize + Math.random() * (maxSize - minSize);
-      sizes[i] = size;
-      this.baseSizes[i] = size;
-
-      // Color — pick randomly from palette. Multiply into HDR range so
-      // sparkles exceed 1.0 and trigger the bloom pass on bright backgrounds.
-      const hex = colors[Math.floor(Math.random() * colors.length)];
-      tmpColor.setHex(hex);
-      const hdrBoost = 4.0;
-      colorsArr[i3] = tmpColor.r * hdrBoost;
-      colorsArr[i3 + 1] = tmpColor.g * hdrBoost;
-      colorsArr[i3 + 2] = tmpColor.b * hdrBoost;
+      sizes[particleIndex] = size;
+      baseSizes[particleIndex] = size;
+      color.setHex(colors[Math.floor(Math.random() * colors.length)] ?? 0xffffff);
+      colorsArray[offset] = color.r * 4;
+      colorsArray[offset + 1] = color.g * 4;
+      colorsArray[offset + 2] = color.b * 4;
     }
 
-    this.geometry = new THREE.BufferGeometry();
-    this.geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    this.geometry.setAttribute("color", new THREE.BufferAttribute(colorsArr, 3));
-    this.geometry.setAttribute("size", new THREE.BufferAttribute(sizes, 1));
-
-    // Sparkles need HDR-range color to trigger bloom on bright backgrounds.
-    // Use standard blending with high opacity to remain visible against light floors.
-    this.material = new THREE.PointsMaterial({
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute("color", new THREE.BufferAttribute(colorsArray, 3));
+    geometry.setAttribute("size", new THREE.BufferAttribute(sizes, 1));
+    geometry.computeBoundingSphere();
+    const material = new THREE.PointsMaterial({
       size: maxSize,
       sizeAttenuation: true,
       vertexColors: true,
@@ -119,80 +206,69 @@ export class SparkleParticles {
       opacity: 0.9,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
+      fog: false,
     });
+    const points = new THREE.Points(geometry, material);
+    points.name = `SparkleRegion_${index}`;
+    points.position.z = localCenterZ;
+    points.frustumCulled = true;
 
-    // Disable fog on sparkles so they don't wash out at distance.
-    this.material.fog = false;
-
-    this.points = new THREE.Points(this.geometry, this.material);
-    this.points.position.copy(position);
-    this.points.frustumCulled = false;
+    return {
+      points,
+      count,
+      worldCenterZ,
+      boundsMin: new THREE.Vector3(-halfW, -halfH, -halfD),
+      boundsMax: new THREE.Vector3(halfW, halfH, halfD),
+      velocities,
+      baseSizes,
+      phaseSin,
+      phaseCos,
+      phaseSin13,
+      phaseCos13,
+      distanceVisible: true,
+    };
   }
 
-  update(dt: number): void {
-    this.elapsed += dt;
+  private updateRegion(region: SparkleRegion, dt: number): void {
+    const positionAttribute = region.points.geometry.getAttribute("position") as THREE.BufferAttribute;
+    const sizeAttribute = region.points.geometry.getAttribute("size") as THREE.BufferAttribute;
+    const positions = positionAttribute.array as Float32Array;
+    const sizes = sizeAttribute.array as Float32Array;
+    const boundsWidth = region.boundsMax.x - region.boundsMin.x;
+    const boundsDepth = region.boundsMax.z - region.boundsMin.z;
+    const sinWobbleX = Math.sin(this.elapsed * 1.2);
+    const cosWobbleX = Math.cos(this.elapsed * 1.2);
+    const sinWobbleZ = Math.sin(this.elapsed * 0.9);
+    const cosWobbleZ = Math.cos(this.elapsed * 0.9);
+    const sinTwinkle = Math.sin(this.elapsed * 3);
+    const cosTwinkle = Math.cos(this.elapsed * 3);
 
-    const posAttr = this.geometry.getAttribute("position") as THREE.BufferAttribute;
-    const sizeAttr = this.geometry.getAttribute("size") as THREE.BufferAttribute;
-    const positions = posAttr.array as Float32Array;
-    const sizes = sizeAttr.array as Float32Array;
-    const count = posAttr.count;
+    for (let index = 0; index < region.count; index += 1) {
+      const offset = index * 3;
+      const sinPhase = region.phaseSin[index];
+      const cosPhase = region.phaseCos[index];
+      positions[offset] += region.velocities[offset] * dt;
+      positions[offset + 1] += region.velocities[offset + 1] * dt;
+      positions[offset + 2] += region.velocities[offset + 2] * dt;
+      positions[offset] += (sinWobbleX * cosPhase + cosWobbleX * sinPhase) * 0.15 * dt;
+      positions[offset + 2] +=
+        (cosWobbleZ * region.phaseCos13[index] - sinWobbleZ * region.phaseSin13[index]) * 0.15 * dt;
 
-    const bMin = this.boundsMin;
-    const bMax = this.boundsMax;
-    const bWidth = bMax.x - bMin.x;
-    const bDepth = bMax.z - bMin.z;
-
-    // Shared per-tick angles; combined with per-particle phase via
-    // sin(a+p) = sin(a)cos(p) + cos(a)sin(p) (and the cos analogue).
-    const sinWobX = Math.sin(this.elapsed * 1.2);
-    const cosWobX = Math.cos(this.elapsed * 1.2);
-    const sinWobZ = Math.sin(this.elapsed * 0.9);
-    const cosWobZ = Math.cos(this.elapsed * 0.9);
-    const sinTwk = Math.sin(this.elapsed * 3.0);
-    const cosTwk = Math.cos(this.elapsed * 3.0);
-
-    for (let i = 0; i < count; i++) {
-      const i3 = i * 3;
-      const sinP = this.phaseSin[i];
-      const cosP = this.phaseCos[i];
-
-      // Drift upward + base velocity
-      positions[i3] += this.velocities[i3] * dt;
-      positions[i3 + 1] += this.velocities[i3 + 1] * dt;
-      positions[i3 + 2] += this.velocities[i3 + 2] * dt;
-
-      // Gentle X/Z wobble via sine
-      const wobbleAmount = 0.15;
-      positions[i3] += (sinWobX * cosP + cosWobX * sinP) * wobbleAmount * dt;
-      positions[i3 + 2] += (cosWobZ * this.phaseCos13[i] - sinWobZ * this.phaseSin13[i]) * wobbleAmount * dt;
-
-      // Wrap around bounds
-      if (positions[i3 + 1] > bMax.y) {
-        positions[i3 + 1] = bMin.y;
-        positions[i3] = bMin.x + Math.random() * bWidth;
-        positions[i3 + 2] = bMin.z + Math.random() * bDepth;
+      if (positions[offset + 1] > region.boundsMax.y) {
+        positions[offset + 1] = region.boundsMin.y;
+        positions[offset] = region.boundsMin.x + Math.random() * boundsWidth;
+        positions[offset + 2] = region.boundsMin.z + Math.random() * boundsDepth;
       }
-      if (positions[i3] > bMax.x) positions[i3] = bMin.x;
-      else if (positions[i3] < bMin.x) positions[i3] = bMax.x;
-      if (positions[i3 + 2] > bMax.z) positions[i3 + 2] = bMin.z;
-      else if (positions[i3 + 2] < bMin.z) positions[i3 + 2] = bMax.z;
+      if (positions[offset] > region.boundsMax.x) positions[offset] = region.boundsMin.x;
+      else if (positions[offset] < region.boundsMin.x) positions[offset] = region.boundsMax.x;
+      if (positions[offset + 2] > region.boundsMax.z) positions[offset + 2] = region.boundsMin.z;
+      else if (positions[offset + 2] < region.boundsMin.z) positions[offset + 2] = region.boundsMax.z;
 
-      // Twinkle: sine-based size oscillation
-      const twinkle = 0.5 + 0.5 * (sinTwk * cosP + cosTwk * sinP);
-      sizes[i] = this.baseSizes[i] * (0.4 + 0.6 * twinkle);
+      const twinkle = 0.5 + 0.5 * (sinTwinkle * cosPhase + cosTwinkle * sinPhase);
+      sizes[index] = region.baseSizes[index] * (0.4 + 0.6 * twinkle);
     }
 
-    posAttr.needsUpdate = true;
-    sizeAttr.needsUpdate = true;
-  }
-
-  setVisible(visible: boolean): void {
-    this.points.visible = visible;
-  }
-
-  dispose(): void {
-    this.geometry.dispose();
-    this.material.dispose();
+    positionAttribute.needsUpdate = true;
+    sizeAttribute.needsUpdate = true;
   }
 }

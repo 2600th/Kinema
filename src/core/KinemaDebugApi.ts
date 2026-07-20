@@ -2,9 +2,10 @@ import type { PlayerController } from "@character/PlayerController";
 import type { FrameStats } from "@core/GameLoop";
 import type { GamepadMenuAction, InputState } from "@core/types";
 import type { GraphicsProfile } from "@core/UserSettings";
-import type { LoadStats } from "@level/LevelManager";
+import type { LevelManager, LoadStats } from "@level/LevelManager";
 import type { RendererDebugFlags } from "@renderer/rendererState";
 import type { CoinDebugEntry } from "@systems/CoinCollectibleSystem";
+import type { ParticleSystem } from "@systems/ParticleSystem";
 import type { HealthDebugState } from "@systems/PlayerHealthSystem";
 import type { HazardDebugEntry } from "@systems/SpikeHazardSystem";
 import type { CarDebugState, CarSteeringDebugTrace } from "@vehicle/CarController";
@@ -27,8 +28,15 @@ export interface KinemaCameraPose {
   quaternion: KinemaQuaternion;
 }
 
+export interface KinemaRendererMemoryState {
+  geometries: number;
+  textures: number;
+}
+
 export type KinemaVehicleDebugState = CarDebugState;
 export type KinemaVehicleSteeringTrace = CarSteeringDebugTrace;
+export type KinemaVfxDebugState = ReturnType<LevelManager["getVfxDebugState"]> &
+  ReturnType<ParticleSystem["getDebugState"]>;
 
 export interface KinemaPlayerState {
   position: KinemaVector3;
@@ -142,7 +150,10 @@ export type KinemaInteractionEvent =
 /** Complete contract for the development-only browser automation surface. */
 export interface KinemaDebugApi {
   getFrameStats(): FrameStats;
+  resetFrameStats(): void;
+  getRendererMemoryState(): KinemaRendererMemoryState;
   getLastLoadStats(): LoadStats | null;
+  restartCurrentRun(): Promise<void>;
   readonly player: KinemaPlayerState;
   readonly config: Readonly<PlayerController["config"]>;
   simulateJump(): void;
@@ -169,6 +180,7 @@ export interface KinemaDebugApi {
   getDynamicBodyState(name: string): KinemaDynamicBodyState | null;
   getNavAgentStates(): KinemaNavAgentState[];
   getNavigationDebugState(): KinemaNavigationDebugState;
+  getVfxDebugState(): KinemaVfxDebugState;
   getLevelObjectState(name: string): KinemaLevelObjectState | null;
   getGraphicsProfile(): GraphicsProfile;
   getRendererDebugFlags(): Readonly<RendererDebugFlags>;

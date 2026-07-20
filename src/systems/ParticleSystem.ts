@@ -1,8 +1,10 @@
 import type { PlayerController } from "@character/PlayerController";
 import type { EventBus } from "@core/EventBus";
 import type { RuntimeSystem } from "@core/RuntimeSystem";
+import { getVfxDensity } from "@core/vfxProfile";
 import type { GameParticles } from "@juice/GameParticles";
 import type { RendererManager } from "@renderer/RendererManager";
+import type { VehicleHandlingFeelState } from "@vehicle/VehicleController";
 import type { VehicleManager } from "@vehicle/VehicleManager";
 import type * as THREE from "three";
 
@@ -17,6 +19,8 @@ export class ParticleSystem implements RuntimeSystem {
   private disposed = false;
   private generation = 0;
   private captureFrozen = false;
+  private vehicleHandlingState: VehicleHandlingFeelState | null = null;
+  private vehicleBoostActive = false;
 
   constructor(
     private renderer: RendererManager,
@@ -81,6 +85,14 @@ export class ParticleSystem implements RuntimeSystem {
       }),
     );
     this.unsubs.push(
+      this.eventBus.on("vehicle:handlingUpdate", (state) => {
+        this.vehicleHandlingState = state;
+      }),
+      this.eventBus.on("vehicle:boostChanged", ({ active }) => {
+        this.vehicleBoostActive = active;
+      }),
+    );
+    this.unsubs.push(
       this.eventBus.on("player:damaged", ({ position, reason }) => {
         if (reason !== "spike") {
           return;
@@ -119,6 +131,8 @@ export class ParticleSystem implements RuntimeSystem {
     this.gameParticles?.clear();
     this.beaconChargeState = null;
     this.beaconChargeTimer = 0;
+    this.vehicleHandlingState = null;
+    this.vehicleBoostActive = false;
   }
 
   fixedUpdate(_dt: number): void {
@@ -137,7 +151,25 @@ export class ParticleSystem implements RuntimeSystem {
         this.withGameParticles((particles) => particles.beaconChargePulse(position, progress));
       }
     }
+    this.gameParticles?.updateVehicleMotion(
+      this.vehicleHandlingState,
+      this.vehicleBoostActive,
+      dt,
+      getVfxDensity(this.renderer.getGraphicsProfile()),
+    );
     this.gameParticles?.update(dt, this.renderer.camera);
+  }
+
+  getDebugState() {
+    return (
+      this.gameParticles?.getDebugState() ?? {
+        gameplayActive: 0,
+        vehicle: {
+          active: { dust: 0, skid: 0, boost: 0 },
+          emitted: { dust: 0, skid: 0, boost: 0 },
+        },
+      }
+    );
   }
 
   private withGameParticles(emit: (particles: GameParticles) => void): void {
@@ -181,6 +213,8 @@ export class ParticleSystem implements RuntimeSystem {
     this.captureFrozen = true;
     this.beaconChargeState = null;
     this.beaconChargeTimer = 0;
+    this.vehicleHandlingState = null;
+    this.vehicleBoostActive = false;
     const particles = this.gameParticles ?? (this.gameParticlesPromise ? await this.gameParticlesPromise : null);
     particles?.clear();
     particles?.setVisible(false);

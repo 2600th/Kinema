@@ -45,6 +45,38 @@ const CAR_EXIT_GROUND_PROBE_MAX_TOI = 50;
 const ACTIVE_CAR_DOMINANCE_GROUP = 0;
 const STEERING_DEBUG_AUTO_LOG_INTERVAL_FRAMES = 180;
 
+export function updateWheelContactPositions(
+  positionSlots: THREE.Vector3[],
+  contactView: Array<THREE.Vector3 | null>,
+  wheelBaseCenters: readonly { x: number; y: number; z: number }[],
+  wheelInContact: readonly boolean[],
+  suspensionLengths: readonly number[],
+  wheelHardPointY: number,
+  wheelRadius: number,
+  bodyPosition: { x: number; y: number; z: number },
+  bodyRotation: { x: number; y: number; z: number; w: number },
+): readonly (THREE.Vector3 | null)[] {
+  _quat.set(bodyRotation.x, bodyRotation.y, bodyRotation.z, bodyRotation.w);
+  for (let index = 0; index < positionSlots.length; index += 1) {
+    if (!wheelInContact[index]) {
+      contactView[index] = null;
+      continue;
+    }
+    const baseCenter = wheelBaseCenters[index];
+    const slot = positionSlots[index];
+    if (!baseCenter || !slot) {
+      contactView[index] = null;
+      continue;
+    }
+    slot
+      .set(baseCenter.x, wheelHardPointY - (suspensionLengths[index] ?? 0) - wheelRadius, baseCenter.z)
+      .applyQuaternion(_quat)
+      .add(bodyPosition);
+    contactView[index] = slot;
+  }
+  return contactView;
+}
+
 function _setCRV(v: RAPIER.Vector3, x: number, y: number, z: number): RAPIER.Vector3 {
   v.x = x;
   v.y = y;
@@ -747,6 +779,8 @@ export class CarController implements VehicleController {
   private readonly chassisCollider: RAPIER.Collider;
   private readonly rideGeometry = DEFAULT_CAR_RIDE_GEOMETRY;
   private readonly wheelVisualBaseCenters = createWheelBaseCenters(this.rideGeometry);
+  private readonly wheelContactPositionSlots = this.wheelVisualBaseCenters.map(() => new THREE.Vector3());
+  private readonly wheelContactPositions: Array<THREE.Vector3 | null> = this.wheelVisualBaseCenters.map(() => null);
   private readonly wheelQueryExcludedBody: RAPIER.RigidBody | null;
   private input: InputState | null = null;
   private speed = 0;
@@ -901,12 +935,10 @@ export class CarController implements VehicleController {
       projectedCandidates,
       (candidate) =>
         this.isExitCandidateClear(candidate) &&
-        isVehicleExitPathClear(
-          this.physicsWorld,
-          basePos.clone().setY(candidate.y),
-          candidate,
-          [this.body, this.wheelQueryExcludedBody],
-        ) &&
+        isVehicleExitPathClear(this.physicsWorld, basePos.clone().setY(candidate.y), candidate, [
+          this.body,
+          this.wheelQueryExcludedBody,
+        ]) &&
         isVehicleExitGroundSupported(this.physicsWorld, candidate, [this.body, this.wheelQueryExcludedBody]),
     );
     if (lateralExit || !ENABLE_SAFE_VEHICLE_EXITS) {
@@ -926,10 +958,7 @@ export class CarController implements VehicleController {
         roofStartY,
         (candidate) => this.isExitCandidateClear(candidate),
         (candidate) =>
-          isVehicleExitPathClear(this.physicsWorld, roofOrigin, candidate, [
-            this.body,
-            this.wheelQueryExcludedBody,
-          ]),
+          isVehicleExitPathClear(this.physicsWorld, roofOrigin, candidate, [this.body, this.wheelQueryExcludedBody]),
       ),
     };
   }
@@ -1242,6 +1271,17 @@ export class CarController implements VehicleController {
     const planarSpeed = Math.hypot(this.forwardSpeed, this.lateralSpeed);
     const speedNorm = THREE.MathUtils.clamp(planarSpeed / Math.max(0.01, CAR_TUNING.maxBoostSpeed), 0, 1);
     const slipSign = Math.abs(this.handlingSlipAngle) > 0.0001 ? Math.sign(this.handlingSlipAngle) : 0;
+    updateWheelContactPositions(
+      this.wheelContactPositionSlots,
+      this.wheelContactPositions,
+      this.wheelVisualBaseCenters,
+      this.wheelInContact,
+      this.wheelSuspensionLengths,
+      this.rideGeometry.wheelHardPointY,
+      this.rideGeometry.wheelRadius,
+      this.body.translation(),
+      this.body.rotation(),
+    );
     return {
       speedNorm,
       forwardSpeed: this.forwardSpeed,
@@ -1254,6 +1294,7 @@ export class CarController implements VehicleController {
       handbrake: this.input?.crouch ?? false,
       grounded: this.groundedWheelCount >= 2,
       groundedWheelCount: this.groundedWheelCount,
+      wheelContactPositions: this.wheelContactPositions,
     };
   }
 

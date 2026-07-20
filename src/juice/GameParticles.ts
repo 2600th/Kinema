@@ -1,3 +1,4 @@
+import type { VehicleHandlingFeelState } from "@vehicle/VehicleController";
 import * as THREE from "three";
 import { ParticlePool } from "./ParticlePool";
 
@@ -8,6 +9,8 @@ const _sparkVelMin = new THREE.Vector3();
 const _sparkVelMax = new THREE.Vector3();
 const _glowVelMin = new THREE.Vector3();
 const _glowVelMax = new THREE.Vector3();
+const _vehicleVelMin = new THREE.Vector3();
+const _vehicleVelMax = new THREE.Vector3();
 
 /**
  * Higher-level wrapper providing pre-configured particle presets
@@ -23,6 +26,14 @@ export class GameParticles {
   private hurtGlowPool: ParticlePool;
   private beaconSparkPool: ParticlePool;
   private beaconGlowPool: ParticlePool;
+  private vehicleDustPool: ParticlePool;
+  private vehicleSkidPool: ParticlePool;
+  private vehicleBoostPool: ParticlePool;
+  private vehicleDustAccumulator = 0;
+  private vehicleSkidAccumulator = 0;
+  private vehicleBoostAccumulator = 0;
+  private vehicleContactCursor = 0;
+  private readonly vehicleEmitted = { dust: 0, skid: 0, boost: 0 };
 
   constructor(scene: THREE.Scene) {
     // Dust: earthy brown, normal blending, soft and floaty
@@ -97,6 +108,101 @@ export class GameParticles {
       drag: 1.9,
       additive: true,
     });
+
+    this.vehicleDustPool = new ParticlePool(scene, {
+      maxParticles: 180,
+      size: 0.18,
+      sizeVariation: 0.55,
+      color: new THREE.Color(0xa69072),
+      gravity: -0.12,
+      drag: 2.6,
+      additive: false,
+    });
+
+    this.vehicleSkidPool = new ParticlePool(scene, {
+      maxParticles: 140,
+      size: 0.24,
+      sizeVariation: 0.65,
+      color: new THREE.Color(0x4d5360),
+      gravity: -0.3,
+      drag: 2.1,
+      additive: false,
+    });
+
+    this.vehicleBoostPool = new ParticlePool(scene, {
+      maxParticles: 160,
+      size: 0.11,
+      sizeVariation: 0.5,
+      color: new THREE.Color(0x62e6ff),
+      gravity: 0,
+      drag: 4.8,
+      additive: true,
+    });
+  }
+
+  updateVehicleMotion(state: VehicleHandlingFeelState | null, boostActive: boolean, dt: number, density: number): void {
+    const contacts = state?.wheelContactPositions;
+    const speed = THREE.MathUtils.clamp(state?.speedNorm ?? 0, 0, 1);
+    const effectDt = THREE.MathUtils.clamp(dt, 0, 0.25);
+    const effectDensity = THREE.MathUtils.clamp(density, 0, 1);
+    if (!state?.grounded || speed < 0.05 || !contacts?.some((position) => position !== null)) {
+      this.resetVehicleEmissionAccumulators();
+      return;
+    }
+
+    this.vehicleDustAccumulator += (4 + speed * 20) * effectDensity * effectDt;
+    const dustCount = Math.min(8, Math.floor(this.vehicleDustAccumulator));
+    this.vehicleDustAccumulator -= dustCount;
+    _vehicleVelMin.set(-0.45 * speed, 0.04, -0.45 * speed);
+    _vehicleVelMax.set(0.45 * speed, 0.55, 0.45 * speed);
+    this.vehicleEmitted.dust += this.emitAcrossContacts(this.vehicleDustPool, contacts, dustCount, 0.48, 0.2);
+
+    const skidActive = state.handbrake || state.driftAmount >= 0.2;
+    if (skidActive) {
+      this.vehicleSkidAccumulator +=
+        (6 + THREE.MathUtils.clamp(state.driftAmount, 0, 1) * 18 + (state.handbrake ? 4 : 0)) *
+        effectDensity *
+        effectDt;
+      const skidCount = Math.min(8, Math.floor(this.vehicleSkidAccumulator));
+      this.vehicleSkidAccumulator -= skidCount;
+      _vehicleVelMin.set(-0.32, 0.12, -0.32);
+      _vehicleVelMax.set(0.32, 0.8, 0.32);
+      this.vehicleEmitted.skid += this.emitAcrossContacts(this.vehicleSkidPool, contacts, skidCount, 0.72, 0.14);
+    } else {
+      this.vehicleSkidAccumulator = 0;
+    }
+
+    if (boostActive) {
+      this.vehicleBoostAccumulator += (8 + speed * 26) * effectDensity * effectDt;
+      const boostCount = Math.min(8, Math.floor(this.vehicleBoostAccumulator));
+      this.vehicleBoostAccumulator -= boostCount;
+      _vehicleVelMin.set(-0.12, 0.03, -0.12);
+      _vehicleVelMax.set(0.12, 0.42, 0.12);
+      this.vehicleEmitted.boost += this.emitAcrossContacts(this.vehicleBoostPool, contacts, boostCount, 0.3, 0.08);
+    } else {
+      this.vehicleBoostAccumulator = 0;
+    }
+  }
+
+  getDebugState() {
+    return {
+      gameplayActive:
+        this.dustPool.getActiveCount() +
+        this.sparkPool.getActiveCount() +
+        this.coinGlowPool.getActiveCount() +
+        this.hurtSparkPool.getActiveCount() +
+        this.hurtGlowPool.getActiveCount() +
+        this.beaconSparkPool.getActiveCount() +
+        this.beaconGlowPool.getActiveCount(),
+      vehicle: {
+        active: {
+          dust: this.vehicleDustPool.getActiveCount(),
+          skid: this.vehicleSkidPool.getActiveCount(),
+          boost: this.vehicleBoostPool.getActiveCount(),
+        },
+        emitted: { ...this.vehicleEmitted },
+      },
+    };
   }
 
   /**
@@ -314,6 +420,9 @@ export class GameParticles {
     this.hurtGlowPool.update(dt, camera);
     this.beaconSparkPool.update(dt, camera);
     this.beaconGlowPool.update(dt, camera);
+    this.vehicleDustPool.update(dt, camera);
+    this.vehicleSkidPool.update(dt, camera);
+    this.vehicleBoostPool.update(dt, camera);
   }
 
   /** Kill all live particles immediately (level teardown). */
@@ -325,6 +434,13 @@ export class GameParticles {
     this.hurtGlowPool.clear();
     this.beaconSparkPool.clear();
     this.beaconGlowPool.clear();
+    this.vehicleDustPool.clear();
+    this.vehicleSkidPool.clear();
+    this.vehicleBoostPool.clear();
+    this.resetVehicleEmissionAccumulators();
+    this.vehicleEmitted.dust = 0;
+    this.vehicleEmitted.skid = 0;
+    this.vehicleEmitted.boost = 0;
   }
 
   coinCelebration(position: THREE.Vector3): void {
@@ -370,6 +486,9 @@ export class GameParticles {
     this.hurtGlowPool.setVisible(visible);
     this.beaconSparkPool.setVisible(visible);
     this.beaconGlowPool.setVisible(visible);
+    this.vehicleDustPool.setVisible(visible);
+    this.vehicleSkidPool.setVisible(visible);
+    this.vehicleBoostPool.setVisible(visible);
   }
 
   dispose(): void {
@@ -380,5 +499,45 @@ export class GameParticles {
     this.hurtGlowPool.dispose();
     this.beaconSparkPool.dispose();
     this.beaconGlowPool.dispose();
+    this.vehicleDustPool.dispose();
+    this.vehicleSkidPool.dispose();
+    this.vehicleBoostPool.dispose();
+  }
+
+  private emitAcrossContacts(
+    pool: ParticlePool,
+    contacts: readonly (THREE.Vector3 | null)[],
+    count: number,
+    lifetime: number,
+    spread: number,
+  ): number {
+    let emitted = 0;
+    for (let particleIndex = 0; particleIndex < count; particleIndex += 1) {
+      let contact: THREE.Vector3 | null = null;
+      for (let attempts = 0; attempts < contacts.length; attempts += 1) {
+        const index = this.vehicleContactCursor % contacts.length;
+        this.vehicleContactCursor = (this.vehicleContactCursor + 1) % contacts.length;
+        if (contacts[index]) {
+          contact = contacts[index];
+          break;
+        }
+      }
+      if (!contact) break;
+      _emitPos.copy(contact);
+      _emitPos.y += 0.04;
+      emitted += pool.emit(_emitPos, 1, {
+        velocityMin: _vehicleVelMin,
+        velocityMax: _vehicleVelMax,
+        lifetime,
+        spread,
+      });
+    }
+    return emitted;
+  }
+
+  private resetVehicleEmissionAccumulators(): void {
+    this.vehicleDustAccumulator = 0;
+    this.vehicleSkidAccumulator = 0;
+    this.vehicleBoostAccumulator = 0;
   }
 }

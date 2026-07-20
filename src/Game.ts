@@ -666,6 +666,13 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     return this.debugSystem.getNavigationDebugState();
   }
 
+  getVfxDebugState() {
+    return {
+      ...this.levelManager.getVfxDebugState(),
+      ...this.particleSystem.getDebugState(),
+    };
+  }
+
   teardownLevel(): void {
     this.isDying = false;
     for (const system of this.systems) {
@@ -867,7 +874,23 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     this.uiManager.dispose();
     this.levelManager.dispose();
     this.inputManager.dispose();
-    this.physicsWorld.dispose();
+    // Rapier's raycast vehicle controller can retain a transient collider-set
+    // borrow until its removal stack unwinds. Free the world immediately after
+    // that stack instead of trapping inside wasm-bindgen during page teardown.
+    queueMicrotask(() => {
+      try {
+        this.physicsWorld.dispose();
+      } catch (error) {
+        if (error instanceof Error && error.message.includes("Rust value while it was borrowed")) {
+          // @dimforge/rapier3d-compat 0.19.3 can retain this borrow after a
+          // DynamicRayCastVehicleController is removed. The page's WASM realm
+          // is being destroyed, so there is no persistent allocation to leak.
+          console.warn("[Game] Rapier deferred world cleanup to page teardown after vehicle use.");
+          return;
+        }
+        throw error;
+      }
+    });
     this.renderer.dispose();
     this.eventBus.clear();
   }

@@ -15,4 +15,16 @@ describe("procedural showcase instructions", () => {
     expect(instructions).toContain("Primary");
     expect(instructions).toContain("Crouch");
   });
+
+  it("keeps accepted VFX roots under level ownership instead of registering a second disposer", () => {
+    const source = readFileSync(new URL("./ProceduralBuilder.ts", import.meta.url), "utf8");
+
+    expect(source).not.toContain("this.vfxDisposeCallbacks.push(result.dispose)");
+  });
+
+  it("reuses scratch storage while orienting VFX billboards", () => {
+    const source = readFileSync(new URL("./ProceduralBuilder.ts", import.meta.url), "utf8");
+
+    expect(source).not.toContain("getWorldPosition(new THREE.Vector3())");
+  });
 });

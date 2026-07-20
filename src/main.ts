@@ -506,7 +506,11 @@ async function bootstrap(): Promise<void> {
     });
     const kinemaDebugApi = {
       getFrameStats: () => gameLoop.getFrameStats(),
+      resetFrameStats: () => gameLoop.resetFrameStats(),
+      getRendererMemoryState: () => renderer.getMemoryDebugState(),
       getLastLoadStats: () => levelManager.getLastLoadStats(),
+      restartCurrentRun,
+      getVfxDebugState: () => game.getVfxDebugState(),
       get player() {
         const pos = playerController.position;
         const vel = playerController.body.linvel();

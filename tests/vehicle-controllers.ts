@@ -46,8 +46,9 @@ type DynamicBodyState = {
   velocity: { x: number; y: number; z: number };
 };
 
-async function waitForVehiclesStationReady(page: Page): Promise<void> {
-  await page.goto("/?station=vehicles", { waitUntil: "domcontentloaded" });
+async function waitForVehiclesStationReady(page: Page, rendererQuery = ""): Promise<void> {
+  const suffix = rendererQuery ? `&${rendererQuery}` : "";
+  await page.goto(`/?station=vehicles${suffix}`, { waitUntil: "domcontentloaded" });
   await page.locator("canvas").waitFor({ state: "visible", timeout: 60_000 });
   await waitForGrounded(page);
 }
@@ -109,6 +110,62 @@ async function exitActiveVehicle(page: Page): Promise<void> {
 }
 
 test.describe("Vehicle Controllers", () => {
+  for (const rendererPath of [
+    { label: "webgpu-auto", query: "", backend: /^WebGPU/ },
+    {
+      label: "webgpu-webgl2",
+      query: "forceWebGPUWebGL=1",
+      backend: /^WebGPU \(WebGL2 backend\)$/,
+    },
+    { label: "compat-webgl", query: "forceWebGL=1", backend: /^WebGLRenderer$/ },
+  ]) {
+    test(`vehicle dust, skid, and boost render on ${rendererPath.label}`, async ({ page }, testInfo) => {
+      await waitForVehiclesStationReady(page, rendererPath.query);
+      expect(await page.evaluate(() => window.__KINEMA__.getRendererDebugFlags().activeBackend)).toMatch(
+        rendererPath.backend,
+      );
+      await enterVehicle(page, "car-1");
+
+      await page.evaluate(() => window.__KINEMA__.simulateVehicleInput({ moveY: 1, sprint: true }, 180));
+      await page.waitForFunction(
+        () => {
+          const emitted = window.__KINEMA__.getVfxDebugState().vehicle.emitted;
+          return emitted.dust > 0 && emitted.boost > 0;
+        },
+        undefined,
+        { timeout: 15_000 },
+      );
+
+      await page.evaluate(() =>
+        window.__KINEMA__.simulateVehicleInput({ moveY: 0.75, moveX: 1, crouch: true, sprint: true }, 60),
+      );
+      await page.waitForFunction(() => window.__KINEMA__.getVfxDebugState().vehicle.emitted.skid > 0, undefined, {
+        timeout: 15_000,
+      });
+      const active = await page.evaluate(() => window.__KINEMA__.getVfxDebugState().vehicle.active);
+      expect(active.dust + active.skid + active.boost).toBeGreaterThan(0);
+
+      const evidence = await page.evaluate(() => ({
+        backend: window.__KINEMA__.getRendererDebugFlags().activeBackend,
+        vfx: window.__KINEMA__.getVfxDebugState(),
+      }));
+      await testInfo.attach(`kin026-vehicle-vfx-${rendererPath.label}`, {
+        body: Buffer.from(JSON.stringify(evidence, null, 2)),
+        contentType: "application/json",
+      });
+      await page.screenshot({ path: testInfo.outputPath(`kin026-vehicle-vfx-${rendererPath.label}.png`) });
+      await exitActiveVehicle(page);
+      await page.waitForFunction(
+        () => {
+          const counts = window.__KINEMA__.getVfxDebugState().vehicle.active;
+          return counts.dust + counts.skid + counts.boost === 0;
+        },
+        undefined,
+        { timeout: 10_000 },
+      );
+    });
+  }
+
   test("vehicles station exposes expected runtime ids", async ({ page }) => {
     await waitForVehiclesStationReady(page);
     const ids = await page.evaluate(() => window.__KINEMA__.listVehicles());

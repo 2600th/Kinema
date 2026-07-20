@@ -2,6 +2,7 @@ import { COLLISION_GROUP_WORLD } from "@core/constants";
 import type { EventBus } from "@core/EventBus";
 import type { Disposable, SpawnPointData } from "@core/types";
 import type { GraphicsProfile, ShadowQualityTier } from "@core/UserSettings";
+import { getVfxDensity } from "@core/vfxProfile";
 import RAPIER from "@dimforge/rapier3d-compat";
 import { getBrushById } from "@editor/brushes/index";
 import { validateEditorLevelData } from "@editor/EditorLevelValidator";
@@ -155,8 +156,14 @@ export class LevelManager implements Disposable {
   private vfxLightningLight: THREE.PointLight | null = null;
   private dustMotes: DustMoteEntry[] = [];
   private sparkleParticles: {
-    update(dt: number): void;
+    update(dt: number, observerWorldZ?: number): void;
     setVisible(visible: boolean): void;
+    getDebugState(): {
+      configuredCount: number;
+      visibleCount: number;
+      regionCount: number;
+      visibleRegionCount: number;
+    };
     dispose(): void;
   } | null = null;
   private lighting: LightingSystem;
@@ -164,6 +171,18 @@ export class LevelManager implements Disposable {
   private navPatrolSystem: NavPatrolSystem | null = null;
   private navDebugOverlay: NavDebugOverlay | null = null;
   private textureAnisotropy = 8;
+  private graphicsProfile: GraphicsProfile = "cinematic";
+  private vfxBuildProfile: GraphicsProfile | null = null;
+  private vfxObserverZ = 0;
+  private vfxMotesVisible = false;
+  private vfxAmbientCounts = {
+    sparkles: 0,
+    motes: 0,
+    grassBlades: 0,
+    rain: 0,
+    embers: 0,
+    orbit: 0,
+  };
   private _loadGeneration = { value: 0 };
   private lastLoadStats: LoadStats | null = null;
 
@@ -351,7 +370,40 @@ export class LevelManager implements Disposable {
 
   /** Allows runtime quality changes to update shadow map budgets. */
   setGraphicsProfile(profile: GraphicsProfile): void {
+    this.graphicsProfile = profile;
     this.lighting.setGraphicsProfile(profile);
+  }
+
+  getVfxDebugState() {
+    const sparkleState = this.sparkleParticles?.getDebugState() ?? {
+      configuredCount: this.vfxAmbientCounts.sparkles,
+      visibleCount: 0,
+      regionCount: 0,
+      visibleRegionCount: 0,
+    };
+    const alwaysVisibleCount =
+      this.vfxAmbientCounts.grassBlades +
+      this.vfxAmbientCounts.rain +
+      this.vfxAmbientCounts.embers +
+      this.vfxAmbientCounts.orbit;
+    return {
+      selectedProfile: this.graphicsProfile,
+      buildProfile: this.vfxBuildProfile,
+      density: this.vfxBuildProfile ? getVfxDensity(this.vfxBuildProfile) : null,
+      ambient: {
+        configured: alwaysVisibleCount + this.vfxAmbientCounts.motes + sparkleState.configuredCount,
+        // Counts deterministic application visibility. Renderer-managed
+        // frustum/occlusion visibility is intentionally not inferred here.
+        visible:
+          alwaysVisibleCount + (this.vfxMotesVisible ? this.vfxAmbientCounts.motes : 0) + sparkleState.visibleCount,
+        sparkles: sparkleState,
+        motes: this.vfxAmbientCounts.motes,
+        grassBlades: this.vfxAmbientCounts.grassBlades,
+        rain: this.vfxAmbientCounts.rain,
+        embers: this.vfxAmbientCounts.embers,
+        orbit: this.vfxAmbientCounts.orbit,
+      },
+    };
   }
 
   setShadowQualityTier(tier: ShadowQualityTier): void {
@@ -469,6 +521,7 @@ export class LevelManager implements Disposable {
     for (const mote of this.dustMotes) {
       mote.sprite.visible = false;
     }
+    this.vfxMotesVisible = false;
     this.sparkleParticles?.setVisible(false);
   }
 
@@ -686,10 +739,7 @@ export class LevelManager implements Disposable {
     return getObjectColliderBounds(obj);
   }
 
-  private createTrackedFixedCollider(
-    bodyDesc: RAPIER.RigidBodyDesc,
-    colliderDesc: RAPIER.ColliderDesc,
-  ): void {
+  private createTrackedFixedCollider(bodyDesc: RAPIER.RigidBodyDesc, colliderDesc: RAPIER.ColliderDesc): void {
     let body: RAPIER.RigidBody | null = null;
     let collider: RAPIER.Collider | null = null;
     try {
@@ -783,6 +833,12 @@ export class LevelManager implements Disposable {
     this.vfxDisposeCallbacks = [];
     this.vfxUpdateCallbacks = [];
 
+    // SparkleParticles owns its regional point-cloud resources. Dispose and
+    // detach those children before the generic level-root traversal so each
+    // geometry and material has exactly one owner.
+    this.sparkleParticles?.dispose();
+    this.sparkleParticles = null;
+
     // Remove scene objects starting from tracked roots so hierarchy children
     // are only disposed once.
     const trackedObjects = new Set(this.levelObjects);
@@ -842,8 +898,16 @@ export class LevelManager implements Disposable {
     this.vfxNoiseTexture = null;
     this.vfxLightningLight = null;
     this.dustMotes = [];
-    this.sparkleParticles?.dispose();
-    this.sparkleParticles = null;
+    this.vfxMotesVisible = false;
+    this.vfxBuildProfile = null;
+    this.vfxAmbientCounts = {
+      sparkles: 0,
+      motes: 0,
+      grassBlades: 0,
+      rain: 0,
+      embers: 0,
+      orbit: 0,
+    };
     this.navPatrolSystem?.dispose();
     this.navPatrolSystem = null;
     this.navDebugOverlay?.dispose();
@@ -1022,7 +1086,7 @@ export class LevelManager implements Disposable {
     }
 
     // Sparkle particles
-    this.sparkleParticles?.update(dt);
+    this.sparkleParticles?.update(dt, this.vfxObserverZ);
 
     // Dust motes gentle drift.
     for (const mote of this.dustMotes) {
@@ -1070,6 +1134,7 @@ export class LevelManager implements Disposable {
 
   /** Keep directional light near player for stable, sharp shadows. */
   updateLighting(playerPos: THREE.Vector3): void {
+    this.vfxObserverZ = playerPos.z;
     this.lighting.updateLighting(playerPos);
   }
 
@@ -1187,6 +1252,7 @@ export class LevelManager implements Disposable {
       stationFilter,
       this.assetLoader,
       this.supportsAdvancedGpuEffects,
+      this.graphicsProfile,
     );
     await builder.build((progress) => {
       this.eventBus.emit("loading:progress", { progress });
@@ -1206,7 +1272,10 @@ export class LevelManager implements Disposable {
     this.ladderZones = result.ladderZones;
     this.animatedMaterials = result.animatedMaterials;
     this.dustMotes = result.dustMotes;
+    this.vfxMotesVisible = result.vfxAmbientCounts.motes > 0;
     this.sparkleParticles = result.sparkleParticles;
+    this.vfxBuildProfile = result.vfxBuildProfile;
+    this.vfxAmbientCounts = { ...result.vfxAmbientCounts };
     this.spawnPoint = result.spawnPoint;
     this.vfxNoiseTexture = result.vfxNoiseTexture;
     this.vfxLightningLight = result.vfxLightningLight;

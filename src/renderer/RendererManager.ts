@@ -903,6 +903,14 @@ export class RendererManager implements Disposable {
     return this.graphicsProfile;
   }
 
+  getMemoryDebugState(): { geometries: number; textures: number } {
+    const memory = this.renderer.info.memory;
+    return {
+      geometries: memory.geometries,
+      textures: memory.textures,
+    };
+  }
+
   supportsAdvancedGpuEffects(): boolean {
     return this.isWebGPUPipeline;
   }

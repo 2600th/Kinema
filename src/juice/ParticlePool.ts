@@ -169,7 +169,7 @@ export class ParticlePool {
       lifetime?: number;
       spread?: number;
     } = {},
-  ): void {
+  ): number {
     const { velocityMin, velocityMax, lifetime = 0.5, spread = 0 } = options;
 
     const vMinX = velocityMin?.x ?? 0;
@@ -179,6 +179,7 @@ export class ParticlePool {
     const vMaxY = velocityMax?.y ?? 0;
     const vMaxZ = velocityMax?.z ?? 0;
 
+    let emitted = 0;
     for (let i = 0; i < count; i++) {
       if (this.activeCount >= this.maxParticles) break;
 
@@ -196,7 +197,13 @@ export class ParticlePool {
       this.ages[idx] = 0;
       // Random scale variation: (1 - variation) to (1 + variation)
       this.scales[idx] = 1 + (Math.random() * 2 - 1) * this.sizeVariation;
+      emitted += 1;
     }
+    return emitted;
+  }
+
+  getActiveCount(): number {
+    return this.activeCount;
   }
 
   /**
