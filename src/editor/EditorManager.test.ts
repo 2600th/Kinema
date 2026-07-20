@@ -9,7 +9,11 @@ import { EditorDocument } from "./EditorDocument";
 import { type EditorLoadToken, EditorLoadTransaction } from "./EditorLoadTransaction";
 import { EditorManager } from "./EditorManager";
 import type { EditorObject } from "./EditorObject";
-import { getObjectWorldPhysicsPose } from "./EditorPhysicsSync";
+import {
+  getEditorPhysicsSyncCounters,
+  getObjectWorldPhysicsPose,
+  resetEditorPhysicsSyncCounters,
+} from "./EditorPhysicsSync";
 import type { LevelData } from "./LevelSerializer";
 
 type TransformTuple = {
@@ -1455,6 +1459,48 @@ describe("EditorManager gizmo history transactions", () => {
       { id: "child", rebuild: expectedRebuild },
     ]);
     expect(child.mesh.scale.toArray()).toEqual([1, 1, 1]);
+  });
+
+  it("pose-syncs a supported rotated child under non-uniform inherited scale without rebuilding its collider", () => {
+    const inheritedParent = new THREE.Group();
+    inheritedParent.scale.set(2, 1, 1);
+    const selected = makeObject();
+    selected.mesh.rotation.x = 0.25;
+    selected.transform.rotation = [0.25, 0, 0];
+    inheritedParent.add(selected.mesh);
+    const body = { setTranslation: vi.fn(), setRotation: vi.fn() };
+    selected.body = body as unknown as RAPIER.RigidBody;
+    selected.collider = { id: "existing-collider" } as unknown as RAPIER.Collider;
+    const manager = makeManager(selected);
+    delete (manager as unknown as { syncPhysicsSubtree?: unknown }).syncPhysicsSubtree;
+    const beforePose = getObjectWorldPhysicsPose(selected.mesh);
+    expect(beforePose.scale.x).toBeCloseTo(2);
+    expect(beforePose.scale.y).toBeCloseTo(1);
+    expect(beforePose.scale.z).toBeCloseTo(1);
+    resetEditorPhysicsSyncCounters();
+
+    expect(
+      manager.applyTransform(selected.id, {
+        position: [0, 0, 0],
+        rotation: [0.75, 0, 0],
+        scale: [1, 1, 1],
+      }),
+    ).toBe(true);
+
+    const afterPosition = new THREE.Vector3();
+    const afterRotation = new THREE.Quaternion();
+    const afterScale = new THREE.Vector3();
+    selected.mesh.matrixWorld.decompose(afterPosition, afterRotation, afterScale);
+    expect(afterScale.x).toBeCloseTo(2);
+    expect(afterScale.y).toBeCloseTo(1);
+    expect(afterScale.z).toBeCloseTo(1);
+    expect(body.setTranslation).toHaveBeenCalledOnce();
+    expect(body.setRotation).toHaveBeenCalledOnce();
+    expect(getEditorPhysicsSyncCounters()).toEqual({
+      poseSyncs: 1,
+      colliderDescriptorBuilds: 0,
+      colliderReplacements: 0,
+    });
   });
 
   it("rolls a failed gizmo commit back and does not dirty or retain history", () => {
