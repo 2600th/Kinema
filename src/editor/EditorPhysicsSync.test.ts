@@ -2,9 +2,12 @@ import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
 import {
   applyWorldPoseToObject,
+  effectiveScaleChanged,
+  getEditorPhysicsSyncCounters,
   getObjectColliderBounds,
   getObjectWorldPhysicsPose,
   replacePhysicsResourcesAtomically,
+  resetEditorPhysicsSyncCounters,
   syncPhysicsSubtreeAtomically,
   syncRigidBodiesInSubtree,
   syncRigidBodyToObjectWorldPose,
@@ -310,6 +313,90 @@ describe("syncRigidBodyToObjectWorldPose", () => {
     expect(validateWorldMatrixAttachment(object.matrixWorld, prospectiveGroupWorld, "static")).toEqual({ ok: true });
   });
 
+  it.each<{
+    label: string;
+    mutate(root: THREE.Object3D): void;
+    expected: { poseSyncs: number; colliderDescriptorBuilds: number; colliderReplacements: number };
+  }>([
+    {
+      label: "translation",
+      mutate: (root) => root.position.set(5, 6, 7),
+      expected: { poseSyncs: 2, colliderDescriptorBuilds: 0, colliderReplacements: 0 },
+    },
+    {
+      label: "rotation",
+      mutate: (root) => root.rotation.set(0.2, 0.3, 0.4),
+      expected: { poseSyncs: 2, colliderDescriptorBuilds: 0, colliderReplacements: 0 },
+    },
+    {
+      label: "scale",
+      mutate: (root) => root.scale.set(2, 3, 4),
+      expected: { poseSyncs: 2, colliderDescriptorBuilds: 2, colliderReplacements: 2 },
+    },
+  ])("pose-syncs every entry and selectively rebuilds colliders for a committed $label", ({ mutate, expected }) => {
+    const root = new THREE.Group();
+    const child = new THREE.Mesh(new THREE.BoxGeometry());
+    root.add(child);
+    const beforeScales = new Map<THREE.Object3D, THREE.Vector3>([
+      [root, getObjectWorldPhysicsPose(root).scale.clone()],
+      [child, getObjectWorldPhysicsPose(child).scale.clone()],
+    ]);
+    const makeBody = () => ({ setTranslation: vi.fn(), setRotation: vi.fn() });
+    const entries = [
+      { mesh: root, body: makeBody(), collider: { id: "root-old" } },
+      { mesh: child, body: makeBody(), collider: { id: "child-old" } },
+    ];
+    mutate(root);
+    resetEditorPhysicsSyncCounters();
+
+    const result = syncPhysicsSubtreeAtomically(root, entries, {
+      shouldRebuildCollider: (entry, nextPose) =>
+        effectiveScaleChanged(beforeScales.get(entry.mesh) as THREE.Vector3, nextPose.scale),
+      buildColliderDesc: (entry) => ({ mesh: entry.mesh }),
+      createCollider: (_desc, _body) => ({ id: "replacement" }),
+      removeCollider: vi.fn(),
+      commitCollider: (entry, replacement) => {
+        entry.collider = replacement;
+      },
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(getEditorPhysicsSyncCounters()).toEqual(expected);
+  });
+
+  it("treats a negative effective-scale sign flip as a collider shape change", () => {
+    expect(effectiveScaleChanged(new THREE.Vector3(1, 2, 3), new THREE.Vector3(-1, 2, 3))).toBe(true);
+    expect(effectiveScaleChanged(new THREE.Vector3(1, 2, 3), new THREE.Vector3(1 + 0.5e-6, 2, 3))).toBe(false);
+    expect(effectiveScaleChanged(new THREE.Vector3(1, 2, 3), new THREE.Vector3(1 + 2e-6, 2, 3))).toBe(true);
+  });
+
+  it("pose-syncs collider-less objects without building or replacing a collider", () => {
+    const root = new THREE.Group();
+    const body = { setTranslation: vi.fn(), setRotation: vi.fn() };
+    const buildColliderDesc = vi.fn(() => ({}));
+    const createCollider = vi.fn(() => ({ id: "replacement" }));
+    resetEditorPhysicsSyncCounters();
+
+    const result = syncPhysicsSubtreeAtomically(root, [{ mesh: root, body }], {
+      shouldRebuildCollider: () => true,
+      buildColliderDesc,
+      createCollider,
+      removeCollider: vi.fn(),
+      commitCollider: vi.fn(),
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(body.setTranslation).toHaveBeenCalledOnce();
+    expect(body.setRotation).toHaveBeenCalledOnce();
+    expect(buildColliderDesc).not.toHaveBeenCalled();
+    expect(createCollider).not.toHaveBeenCalled();
+    expect(getEditorPhysicsSyncCounters()).toEqual({
+      poseSyncs: 1,
+      colliderDescriptorBuilds: 0,
+      colliderReplacements: 0,
+    });
+  });
+
   it("keeps old colliders and body poses when the second replacement collider fails", () => {
     const root = new THREE.Group();
     const firstMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
@@ -338,7 +425,7 @@ describe("syncRigidBodyToObjectWorldPose", () => {
         { mesh: secondMesh, body: secondBody, collider: secondOldCollider },
       ],
       {
-        rebuildColliders: true,
+        shouldRebuildCollider: () => true,
         buildColliderDesc: (entry) => ({ mesh: entry.mesh }),
         createCollider,
         removeCollider,
@@ -391,8 +478,9 @@ describe("syncRigidBodyToObjectWorldPose", () => {
       entry.collider = collider;
     });
 
+    resetEditorPhysicsSyncCounters();
     const result = syncPhysicsSubtreeAtomically(root, [firstEntry, secondEntry], {
-      rebuildColliders: true,
+      shouldRebuildCollider: () => true,
       buildColliderDesc: (entry) => ({ mesh: entry.mesh }),
       createCollider: vi.fn().mockReturnValueOnce(firstReplacement).mockReturnValueOnce(secondReplacement),
       removeCollider,
@@ -408,6 +496,11 @@ describe("syncRigidBodyToObjectWorldPose", () => {
     expect(removeCollider).toHaveBeenCalledWith(secondReplacement);
     expect(removeCollider).not.toHaveBeenCalledWith(firstOld);
     expect(removeCollider).not.toHaveBeenCalledWith(secondOld);
+    expect(getEditorPhysicsSyncCounters()).toEqual({
+      poseSyncs: 4,
+      colliderDescriptorBuilds: 2,
+      colliderReplacements: 1,
+    });
   });
 
   it("restores already-retired old colliders when a later retirement throws", () => {
@@ -446,7 +539,7 @@ describe("syncRigidBodyToObjectWorldPose", () => {
     });
 
     const result = syncPhysicsSubtreeAtomically(root, [firstEntry, secondEntry], {
-      rebuildColliders: true,
+      shouldRebuildCollider: () => true,
       buildColliderDesc: () => ({}),
       createCollider: vi.fn().mockReturnValueOnce(firstNew).mockReturnValueOnce(secondNew),
       removeCollider,

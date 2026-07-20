@@ -17,6 +17,32 @@ export type ObjectColliderBounds = Readonly<{
 
 const MATRIX_EPSILON = 1e-6;
 
+const editorPhysicsSyncCounters = {
+  poseSyncs: 0,
+  colliderDescriptorBuilds: 0,
+  colliderReplacements: 0,
+};
+
+export type EditorPhysicsSyncCounters = Readonly<typeof editorPhysicsSyncCounters>;
+
+export function getEditorPhysicsSyncCounters(): EditorPhysicsSyncCounters {
+  return { ...editorPhysicsSyncCounters };
+}
+
+export function resetEditorPhysicsSyncCounters(): void {
+  editorPhysicsSyncCounters.poseSyncs = 0;
+  editorPhysicsSyncCounters.colliderDescriptorBuilds = 0;
+  editorPhysicsSyncCounters.colliderReplacements = 0;
+}
+
+export function effectiveScaleChanged(before: THREE.Vector3, after: THREE.Vector3, epsilon = 1e-6): boolean {
+  return (
+    Math.abs(before.x - after.x) > epsilon ||
+    Math.abs(before.y - after.y) > epsilon ||
+    Math.abs(before.z - after.z) > epsilon
+  );
+}
+
 export type PhysicsTransformValidationResult = { ok: true } | { ok: false; reason: string };
 
 export type AtomicPhysicsResourceSnapshot<TBody, TCollider, TTracking> = Readonly<{
@@ -305,7 +331,7 @@ export type AtomicPhysicsSyncEntry<TCollider> = {
 };
 
 export type AtomicPhysicsSyncOptions<TEntry, TCollider, TColliderDesc> = {
-  rebuildColliders: boolean;
+  shouldRebuildCollider(entry: TEntry, nextPose: ObjectWorldPhysicsPose): boolean;
   buildColliderDesc(entry: TEntry): TColliderDesc;
   createCollider(desc: TColliderDesc, body: WorldPoseBody): TCollider;
   removeCollider(collider: TCollider): void;
@@ -344,10 +370,16 @@ export function syncPhysicsSubtreeAtomically<
   try {
     for (const entry of entries) {
       if (!entry.body || !nodes.has(entry.mesh)) continue;
+      const pose = getObjectWorldPhysicsPose(entry.mesh);
+      let colliderDesc: TColliderDesc | undefined;
+      if (entry.collider && options.shouldRebuildCollider(entry, pose)) {
+        colliderDesc = options.buildColliderDesc(entry);
+        if (import.meta.env.DEV) editorPhysicsSyncCounters.colliderDescriptorBuilds++;
+      }
       prepared.push({
         entry,
         body: entry.body,
-        pose: getObjectWorldPhysicsPose(entry.mesh),
+        pose,
         ...(entry.body.translation && entry.body.rotation
           ? {
               previousPose: {
@@ -356,7 +388,7 @@ export function syncPhysicsSubtreeAtomically<
               },
             }
           : {}),
-        ...(options.rebuildColliders && entry.collider ? { colliderDesc: options.buildColliderDesc(entry) } : {}),
+        ...(colliderDesc === undefined ? {} : { colliderDesc }),
       });
     }
   } catch (error) {
@@ -401,11 +433,13 @@ export function syncPhysicsSubtreeAtomically<
         new RAPIER.Quaternion(item.pose.rotation.x, item.pose.rotation.y, item.pose.rotation.z, item.pose.rotation.w),
         true,
       );
+      if (import.meta.env.DEV) editorPhysicsSyncCounters.poseSyncs++;
     }
     // Publish tracking only after all poses and replacement colliders exist.
     // Old colliders stay live until every tracking update has succeeded.
     for (const replacement of replacements) {
       options.commitCollider(replacement.entry, replacement.collider);
+      if (import.meta.env.DEV) editorPhysicsSyncCounters.colliderReplacements++;
     }
     for (const replacement of replacements) {
       options.removeCollider(replacement.oldCollider);
@@ -418,6 +452,7 @@ export function syncPhysicsSubtreeAtomically<
       try {
         item.body.setTranslation(item.previousPose.position as RAPIER.Vector, true);
         item.body.setRotation(item.previousPose.rotation as RAPIER.Rotation, true);
+        if (import.meta.env.DEV) editorPhysicsSyncCounters.poseSyncs++;
       } catch {
         // Continue rolling back the remaining independently owned resources.
       }

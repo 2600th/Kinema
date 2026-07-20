@@ -195,6 +195,7 @@ async function bootstrap(): Promise<void> {
   type EditorManagerInstance = import("@editor/EditorManager").EditorManager;
   let editorManager: EditorManagerInstance | null = null;
   let editorManagerPromise: Promise<EditorManagerInstance> | null = null;
+  let editorPhysicsSyncDebug: typeof import("@editor/EditorPhysicsSync") | null = null;
   let editorBeforeUnloadRegistered = false;
   let editorBeforeUnloadPrevented = false;
   const onEditorBeforeUnload = (event: BeforeUnloadEvent): void => {
@@ -219,7 +220,8 @@ async function bootstrap(): Promise<void> {
     if (editorManager) return Promise.resolve(editorManager);
     if (!editorManagerPromise) {
       unsubEditorBootstrap();
-      editorManagerPromise = import("@editor/EditorManager").then(({ EditorManager }) => {
+      editorManagerPromise = import("@editor/EditorManager").then(async ({ EditorManager }) => {
+        editorPhysicsSyncDebug = await import("@editor/EditorPhysicsSync");
         const manager = new EditorManager(
           renderer,
           physicsWorld,
@@ -883,6 +885,18 @@ async function bootstrap(): Promise<void> {
       getEditorDocumentState() {
         const state = editorManager?.getDocumentState() ?? { name: "Untitled", dirty: false };
         return { name: state.name, dirty: state.dirty };
+      },
+      getEditorPhysicsSyncCounters() {
+        return (
+          editorPhysicsSyncDebug?.getEditorPhysicsSyncCounters() ?? {
+            poseSyncs: 0,
+            colliderDescriptorBuilds: 0,
+            colliderReplacements: 0,
+          }
+        );
+      },
+      resetEditorPhysicsSyncCounters() {
+        editorPhysicsSyncDebug?.resetEditorPhysicsSyncCounters();
       },
       getEditorUnloadProtectionState() {
         return { registered: editorBeforeUnloadRegistered, lastPrevented: editorBeforeUnloadPrevented };

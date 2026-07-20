@@ -9,6 +9,7 @@ import { EditorDocument } from "./EditorDocument";
 import { type EditorLoadToken, EditorLoadTransaction } from "./EditorLoadTransaction";
 import { EditorManager } from "./EditorManager";
 import type { EditorObject } from "./EditorObject";
+import { getObjectWorldPhysicsPose } from "./EditorPhysicsSync";
 import type { LevelData } from "./LevelSerializer";
 
 type TransformTuple = {
@@ -892,11 +893,18 @@ describe("EditorManager inspector transform transactions", () => {
     selected.body = oldBody as unknown as RAPIER.RigidBody;
     selected.collider = oldCollider as unknown as RAPIER.Collider;
     let failRebuild = false;
-    manager.syncPhysicsSubtree = vi.fn((root: EditorObject, rebuild: boolean) => {
-      if (rebuild && failRebuild) return { ok: false, reason: "second descendant failed" };
-      oldBody.pose = root.mesh.position.toArray();
-      return { ok: true };
-    });
+    manager.syncPhysicsSubtree = vi.fn(
+      (
+        root: EditorObject,
+        shouldRebuildCollider: (entry: EditorObject, nextPose: ReturnType<typeof getObjectWorldPhysicsPose>) => boolean,
+      ) => {
+        if (shouldRebuildCollider(root, getObjectWorldPhysicsPose(root.mesh)) && failRebuild) {
+          return { ok: false, reason: "second descendant failed" };
+        }
+        oldBody.pose = root.mesh.position.toArray();
+        return { ok: true };
+      },
+    );
     manager.history = new CommandHistory(() => (manager.markDirty as unknown as () => void)());
     const seed = { execute: () => true, undo: () => true };
     expect(manager.history.push(seed)).toBe(true);
@@ -1406,17 +1414,47 @@ describe("EditorManager gizmo history transactions", () => {
     expect(manager.markDirty).toHaveBeenCalledTimes(3);
   });
 
-  it.each<[string, TransformTuple]>([
-    ["translation", { position: [9, 8, 7], rotation: [0, 0, 0], scale: [1, 1, 1] }],
-    ["rotation", { position: [0, 0, 0], rotation: [0.7, 0.8, 0.9], scale: [1, 1, 1] }],
-  ])("does not rebuild colliders for a pure %s replay", (_label, transform) => {
+  it.each<[string, TransformTuple, boolean]>([
+    ["translation", { position: [9, 8, 7], rotation: [0, 0, 0], scale: [1, 1, 1] }, false],
+    ["rotation", { position: [0, 0, 0], rotation: [0.7, 0.8, 0.9], scale: [1, 1, 1] }, false],
+    ["selected scale", { position: [0, 0, 0], rotation: [0, 0, 0], scale: [2, 3, 4] }, true],
+    ["negative scale sign flip", { position: [0, 0, 0], rotation: [0, 0, 0], scale: [-1, 1, 1] }, true],
+  ])("selects per-entry collider rebuilds for a pure %s replay", (_label, transform, expectedRebuild) => {
     const selected = makeObject();
+    selected.id = "parent";
+    selected.collider = { id: "parent-collider" } as unknown as RAPIER.Collider;
+    const child = makeObject();
+    child.id = "child";
+    child.parentId = selected.id;
+    child.collider = { id: "child-collider" } as unknown as RAPIER.Collider;
+    selected.children = [child.id];
+    selected.mesh.add(child.mesh);
     const manager = makeManager(selected);
-    manager.syncPhysicsSubtree = vi.fn(() => ({ ok: true }));
+    manager.document.objects = [selected, child];
+    const rebuilds: Array<{ id: string; rebuild: boolean }> = [];
+    manager.syncPhysicsSubtree = vi.fn(
+      (
+        root: EditorObject,
+        shouldRebuildCollider: (entry: EditorObject, nextPose: ReturnType<typeof getObjectWorldPhysicsPose>) => boolean,
+      ) => {
+        root.mesh.updateWorldMatrix(true, true);
+        for (const entry of manager.document.objects) {
+          rebuilds.push({
+            id: entry.id,
+            rebuild: shouldRebuildCollider(entry, getObjectWorldPhysicsPose(entry.mesh)),
+          });
+        }
+        return { ok: true };
+      },
+    );
 
     expect(manager.applyTransform(selected.id, transform)).toBe(true);
 
-    expect(manager.syncPhysicsSubtree).toHaveBeenCalledWith(selected, false);
+    expect(rebuilds).toEqual([
+      { id: "parent", rebuild: expectedRebuild },
+      { id: "child", rebuild: expectedRebuild },
+    ]);
+    expect(child.mesh.scale.toArray()).toEqual([1, 1, 1]);
   });
 
   it("rolls a failed gizmo commit back and does not dirty or retain history", () => {
@@ -2422,7 +2460,7 @@ describe("EditorManager subtree delete transactions", () => {
     expect([root, child, grandchild].map((object) => levelManager.getLevelObjectTracking(object.mesh))).toEqual(
       trackingBefore,
     );
-    expect(manager.syncPhysicsSubtree).toHaveBeenCalledWith(root, false);
+    expect(manager.syncPhysicsSubtree).toHaveBeenCalledWith(root, expect.any(Function));
     for (const handle of [
       harness.rootBody,
       harness.rootCollider,

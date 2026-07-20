@@ -66,6 +66,12 @@ export interface KinemaNavigationDebugState {
   targetMode: boolean;
 }
 
+export interface KinemaEditorPhysicsSyncCounters {
+  poseSyncs: number;
+  colliderDescriptorBuilds: number;
+  colliderReplacements: number;
+}
+
 export interface KinemaLevelObjectState {
   name: string;
   visible: boolean;
@@ -142,6 +148,8 @@ export interface KinemaDebugApi {
   getEditorObjectCount(): number;
   getEditorSaveEventCount(): number;
   getEditorDocumentState(): { name: string; dirty: boolean };
+  getEditorPhysicsSyncCounters(): KinemaEditorPhysicsSyncCounters;
+  resetEditorPhysicsSyncCounters(): void;
   getEditorUnloadProtectionState(): { registered: boolean; lastPrevented: boolean };
   getInteractionEvents(): KinemaInteractionEvent[];
   clearInteractionEvents(): void;

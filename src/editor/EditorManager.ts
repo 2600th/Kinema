@@ -44,8 +44,10 @@ import { validateEditorLevelData } from "./EditorLevelValidator";
 import { type EditorLoadToken, EditorLoadTransaction } from "./EditorLoadTransaction";
 import type { EditorObject } from "./EditorObject";
 import {
+  effectiveScaleChanged,
   getObjectColliderBounds,
   getObjectWorldPhysicsPose,
+  type ObjectWorldPhysicsPose,
   replacePhysicsResourcesAtomically,
   syncPhysicsSubtreeAtomically,
   validateObjectPhysicsTransform,
@@ -67,6 +69,7 @@ import { SelectionTool } from "./tools/SelectionTool";
 
 type EditorLoadResult = "completed" | "failed" | "superseded";
 type EditorTransformSnapshot = EditorTransformState;
+const neverRebuildCollider = (_entry: EditorObject, _nextPose: ObjectWorldPhysicsPose): boolean => false;
 type EditorDeleteSubtreeNodeTracking = {
   object: EditorObject;
   wasLevelTracked: boolean;
@@ -532,7 +535,7 @@ export class EditorManager {
     if (!this.document.restoreSubtree(transaction.snapshot)) return false;
     try {
       this.restoreDeletedLevelTracking(transaction);
-      const synced = this.syncPhysicsSubtree(transaction.snapshot.root, false);
+      const synced = this.syncPhysicsSubtree(transaction.snapshot.root, neverRebuildCollider);
       if (!synced.ok) throw new Error(synced.reason);
       if (transaction.selectedWithinSubtree) this.document.selected = transaction.selectedWithinSubtree;
       return true;
@@ -1067,7 +1070,7 @@ export class EditorManager {
       this.document.selected.id !== obj?.id
     ) {
       this.restoreObjectTransform(this.document.selected, this.inspectorEditStartTransform);
-      this.syncPhysicsSubtree(this.document.selected, false);
+      this.syncPhysicsSubtree(this.document.selected, neverRebuildCollider);
       this.clearInspectorEditSession();
     }
     this.document.selected = obj;
@@ -1332,7 +1335,7 @@ export class EditorManager {
     for (const rootId of rootIds) {
       const root = this.document.findById(rootId);
       if (!root) continue;
-      const result = this.syncPhysicsSubtree(root, false);
+      const result = this.syncPhysicsSubtree(root, neverRebuildCollider);
       if (!result.ok) throw new Error(result.reason);
     }
   }
@@ -2061,10 +2064,10 @@ export class EditorManager {
         return;
       }
       this.updateEditorObjectTransform(selected);
-      const previewSync = this.syncPhysicsSubtree(selected, false);
+      const previewSync = this.syncPhysicsSubtree(selected, neverRebuildCollider);
       if (!previewSync.ok) {
         this.restoreObjectTransform(selected, previous);
-        this.syncPhysicsSubtree(selected, false);
+        this.syncPhysicsSubtree(selected, neverRebuildCollider);
         this.inspectorPanel.setSelection(selected);
         this.showPhysicsMutationError(previewSync.reason);
         return;
@@ -2122,13 +2125,13 @@ export class EditorManager {
       selected.mesh.rotation.set(...selected.transform.rotation);
       selected.mesh.scale.fromArray(selected.transform.scale);
       selected.mesh.updateWorldMatrix(true, true);
-      this.syncPhysicsSubtree(selected, false);
+      this.syncPhysicsSubtree(selected, neverRebuildCollider);
       this.inspectorPanel.setSelection(selected);
       this.showPhysicsMutationError(validation.reason);
       return;
     }
     this.updateEditorObjectTransform(selected);
-    this.syncPhysicsSubtree(selected, false);
+    this.syncPhysicsSubtree(selected, neverRebuildCollider);
     this.inspectorPanel.setSelection(selected);
     // Force world matrix update so BoxHelper.update() reads correct bounds
     selected.mesh.updateMatrixWorld(true);
@@ -2387,11 +2390,11 @@ export class EditorManager {
 
   private syncPhysicsSubtree(
     root: EditorObject,
-    rebuildColliders: boolean,
+    shouldRebuildCollider: (entry: EditorObject, nextPose: ObjectWorldPhysicsPose) => boolean,
   ): { ok: true } | { ok: false; reason: string } {
     const subtree = this.physicsSubtree(root);
     const result = syncPhysicsSubtreeAtomically(root.mesh, subtree, {
-      rebuildColliders,
+      shouldRebuildCollider,
       buildColliderDesc: (obj) => this.buildEditorColliderDesc(obj),
       createCollider: (desc, body) => this.physicsWorld.world.createCollider(desc, body as RAPIER.RigidBody),
       removeCollider: (collider) => this.physicsWorld.world.removeCollider(collider, true),
@@ -2416,16 +2419,21 @@ export class EditorManager {
       rotation: [...obj.transform.rotation] as [number, number, number],
       scale: [...obj.transform.scale] as [number, number, number],
     };
+    const previousWorldScales = new Map(
+      this.physicsSubtree(obj).map((entry) => [entry, getObjectWorldPhysicsPose(entry.mesh).scale.clone()]),
+    );
     obj.mesh.position.fromArray(transform.position);
     obj.mesh.rotation.set(...transform.rotation);
     obj.mesh.scale.fromArray(transform.scale);
     this.updateEditorObjectTransform(obj);
-    const rebuildColliders = previous.scale.some((value, index) => value !== transform.scale[index]);
-    const synced = this.syncPhysicsSubtree(obj, rebuildColliders);
+    const synced = this.syncPhysicsSubtree(obj, (entry, nextPose) => {
+      const previousWorldScale = previousWorldScales.get(entry);
+      return previousWorldScale ? effectiveScaleChanged(previousWorldScale, nextPose.scale) : false;
+    });
     if (!synced.ok) {
       this.restoreObjectTransform(obj, previous);
       obj.transform = previousSerialized;
-      this.syncPhysicsSubtree(obj, false);
+      this.syncPhysicsSubtree(obj, neverRebuildCollider);
       this.inspectorPanel.setSelection(obj);
       this.showPhysicsMutationError(`Transform failed; the edit was reverted. ${synced.reason}`);
       return false;
@@ -2436,9 +2444,9 @@ export class EditorManager {
 
   private commitTransform(obj: EditorObject, before: EditorTransformState, after: EditorTransformState): boolean {
     this.restoreObjectTransform(obj, before);
-    const restored = this.syncPhysicsSubtree(obj, false);
+    const restored = this.syncPhysicsSubtree(obj, neverRebuildCollider);
     if (!restored.ok) {
-      const reconciled = this.syncPhysicsSubtree(obj, false);
+      const reconciled = this.syncPhysicsSubtree(obj, neverRebuildCollider);
       this.inspectorPanel.setSelection(obj);
       const rollbackFailure = reconciled.ok ? "" : ` Rollback pose reconciliation also failed. ${reconciled.reason}`;
       this.showPhysicsMutationError(
