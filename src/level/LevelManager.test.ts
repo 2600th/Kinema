@@ -756,6 +756,58 @@ describe("LevelManager rotated body creation", () => {
     expect(manager.getDynamicBodies()[0]?.body).toBe(body);
   });
 
+  it("restores removed visual, dynamic, body, and collider tracking at their exact indices", () => {
+    const scene = new THREE.Scene();
+    const physicsWorld = {
+      world: {},
+      removeCollider: vi.fn(),
+      removeBody: vi.fn(),
+    };
+    const manager = new LevelManager(scene, physicsWorld as any, { emit: vi.fn() } as any);
+    const meshes = ["before", "target", "after"].map((name) => {
+      const mesh = new THREE.Group();
+      mesh.name = name;
+      return mesh;
+    });
+    const bodies = meshes.map((mesh) => ({ id: `${mesh.name}-body`, setEnabled: vi.fn() }));
+    const colliders = meshes.map((mesh) => ({ id: `${mesh.name}-collider`, setEnabled: vi.fn() }));
+    const dynamicEntries = meshes.map((mesh, index) => ({
+      mesh,
+      body: bodies[index],
+      prevPos: new THREE.Vector3(),
+      currPos: new THREE.Vector3(),
+      prevQuat: new THREE.Quaternion(),
+      currQuat: new THREE.Quaternion(),
+      hasPose: false,
+    }));
+    for (const [index, mesh] of meshes.entries()) {
+      manager.addLevelObject(mesh, {
+        dynamicBody: dynamicEntries[index] as any,
+        physics: { body: bodies[index] as any, collider: colliders[index] as any },
+      });
+    }
+    const project = () => {
+      const internals = manager as unknown as {
+        levelBodies: Array<{ id: string }>;
+        levelColliders: Array<{ id: string }>;
+      };
+      return {
+        levelObjects: manager.getLevelObjects().map(({ name }) => name),
+        dynamicBodies: manager.getDynamicBodies().map(({ mesh }) => mesh.name),
+        levelBodies: internals.levelBodies.map(({ id }) => id),
+        levelColliders: internals.levelColliders.map(({ id }) => id),
+      };
+    };
+    const before = project();
+    const target = meshes[1];
+    if (!target) throw new Error("Missing target fixture.");
+
+    const tracking = manager.removeLevelObject(target);
+    manager.addLevelObject(target, tracking);
+
+    expect(project()).toEqual(before);
+  });
+
   it("falls back to dynamic body physics when object physics was not explicitly mapped", () => {
     const scene = new THREE.Scene();
     const collider = {};

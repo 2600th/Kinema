@@ -1320,7 +1320,9 @@ export class EditorManager {
         this.levelManager.addLevelObject(entry.object.mesh, entry.tracking);
         currentlyTracked.add(entry.object.mesh);
       } else {
-        this.levelManager.removeLevelObject(entry.object.mesh);
+        const removed = this.levelManager.removeLevelObject(entry.object.mesh);
+        removed.physics?.body?.setEnabled(false);
+        removed.physics?.collider?.setEnabled(false);
         currentlyTracked.delete(entry.object.mesh);
       }
     }
@@ -1557,7 +1559,8 @@ export class EditorManager {
 
   finalizeDetachedHierarchyObject(object: EditorObject): void {
     if (this.document.findById(object.id) === object || object.mesh.parent) return;
-    if (this.levelManager.getLevelObjects().includes(object.mesh)) {
+    const tracking = this.levelManager.getLevelObjectTracking(object.mesh);
+    if (this.levelManager.getLevelObjects().includes(object.mesh) || tracking.physics) {
       this.levelManager.removeLevelObject(object.mesh, { removePhysics: true });
     } else if (object.body) {
       this.physicsWorld.removeBody(object.body);

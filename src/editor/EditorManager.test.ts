@@ -553,6 +553,149 @@ function makeHierarchyHarness() {
   return { manager, document, scene, levelManager, parentA, child, sibling, grandchild, parentB, project, markDirty };
 }
 
+function makePhysicsEnabledGroupHarness() {
+  const scene = new THREE.Scene();
+  let bodyEnabled = true;
+  let colliderEnabled = true;
+  const body = {
+    setEnabled: vi.fn((enabled: boolean) => {
+      bodyEnabled = enabled;
+    }),
+    isEnabled: () => bodyEnabled,
+  };
+  const collider = {
+    setEnabled: vi.fn((enabled: boolean) => {
+      colliderEnabled = enabled;
+    }),
+    isEnabled: () => colliderEnabled,
+  };
+  const removeBody = vi.fn();
+  const removeCollider = vi.fn();
+  const physicsWorld = { removeBody, removeCollider } as unknown as PhysicsWorld;
+  const levelManager = new LevelManager(scene, physicsWorld, new EventBus());
+  const document = new EditorDocument(scene, physicsWorld);
+  const group = makeTrackedObject("existing-group", null, ["existing-child"], "static", body, collider);
+  const child = makeTrackedObject("existing-child", group.id, [], "static");
+  scene.add(group.mesh);
+  group.mesh.add(child.mesh);
+  document.objects = [group, child];
+  document.selected = group;
+  levelManager.addLevelObject(child.mesh);
+  levelManager.addLevelObject(group.mesh, { physics: { body: group.body, collider: group.collider } });
+  body.setEnabled.mockClear();
+  collider.setEnabled.mockClear();
+
+  const markDirty = vi.fn();
+  const manager = Object.create(EditorManager.prototype) as unknown as HierarchyManagerHarness;
+  Object.assign(manager, {
+    guardDocumentMutation: () => true,
+    commitPendingMaterialEdit: () => true,
+    document,
+    renderer: { scene },
+    physicsWorld,
+    levelManager,
+    gizmo: { attach: vi.fn() },
+    inspectorPanel: { setSelection: vi.fn() },
+    hierarchyPanel: { setSelection: vi.fn(), setObjects: vi.fn() },
+    setSelectionHelper: vi.fn(),
+    eventBus: { emit: vi.fn() },
+    showPhysicsMutationError: vi.fn(),
+    markDirty,
+    syncPhysicsSubtree: vi.fn(() => ({ ok: true as const })),
+    history: new CommandHistory(markDirty),
+  });
+  const ownership = () => {
+    const internals = levelManager as unknown as {
+      levelBodies: RAPIER.RigidBody[];
+      levelColliders: RAPIER.Collider[];
+      objectPhysics: Map<THREE.Object3D, unknown>;
+    };
+    return {
+      levelBodies: [...internals.levelBodies],
+      levelColliders: [...internals.levelColliders],
+      hasMetadata: internals.objectPhysics.has(group.mesh),
+    };
+  };
+  return { manager, document, levelManager, group, child, body, collider, removeBody, removeCollider, ownership };
+}
+
+function makeOrderedPhysicsGroupHarness() {
+  const scene = new THREE.Scene();
+  const physicsWorld = { removeBody: vi.fn(), removeCollider: vi.fn() } as unknown as PhysicsWorld;
+  const levelManager = new LevelManager(scene, physicsWorld, new EventBus());
+  const document = new EditorDocument(scene, physicsWorld);
+  const groupBody = { id: "group-body", setEnabled: vi.fn() };
+  const groupCollider = { id: "group-collider", setEnabled: vi.fn() };
+  const laterBody = { id: "later-body", setEnabled: vi.fn() };
+  const laterCollider = { id: "later-collider", setEnabled: vi.fn() };
+  const group = makeTrackedObject("ordered-group", null, ["ordered-child"], "dynamic", groupBody, groupCollider);
+  const child = makeTrackedObject("ordered-child", group.id, [], "static");
+  const later = makeTrackedObject("later-sibling", null, [], "dynamic", laterBody, laterCollider);
+  scene.add(group.mesh, later.mesh);
+  group.mesh.add(child.mesh);
+  document.objects = [group, child, later];
+  document.selected = group;
+  const dynamicEntry = (object: EditorObject, body: { setEnabled: ReturnType<typeof vi.fn> }) => ({
+    mesh: object.mesh,
+    body: body as unknown as RAPIER.RigidBody,
+    prevPos: new THREE.Vector3(),
+    currPos: new THREE.Vector3(),
+    prevQuat: new THREE.Quaternion(),
+    currQuat: new THREE.Quaternion(),
+    hasPose: false,
+  });
+  levelManager.addLevelObject(group.mesh, {
+    physics: { body: group.body, collider: group.collider },
+    dynamicBody: dynamicEntry(group, groupBody),
+  });
+  levelManager.addLevelObject(child.mesh);
+  levelManager.addLevelObject(later.mesh, {
+    physics: { body: later.body, collider: later.collider },
+    dynamicBody: dynamicEntry(later, laterBody),
+  });
+  for (const handle of [groupBody, groupCollider, laterBody, laterCollider]) handle.setEnabled.mockClear();
+
+  const markDirty = vi.fn();
+  const syncPhysicsSubtree = vi.fn((): { ok: true } | { ok: false; reason: string } => ({ ok: true }));
+  const manager = Object.create(EditorManager.prototype) as unknown as HierarchyManagerHarness;
+  Object.assign(manager, {
+    guardDocumentMutation: () => true,
+    commitPendingMaterialEdit: () => true,
+    document,
+    renderer: { scene },
+    physicsWorld,
+    levelManager,
+    gizmo: { attach: vi.fn() },
+    inspectorPanel: { setSelection: vi.fn() },
+    hierarchyPanel: { setSelection: vi.fn(), setObjects: vi.fn() },
+    setSelectionHelper: vi.fn(),
+    eventBus: { emit: vi.fn() },
+    showPhysicsMutationError: vi.fn(),
+    markDirty,
+    syncPhysicsSubtree,
+    history: new CommandHistory(markDirty),
+  });
+  const projectTracking = () => {
+    const internals = levelManager as unknown as {
+      levelBodies: Array<{ id: string }>;
+      levelColliders: Array<{ id: string }>;
+      objectPhysics: Map<THREE.Object3D, { body?: unknown; collider?: unknown }>;
+    };
+    return {
+      levelObjects: levelManager.getLevelObjects().map(({ name }) => name),
+      dynamicBodies: levelManager.getDynamicBodies().map(({ mesh }) => mesh.name),
+      levelBodies: internals.levelBodies.map(({ id }) => id),
+      levelColliders: internals.levelColliders.map(({ id }) => id),
+      physicsOwnership: [group, later].map((object) => ({
+        id: object.id,
+        body: internals.objectPhysics.get(object.mesh)?.body,
+        collider: internals.objectPhysics.get(object.mesh)?.collider,
+      })),
+    };
+  };
+  return { manager, document, levelManager, group, child, later, markDirty, syncPhysicsSubtree, projectTracking };
+}
+
 function makeDeleteHarness(eventBus = new EventBus()) {
   const scene = new THREE.Scene();
   const removeBody = vi.fn();
@@ -2054,6 +2197,61 @@ describe("EditorManager reparent history transactions", () => {
 });
 
 describe("EditorManager group and ungroup history transactions", () => {
+  it("disables retained group physics while detached and finalizes applied ownership exactly once", () => {
+    const harness = makePhysicsEnabledGroupHarness();
+    const { manager, document, levelManager, group, body, collider, removeBody, removeCollider, ownership } = harness;
+
+    expect(manager.ungroupObject(group.id)).toBe(true);
+    expect(document.findById(group.id)).toBeUndefined();
+    expect(levelManager.getLevelObjects()).not.toContain(group.mesh);
+    expect(body.setEnabled).toHaveBeenLastCalledWith(false);
+    expect(collider.setEnabled).toHaveBeenLastCalledWith(false);
+
+    expect(manager.history.undo()).toBe(true);
+    expect(document.findById(group.id)).toBe(group);
+    expect(levelManager.getLevelObjects()).toContain(group.mesh);
+    expect(body.setEnabled).toHaveBeenLastCalledWith(true);
+    expect(collider.setEnabled).toHaveBeenLastCalledWith(true);
+
+    expect(manager.history.redo()).toBe(true);
+    expect(levelManager.getLevelObjects()).not.toContain(group.mesh);
+    expect(body.setEnabled).toHaveBeenLastCalledWith(false);
+    expect(collider.setEnabled).toHaveBeenLastCalledWith(false);
+    manager.history.clear();
+    manager.history.clear();
+
+    expect(removeCollider).toHaveBeenCalledOnce();
+    expect(removeCollider).toHaveBeenCalledWith(collider);
+    expect(removeBody).toHaveBeenCalledOnce();
+    expect(removeBody).toHaveBeenCalledWith(body);
+    expect(ownership()).toEqual({ levelBodies: [], levelColliders: [], hasMetadata: false });
+    expect(levelManager.getLevelObjectTracking(group.mesh).physics).toBeUndefined();
+  });
+
+  it("restores exact LevelManager visual, dynamic, and physics ownership order when ungroup is undone", () => {
+    const harness = makeOrderedPhysicsGroupHarness();
+    const before = harness.projectTracking();
+
+    expect(harness.manager.ungroupObject(harness.group.id)).toBe(true);
+    expect(harness.manager.history.undo()).toBe(true);
+
+    expect(harness.projectTracking()).toEqual(before);
+    expect(harness.document.findById(harness.group.id)).toBe(harness.group);
+  });
+
+  it("restores exact LevelManager order when an ungroup apply fails after detaching tracking", () => {
+    const harness = makeOrderedPhysicsGroupHarness();
+    const before = harness.projectTracking();
+    harness.syncPhysicsSubtree.mockReturnValueOnce({ ok: false, reason: "injected ungroup apply failure" });
+
+    expect(harness.manager.ungroupObject(harness.group.id)).toBe(false);
+
+    expect(harness.projectTracking()).toEqual(before);
+    expect(harness.document.findById(harness.group.id)).toBe(harness.group);
+    expect(harness.manager.history.undo()).toBe(false);
+    expect(harness.markDirty).not.toHaveBeenCalled();
+  });
+
   it("retains one group identity across multiple-parent undo and redo with exact order, selection, and tracking", () => {
     const harness = makeHierarchyHarness();
     const { manager, document, levelManager, parentA, parentB, child, sibling, project, markDirty } = harness;

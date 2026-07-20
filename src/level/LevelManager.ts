@@ -96,6 +96,12 @@ type LevelObjectPhysicsUserData = THREE.Object3D["userData"] & {
 export type RemovedLevelObjectTracking = {
   dynamicBody?: DynamicBodyEntry;
   physics?: LevelObjectPhysics;
+  indices?: Readonly<{
+    levelObject: number;
+    dynamicBody: number;
+    body: number;
+    collider: number;
+  }>;
 };
 
 export type AddLevelObjectOptions = RemovedLevelObjectTracking;
@@ -210,7 +216,7 @@ export class LevelManager implements Disposable {
 
   /** Remove a single level object from tracking arrays. */
   removeLevelObject(mesh: THREE.Object3D, options: RemoveLevelObjectOptions = {}): RemovedLevelObjectTracking {
-    const { dynamicBody, physics } = this.getLevelObjectTracking(mesh);
+    const { dynamicBody, physics, indices } = this.getLevelObjectTracking(mesh);
     this.levelObjects = this.levelObjects.filter((o) => o !== mesh);
     this.dynamicBodies = this.dynamicBodies.filter((d) => (d as { mesh: THREE.Object3D }).mesh !== mesh);
 
@@ -237,10 +243,10 @@ export class LevelManager implements Disposable {
       this.objectPhysics.delete(mesh);
       this.setLevelObjectPhysicsMetadata(mesh, undefined);
       if (cleanupFailure) throw cleanupFailure;
-      return { dynamicBody };
+      return { dynamicBody, indices };
     }
 
-    return { dynamicBody, physics };
+    return { dynamicBody, physics, indices };
   }
 
   getLevelObjectTracking(mesh: THREE.Object3D): RemovedLevelObjectTracking {
@@ -255,17 +261,26 @@ export class LevelManager implements Disposable {
               typeof dynamicBody.body.collider === "function" ? (dynamicBody.body.collider(0) ?? undefined) : undefined,
           }
         : undefined);
-    return { dynamicBody, physics };
+    return {
+      dynamicBody,
+      physics,
+      indices: {
+        levelObject: this.levelObjects.indexOf(mesh),
+        dynamicBody: dynamicBody ? this.dynamicBodies.indexOf(dynamicBody) : -1,
+        body: physics?.body ? this.levelBodies.indexOf(physics.body) : -1,
+        collider: physics?.collider ? this.levelColliders.indexOf(physics.collider) : -1,
+      },
+    };
   }
 
   /** Inverse of removeLevelObject for editor undo: restore tracking so the
    *  object isn't dropped by the next editor rebuild or unload sweep. */
   addLevelObject(mesh: THREE.Object3D, options: AddLevelObjectOptions = {}): void {
     if (!this.levelObjects.includes(mesh)) {
-      this.levelObjects.push(mesh);
+      this.insertLevelTrackingAt(this.levelObjects, mesh, options.indices?.levelObject);
     }
     if (options.dynamicBody && !this.dynamicBodies.some((d) => (d as { mesh: THREE.Object3D }).mesh === mesh)) {
-      this.dynamicBodies.push(options.dynamicBody);
+      this.insertLevelTrackingAt(this.dynamicBodies, options.dynamicBody, options.indices?.dynamicBody);
     }
     if (options.physics) {
       this.objectPhysics.set(mesh, options.physics);
@@ -277,12 +292,20 @@ export class LevelManager implements Disposable {
         options.physics.collider.setEnabled(true);
       }
       if (options.physics.collider && !this.levelColliders.includes(options.physics.collider)) {
-        this.levelColliders.push(options.physics.collider);
+        this.insertLevelTrackingAt(this.levelColliders, options.physics.collider, options.indices?.collider);
       }
       if (options.physics.body && !this.levelBodies.includes(options.physics.body)) {
-        this.levelBodies.push(options.physics.body);
+        this.insertLevelTrackingAt(this.levelBodies, options.physics.body, options.indices?.body);
       }
     }
+  }
+
+  private insertLevelTrackingAt<T>(items: T[], item: T, index: number | undefined): void {
+    if (index === undefined || index < 0) {
+      items.push(item);
+      return;
+    }
+    items.splice(Math.min(index, items.length), 0, item);
   }
 
   updateLevelObjectPhysics(mesh: THREE.Object3D, physics: LevelObjectPhysics): void {
