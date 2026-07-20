@@ -9,9 +9,13 @@ export interface DeviceLostInfo {
   reason: string | null;
 }
 
-export function createFallbackRenderer(exposure: number): THREE.WebGLRenderer {
+export function resolveCompatibilityPostEnabled(searchParams: Pick<URLSearchParams, "get">): boolean {
+  return searchParams.get("compatPost") !== "0";
+}
+
+export function createFallbackRenderer(exposure: number, antialias = true): THREE.WebGLRenderer {
   const renderer = new THREE.WebGLRenderer({
-    antialias: false,
+    antialias,
     powerPreference: "high-performance",
     alpha: false,
   });

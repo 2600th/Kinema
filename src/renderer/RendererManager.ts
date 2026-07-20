@@ -55,6 +55,8 @@ import {
   type RendererPostEffectCapabilities,
 } from "./rendererState";
 
+export { resolveCompatibilityPostEnabled } from "./rendererBootstrap";
+
 /**
  * Renderer notes for the r183 WebGPU path.
  *
@@ -169,6 +171,7 @@ export class RendererManager implements Disposable {
   private resizeFrame: number | null = null;
   private orientationSettleTimer: number | null = null;
   private readonly preferCompatibilityRenderer: boolean;
+  private readonly compatibilityPostEnabled: boolean;
   private lastCompatibilitySceneChildCount = -1;
   private compatibilitySanitizeRequested = false;
   private compatibilityFrameCounter = 0;
@@ -177,10 +180,12 @@ export class RendererManager implements Disposable {
     options: {
       forceWebGL?: boolean;
       preferCompatibilityRenderer?: boolean;
+      compatibilityPostEnabled?: boolean;
     } = {},
   ) {
     this.forceWebGL = options.forceWebGL ?? false;
     this.preferCompatibilityRenderer = options.preferCompatibilityRenderer ?? false;
+    this.compatibilityPostEnabled = options.compatibilityPostEnabled ?? true;
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0xe8d8c8);
     this.scene.fog = new THREE.Fog(0xe8d8c8, 140, 400);
@@ -196,7 +201,7 @@ export class RendererManager implements Disposable {
     this.camera.position.set(0, 5, 10);
     this.camera.lookAt(0, 0, 0);
 
-    this.renderer = createFallbackRenderer(this.toneExposure);
+    this.renderer = createFallbackRenderer(this.toneExposure, this.compatibilityPostEnabled);
 
     void this.loadSingleLut(this.lutName);
     this.setGraphicsProfile("balanced");

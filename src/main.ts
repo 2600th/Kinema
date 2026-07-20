@@ -63,7 +63,7 @@ async function bootstrap(): Promise<void> {
 
   // Dynamic imports — parallelized so bundler/browser can fetch all chunks concurrently.
   const [
-    { RendererManager },
+    { RendererManager, resolveCompatibilityPostEnabled },
     { PhysicsWorld },
     { GameLoop },
     { EventBus },
@@ -105,11 +105,13 @@ async function bootstrap(): Promise<void> {
   ]);
 
   const settings = UserSettingsStore.load();
+  const compatibilityPostEnabled = resolveCompatibilityPostEnabled(bootstrapParams);
 
   const renderer = new RendererManager({
     forceWebGL: forceWebGPUWebGL,
     preferCompatibilityRenderer:
       forceCompatibilityRenderer || (shouldUseCompatibilityRenderer(window.navigator) && !allowExperimentalRenderer),
+    compatibilityPostEnabled,
   });
   await renderer.init();
   // Wire KTX2 support early so all AssetLoader instances detect compressed texture formats.

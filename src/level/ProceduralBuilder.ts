@@ -1464,6 +1464,7 @@ export class ProceduralBuilder {
         new THREE.Vector3(0, 3.2, zVfx + 6),
         11.4,
         2.15,
+        "VFX_StationSign",
       );
       await this.createVfxBayV2(new THREE.Vector3(0, bayTopY, zVfx), bayWidth);
     } // end vfx
@@ -2752,7 +2753,8 @@ export class ProceduralBuilder {
     });
   }
 
-  private createSectionLabel(text: string, position: THREE.Vector3, scaleX = 9.6, scaleY = 2.7): void {
+  private createSectionLabel(text: string, position: THREE.Vector3, scaleX = 9.6, scaleY = 2.7, name?: string): void {
+    const spriteName = name ?? `Label_${text.slice(0, 18)}`;
     const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
     const textureCacheKey = `${dpr}:${text}`;
     const cachedTexture = ProceduralBuilder.sectionLabelTextureTemplates.get(textureCacheKey);
@@ -2772,7 +2774,7 @@ export class ProceduralBuilder {
       const sprite = new THREE.Sprite(material);
       sprite.position.copy(position);
       sprite.scale.set(scaleX * 0.92, scaleY * 0.9, 1);
-      sprite.name = `Label_${text.slice(0, 18)}`;
+      sprite.name = spriteName;
       sprite.renderOrder = 20;
       this.scene.add(sprite);
       this.meshes.push(sprite);
@@ -2972,7 +2974,7 @@ export class ProceduralBuilder {
     const sprite = new THREE.Sprite(material);
     sprite.position.copy(position);
     sprite.scale.set(scaleX * 0.92, scaleY * 0.9, 1);
-    sprite.name = `Label_${text.slice(0, 18)}`;
+    sprite.name = spriteName;
     sprite.renderOrder = 20;
     this.scene.add(sprite);
     this.meshes.push(sprite);
