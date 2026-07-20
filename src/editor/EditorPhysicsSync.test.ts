@@ -4,6 +4,7 @@ import {
   applyWorldPoseToObject,
   getObjectColliderBounds,
   getObjectWorldPhysicsPose,
+  replacePhysicsResourcesAtomically,
   syncPhysicsSubtreeAtomically,
   syncRigidBodiesInSubtree,
   syncRigidBodyToObjectWorldPose,
@@ -11,6 +12,123 @@ import {
   validatePhysicsAttachment,
   validateWorldMatrixAttachment,
 } from "./EditorPhysicsSync";
+
+type TestPhysicsResource = { id: string };
+type TestPhysicsTracking = { id: string };
+type TestPhysicsSnapshot = {
+  body?: TestPhysicsResource;
+  collider?: TestPhysicsResource;
+  tracking: TestPhysicsTracking;
+};
+
+function makePhysicsReplacementHarness() {
+  const current = {
+    body: { id: "old-body" },
+    collider: { id: "old-collider" },
+    tracking: { id: "old-tracking" },
+  };
+  const replacementBody = { id: "replacement-body" };
+  const replacementCollider = { id: "replacement-collider" };
+  const replacementTracking = { id: "replacement-tracking" };
+  let published: TestPhysicsSnapshot = current;
+  const options = {
+    createBody: vi.fn(() => replacementBody as TestPhysicsResource | undefined),
+    createCollider: vi.fn(() => replacementCollider as TestPhysicsResource | undefined),
+    createTracking: vi.fn(() => replacementTracking),
+    publishReplacement: vi.fn((replacement: TestPhysicsSnapshot) => {
+      published = replacement;
+    }),
+    restoreCurrent: vi.fn((snapshot: TestPhysicsSnapshot) => {
+      published = snapshot;
+    }),
+    retireCurrent: vi.fn(),
+    removeBody: vi.fn(),
+    removeCollider: vi.fn(),
+  };
+  return {
+    current,
+    replacementBody,
+    replacementCollider,
+    replacementTracking,
+    options,
+    published: () => published,
+  };
+}
+
+describe("replacePhysicsResourcesAtomically", () => {
+  it("leaves current handles and tracking untouched when body allocation fails", () => {
+    const harness = makePhysicsReplacementHarness();
+    harness.options.createBody.mockImplementationOnce(() => {
+      throw new Error("body allocation failed");
+    });
+
+    expect(replacePhysicsResourcesAtomically(harness.current, harness.options)).toEqual(
+      expect.objectContaining({ ok: false, reason: expect.stringMatching(/allocation/i) }),
+    );
+    expect(harness.published()).toBe(harness.current);
+    expect(harness.options.publishReplacement).not.toHaveBeenCalled();
+    expect(harness.options.retireCurrent).not.toHaveBeenCalled();
+    expect(harness.options.removeBody).not.toHaveBeenCalled();
+    expect(harness.options.removeCollider).not.toHaveBeenCalled();
+  });
+
+  it("removes an allocated replacement exactly once when collider creation fails", () => {
+    const harness = makePhysicsReplacementHarness();
+    harness.options.createCollider.mockImplementationOnce(() => {
+      throw new Error("collider creation failed");
+    });
+
+    expect(replacePhysicsResourcesAtomically(harness.current, harness.options)).toEqual(
+      expect.objectContaining({ ok: false, reason: expect.stringMatching(/collider/i) }),
+    );
+    expect(harness.published()).toBe(harness.current);
+    expect(harness.options.publishReplacement).not.toHaveBeenCalled();
+    expect(harness.options.retireCurrent).not.toHaveBeenCalled();
+    expect(harness.options.removeBody).toHaveBeenCalledOnce();
+    expect(harness.options.removeBody).toHaveBeenCalledWith(harness.replacementBody);
+    expect(harness.options.removeCollider).not.toHaveBeenCalled();
+  });
+
+  it("restores current handles and tracking when LevelManager publication fails", () => {
+    const harness = makePhysicsReplacementHarness();
+    const publishReplacement = harness.options.publishReplacement.getMockImplementation();
+    harness.options.publishReplacement.mockImplementationOnce((replacement) => {
+      publishReplacement?.(replacement);
+      throw new Error("LevelManager publication failed");
+    });
+
+    expect(replacePhysicsResourcesAtomically(harness.current, harness.options)).toEqual(
+      expect.objectContaining({ ok: false, reason: expect.stringMatching(/publication/i) }),
+    );
+    expect(harness.published()).toBe(harness.current);
+    expect(harness.options.restoreCurrent).toHaveBeenCalledWith(harness.current);
+    expect(harness.options.retireCurrent).not.toHaveBeenCalled();
+    expect(harness.options.removeBody).toHaveBeenCalledOnce();
+    expect(harness.options.removeBody).toHaveBeenCalledWith(harness.replacementBody);
+    expect(harness.options.removeCollider).not.toHaveBeenCalled();
+  });
+
+  it("restores current publication and removes the replacement once when old retirement fails", () => {
+    const harness = makePhysicsReplacementHarness();
+    harness.options.retireCurrent.mockImplementationOnce(() => {
+      throw new Error("old retirement failed");
+    });
+
+    expect(replacePhysicsResourcesAtomically(harness.current, harness.options)).toEqual(
+      expect.objectContaining({ ok: false, reason: expect.stringMatching(/retirement/i) }),
+    );
+    expect(harness.published()).toBe(harness.current);
+    expect(harness.options.publishReplacement).toHaveBeenCalledWith({
+      body: harness.replacementBody,
+      collider: harness.replacementCollider,
+      tracking: harness.replacementTracking,
+    });
+    expect(harness.options.restoreCurrent).toHaveBeenCalledWith(harness.current);
+    expect(harness.options.removeBody).toHaveBeenCalledOnce();
+    expect(harness.options.removeBody).toHaveBeenCalledWith(harness.replacementBody);
+    expect(harness.options.removeCollider).not.toHaveBeenCalled();
+  });
+});
 
 describe("syncRigidBodyToObjectWorldPose", () => {
   it("matches a parented child body to the mesh's final world pose", () => {

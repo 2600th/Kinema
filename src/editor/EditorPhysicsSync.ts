@@ -19,6 +19,91 @@ const MATRIX_EPSILON = 1e-6;
 
 export type PhysicsTransformValidationResult = { ok: true } | { ok: false; reason: string };
 
+export type AtomicPhysicsResourceSnapshot<TBody, TCollider, TTracking> = Readonly<{
+  body?: TBody;
+  collider?: TCollider;
+  tracking: TTracking;
+}>;
+
+export type AtomicPhysicsReplacementOptions<TBody, TCollider, TTracking> = {
+  createBody(): TBody | undefined;
+  createCollider(body: TBody | undefined): TCollider | undefined;
+  createTracking(body: TBody | undefined, collider: TCollider | undefined): TTracking;
+  publishReplacement(replacement: AtomicPhysicsResourceSnapshot<TBody, TCollider, TTracking>): void;
+  restoreCurrent(current: AtomicPhysicsResourceSnapshot<TBody, TCollider, TTracking>): void;
+  retireCurrent(current: AtomicPhysicsResourceSnapshot<TBody, TCollider, TTracking>): void;
+  removeBody(body: TBody): void;
+  removeCollider(collider: TCollider): void;
+};
+
+function physicsReplacementFailure(phase: string, error: unknown): PhysicsTransformValidationResult {
+  const detail = error instanceof Error ? error.message : String(error);
+  return { ok: false, reason: `Physics ${phase} failed. ${detail}` };
+}
+
+export function replacePhysicsResourcesAtomically<TBody, TCollider, TTracking>(
+  current: AtomicPhysicsResourceSnapshot<TBody, TCollider, TTracking>,
+  options: AtomicPhysicsReplacementOptions<TBody, TCollider, TTracking>,
+): PhysicsTransformValidationResult {
+  let body: TBody | undefined;
+  let collider: TCollider | undefined;
+  let removed = false;
+  const removeReplacement = (): void => {
+    if (removed) return;
+    removed = true;
+    try {
+      if (body !== undefined) options.removeBody(body);
+      else if (collider !== undefined) options.removeCollider(collider);
+    } catch {
+      // The replacement is no longer published; cleanup failure must not stop rollback.
+    }
+  };
+
+  try {
+    body = options.createBody();
+  } catch (error) {
+    return physicsReplacementFailure("body allocation", error);
+  }
+  try {
+    collider = options.createCollider(body);
+  } catch (error) {
+    removeReplacement();
+    return physicsReplacementFailure("collider creation", error);
+  }
+
+  let tracking: TTracking;
+  try {
+    tracking = options.createTracking(body, collider);
+  } catch (error) {
+    removeReplacement();
+    return physicsReplacementFailure("tracking preparation", error);
+  }
+  const replacement = Object.freeze({ body, collider, tracking });
+  try {
+    options.publishReplacement(replacement);
+  } catch (error) {
+    try {
+      options.restoreCurrent(current);
+    } catch {
+      // Continue removing the unpublished replacement even if external rollback reports failure.
+    }
+    removeReplacement();
+    return physicsReplacementFailure("publication", error);
+  }
+  try {
+    options.retireCurrent(current);
+  } catch (error) {
+    try {
+      options.restoreCurrent(current);
+    } catch {
+      // Continue removing the unpublished replacement even if external rollback reports failure.
+    }
+    removeReplacement();
+    return physicsReplacementFailure("old-resource retirement", error);
+  }
+  return { ok: true };
+}
+
 export function matrixHasNonUniformScale(matrix: THREE.Matrix4): boolean {
   const elements = matrix.elements;
   const sx = Math.hypot(elements[0], elements[1], elements[2]);

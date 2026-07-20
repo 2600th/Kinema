@@ -31,7 +31,13 @@ export type EditorMaterialState = Readonly<{
   live: readonly EditorLiveMaterialState[];
 }>;
 
-export type EditorPhysicsState = unknown;
+export type EditorPhysicsType = "static" | "dynamic" | "kinematic";
+export type EditorPhysicsState = Readonly<{
+  type: EditorPhysicsType;
+  levelTracked: boolean;
+  hasBody: boolean;
+  hasCollider: boolean;
+}>;
 export type EditorHierarchyState =
   | Readonly<{ type: "rename"; id: string; name: string }>
   | Readonly<{ type: "visibility"; id: string; visible: boolean; selectionId: string | null }>
@@ -128,6 +134,65 @@ export function buildLockCommand(
 }
 
 type MaterialMutationHost = Pick<EditorMutationHost, "applyMaterial">;
+type TransformMutationHost = Pick<EditorMutationHost, "applyTransform">;
+type PhysicsMutationHost = Pick<EditorMutationHost, "replacePhysics">;
+
+function snapshotTransform(state: EditorTransformState): EditorTransformState {
+  return Object.freeze({
+    position: Object.freeze([...state.position] as [number, number, number]),
+    rotation: Object.freeze([...state.rotation] as [number, number, number]),
+    scale: Object.freeze([...state.scale] as [number, number, number]),
+  });
+}
+
+function transformStatesEqual(before: EditorTransformState, after: EditorTransformState): boolean {
+  return (
+    before.position.every((value, index) => value === after.position[index]) &&
+    before.rotation.every((value, index) => value === after.rotation[index]) &&
+    before.scale.every((value, index) => value === after.scale[index])
+  );
+}
+
+export function buildSetTransformCommand(
+  host: TransformMutationHost,
+  id: string,
+  before: EditorTransformState,
+  after: EditorTransformState,
+): CommandBuildResult {
+  if (!id.trim()) return { ok: false, reason: "Cannot transform an object without an id." };
+  if (transformStatesEqual(before, after)) {
+    return { ok: false, reason: `Object "${id}" already has the requested transform.` };
+  }
+  const beforeSnapshot = snapshotTransform(before);
+  const afterSnapshot = snapshotTransform(after);
+  return {
+    ok: true,
+    command: createStateCommand(beforeSnapshot, afterSnapshot, (state) => host.applyTransform(id, state)),
+  };
+}
+
+export function buildSetPhysicsTypeCommand(
+  host: PhysicsMutationHost,
+  id: string,
+  before: EditorPhysicsState,
+  after: EditorPhysicsState,
+): CommandBuildResult {
+  if (!id.trim()) return { ok: false, reason: "Cannot change physics without an object id." };
+  if (
+    before.type === after.type &&
+    before.levelTracked === after.levelTracked &&
+    before.hasBody === after.hasBody &&
+    before.hasCollider === after.hasCollider
+  ) {
+    return { ok: false, reason: `Object "${id}" already has the requested physics type.` };
+  }
+  const beforeSnapshot = Object.freeze({ ...before });
+  const afterSnapshot = Object.freeze({ ...after });
+  return {
+    ok: true,
+    command: createStateCommand(beforeSnapshot, afterSnapshot, (state) => host.replacePhysics(id, state)),
+  };
+}
 
 function materialStatesEqual(before: EditorMaterialState, after: EditorMaterialState): boolean {
   if (before.serialized === undefined || after.serialized === undefined) {

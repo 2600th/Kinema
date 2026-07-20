@@ -16,11 +16,16 @@ import {
   buildLockCommand,
   buildMaterialCommand,
   buildRenameCommand,
+  buildSetPhysicsTypeCommand,
+  buildSetTransformCommand,
   buildVisibilityCommand,
   type EditorHierarchyState,
   type EditorMaterialState,
+  type EditorPhysicsState,
+  type EditorPhysicsType,
   type EditorSerializedMaterialState,
   type EditorSubtreeState,
+  type EditorTransformState,
 } from "./EditorCommands";
 import { EditorDocument, type EditorSubtreeSnapshot } from "./EditorDocument";
 import {
@@ -35,6 +40,7 @@ import type { EditorObject } from "./EditorObject";
 import {
   getObjectColliderBounds,
   getObjectWorldPhysicsPose,
+  replacePhysicsResourcesAtomically,
   syncPhysicsSubtreeAtomically,
   validateObjectPhysicsTransform,
   validatePhysicsAttachment,
@@ -54,11 +60,7 @@ import { GLBPlacementTool } from "./tools/GLBPlacementTool";
 import { SelectionTool } from "./tools/SelectionTool";
 
 type EditorLoadResult = "completed" | "failed" | "superseded";
-type EditorTransformSnapshot = {
-  position: THREE.Vector3;
-  rotation: THREE.Euler;
-  scale: THREE.Vector3;
-};
+type EditorTransformSnapshot = EditorTransformState;
 type EditorDeleteSubtreeNodeTracking = {
   object: EditorObject;
   wasLevelTracked: boolean;
@@ -478,20 +480,30 @@ export class EditorManager {
     };
   }
 
-  private createLevelObjectTracking(obj: EditorObject): AddLevelObjectOptions {
+  private createLevelObjectTracking(
+    obj: EditorObject,
+    replacement?: Readonly<{
+      type: EditorPhysicsType;
+      body: RAPIER.RigidBody | undefined;
+      collider: RAPIER.Collider | undefined;
+    }>,
+  ): AddLevelObjectOptions {
+    const body = replacement ? replacement.body : obj.body;
+    const collider = replacement ? replacement.collider : obj.collider;
+    const physicsType = replacement ? replacement.type : obj.physicsType;
     const tracking: AddLevelObjectOptions = {};
-    if (obj.body || obj.collider) {
-      tracking.physics = { body: obj.body, collider: obj.collider };
-    } else {
+    if (body || collider) {
+      tracking.physics = { body, collider };
+    } else if (!replacement) {
       tracking.physics = this.levelManager.getLevelObjectTracking(obj.mesh).physics;
     }
-    if (obj.physicsType === "dynamic" && obj.body) {
+    if (physicsType === "dynamic" && body) {
       obj.mesh.updateWorldMatrix(true, false);
       const worldPos = obj.mesh.getWorldPosition(new THREE.Vector3());
       const worldQuat = obj.mesh.getWorldQuaternion(new THREE.Quaternion());
       tracking.dynamicBody = {
         mesh: obj.mesh,
-        body: obj.body,
+        body,
         prevPos: worldPos.clone(),
         currPos: worldPos.clone(),
         prevQuat: worldQuat.clone(),
@@ -1620,59 +1632,115 @@ export class EditorManager {
       return;
     }
 
+    const before = this.capturePhysicsState(obj);
+    const after = Object.freeze({
+      type,
+      levelTracked: before.levelTracked,
+      hasBody: true,
+      hasCollider: true,
+    });
+    const result = buildSetPhysicsTypeCommand(this, id, before, after);
+    if (result.ok) this.history.push(result.command);
+  }
+
+  private capturePhysicsState(obj: EditorObject): EditorPhysicsState {
+    return Object.freeze({
+      type: obj.physicsType ?? "static",
+      levelTracked: this.levelManager.getLevelObjects().includes(obj.mesh),
+      hasBody: obj.body !== undefined,
+      hasCollider: obj.collider !== undefined,
+    });
+  }
+
+  replacePhysics(id: string, state: EditorPhysicsState): boolean {
+    const obj = this.document.findById(id);
+    if (!obj) return false;
+    const validation = validateObjectPhysicsTransform(obj.mesh, state.type);
+    if (!validation.ok) {
+      this.showPhysicsMutationError(validation.reason);
+      this.inspectorPanel.setSelection(obj);
+      return false;
+    }
+
     const pose = getObjectWorldPhysicsPose(obj.mesh);
-    const bodyDesc =
-      type === "static"
+    const bodyDesc = state.hasBody
+      ? state.type === "static"
         ? RAPIER.RigidBodyDesc.fixed()
-        : type === "kinematic"
+        : state.type === "kinematic"
           ? RAPIER.RigidBodyDesc.kinematicPositionBased()
-          : RAPIER.RigidBodyDesc.dynamic();
-    bodyDesc.setTranslation(pose.position.x, pose.position.y, pose.position.z);
-    bodyDesc.setRotation(new RAPIER.Quaternion(pose.rotation.x, pose.rotation.y, pose.rotation.z, pose.rotation.w));
-
-    let colliderDesc: RAPIER.ColliderDesc;
+          : RAPIER.RigidBodyDesc.dynamic()
+      : undefined;
+    bodyDesc?.setTranslation(pose.position.x, pose.position.y, pose.position.z);
+    bodyDesc?.setRotation(new RAPIER.Quaternion(pose.rotation.x, pose.rotation.y, pose.rotation.z, pose.rotation.w));
+    let colliderDesc: RAPIER.ColliderDesc | undefined;
     try {
-      colliderDesc = this.buildEditorColliderDesc(obj, pose.scale);
+      colliderDesc = state.hasCollider ? this.buildEditorColliderDesc(obj, pose.scale) : undefined;
     } catch (error) {
-      this.showPhysicsMutationError("Physics type change failed; the existing physics was kept.");
-      console.error("[Editor] Physics type change failed:", error);
+      this.showPhysicsMutationError(`Physics type change failed; the existing physics was kept. ${String(error)}`);
       this.inspectorPanel.setSelection(obj);
-      return;
-    }
-    const body = this.physicsWorld.world.createRigidBody(bodyDesc);
-    let collider: RAPIER.Collider;
-    try {
-      collider = this.physicsWorld.world.createCollider(colliderDesc, body);
-    } catch (error) {
-      this.physicsWorld.removeBody(body);
-      this.showPhysicsMutationError("Physics type change failed; the existing physics was kept.");
-      console.error("[Editor] Physics type change failed:", error);
-      this.inspectorPanel.setSelection(obj);
-      return;
+      return false;
     }
 
-    // Remove old body/collider
-    const wasLevelTracked = this.levelManager.getLevelObjects().includes(obj.mesh);
-    if (wasLevelTracked) {
-      this.levelManager.removeLevelObject(obj.mesh, { removePhysics: true });
-      obj.body = undefined;
-      obj.collider = undefined;
-    } else if (obj.body) {
-      this.physicsWorld.removeBody(obj.body);
-      obj.body = undefined;
-      obj.collider = undefined;
-    } else if (obj.collider) {
-      this.physicsWorld.removeCollider(obj.collider);
-      obj.collider = undefined;
+    type Publication = Readonly<{
+      type: EditorPhysicsType;
+      levelTracked: boolean;
+      tracking: RemovedLevelObjectTracking;
+    }>;
+    type Resources = Readonly<{
+      body?: RAPIER.RigidBody;
+      collider?: RAPIER.Collider;
+      tracking: Publication;
+    }>;
+    const current: Resources = {
+      body: obj.body,
+      collider: obj.collider,
+      tracking: {
+        type: obj.physicsType ?? "static",
+        levelTracked: this.levelManager.getLevelObjects().includes(obj.mesh),
+        tracking: this.levelManager.getLevelObjectTracking(obj.mesh),
+      },
+    };
+    const publish = (resources: Resources): void => {
+      if (this.levelManager.getLevelObjects().includes(obj.mesh)) {
+        this.levelManager.updateLevelObjectPhysics(obj.mesh, {
+          body: resources.body,
+          collider: resources.collider,
+        });
+        this.levelManager.removeLevelObject(obj.mesh);
+      }
+      obj.body = resources.body;
+      obj.collider = resources.collider;
+      obj.physicsType = resources.tracking.type;
+      if (resources.tracking.levelTracked) {
+        this.levelManager.addLevelObject(obj.mesh, resources.tracking.tracking);
+      }
+    };
+    const retire = (resources: Resources): void => {
+      if (resources.body) this.physicsWorld.removeBody(resources.body);
+      else if (resources.collider) this.physicsWorld.removeCollider(resources.collider);
+    };
+    const result = replacePhysicsResourcesAtomically(current, {
+      createBody: () => (bodyDesc ? this.physicsWorld.world.createRigidBody(bodyDesc) : undefined),
+      createCollider: (body) => (colliderDesc ? this.physicsWorld.world.createCollider(colliderDesc, body) : undefined),
+      createTracking: (body, collider) => ({
+        type: state.type,
+        levelTracked: state.levelTracked,
+        tracking: state.levelTracked ? this.createLevelObjectTracking(obj, { type: state.type, body, collider }) : {},
+      }),
+      publishReplacement: publish,
+      restoreCurrent: publish,
+      retireCurrent: retire,
+      removeBody: (body) => this.physicsWorld.removeBody(body),
+      removeCollider: (collider) => this.physicsWorld.removeCollider(collider),
+    });
+    if (!result.ok) {
+      console.error("[Editor] Physics type change failed:", result.reason);
+      this.showPhysicsMutationError(`Physics type change failed; the existing physics was kept. ${result.reason}`);
+      this.inspectorPanel.setSelection(obj);
+      return false;
     }
-
-    obj.body = body;
-    obj.collider = collider;
-    obj.physicsType = type;
-    if (wasLevelTracked) {
-      this.levelManager.addLevelObject(obj.mesh, this.createLevelObjectTracking(obj));
-    }
-    this.markDirty();
+    this.inspectorPanel.setSelection(obj);
+    return true;
   }
 
   /* ==================================================================
@@ -1697,11 +1765,7 @@ export class EditorManager {
         .slice(0, 3)
         .every((value, index) => value === transform.rotation[index]) ||
       !selected.mesh.scale.toArray().every((value, index) => value === transform.scale[index]);
-    const previous = {
-      position: selected.mesh.position.clone(),
-      rotation: selected.mesh.rotation.clone(),
-      scale: selected.mesh.scale.clone(),
-    };
+    const previous = this.captureTransformState(selected);
 
     if (changed) {
       if (!this.inspectorEditStartTransform || this.inspectorEditObjectId !== selected.id) {
@@ -1734,25 +1798,20 @@ export class EditorManager {
     const editStart = this.inspectorEditStartTransform;
     if (!editStart || this.inspectorEditObjectId !== selected.id) return;
     const hasCommittedChange =
-      !selected.mesh.position.equals(editStart.position) ||
-      !selected.mesh.rotation.equals(editStart.rotation) ||
-      !selected.mesh.scale.equals(editStart.scale);
+      !selected.mesh.position.toArray().every((value, index) => value === editStart.position[index]) ||
+      !selected.mesh.rotation
+        .toArray()
+        .slice(0, 3)
+        .every((value, index) => value === editStart.rotation[index]) ||
+      !selected.mesh.scale.toArray().every((value, index) => value === editStart.scale[index]);
     if (!hasCommittedChange) {
       this.clearInspectorEditSession();
       return;
     }
 
-    const committed = this.syncPhysicsSubtree(selected, true);
-    if (!committed.ok) {
-      this.restoreObjectTransform(selected, editStart);
-      this.syncPhysicsSubtree(selected, false);
-      this.inspectorPanel.setSelection(selected);
-      this.showPhysicsMutationError(`Collider rebuild failed; the edit was reverted. ${committed.reason}`);
-      this.clearInspectorEditSession();
-      return;
-    }
+    const after = this.captureTransformState(selected);
     this.clearInspectorEditSession();
-    this.markDirty();
+    this.commitTransform(selected, editStart, after);
   }
 
   /* ==================================================================
@@ -1762,30 +1821,12 @@ export class EditorManager {
   private onDragStateChanged(dragging: boolean): void {
     if (!this.guardDocumentMutation()) return;
     if (dragging && this.document.selected) {
-      this.dragStartTransform = {
-        position: this.document.selected.mesh.position.clone(),
-        rotation: this.document.selected.mesh.rotation.clone(),
-        scale: this.document.selected.mesh.scale.clone(),
-      };
+      this.dragStartTransform = this.captureTransformState(this.document.selected);
     } else if (!dragging && this.document.selected && this.dragStartTransform) {
       const target = this.document.selected;
       const before = this.dragStartTransform;
-      const after = {
-        position: target.mesh.position.clone(),
-        rotation: target.mesh.rotation.clone(),
-        scale: target.mesh.scale.clone(),
-      };
-      this.restoreObjectTransform(target, before);
-      const restored = this.syncPhysicsSubtree(target, false);
-      if (!restored.ok) {
-        this.showPhysicsMutationError(restored.reason);
-        this.dragStartTransform = null;
-        return;
-      }
-      this.history.push({
-        execute: () => this.applyTransform(target, after),
-        undo: () => this.applyTransform(target, before),
-      });
+      const after = this.captureTransformState(target);
+      this.commitTransform(target, before, after);
       this.dragStartTransform = null;
     }
   }
@@ -1895,10 +1936,18 @@ export class EditorManager {
     obj.transform.scale = [obj.mesh.scale.x, obj.mesh.scale.y, obj.mesh.scale.z];
   }
 
+  private captureTransformState(obj: EditorObject): EditorTransformState {
+    return Object.freeze({
+      position: Object.freeze(obj.mesh.position.toArray()),
+      rotation: Object.freeze(obj.mesh.rotation.toArray().slice(0, 3) as [number, number, number]),
+      scale: Object.freeze(obj.mesh.scale.toArray()),
+    });
+  }
+
   private restoreObjectTransform(obj: EditorObject, transform: EditorTransformSnapshot): void {
-    obj.mesh.position.copy(transform.position);
-    obj.mesh.rotation.copy(transform.rotation);
-    obj.mesh.scale.copy(transform.scale);
+    obj.mesh.position.fromArray(transform.position);
+    obj.mesh.rotation.set(...transform.rotation);
+    obj.mesh.scale.fromArray(transform.scale);
     obj.mesh.updateWorldMatrix(true, true);
     this.updateEditorObjectTransform(obj);
   }
@@ -1990,25 +2039,21 @@ export class EditorManager {
     return result;
   }
 
-  private applyTransform(
-    obj: EditorObject,
-    transform: { position: THREE.Vector3; rotation: THREE.Euler; scale: THREE.Vector3 },
-  ): boolean {
-    const previous = {
-      position: obj.mesh.position.clone(),
-      rotation: obj.mesh.rotation.clone(),
-      scale: obj.mesh.scale.clone(),
-    };
+  applyTransform(id: string, transform: EditorTransformState): boolean {
+    const obj = this.document.findById(id);
+    if (!obj) return false;
+    const previous = this.captureTransformState(obj);
     const previousSerialized = {
       position: [...obj.transform.position] as [number, number, number],
       rotation: [...obj.transform.rotation] as [number, number, number],
       scale: [...obj.transform.scale] as [number, number, number],
     };
-    obj.mesh.position.copy(transform.position);
-    obj.mesh.rotation.copy(transform.rotation);
-    obj.mesh.scale.copy(transform.scale);
+    obj.mesh.position.fromArray(transform.position);
+    obj.mesh.rotation.set(...transform.rotation);
+    obj.mesh.scale.fromArray(transform.scale);
     this.updateEditorObjectTransform(obj);
-    const synced = this.syncPhysicsSubtree(obj, true);
+    const rebuildColliders = previous.scale.some((value, index) => value !== transform.scale[index]);
+    const synced = this.syncPhysicsSubtree(obj, rebuildColliders);
     if (!synced.ok) {
       this.restoreObjectTransform(obj, previous);
       obj.transform = previousSerialized;
@@ -2019,6 +2064,19 @@ export class EditorManager {
     }
     this.inspectorPanel.setSelection(obj);
     return true;
+  }
+
+  private commitTransform(obj: EditorObject, before: EditorTransformState, after: EditorTransformState): boolean {
+    this.restoreObjectTransform(obj, before);
+    const restored = this.syncPhysicsSubtree(obj, false);
+    if (!restored.ok) {
+      this.inspectorPanel.setSelection(obj);
+      this.showPhysicsMutationError(`Transform failed; the preview could not be restored. ${restored.reason}`);
+      return false;
+    }
+    const result = buildSetTransformCommand(this, obj.id, before, after);
+    if (!result.ok) return true;
+    return this.history.push(result.command);
   }
 
   /* ==================================================================

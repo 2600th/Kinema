@@ -4,11 +4,14 @@ import {
   buildDeleteSubtreeCommand,
   buildLockCommand,
   buildRenameCommand,
+  buildSetPhysicsTypeCommand,
+  buildSetTransformCommand,
   buildVisibilityCommand,
   type CommandBuildResult,
   createStateCommand,
   type EditorHierarchyState,
   type EditorMutationHost,
+  type EditorPhysicsState,
   type EditorTransformState,
 } from "./EditorCommands";
 
@@ -36,6 +39,54 @@ describe("createStateCommand", () => {
     expect(command.execute()).toBe(true);
     expect(command.undo()).toBe(true);
     expect(applied).toEqual([after, before]);
+  });
+});
+
+describe("buildSetTransformCommand", () => {
+  it("round-trips exact immutable transform tuples through history", () => {
+    const host = makeMutationHost();
+    const before = freezeTransform([0, 0, 0], [0.1, 0.2, 0.3], [1, 1, 1]);
+    const after = freezeTransform([4, -2, 7], [-0.4, 0.5, -0.6], [2, 3, 4]);
+    const history = new CommandHistory();
+    const command = unwrapCommand(buildSetTransformCommand(host, "target", before, after));
+
+    expect(history.push(command)).toBe(true);
+    expect(history.undo()).toBe(true);
+    expect(history.redo()).toBe(true);
+    expect(vi.mocked(host.applyTransform).mock.calls).toEqual([
+      ["target", after],
+      ["target", before],
+      ["target", after],
+    ]);
+  });
+});
+
+describe("buildSetPhysicsTypeCommand", () => {
+  it("replays immutable physics recipes for static to dynamic undo and redo", () => {
+    const host = makeMutationHost();
+    const before: EditorPhysicsState = Object.freeze({
+      type: "static",
+      levelTracked: true,
+      hasBody: true,
+      hasCollider: true,
+    });
+    const after: EditorPhysicsState = Object.freeze({
+      type: "dynamic",
+      levelTracked: true,
+      hasBody: true,
+      hasCollider: true,
+    });
+    const history = new CommandHistory();
+    const command = unwrapCommand(buildSetPhysicsTypeCommand(host, "target", before, after));
+
+    expect(history.push(command)).toBe(true);
+    expect(history.undo()).toBe(true);
+    expect(history.redo()).toBe(true);
+    expect(vi.mocked(host.replacePhysics).mock.calls).toEqual([
+      ["target", after],
+      ["target", before],
+      ["target", after],
+    ]);
   });
 });
 
