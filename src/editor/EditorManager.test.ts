@@ -157,6 +157,8 @@ interface DeleteManagerHarness {
   toolbarPanel: { showSaveError: ReturnType<typeof vi.fn>; clearSaveError: ReturnType<typeof vi.fn> };
   deleteSubtree(rootId: string): boolean;
   cancelPendingMaterialEdit(): void;
+  materialEditSession: MaterialManagerHarness["materialEditSession"];
+  applyMaterialChange(id: string, material: NonNullable<EditorObject["material"]>, phase: "preview" | "commit"): void;
   deleteById(id: string): void;
   deleteSelection(): void;
   applyLoadedLevelContents(
@@ -286,6 +288,7 @@ function makeDeleteHarness(eventBus = new EventBus()) {
     showPhysicsMutationError: vi.fn(),
     markDirty,
     history: new CommandHistory(markDirty),
+    materialEditSession: null,
     loadTransaction: new EditorLoadTransaction(),
     documentState: { markClean: vi.fn() },
     toolbarPanel: { showSaveError: vi.fn(), clearSaveError: vi.fn() },
@@ -336,6 +339,18 @@ function emptyLevelData(name = "replacement"): LevelData {
     spawnPoint: { position: [0, 2, 0] },
     objects: [],
   };
+}
+
+function projectLiveMaterials(materials: readonly THREE.MeshStandardMaterial[]) {
+  return materials.map((material) => ({
+    color: [material.color.r, material.color.g, material.color.b],
+    roughness: material.roughness,
+    metalness: material.metalness,
+    emissive: [material.emissive.r, material.emissive.g, material.emissive.b],
+    emissiveIntensity: material.emissiveIntensity,
+    opacity: material.opacity,
+    transparent: material.transparent,
+  }));
 }
 
 describe("EditorManager inspector transform transactions", () => {
@@ -393,37 +408,81 @@ describe("EditorManager scalar and material history transactions", () => {
     document.objects = [target];
     document.selected = target;
     const dirty = vi.fn();
+    const publicationOrder: string[] = [];
+    const selectedDuringPublication = (): string => document.selected?.id ?? "none";
     const manager = Object.create(EditorManager.prototype) as ScalarManagerHarness;
     Object.assign(manager, {
       document,
-      gizmo: { attach: vi.fn() },
-      inspectorPanel: { setSelection: vi.fn() },
-      hierarchyPanel: { setSelection: vi.fn(), setObjects: vi.fn() },
-      setSelectionHelper: vi.fn(),
-      eventBus: { emit: vi.fn() },
+      gizmo: { attach: vi.fn(() => publicationOrder.push(`gizmo:${selectedDuringPublication()}`)) },
+      inspectorPanel: {
+        setSelection: vi.fn(() => publicationOrder.push(`inspector:${selectedDuringPublication()}`)),
+      },
+      hierarchyPanel: {
+        setSelection: vi.fn(() => publicationOrder.push(`hierarchy-selection:${selectedDuringPublication()}`)),
+        setObjects: vi.fn(() => publicationOrder.push(`hierarchy-objects:${selectedDuringPublication()}`)),
+      },
+      setSelectionHelper: vi.fn(() => publicationOrder.push(`helper:${selectedDuringPublication()}`)),
+      eventBus: { emit: vi.fn(() => publicationOrder.push(`event:${selectedDuringPublication()}`)) },
       history: new CommandHistory(dirty),
       guardDocumentMutation: () => true,
     });
 
+    const expectPublishedSelection = (selected: EditorObject | null): void => {
+      const selectedId = selected?.id ?? "none";
+      expect(document.selected).toBe(selected);
+      expect(publicationOrder).toEqual([
+        `gizmo:${selectedId}`,
+        `inspector:${selectedId}`,
+        `hierarchy-selection:${selectedId}`,
+        `helper:${selectedId}`,
+        `event:${selectedId}`,
+        `hierarchy-objects:${selectedId}`,
+      ]);
+      expect(manager.gizmo.attach).toHaveBeenLastCalledWith(selected?.mesh ?? null);
+      expect(manager.inspectorPanel.setSelection).toHaveBeenLastCalledWith(selected);
+      expect(manager.hierarchyPanel.setSelection).toHaveBeenLastCalledWith(selected?.id ?? null);
+      expect(manager.setSelectionHelper).toHaveBeenLastCalledWith(selected?.mesh ?? null);
+      expect(manager.eventBus.emit).toHaveBeenLastCalledWith(
+        "editor:objectSelected",
+        selected ? { id: selected.id } : null,
+      );
+      expect(manager.hierarchyPanel.setObjects).toHaveBeenLastCalledWith(document.objects);
+      publicationOrder.length = 0;
+    };
+
     manager.renameById(target.id, "Renamed");
+    publicationOrder.length = 0;
     manager.toggleVisibilityById(target.id);
     expect(target.name).toBe("Renamed");
     expect(target.mesh.name).toBe("Renamed");
     expect(target.visible).toBe(false);
     expect(target.mesh.visible).toBe(false);
-    expect(document.selected).toBeNull();
+    expectPublishedSelection(null);
 
     expect(manager.history.undo()).toBe(true);
     expect(target.visible).toBe(true);
     expect(target.mesh.visible).toBe(true);
-    expect(document.selected).toBe(target);
+    expectPublishedSelection(target);
+    expect(manager.history.redo()).toBe(true);
+    expect(target.visible).toBe(false);
+    expect(target.mesh.visible).toBe(false);
+    expectPublishedSelection(null);
+    expect(manager.history.undo()).toBe(true);
+    expectPublishedSelection(target);
+
     manager.toggleLockById(target.id);
     expect(target.locked).toBe(true);
-    expect(document.selected).toBeNull();
+    expectPublishedSelection(null);
     expect(manager.history.undo()).toBe(true);
     expect(target.locked).toBe(false);
-    expect(document.selected).toBe(target);
-    expect(dirty).toHaveBeenCalledTimes(5);
+    expectPublishedSelection(target);
+    expect(manager.history.redo()).toBe(true);
+    expect(target.locked).toBe(true);
+    expectPublishedSelection(null);
+    expect(manager.history.undo()).toBe(true);
+    expect(target.locked).toBe(false);
+    expectPublishedSelection(target);
+    expect(dirty).toHaveBeenCalledTimes(9);
   });
 
   it("previews heterogeneous shared materials without dirtying and commits one exact undoable snapshot", () => {
@@ -448,6 +507,10 @@ describe("EditorManager scalar and material history transactions", () => {
       opacity: 0.92,
       transparent: false,
     });
+    shared.color.setRGB(0.123456789, 0.234567891, 0.345678912);
+    shared.emissive.setRGB(0.456789123, 0.567891234, 0.678912345);
+    other.color.setRGB(0.789123456, 0.891234567, 0.912345678);
+    other.emissive.setRGB(0.321987654, 0.210876543, 0.109765432);
     root.add(
       new THREE.Mesh(new THREE.BoxGeometry(), shared),
       new THREE.Mesh(new THREE.BoxGeometry(), other),
@@ -470,15 +533,7 @@ describe("EditorManager scalar and material history transactions", () => {
     document.objects = [target];
     document.selected = target;
     const beforeSerialized = structuredClone(target.material);
-    const beforeLive = [shared, other].map((material) => ({
-      color: `#${material.color.getHexString()}`,
-      roughness: material.roughness,
-      metalness: material.metalness,
-      emissive: `#${material.emissive.getHexString()}`,
-      emissiveIntensity: material.emissiveIntensity,
-      opacity: material.opacity,
-      transparent: material.transparent,
-    }));
+    const beforeLive = projectLiveMaterials([shared, other]);
     const dirty = vi.fn();
     const manager = Object.create(EditorManager.prototype) as MaterialManagerHarness;
     Object.assign(manager, {
@@ -502,6 +557,7 @@ describe("EditorManager scalar and material history transactions", () => {
     expect(manager.materialEditSession?.before.live).toHaveLength(2);
     expect(manager.materialEditSession?.before.live.map(({ material }) => material)).toEqual([shared, other]);
     manager.applyMaterialChange(target.id, after, "preview");
+    const afterLive = projectLiveMaterials([shared, other]);
     expect(target.material).toEqual(after);
     expect([shared, other].map((material) => `#${material.color.getHexString()}`)).toEqual(["#00ff00", "#00ff00"]);
     expect([shared.transparent, other.transparent]).toEqual([false, false]);
@@ -513,20 +569,10 @@ describe("EditorManager scalar and material history transactions", () => {
     expect(dirty).toHaveBeenCalledOnce();
     expect(manager.history.undo()).toBe(true);
     expect(target.material).toEqual(beforeSerialized);
-    expect(
-      [shared, other].map((material) => ({
-        color: `#${material.color.getHexString()}`,
-        roughness: material.roughness,
-        metalness: material.metalness,
-        emissive: `#${material.emissive.getHexString()}`,
-        emissiveIntensity: material.emissiveIntensity,
-        opacity: material.opacity,
-        transparent: material.transparent,
-      })),
-    ).toEqual(beforeLive);
+    expect(projectLiveMaterials([shared, other])).toEqual(beforeLive);
     expect(manager.history.redo()).toBe(true);
     expect(target.material).toEqual(after);
-    expect([shared.transparent, other.transparent]).toEqual([false, false]);
+    expect(projectLiveMaterials([shared, other])).toEqual(afterLive);
     expect(dirty).toHaveBeenCalledTimes(3);
   });
 
@@ -570,6 +616,76 @@ describe("EditorManager scalar and material history transactions", () => {
     expect(manager.materialEditSession).toBeNull();
     expect(manager.history.undo()).toBe(true);
     expect(material.color.getHexString()).toBe("101010");
+  });
+
+  it("restores a real pending preview when material history push is rejected", () => {
+    const scene = new THREE.Scene();
+    const document = new EditorDocument(scene, {} as PhysicsWorld);
+    const material = new THREE.MeshStandardMaterial({ roughness: 0.27, metalness: 0.38 });
+    material.color.setRGB(0.123456789, 0.234567891, 0.345678912);
+    material.emissive.setRGB(0.456789123, 0.567891234, 0.678912345);
+    material.emissiveIntensity = 0.49;
+    material.opacity = 0.61;
+    material.transparent = true;
+    const target: EditorObject = {
+      ...makeObject(),
+      id: "target",
+      mesh: new THREE.Mesh(new THREE.BoxGeometry(), material),
+      material: {
+        color: "#123456",
+        roughness: 0.27,
+        metalness: 0.38,
+        emissive: "#654321",
+        emissiveIntensity: 0.49,
+        opacity: 0.61,
+      },
+    };
+    const other = { ...makeObject(), id: "other" };
+    document.objects = [target, other];
+    document.selected = target;
+    const beforeSerialized = structuredClone(target.material);
+    const beforeLive = projectLiveMaterials([material]);
+    const dirty = vi.fn();
+    const rejected = vi.fn();
+    let canMutate = true;
+    const manager = Object.create(EditorManager.prototype) as MaterialSelectionHarness;
+    Object.assign(manager, {
+      guardDocumentMutation: () => true,
+      document,
+      inspectorPanel: { setSelection: vi.fn() },
+      hierarchyPanel: { setSelection: vi.fn() },
+      gizmo: { attach: vi.fn() },
+      setSelectionHelper: vi.fn(),
+      eventBus: { emit: vi.fn() },
+      history: new CommandHistory(dirty, () => canMutate, rejected),
+      materialEditSession: null,
+      inspectorEditStartTransform: null,
+      inspectorEditObjectId: null,
+    });
+
+    manager.applyMaterialChange(
+      target.id,
+      {
+        color: "#abcdef",
+        roughness: 0.72,
+        metalness: 0.83,
+        emissive: "#fedcba",
+        emissiveIntensity: 0.94,
+        opacity: 1,
+      },
+      "preview",
+    );
+    canMutate = false;
+    manager.setSelection(other);
+
+    expect(document.selected).toBe(target);
+    expect(target.material).toEqual(beforeSerialized);
+    expect(projectLiveMaterials([material])).toEqual(beforeLive);
+    expect(manager.materialEditSession).toBeNull();
+    expect(dirty).not.toHaveBeenCalled();
+    expect(rejected).toHaveBeenCalledOnce();
+    canMutate = true;
+    expect(manager.history.undo()).toBe(false);
   });
 
   it("flushes pending material edits before save and aborts playtest when a flush fails", async () => {
@@ -1156,8 +1272,37 @@ describe("EditorManager delete ownership at user-load boundaries", () => {
     const harness = makeDeleteHarness();
     const { manager, document, levelManager, root, sibling } = harness;
     expect(manager.deleteSubtree(root.id)).toBe(true);
+    const liveMaterial = new THREE.MeshStandardMaterial({ roughness: 0.24, metalness: 0.36 });
+    liveMaterial.color.setRGB(0.123456789, 0.234567891, 0.345678912);
+    liveMaterial.emissive.setRGB(0.456789123, 0.567891234, 0.678912345);
+    const materialMesh = new THREE.Mesh(new THREE.BoxGeometry(), liveMaterial);
+    sibling.mesh.add(materialMesh);
+    sibling.material = {
+      color: "#123456",
+      roughness: 0.24,
+      metalness: 0.36,
+      emissive: "#654321",
+      emissiveIntensity: 0.48,
+      opacity: 0.6,
+    };
     document.selected = sibling;
+    manager.applyMaterialChange(
+      sibling.id,
+      {
+        color: "#abcdef",
+        roughness: 0.72,
+        metalness: 0.84,
+        emissive: "#fedcba",
+        emissiveIntensity: 0.96,
+        opacity: 1,
+      },
+      "preview",
+    );
     const before = projectDeleteManager(harness);
+    const beforeSerialized = structuredClone(sibling.material);
+    const beforeLive = projectLiveMaterials([liveMaterial]);
+    const pendingSession = manager.materialEditSession;
+    const dirtyCount = harness.markDirty.mock.calls.length;
     const loadToken = manager.loadTransaction.begin("user-load");
     if (!loadToken) throw new Error("Expected the user-load token to start.");
     manager.loadTransaction.invalidate();
@@ -1172,6 +1317,13 @@ describe("EditorManager delete ownership at user-load boundaries", () => {
     expect(harness.removeBody).not.toHaveBeenCalled();
     expect(harness.removeCollider).not.toHaveBeenCalled();
     expect(manager.documentState.markClean).not.toHaveBeenCalled();
+    expect(sibling.material).toEqual(beforeSerialized);
+    expect(projectLiveMaterials([liveMaterial])).toEqual(beforeLive);
+    expect(manager.materialEditSession).toBe(pendingSession);
+    expect(harness.markDirty).toHaveBeenCalledTimes(dirtyCount);
+    expect(manager.history.undo()).toBe(true);
+    expect(manager.history.redo()).toBe(true);
+    manager.cancelPendingMaterialEdit();
     manager.history.clear();
     expect(harness.removeBody).toHaveBeenCalledWith(root.body);
     expect(harness.removeCollider).toHaveBeenCalledWith(root.collider);

@@ -1517,6 +1517,8 @@ export class EditorManager {
 
   private captureMaterialState(target: EditorObject, preview?: EditorSerializedMaterialState): EditorMaterialState {
     const serialized = preview ?? target.material;
+    const previewColor = preview ? new THREE.Color(preview.color) : null;
+    const previewEmissive = preview ? new THREE.Color(preview.emissive) : null;
     const serializedSnapshot = serialized
       ? Object.freeze({
           color: serialized.color,
@@ -1530,10 +1532,18 @@ export class EditorManager {
     const live = this.collectLiveMaterials(target.mesh).map((material) =>
       Object.freeze({
         material,
-        color: preview ? preview.color : `#${material.color.getHexString()}`,
+        color: Object.freeze([
+          previewColor?.r ?? material.color.r,
+          previewColor?.g ?? material.color.g,
+          previewColor?.b ?? material.color.b,
+        ] as [number, number, number]),
         roughness: preview ? preview.roughness : material.roughness,
         metalness: preview ? preview.metalness : material.metalness,
-        emissive: preview ? preview.emissive : `#${material.emissive.getHexString()}`,
+        emissive: Object.freeze([
+          previewEmissive?.r ?? material.emissive.r,
+          previewEmissive?.g ?? material.emissive.g,
+          previewEmissive?.b ?? material.emissive.b,
+        ] as [number, number, number]),
         emissiveIntensity: preview ? preview.emissiveIntensity : material.emissiveIntensity,
         opacity: preview ? preview.opacity : material.opacity,
         transparent: preview ? preview.opacity < 1 : material.transparent,
@@ -1547,10 +1557,10 @@ export class EditorManager {
     if (!target || state.live.length === 0) return false;
     for (const snapshot of state.live) {
       const material = snapshot.material as THREE.MeshStandardMaterial;
-      material.color.set(snapshot.color);
+      material.color.setRGB(snapshot.color[0], snapshot.color[1], snapshot.color[2]);
       material.roughness = snapshot.roughness;
       material.metalness = snapshot.metalness;
-      material.emissive.set(snapshot.emissive);
+      material.emissive.setRGB(snapshot.emissive[0], snapshot.emissive[1], snapshot.emissive[2]);
       material.emissiveIntensity = snapshot.emissiveIntensity;
       material.opacity = snapshot.opacity;
       if (material.transparent !== snapshot.transparent) {

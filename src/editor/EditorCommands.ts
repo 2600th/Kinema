@@ -17,10 +17,10 @@ export type EditorSerializedMaterialState = Readonly<{
 
 export type EditorLiveMaterialState = Readonly<{
   material: object;
-  color: string;
+  color: readonly [number, number, number];
   roughness: number;
   metalness: number;
-  emissive: string;
+  emissive: readonly [number, number, number];
   emissiveIntensity: number;
   opacity: number;
   transparent: boolean;
@@ -148,10 +148,14 @@ function materialStatesEqual(before: EditorMaterialState, after: EditorMaterialS
     return (
       other !== undefined &&
       snapshot.material === other.material &&
-      snapshot.color === other.color &&
+      snapshot.color[0] === other.color[0] &&
+      snapshot.color[1] === other.color[1] &&
+      snapshot.color[2] === other.color[2] &&
       snapshot.roughness === other.roughness &&
       snapshot.metalness === other.metalness &&
-      snapshot.emissive === other.emissive &&
+      snapshot.emissive[0] === other.emissive[0] &&
+      snapshot.emissive[1] === other.emissive[1] &&
+      snapshot.emissive[2] === other.emissive[2] &&
       snapshot.emissiveIntensity === other.emissiveIntensity &&
       snapshot.opacity === other.opacity &&
       snapshot.transparent === other.transparent
