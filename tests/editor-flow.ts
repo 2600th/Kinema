@@ -50,7 +50,7 @@ const KIN022_FIXTURE = {
       id: KIN022_IDS[0],
       name: "KIN-022 Root",
       parentId: null,
-      source: { type: "primitive", primitive: "group" },
+      source: { type: "primitive", primitive: "cube" },
       transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
       physics: { type: "static" },
     },
@@ -81,7 +81,7 @@ const KIN022_FIXTURE = {
     {
       id: KIN022_IDS[3],
       name: "KIN-022 Sibling",
-      parentId: KIN022_IDS[0],
+      parentId: null,
       source: { type: "primitive", primitive: "cube" },
       transform: { position: [2, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
       material: {
@@ -96,6 +96,25 @@ const KIN022_FIXTURE = {
     },
   ],
 };
+
+const KIN022_ORIGINAL_PROJECTION = [
+  { id: KIN022_IDS[0], parentId: null, children: [KIN022_IDS[1]] },
+  { id: KIN022_IDS[1], parentId: KIN022_IDS[0], children: [KIN022_IDS[2]] },
+  { id: KIN022_IDS[2], parentId: KIN022_IDS[1], children: [] },
+  { id: KIN022_IDS[3], parentId: null, children: [] },
+];
+
+const KIN022_SURVIVING_PROJECTION = [{ id: KIN022_IDS[3], parentId: null, children: [] }];
+
+async function getKin022Projection(page: import("@playwright/test").Page) {
+  return page.evaluate(() =>
+    window.__KINEMA__.getEditorSnapshot().objects.map(({ id, parentId, children }) => ({
+      id,
+      parentId,
+      children,
+    })),
+  );
+}
 
 async function loadKin022Fixture(page: import("@playwright/test").Page): Promise<void> {
   const chooserPromise = page.waitForEvent("filechooser");
@@ -137,15 +156,12 @@ async function dragTransformGizmo(
   const start = { x: center.x + axisOffset, y: center.y };
   const end =
     mode === "rotate" ? { x: center.x, y: center.y - 130 } : { x: center.x + 180, y: center.y };
-  await page.locator("#ui-overlay, .hud-crosshair, .hud-damage-overlay").evaluateAll((elements: HTMLElement[]) => {
-    for (const element of elements) element.style.pointerEvents = "none";
-  });
+  await page.mouse.move(start.x, start.y);
   const pointerTarget = await page.evaluate(({ x, y }) => {
     const element = document.elementFromPoint(x, y);
     return element ? `${element.tagName}.${element.className}` : null;
   }, start);
   expect(pointerTarget).toBe("CANVAS.");
-  await page.mouse.move(start.x, start.y);
   await page.mouse.down();
   await page.mouse.move(end.x, end.y, { steps: 8 });
   const preview = await page.evaluate(() => window.__KINEMA__.getEditorPhysicsSyncCounters());
@@ -508,6 +524,7 @@ test("undoes every editor mutation and preserves workspace state", async ({ page
   await waitForGrounded(page);
   await openEditor(page);
   await loadKin022Fixture(page);
+  expect(await getKin022Projection(page)).toEqual(KIN022_ORIGINAL_PROJECTION);
 
   await page.locator(`.ke-tree-row[data-object-id="${KIN022_IDS[0]}"] .ke-tree-row-toggle`).click();
   await page.locator(`.ke-tree-row[data-object-id="${KIN022_IDS[1]}"] .ke-tree-row-toggle`).click();
@@ -531,6 +548,7 @@ test("undoes every editor mutation and preserves workspace state", async ({ page
       (object) => object.id === KIN022_IDS[3],
     )?.material,
   ).toEqual(originalMaterial);
+  expect(await getKin022Projection(page)).toEqual(KIN022_ORIGINAL_PROJECTION);
 
   await selectHierarchyObject(page, KIN022_IDS[0]);
   expect((await page.evaluate(() => window.__KINEMA__.getEditorSnapshot())).selectedId).toBe(KIN022_IDS[0]);
@@ -542,24 +560,42 @@ test("undoes every editor mutation and preserves workspace state", async ({ page
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
 
   const transformBaseline = await page.evaluate(() => window.__KINEMA__.getEditorSnapshot());
+  const baselineTransform = transformBaseline.objects.find((object) => object.id === KIN022_IDS[0])?.transform;
+  expect(baselineTransform).toBeDefined();
   const translate = await dragTransformGizmo(page, "translate");
   expect(translate.preview.poseSyncs).toBeGreaterThan(0);
   expect(translate.preview).toMatchObject({ colliderDescriptorBuilds: 0, colliderReplacements: 0 });
   expect(translate.release).toMatchObject({ colliderDescriptorBuilds: 0, colliderReplacements: 0 });
+  const afterTranslate = await page.evaluate(() => window.__KINEMA__.getEditorSnapshot());
+  expect(afterTranslate.selectedId).toBe(KIN022_IDS[0]);
+  expect(afterTranslate.objects.find((object) => object.id === KIN022_IDS[0])?.transform).not.toEqual(
+    baselineTransform,
+  );
   await page.keyboard.press("Control+Z");
   expect(await page.evaluate(() => window.__KINEMA__.getEditorSnapshot())).toEqual(transformBaseline);
+  expect(await getKin022Projection(page)).toEqual(KIN022_ORIGINAL_PROJECTION);
   const rotate = await dragTransformGizmo(page, "rotate");
   expect(rotate.preview.poseSyncs).toBeGreaterThan(0);
   expect(rotate.preview).toMatchObject({ colliderDescriptorBuilds: 0, colliderReplacements: 0 });
   expect(rotate.release).toMatchObject({ colliderDescriptorBuilds: 0, colliderReplacements: 0 });
+  const afterRotate = await page.evaluate(() => window.__KINEMA__.getEditorSnapshot());
+  expect(afterRotate.selectedId).toBe(KIN022_IDS[0]);
+  expect(afterRotate.objects.find((object) => object.id === KIN022_IDS[0])?.transform).not.toEqual(
+    baselineTransform,
+  );
   await page.keyboard.press("Control+Z");
   expect(await page.evaluate(() => window.__KINEMA__.getEditorSnapshot())).toEqual(transformBaseline);
+  expect(await getKin022Projection(page)).toEqual(KIN022_ORIGINAL_PROJECTION);
   const scale = await dragTransformGizmo(page, "scale");
   expect(scale.preview.poseSyncs).toBeGreaterThan(0);
   expect(scale.preview).toMatchObject({ colliderDescriptorBuilds: 0, colliderReplacements: 0 });
-  expect(scale.release.colliderReplacements).toBe(2);
+  expect(scale.release).toMatchObject({ colliderDescriptorBuilds: 2, colliderReplacements: 2 });
+  const afterScale = await page.evaluate(() => window.__KINEMA__.getEditorSnapshot());
+  expect(afterScale.selectedId).toBe(KIN022_IDS[0]);
+  expect(afterScale.objects.find((object) => object.id === KIN022_IDS[0])?.transform).not.toEqual(baselineTransform);
   await page.keyboard.press("Control+Z");
   expect(await page.evaluate(() => window.__KINEMA__.getEditorSnapshot())).toEqual(transformBaseline);
+  expect(await getKin022Projection(page)).toEqual(KIN022_ORIGINAL_PROJECTION);
 
   const beforeDelete = await page.evaluate(() => window.__KINEMA__.getEditorSnapshot());
   const rootRow = page.locator(`.ke-tree-row[data-object-id="${KIN022_IDS[0]}"]`);
@@ -570,8 +606,8 @@ test("undoes every editor mutation and preserves workspace state", async ({ page
     position: { x: rootBounds.width - 4, y: rootBounds.height / 2 },
   });
   await page.locator(".ke-context-menu-item", { hasText: "Delete" }).click();
-  await expect.poll(() => page.evaluate(() => window.__KINEMA__.getEditorObjectCount())).toBe(0);
-  expect((await page.evaluate(() => window.__KINEMA__.getEditorSnapshot())).objects).toEqual([]);
+  await expect.poll(() => page.evaluate(() => window.__KINEMA__.getEditorObjectCount())).toBe(1);
+  expect(await getKin022Projection(page)).toEqual(KIN022_SURVIVING_PROJECTION);
 
   page.once("dialog", (dialog) => void dialog.accept("kin022-deleted-tree"));
   const downloadPromise = page.waitForEvent("download");
@@ -584,19 +620,30 @@ test("undoes every editor mutation and preserves workspace state", async ({ page
     }>;
     const entry = index.find((candidate) => candidate.name === "kin022-deleted-tree");
     const stored = entry ? localStorage.getItem(entry.key) : null;
-    return stored ? (JSON.parse(stored) as { objects: Array<{ id: string; parentId?: string | null }> }) : null;
+    if (!stored) return null;
+    const parsed = JSON.parse(stored) as { objects: Array<{ id: string; parentId?: string | null }> };
+    return parsed.objects.map(({ id, parentId }) => ({ id, parentId: parentId ?? null }));
   });
   expect(storedProjection).not.toBeNull();
-  expect(storedProjection?.objects).toEqual([]);
-  expect(storedProjection?.objects.some((object) => object.parentId && !storedProjection.objects.some((parent) => parent.id === object.parentId))).toBe(false);
+  expect(storedProjection).toEqual(KIN022_SURVIVING_PROJECTION.map(({ id, parentId }) => ({ id, parentId })));
+  expect(storedProjection).toHaveLength(1);
+  expect(
+    storedProjection?.every(
+      (object) => object.parentId === null || storedProjection.some((parent) => parent.id === object.parentId),
+    ),
+  ).toBe(true);
 
   await page.keyboard.press("Control+Z");
   await expect.poll(() => page.evaluate(() => window.__KINEMA__.getEditorObjectCount())).toBe(KIN022_IDS.length);
   expect(await page.evaluate(() => window.__KINEMA__.getEditorSnapshot())).toEqual(beforeDelete);
+  expect(await getKin022Projection(page)).toEqual(KIN022_ORIGINAL_PROJECTION);
   await page.keyboard.press("Control+Y");
-  await expect.poll(() => page.evaluate(() => window.__KINEMA__.getEditorObjectCount())).toBe(0);
+  await expect.poll(() => page.evaluate(() => window.__KINEMA__.getEditorObjectCount())).toBe(1);
+  expect(await getKin022Projection(page)).toEqual(KIN022_SURVIVING_PROJECTION);
   await page.keyboard.press("Control+Z");
   await expect.poll(() => page.evaluate(() => window.__KINEMA__.getEditorObjectCount())).toBe(KIN022_IDS.length);
+  expect(await page.evaluate(() => window.__KINEMA__.getEditorSnapshot())).toEqual(beforeDelete);
+  expect(await getKin022Projection(page)).toEqual(KIN022_ORIGINAL_PROJECTION);
 
   const siblingRow = page.locator(`.ke-tree-row[data-object-id="${KIN022_IDS[3]}"]`);
   await siblingRow.getByTitle("Toggle lock").click();

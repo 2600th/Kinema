@@ -89,25 +89,27 @@ artifacts and are intentionally not committed. The visual evidence is
 Captured 2026-07-20 with the same headed Chromium 147 hardware-WebGPU launch
 recipe and 1920 x 1080 viewport as the baseline above. The runtime reported the
 true `WebGPU` backend. Each transform used a fresh browser context, the same
-authored root -> child -> grandchild plus sibling fixture, and five real gizmo
-drags. The fixture has two static cube colliders whose effective scale changes
-when the root is scaled; its two group nodes have no colliders.
+authored cube root -> group child -> cube grandchild plus external-root sibling
+fixture, and five real gizmo drags through untouched DOM hit-testing. The two
+static cube colliders in the selected subtree change effective scale with the
+root; the external sibling collider is unaffected.
 
 Each result is a rolling 600-render-frame window after the station/editor load
 and five transform repetitions. As in the station matrix, `max` and `long`
 include startup and authored-level load work, so they are hitch observations,
 not steady-state transform costs.
 
-| Transform | p50 (ms) | p95 (ms) | max (ms) | long frames | Preview delta per drag (pose/build/replace) | Release delta per drag (pose/build/replace) |
+| Transform | p50 (ms) | p95 (ms) | max (ms) | long frames | Preview delta per drag (pose/build/replace) | Cumulative after release (pose/build/replace) |
 |---|---:|---:|---:|---:|---:|---:|
-| Translate | 8.3 | 8.5 | 433.3 | 5 | 16 / 0 / 0 | 20 / 0 / 0 |
-| Rotate | 8.3 | 8.5 | 808.4 | 4 | 16 / 0 / 0 | 20 / 0 / 0 |
-| Scale | 8.3 | 8.4 | 574.9 | 4 | 16 / 0 / 0 | 20 / 2 / 2 |
+| Translate | 9.6 | 10.1 | 700.7 | 4 | 16 / 0 / 0 | 20 / 0 / 0 |
+| Rotate | 9.5 | 10.1 | 646.4 | 5 | 16 / 0 / 0 | 20 / 0 / 0 |
+| Scale | 9.6 | 10.1 | 419.0 | 5 | 16 / 0 / 0 | 20 / 2 / 2 |
 
 All five repetitions produced the same counter deltas shown in the table.
-Translation and rotation therefore performed no collider descriptor builds or
-replacements during preview or release. Scale performed none during preview and
-replaced exactly the two affected effective-scale colliders on every release.
+The post-release sample is cumulative from the pre-drag reset, so release itself
+added `4 / 0 / 0` for translation/rotation and `4 / 2 / 2` for scale. Translation
+and rotation therefore performed no collider descriptor builds or replacements;
+scale built and replaced exactly the two affected colliders on every release.
 The serial Playwright correctness run separately reported `WebGPU (WebGL2
 backend)` under SwiftShader; those headless timings are intentionally excluded
 from this representative hardware table. Raw results are retained in
