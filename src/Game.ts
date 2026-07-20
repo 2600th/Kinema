@@ -17,6 +17,7 @@ import type { EditorManager } from "@editor/EditorManager";
 import type { InputManager, LookState } from "@input/InputManager";
 import type { InteractionManager } from "@interaction/InteractionManager";
 import { FeedbackPlayer } from "@juice/FeedbackPlayer";
+import { FEEDBACK_PRESETS, type FeedbackPreset, type FeedbackPresetKey } from "@juice/FeedbackPresets";
 import { FOVPunch } from "@juice/FOVPunch";
 import { Hitstop } from "@juice/Hitstop";
 import type { LevelManager } from "@level/LevelManager";
@@ -47,6 +48,7 @@ const _cameraAimDirection = new THREE.Vector3();
 const SENSITIVITY_STEP = 0.0002;
 const GAMEPAD_DEADZONE_STEP = 0.02;
 const GAMEPAD_CURVE_STEP = 0.1;
+const DEATH_RESPAWN_AT_CHECKPOINT = true;
 
 /**
  * Top-level orchestrator.
@@ -95,6 +97,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
   private readonly coinSystem: CoinCollectibleSystem;
   private readonly debugSystem: DebugRuntimeSystem;
   private readonly particleSystem: ParticleSystem;
+  private readonly checkpointSystem: CheckpointObjectiveSystem;
 
   constructor(
     private renderer: RendererManager,
@@ -128,7 +131,11 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     );
     this.registerSystem(this.interactableSystem);
 
-    this.healthSystem = new PlayerHealthSystem(eventBus);
+    this.checkpointSystem = new CheckpointObjectiveSystem(renderer, physicsWorld, eventBus, playerController);
+
+    this.healthSystem = new PlayerHealthSystem(eventBus, () =>
+      DEATH_RESPAWN_AT_CHECKPOINT ? this.checkpointSystem.getActiveSpawnPoint() : null,
+    );
     this.registerSystem(this.healthSystem);
 
     this.spikeHazardSystem = new SpikeHazardSystem(renderer.scene, playerController, vehicleManager, this.healthSystem);
@@ -143,8 +150,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     this.debugSystem = new DebugRuntimeSystem(renderer, physicsWorld, eventBus, levelManager);
     this.registerSystem(this.debugSystem);
 
-    const checkpointSystem = new CheckpointObjectiveSystem(renderer, physicsWorld, eventBus, playerController);
-    this.registerSystem(checkpointSystem);
+    this.registerSystem(this.checkpointSystem);
 
     // Respawn at the midpoint of the iris wipe (screen is black)
     this.unsubs.push(
@@ -160,7 +166,12 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
         if (this.vehicleManager.isActive()) {
           this.vehicleManager.forceExit();
         }
-        this.playerController.respawn();
+        if (pendingResolution?.mode === "checkpoint-respawn") {
+          this.playerController.spawn(pendingResolution.spawnPoint);
+          this.healthSystem.restoreAfterCheckpointRespawn(pendingResolution.reason);
+        } else {
+          this.playerController.respawn();
+        }
         this.eventBus.emit("player:respawned", { reason: pendingResolution?.reason ?? "fall" });
         this.isDying = false;
       }),
@@ -212,6 +223,19 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
           { duration: 0, onStart: () => this.hitstop.trigger(0.06) },
         ]);
       }),
+      this.eventBus.on("interaction:pickUp", () => this.playFeedbackPreset("pickup")),
+      this.eventBus.on("interaction:drop", () => this.playFeedbackPreset("drop")),
+      this.eventBus.on("player:sprintStarted", () => this.playFeedbackPreset("sprintStart")),
+      this.eventBus.on("player:ladderAttached", () => this.playFeedbackPreset("ladderAttach")),
+      this.eventBus.on("player:ladderReleased", () => this.playFeedbackPreset("ladderRelease")),
+      this.eventBus.on("interaction:ropeAttached", () => this.playFeedbackPreset("ropeAttach")),
+      this.eventBus.on("interaction:ropeReleased", () => this.playFeedbackPreset("ropeRelease")),
+      this.eventBus.on("vehicle:enter", () => this.playFeedbackPreset("vehicleEnter")),
+      this.eventBus.on("vehicle:exit", () => this.playFeedbackPreset("vehicleExit")),
+      this.eventBus.on("vehicle:boostChanged", ({ active }) => {
+        this.camera.setVehicleBoostFov(active ? FEEDBACK_PRESETS.vehicleBoost.sustainedFov : 0);
+      }),
+      this.eventBus.on("collectible:collected", () => this.playFeedbackPreset("collectible")),
       this.eventBus.on("objective:beaconActivated", () => {
         this.fovPunch.punch(1.75);
       }),
@@ -667,6 +691,14 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     return this.coinSystem.getCollectedCount();
   }
 
+  getCollectibleTotal(): number {
+    return this.coinSystem.getTotalValue();
+  }
+
+  getActiveCheckpoint(): ReturnType<CheckpointObjectiveSystem["getActiveCheckpoint"]> {
+    return this.checkpointSystem.getActiveCheckpoint();
+  }
+
   listRemainingCollectibles(): CoinDebugEntry[] {
     return this.coinSystem.listRemainingCoins();
   }
@@ -697,10 +729,26 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     return this.teleportPlayer(target.clone().add(new THREE.Vector3(0, 0.32, 0)));
   }
 
+  teleportPlayerToCheckpoint(): boolean {
+    const spawnPoint = this.checkpointSystem.getActiveSpawnPoint();
+    if (!spawnPoint) return false;
+    return this.teleportPlayer(spawnPoint.position);
+  }
+
   teleportPlayer(position: THREE.Vector3): boolean {
     this.playerController.spawn({ position });
     this.camera.snapToTarget();
     return true;
+  }
+
+  private playFeedbackPreset(key: FeedbackPresetKey): void {
+    const preset: FeedbackPreset = FEEDBACK_PRESETS[key];
+    if (preset.fovPunch !== undefined) {
+      this.fovPunch.punch(preset.fovPunch);
+    }
+    if (preset.trauma !== undefined) {
+      this.camera.addTrauma(preset.trauma);
+    }
   }
 
   private handleDebugKeyDown(e: KeyboardEvent): void {

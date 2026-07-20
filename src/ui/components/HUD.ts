@@ -25,7 +25,7 @@ export class HUD implements Disposable {
   private previousHealth: number | null = null;
   private statusTimers = new Map<HTMLDivElement, ReturnType<typeof setTimeout>>();
   private heartTimers = new Map<HTMLSpanElement, ReturnType<typeof setTimeout>>();
-  private elementTimers = new Map<HTMLElement, ReturnType<typeof setTimeout>>();
+  private elementTimers = new Map<HTMLElement, Map<string, ReturnType<typeof setTimeout>>>();
   private healthHitTimer: ReturnType<typeof setTimeout> | null = null;
   private damageFlashTimer: ReturnType<typeof setTimeout> | null = null;
   private holdResetTimer: ReturnType<typeof setTimeout> | null = null;
@@ -207,7 +207,7 @@ export class HUD implements Disposable {
     this.collectibleEl.setAttribute("role", "status");
     this.collectibleEl.setAttribute("aria-live", "polite");
     this.collectibleEl.setAttribute("aria-atomic", "true");
-    this.collectibleEl.setAttribute("aria-label", "Collectibles: 0");
+    this.collectibleEl.setAttribute("aria-label", "Collectibles: 0 of 0");
     this.collectibleEl.setAttribute("aria-hidden", "true");
 
     const icon = document.createElement("div");
@@ -217,7 +217,7 @@ export class HUD implements Disposable {
 
     const count = document.createElement("span");
     count.className = "collectible-count";
-    count.textContent = "0";
+    count.textContent = "0/0";
 
     this.collectibleEl.appendChild(icon);
     this.collectibleEl.appendChild(count);
@@ -245,10 +245,10 @@ export class HUD implements Disposable {
     this.container.appendChild(this.healthEl);
   }
 
-  updateCollectibles(count: number): void {
+  updateCollectibles(count: number, total: number): void {
     const countEl = this.collectibleEl.querySelector(".collectible-count") as HTMLSpanElement;
     if (countEl) {
-      countEl.textContent = String(count);
+      countEl.textContent = `${count}/${total}`;
       if (count !== this.previousCollectibleCount) {
         this.triggerPulse(this.collectibleEl, "is-boosted", 440);
         countEl.style.transform = "scale(1.3)";
@@ -257,7 +257,7 @@ export class HUD implements Disposable {
         }, 200);
       }
     }
-    this.collectibleEl.setAttribute("aria-label", `Collectibles: ${count}`);
+    this.collectibleEl.setAttribute("aria-label", `Collectibles: ${count} of ${total}`);
     this.previousCollectibleCount = count;
   }
 
@@ -322,6 +322,17 @@ export class HUD implements Disposable {
   celebrateCollectible(value: number): void {
     this.triggerPulse(this.collectibleEl, "is-celebrating", 520);
     this.spawnFloatingDelta(this.collectibleEl, `+${value}`, "hud-floating-delta collectible");
+  }
+
+  celebrateAllCollectibles(total: number): void {
+    this.clearPulse(this.collectibleEl, "is-boosted");
+    this.clearPulse(this.collectibleEl, "is-celebrating");
+    this.triggerPulse(this.collectibleEl, "is-all-collected", 1400);
+    this.spawnFloatingDelta(
+      this.collectibleEl,
+      `All ${total} collected!`,
+      "hud-floating-delta collectible collectible-complete",
+    );
   }
 
   flashObjectiveComplete(text: string): void {
@@ -414,8 +425,10 @@ export class HUD implements Disposable {
       clearTimeout(timer);
     }
     this.heartTimers.clear();
-    for (const timer of this.elementTimers.values()) {
-      clearTimeout(timer);
+    for (const timers of this.elementTimers.values()) {
+      for (const timer of timers.values()) {
+        clearTimeout(timer);
+      }
     }
     this.elementTimers.clear();
     if (this.healthHitTimer) {
@@ -464,7 +477,12 @@ export class HUD implements Disposable {
   }
 
   private triggerPulse(element: HTMLElement, className: string, durationMs: number): void {
-    const existing = this.elementTimers.get(element);
+    let timers = this.elementTimers.get(element);
+    if (!timers) {
+      timers = new Map();
+      this.elementTimers.set(element, timers);
+    }
+    const existing = timers.get(className);
     if (existing) {
       clearTimeout(existing);
     }
@@ -473,9 +491,25 @@ export class HUD implements Disposable {
     element.classList.add(className);
     const timer = setTimeout(() => {
       element.classList.remove(className);
-      this.elementTimers.delete(element);
+      timers.delete(className);
+      if (timers.size === 0) {
+        this.elementTimers.delete(element);
+      }
     }, durationMs);
-    this.elementTimers.set(element, timer);
+    timers.set(className, timer);
+  }
+
+  private clearPulse(element: HTMLElement, className: string): void {
+    const timers = this.elementTimers.get(element);
+    const timer = timers?.get(className);
+    if (timer) {
+      clearTimeout(timer);
+      timers?.delete(className);
+      if (timers?.size === 0) {
+        this.elementTimers.delete(element);
+      }
+    }
+    element.classList.remove(className);
   }
 
   private clearDamageFlash(): void {

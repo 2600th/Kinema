@@ -121,6 +121,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   private readonly cameraAimOrigin = new THREE.Vector3(0, 0, 0);
   private readonly cameraAimDirection = new THREE.Vector3(0, 0, -1);
   private hasCarrySocket = false;
+  private sprintActive = false;
 
   // -- Mode system --
   private readonly modes: Map<string, CharacterMode>;
@@ -283,6 +284,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   }
 
   spawn(spawn: SpawnPointData): void {
+    const wasOnLadder = this.currentMode.id === "ladder";
     if (this.ropeAttached || this.currentMode.id === "rope") {
       this.detachFromRope();
     }
@@ -318,6 +320,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.remainingAirJumps = this.config.maxAirJumps;
     this.ropeAttached = false;
     this.isCrouched = false;
+    this.sprintActive = false;
     this.crouchReleaseGraceRemaining = 0;
     this.crouchVisual = 0;
     this.mesh.scale.set(1, 1, 1);
@@ -327,6 +330,9 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     this.collider.setHalfHeight(this.standingCapsuleHalfHeight);
     const resetMode = this.modes.get("grounded");
     if (resetMode) this.currentMode = resetMode;
+    if (wasOnLadder) {
+      this.eventBus.emit("player:ladderReleased", undefined);
+    }
     // Reset carry/grab state and pending throw
     this.grabCarry.forceRelease();
     this.pendingThrow = false;
@@ -546,6 +552,16 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
       this.switchMode(targetModeId);
     }
 
+    const sprintActive =
+      this.currentMode.id === "grounded" &&
+      inputForFsm.sprint &&
+      this.hasMovementInput(inputForFsm) &&
+      !this.isCrouched;
+    if (sprintActive && !this.sprintActive) {
+      this.eventBus.emit("player:sprintStarted", undefined);
+    }
+    this.sprintActive = sprintActive;
+
     // -- FSM update (skip for ladder — LadderMode handles its own FSM) --
     if (this.currentMode.id !== "ladder") {
       const groundedForFsm = this.currentMode.id === "rope" ? false : this.stableGrounded;
@@ -631,6 +647,7 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
   private switchMode(modeId: string): void {
     const mode = this.modes.get(modeId);
     if (!mode) return;
+    const previousModeId = this.currentMode.id;
     const ctx = this.buildContext();
     this.currentMode.exit?.(ctx);
     this.syncFromContext(ctx);
@@ -638,6 +655,11 @@ export class PlayerController implements FixedUpdatable, PostPhysicsUpdatable, U
     const enterCtx = this.buildContext();
     this.currentMode.enter?.(enterCtx);
     this.syncFromContext(enterCtx);
+    if (previousModeId !== "ladder" && modeId === "ladder") {
+      this.eventBus.emit("player:ladderAttached", undefined);
+    } else if (previousModeId === "ladder" && modeId !== "ladder") {
+      this.eventBus.emit("player:ladderReleased", undefined);
+    }
   }
 
   private isInsideLadder(position: THREE.Vector3): boolean {

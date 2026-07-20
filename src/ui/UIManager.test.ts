@@ -17,6 +17,7 @@ vi.mock("./components/HUD", () => ({
     flashObjectiveComplete = vi.fn();
     updateCollectibles = vi.fn();
     celebrateCollectible = vi.fn();
+    celebrateAllCollectibles = vi.fn();
     updateHealth = vi.fn();
     flashDamage = vi.fn();
     setDamageFlashIntensity = vi.fn();
@@ -222,9 +223,25 @@ describe("UIManager", () => {
     const ui = new UIManager(eventBus as any);
     const hud = hudInstances[0];
 
-    listeners.get("collectible:changed")?.({ count: 5 });
+    listeners.get("collectible:changed")?.({ count: 5, total: 70 });
 
-    expect(hud.updateCollectibles).toHaveBeenCalledWith(5);
+    expect(hud.updateCollectibles).toHaveBeenCalledWith(5, 70);
+    ui.dispose();
+  });
+
+  it("routes the one-shot collectible completion celebration and status", () => {
+    const listeners = new Map<string, (payload: any) => void>();
+    const on = vi.fn((event: string, handler: (payload: any) => void) => {
+      listeners.set(event, handler);
+      return () => {};
+    });
+    const ui = new UIManager({ on } as any);
+    const hud = hudInstances[0];
+
+    listeners.get("collectible:allCollected")?.({ count: 70, total: 70 });
+
+    expect(hud.celebrateAllCollectibles).toHaveBeenCalledExactlyOnceWith(70);
+    expect(hud.showStatus).toHaveBeenCalledExactlyOnceWith("All 70 collectibles collected!", 3200);
     ui.dispose();
   });
 

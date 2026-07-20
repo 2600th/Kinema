@@ -62,6 +62,7 @@ export class OrbitFollowCamera implements Updatable, Disposable {
 
   // Speed-feel: dynamic FOV and distance offsets driven by vehicle speed
   private speedFovOffset = 0;
+  private vehicleBoostFovOffset = 0;
   private speedDistanceOffset = 0;
   private driftFovOffset = 0;
   private driftDistanceOffset = 0;
@@ -205,6 +206,7 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     // Reset vehicle camera effects
     this.chaseModeEnabled = false;
     this.speedFovOffset = 0;
+    this.vehicleBoostFovOffset = 0;
     this.speedDistanceOffset = 0;
     this.driftFovOffset = 0;
     this.driftDistanceOffset = 0;
@@ -228,6 +230,11 @@ export class OrbitFollowCamera implements Updatable, Disposable {
   setVehicleSpeedRatio(ratio: number): void {
     this.speedFovOffset = ratio * 15; // up to +15° FOV at top speed
     this.speedDistanceOffset = ratio * 3; // up to +3 m pullback at top speed
+  }
+
+  setVehicleBoostFov(offset: number): void {
+    if (!Number.isFinite(offset)) return;
+    this.vehicleBoostFovOffset = Math.max(0, offset);
   }
 
   setVehicleHandlingFeel(state: VehicleHandlingFeelState | null): void {
@@ -469,17 +476,24 @@ export class OrbitFollowCamera implements Updatable, Disposable {
     this.camera.position.lerp(_targetPos, positionDamp);
 
     const input = this.target ? (this.inputProvider?.() ?? null) : this.player.lastInputSnapshot;
-    const sprinting = !!input && input.sprint && (input.forward || input.backward || input.left || input.right);
+    const sprinting =
+      !this.target && !!input && input.sprint && (input.forward || input.backward || input.left || input.right);
     const speedFov = speedNorm * speedNorm * this.config.speedFovBoost;
     const sprintFov = sprinting ? this.config.sprintFovBoost : 0;
     const locomotionFov = Math.min(12, speedFov + sprintFov);
     const punchFov = this.fovPunch?.update(dt) ?? 0;
     const targetFov =
       this.effectsIntensity === 1
-        ? this.baseFov + locomotionFov + this.speedFovOffset + this.driftFovOffset + punchFov
+        ? this.baseFov +
+          locomotionFov +
+          this.speedFovOffset +
+          this.vehicleBoostFovOffset +
+          this.driftFovOffset +
+          punchFov
         : this.baseFov +
           locomotionFov * this.effectsIntensity +
           this.speedFovOffset * this.effectsIntensity +
+          this.vehicleBoostFovOffset * this.effectsIntensity +
           this.driftFovOffset * this.effectsIntensity +
           punchFov * this.effectsIntensity;
     const fovDamp = 1 - Math.exp(-this.config.fovDamping * dt);

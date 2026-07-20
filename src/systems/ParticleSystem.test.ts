@@ -93,4 +93,27 @@ describe("ParticleSystem", () => {
     expect(renderer.scene.children.every((child) => !child.visible)).toBe(true);
     expect(renderer.scene.children.every((child) => (child as THREE.InstancedMesh).count === 0)).toBe(true);
   });
+
+  it("routes final collection and vehicle transitions through existing lazy particles", async () => {
+    const { eventBus, system } = createSystem();
+    eventBus.emit("level:loaded", { name: "test" });
+    await vi.dynamicImportSettled();
+    const particles = (system as any).gameParticles;
+    const celebration = vi.spyOn(particles, "coinCelebration");
+    const vehicleDust = vi.spyOn(particles, "vehicleTransitionDust");
+    const completionPosition = new THREE.Vector3(1, 2, 3);
+    const vehiclePosition = new THREE.Vector3(4, 5, 6);
+    const seatPosition = new THREE.Vector3(7, 8, 9);
+
+    eventBus.emit("collectible:allCollected", { count: 70, total: 70, position: completionPosition });
+    eventBus.emit("vehicle:enter", {
+      vehicle: { mesh: { position: vehiclePosition } } as any,
+      position: seatPosition,
+    });
+    eventBus.emit("vehicle:exit", { position: vehiclePosition });
+
+    expect(celebration).toHaveBeenCalledExactlyOnceWith(completionPosition);
+    expect(vehicleDust).toHaveBeenNthCalledWith(1, seatPosition);
+    expect(vehicleDust).toHaveBeenNthCalledWith(2, vehiclePosition);
+  });
 });

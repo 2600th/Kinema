@@ -97,6 +97,42 @@ test("mobile touch controls stay active without pointer lock and can trigger a j
     window.__KINEMA__.waitFor("p.vy > 0.5 && p.state !== 'idle'", 4_000),
   );
   expect(semanticJumped).toBe(true);
+  await waitForGrounded(page);
+
+  await page.evaluate(() => window.__KINEMA__.clearInteractionEvents());
+  const movementBox = await page.getByRole("group", { name: "Movement joystick" }).boundingBox();
+  const sprintBox = await sprintButton.boundingBox();
+  expect(movementBox).not.toBeNull();
+  expect(sprintBox).not.toBeNull();
+  if (!movementBox || !sprintBox) throw new Error("Missing touch control geometry");
+  const touchSession = await page.context().newCDPSession(page);
+  const movementPoint = {
+    x: movementBox.x + movementBox.width / 2,
+    y: movementBox.y + movementBox.height / 2,
+    id: 1,
+  };
+  const sprintPoint = {
+    x: sprintBox.x + sprintBox.width / 2,
+    y: sprintBox.y + sprintBox.height / 2,
+    id: 2,
+  };
+  await touchSession.send("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: [movementPoint, sprintPoint],
+  });
+  await touchSession.send("Input.dispatchTouchEvent", {
+    type: "touchMove",
+    touchPoints: [{ ...movementPoint, y: movementPoint.y - 55 }, sprintPoint],
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        window.__KINEMA__.getInteractionEvents().some((event) => event.type === "player:sprintStarted"),
+      ),
+    )
+    .toBe(true);
+  await touchSession.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await touchSession.detach();
   await expect.poll(async () => page.evaluate(() => document.pointerLockElement === null)).toBe(true);
   expect(runtimeErrors).toEqual([]);
 });

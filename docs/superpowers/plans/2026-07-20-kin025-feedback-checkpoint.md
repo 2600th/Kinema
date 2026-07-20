@@ -28,11 +28,11 @@
 - Modify: `src/systems/CheckpointObjectiveSystem.test.ts`
 - Create: `src/juice/FeedbackPresets.test.ts`
 
-- [ ] Assert active-run totals, event payloads/order, and one-shot all-collected emission.
-- [ ] Assert lethal checkpoint resolution snapshots a cloned point and recovery restores full health plus i-frames.
-- [ ] Assert active checkpoint state is explicit and clears on dispose.
-- [ ] Assert the typed feedback values are proportionate and do not duplicate crouch visuals.
-- [ ] Run focused tests and preserve the expected RED result before implementation.
+- [x] Assert active-run totals, event payloads/order, and one-shot all-collected emission.
+- [x] Assert lethal checkpoint resolution snapshots a cloned point and recovery restores full health plus i-frames.
+- [x] Assert active checkpoint state is explicit and clears on dispose.
+- [x] Assert the typed feedback values are proportionate and do not duplicate crouch visuals.
+- [x] Run focused tests and preserve the expected RED result before implementation.
 
 ### Task 2: Implement progression and death recovery
 
@@ -46,11 +46,11 @@
 - Modify: `src/core/KinemaDebugApi.ts`
 - Modify: `src/main.ts`
 
-- [ ] Add total-bearing collectible events and the one-shot completion event.
-- [ ] Expose active-run total and a cloned active checkpoint through deterministic DEV hooks.
-- [ ] Inject the feature-flagged active-checkpoint resolver into health and snapshot it on lethal damage.
-- [ ] Resolve `checkpoint-respawn` at the death midpoint: force vehicle exit, spawn at snapshot, restore health/i-frames, emit respawn.
-- [ ] Keep restart and non-lethal fall paths intact, then turn focused domain tests GREEN.
+- [x] Add total-bearing collectible events and the one-shot completion event.
+- [x] Expose active-run total and a cloned active checkpoint through deterministic DEV hooks.
+- [x] Inject the feature-flagged active-checkpoint resolver into health and snapshot it on lethal damage.
+- [x] Resolve `checkpoint-respawn` at the death midpoint: force vehicle exit, spawn at snapshot, restore health/i-frames, emit respawn.
+- [x] Keep restart and non-lethal fall paths intact, then turn focused domain tests GREEN.
 
 ### Task 3: Implement feedback, HUD, particles, and audio
 
@@ -68,11 +68,11 @@
 - Modify: `src/ui/UIManager.ts`
 - Modify/add focused tests beside affected systems
 
-- [ ] Emit semantic sprint-start, ladder attach/release, and vehicle boost edge events.
-- [ ] Wire discrete presets without changing existing jump/land/grab/throw feedback or double-scaling intensity.
-- [ ] Compose held boost as `+3` FOV and clear it on release/exit; reuse pooled dust for vehicle transitions.
-- [ ] Reuse coin pools for the completion burst, render `count/total`, and add a longer final-completion pulse/status.
-- [ ] Reuse `objectiveComplete()` plus the existing music duck for the celebration chord.
+- [x] Emit semantic sprint-start, ladder attach/release, and vehicle boost edge events.
+- [x] Wire discrete presets without changing existing jump/land/grab/throw feedback or double-scaling intensity.
+- [x] Compose held boost as `+3` FOV and clear it on release/exit; reuse pooled dust for vehicle transitions.
+- [x] Reuse coin pools for the completion burst, render `count/total`, and add a longer final-completion pulse/status.
+- [x] Reuse `objectiveComplete()` plus the existing music duck for the celebration chord.
 
 ### Task 4: Browser proof, regression gates, and landing
 
@@ -81,10 +81,10 @@
 - Modify: `tests/procedural-hazards.ts`
 - Update ignored state/evidence: `tasks/todo.md`, `.superpowers/sdd/progress.md`, `output/kin025/`
 
-- [ ] Collect all 70 showcase coins through deterministic teleport hooks; assert HUD increments, final one-shot state, and capture `70/70` plus celebration evidence.
-- [ ] Activate the checkpoint, collect a coin, take three spaced hazard hits, and assert checkpoint position, full health/i-frames, preserved coin count, and no run reload.
-- [ ] Retain and re-run the no-checkpoint lethal full-reset assertions.
-- [ ] Exercise keyboard/touch and vehicle entry/exit/boost paths; verify default and compatibility renderers serially.
-- [ ] Record celebration frame stats and inspect required screenshots.
-- [ ] Run focused/full units, TypeScript, touched-file Biome error diagnostics, build, and event-order/static gates.
-- [ ] Request an independent GPT-5.6 SOL review of the exact KIN-025 diff, address findings test-first, then create a detailed implementation commit.
+- [x] Collect all 70 showcase coins through deterministic teleport hooks; assert HUD increments, final one-shot state, and capture `70/70` plus celebration evidence.
+- [x] Activate the checkpoint, collect a coin, take three spaced hazard hits, and assert checkpoint position, full health/i-frames, preserved coin count, and no run reload.
+- [x] Retain and re-run the no-checkpoint lethal full-reset assertions.
+- [x] Exercise keyboard/touch and vehicle entry/exit/boost paths; verify default and compatibility renderers serially.
+- [x] Record celebration frame stats and inspect required screenshots.
+- [x] Run focused/full units, TypeScript, touched-file Biome error diagnostics, build, and event-order/static gates.
+- [x] Request an independent GPT-5.6 SOL review of the exact KIN-025 diff, address findings test-first, then create a detailed implementation commit.

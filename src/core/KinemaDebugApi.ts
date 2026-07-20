@@ -54,6 +54,11 @@ export interface KinemaDynamicBodyState {
   velocity: KinemaVector3;
 }
 
+export interface KinemaCheckpointState {
+  id: string;
+  position: KinemaVector3;
+}
+
 export interface KinemaNavAgentState {
   id: string;
   position: KinemaVector3;
@@ -127,7 +132,12 @@ export type KinemaInteractionEvent =
   | { type: "interaction:doorToggled"; id: string; open: boolean }
   | { type: "objective:beaconActivated"; id: string }
   | { type: "interaction:ropeAttached"; id: string }
-  | { type: "interaction:ropeReleased"; id: string };
+  | { type: "interaction:ropeReleased"; id: string }
+  | { type: "player:sprintStarted" }
+  | { type: "player:ladderAttached" }
+  | { type: "player:ladderReleased" }
+  | { type: "vehicle:boostChanged"; active: boolean }
+  | { type: "collectible:allCollected"; count: number; total: number };
 
 /** Complete contract for the development-only browser automation surface. */
 export interface KinemaDebugApi {
@@ -169,11 +179,14 @@ export interface KinemaDebugApi {
   resetVehicle(id: string): boolean;
   simulateVehicleInput(input: Partial<InputState>, frames?: number): void;
   getCollectibleCount(): number;
+  getCollectibleTotal(): number;
+  getActiveCheckpoint(): KinemaCheckpointState | null;
   getHealth(): HealthDebugState;
   listCollectibles(): CoinDebugEntry[];
   listHazards(): HazardDebugEntry[];
   teleportToCollectible(id?: string): boolean;
   teleportToHazard(id?: string): boolean;
+  teleportToCheckpoint(): boolean;
   teleportPlayer(position: KinemaVector3): boolean;
   forcePlayerPosition(position: KinemaVector3): boolean;
   openEditor(): Promise<void>;

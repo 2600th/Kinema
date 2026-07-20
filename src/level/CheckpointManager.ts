@@ -10,6 +10,11 @@ interface CheckpointEntry {
   mesh: THREE.Mesh;
 }
 
+export interface ActiveCheckpoint {
+  id: string;
+  spawnPoint: SpawnPointData;
+}
+
 /**
  * Handles checkpoint activation and emits checkpoint events.
  */
@@ -84,6 +89,15 @@ export class CheckpointManager implements FixedUpdatable, Disposable {
     if (!active) return defaultSpawn;
     return {
       position: active.position.clone(),
+    };
+  }
+
+  getActiveCheckpoint(): ActiveCheckpoint | null {
+    const active = this.checkpoints.find((checkpoint) => checkpoint.id === this.activeCheckpointId);
+    if (!active) return null;
+    return {
+      id: active.id,
+      spawnPoint: { position: active.position.clone() },
     };
   }
 

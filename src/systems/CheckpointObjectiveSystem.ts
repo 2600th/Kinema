@@ -2,7 +2,8 @@ import type { PlayerController } from "@character/PlayerController";
 import type { EventBus } from "@core/EventBus";
 import { ObjectiveManager } from "@core/ObjectiveManager";
 import type { RuntimeSystem } from "@core/RuntimeSystem";
-import { CheckpointManager } from "@level/CheckpointManager";
+import type { SpawnPointData } from "@core/types";
+import { type ActiveCheckpoint, CheckpointManager } from "@level/CheckpointManager";
 import { getShowcaseBayTopY, getShowcaseStationZ } from "@level/ShowcaseLayout";
 import type { PhysicsWorld } from "@physics/PhysicsWorld";
 import type { RendererManager } from "@renderer/RendererManager";
@@ -53,6 +54,14 @@ export class CheckpointObjectiveSystem implements RuntimeSystem {
 
   fixedUpdate(dt: number): void {
     this.checkpointManager.fixedUpdate(dt);
+  }
+
+  getActiveCheckpoint(): ActiveCheckpoint | null {
+    return this.checkpointManager.getActiveCheckpoint();
+  }
+
+  getActiveSpawnPoint(): SpawnPointData | null {
+    return this.checkpointManager.getActiveCheckpoint()?.spawnPoint ?? null;
   }
 
   private spawnCheckpoints(): void {

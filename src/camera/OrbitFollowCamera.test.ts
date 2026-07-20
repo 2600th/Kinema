@@ -186,7 +186,7 @@ const FOV_EFFECT_SCENARIOS: ScalarEffectScenario[] = [
   {
     name: "sprint FOV",
     create: () => makeHarness({ input: { forward: true, sprint: true } }),
-    activate: () => {},
+    activate: ({ follow }) => follow.resetTarget(),
     read: ({ camera }) => camera.fov,
     baseline: 60,
   },
@@ -201,6 +201,13 @@ const FOV_EFFECT_SCENARIOS: ScalarEffectScenario[] = [
     name: "vehicle drift FOV",
     create: () => makeHarness(),
     activate: ({ follow }) => follow.setVehicleHandlingFeel(VEHICLE_DRIFT),
+    read: ({ camera }) => camera.fov,
+    baseline: 60,
+  },
+  {
+    name: "held vehicle boost FOV",
+    create: () => makeHarness(),
+    activate: ({ follow }) => follow.setVehicleBoostFov(3),
     read: ({ camera }) => camera.fov,
     baseline: 60,
   },
@@ -301,7 +308,9 @@ describe("OrbitFollowCamera effects intensity", () => {
 
     const punchVelocity = 4 * 30 + -12 * (4 * 30) * dt;
     const punchFov = punchVelocity * dt;
-    const locomotionFov = Math.min(12, 0.5 * 0.5 * 6 + 8);
+    // A vehicle target contributes speed-based FOV, but not the character-only
+    // sprint kick. Vehicle boost has its own independently tested +3 offset.
+    const locomotionFov = 0.5 * 0.5 * 6;
     const targetFov = 60 + locomotionFov + 0.6 * 15 + 0.4 * 4.5 + punchFov;
     const expectedFov = 60 + (targetFov - 60) * (1 - Math.exp(-12 * dt));
     expect(harness.camera.fov).toBe(expectedFov);
@@ -445,5 +454,28 @@ describe("OrbitFollowCamera effects intensity", () => {
     expectVectorClose(internals(harness.follow).pivotPosition, new THREE.Vector3());
     expect(internals(harness.follow).currentDistance).toBe(5);
     expect(harness.camera.fov).toBe(60);
+  });
+
+  it("clears held vehicle boost when the target resets", () => {
+    const harness = makeHarness();
+    harness.follow.setVehicleBoostFov(3);
+    harness.follow.resetTarget();
+    harness.follow.setTarget(harness.target, { inputProvider: () => NULL_INPUT });
+    harness.follow.update(0.02, 0);
+
+    expect(harness.camera.fov).toBe(60);
+  });
+
+  it("uses only the sustained +3 path for sprint input while following a vehicle target", () => {
+    const combined = makeHarness({ input: { forward: true, sprint: true } });
+    const boostOnly = makeHarness();
+    combined.follow.setVehicleBoostFov(3);
+    boostOnly.follow.setVehicleBoostFov(3);
+
+    combined.follow.update(0.02, 0);
+    boostOnly.follow.update(0.02, 0);
+
+    expect(combined.camera.fov).toBe(boostOnly.camera.fov);
+    expect(combined.camera.fov).toBe(60 + 3 * (1 - Math.exp(-12 * 0.02)));
   });
 });

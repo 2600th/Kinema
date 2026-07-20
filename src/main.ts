@@ -489,6 +489,21 @@ async function bootstrap(): Promise<void> {
     eventBus.on("interaction:ropeReleased", (payload) => {
       recordInteractionEvent({ type: "interaction:ropeReleased", ...payload });
     });
+    eventBus.on("player:sprintStarted", () => {
+      recordInteractionEvent({ type: "player:sprintStarted" });
+    });
+    eventBus.on("player:ladderAttached", () => {
+      recordInteractionEvent({ type: "player:ladderAttached" });
+    });
+    eventBus.on("player:ladderReleased", () => {
+      recordInteractionEvent({ type: "player:ladderReleased" });
+    });
+    eventBus.on("vehicle:boostChanged", ({ active }) => {
+      recordInteractionEvent({ type: "vehicle:boostChanged", active });
+    });
+    eventBus.on("collectible:allCollected", ({ count, total }) => {
+      recordInteractionEvent({ type: "collectible:allCollected", count, total });
+    });
     const kinemaDebugApi = {
       getFrameStats: () => gameLoop.getFrameStats(),
       getLastLoadStats: () => levelManager.getLastLoadStats(),
@@ -839,6 +854,18 @@ async function bootstrap(): Promise<void> {
       getCollectibleCount() {
         return game.getCollectibleCount();
       },
+      getCollectibleTotal() {
+        return game.getCollectibleTotal();
+      },
+      getActiveCheckpoint() {
+        const checkpoint = game.getActiveCheckpoint();
+        if (!checkpoint) return null;
+        const { position } = checkpoint.spawnPoint;
+        return {
+          id: checkpoint.id,
+          position: { x: position.x, y: position.y, z: position.z },
+        };
+      },
       getHealth() {
         return game.getHealthState();
       },
@@ -853,6 +880,9 @@ async function bootstrap(): Promise<void> {
       },
       teleportToHazard(id?: string) {
         return game.teleportPlayerToHazard(id);
+      },
+      teleportToCheckpoint() {
+        return game.teleportPlayerToCheckpoint();
       },
       teleportPlayer(position: { x: number; y: number; z: number }) {
         return game.teleportPlayer(new THREE.Vector3(position.x, position.y, position.z));

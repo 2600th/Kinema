@@ -104,4 +104,45 @@ describe("PlayerHealthSystem", () => {
     });
     expect(dying).toHaveBeenCalledTimes(1);
   });
+
+  it("snapshots an active checkpoint for lethal recovery and restores full health with i-frames", () => {
+    const eventBus = new EventBus();
+    const changed = vi.fn();
+    const invulnerabilityChanged = vi.fn();
+    eventBus.on("health:changed", changed);
+    eventBus.on("player:invulnerabilityChanged", invulnerabilityChanged);
+    const checkpointPosition = new THREE.Vector3(10, 2, -8);
+    const system = new PlayerHealthSystem(eventBus, () => ({ position: checkpointPosition }));
+    system.setupLevel();
+
+    system.applySpikeDamage(new THREE.Vector3());
+    system.fixedUpdate(3);
+    system.applySpikeDamage(new THREE.Vector3());
+    system.fixedUpdate(3);
+    const lethal = system.applySpikeDamage(new THREE.Vector3());
+    if (lethal.resolution?.mode !== "checkpoint-respawn") throw new Error("Missing immediate checkpoint result");
+    lethal.resolution.spawnPoint.position.set(-999, -999, -999);
+    checkpointPosition.set(999, 999, 999);
+
+    const resolution = system.consumePendingDeathResolution();
+    expect(resolution).toMatchObject({ mode: "checkpoint-respawn", reason: "spike" });
+    if (resolution?.mode !== "checkpoint-respawn") throw new Error("Missing checkpoint resolution");
+    expect(resolution.spawnPoint.position.toArray()).toEqual([10, 2, -8]);
+
+    system.restoreAfterCheckpointRespawn("spike");
+
+    expect(system.getHealthState()).toEqual({
+      current: 3,
+      max: 3,
+      invulnerable: true,
+      invulnerabilityRemaining: 2.5,
+    });
+    expect(changed).toHaveBeenLastCalledWith({ current: 3, max: 3 });
+    expect(invulnerabilityChanged).toHaveBeenLastCalledWith({
+      active: true,
+      remaining: 2.5,
+      reason: "spike",
+    });
+    expect(system.consumePendingDeathResolution()).toBeNull();
+  });
 });

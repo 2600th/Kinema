@@ -50,7 +50,8 @@ export class VehicleSeat implements IInteractable {
   }
 
   interact(_player: PlayerController): string | undefined {
-    this.eventBus.emit("vehicle:enter", { vehicle: this.vehicle });
+    this.syncPosition();
+    this.eventBus.emit("vehicle:enter", { vehicle: this.vehicle, position: this.position.clone() });
     return undefined;
   }
 

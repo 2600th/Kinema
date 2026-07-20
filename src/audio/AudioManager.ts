@@ -472,6 +472,14 @@ export class AudioManager implements AudioController {
     );
 
     this.unsubscribers.push(
+      this.eventBus.on("collectible:allCollected", () => {
+        if (!this.toneStarted) return;
+        this.sfxEngine.objectiveComplete();
+        this.duckFor(0.6, 700);
+      }),
+    );
+
+    this.unsubscribers.push(
       this.eventBus.on("player:damaged", ({ reason }) => {
         if (!this.toneStarted) return;
         if (reason === "spike") {

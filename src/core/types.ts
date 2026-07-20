@@ -179,6 +179,9 @@ export interface EventMap {
   "input:state": InputState;
   "input:sourceChanged": { source: InputSource };
   "player:stateChanged": { previous: StateId; current: StateId };
+  "player:sprintStarted": undefined;
+  "player:ladderAttached": undefined;
+  "player:ladderReleased": undefined;
   "player:grounded": boolean;
   "player:landed": { impactSpeed: number };
   "player:jumped": {
@@ -211,17 +214,19 @@ export interface EventMap {
   "level:loaded": { name: string };
   "level:unloaded": { name: string };
   "loading:progress": { progress: number };
-  "collectible:changed": { count: number };
-  "collectible:collected": { id: string; position: THREE.Vector3; count: number; value: number };
+  "collectible:changed": { count: number; total: number };
+  "collectible:collected": { id: string; position: THREE.Vector3; count: number; total: number; value: number };
+  "collectible:allCollected": { count: number; total: number; position: THREE.Vector3 };
   "health:changed": { current: number; max: number };
   "player:dying": { reason: string };
   "player:deathMidpoint": undefined;
   "run:restartRequested": { reason: "health-depleted" };
-  "vehicle:enter": { vehicle: VehicleController };
+  "vehicle:enter": { vehicle: VehicleController; position?: THREE.Vector3 };
   "vehicle:exit": { position: THREE.Vector3 };
   "vehicle:engineStart": undefined;
   "vehicle:engineStop": undefined;
   "vehicle:speedUpdate": { speedNorm: number };
+  "vehicle:boostChanged": { active: boolean };
   "vehicle:handlingUpdate": VehicleHandlingFeelState | null;
   "vehicle:resetAvailable": { id: string };
   "vehicle:resetHoldProgress": { id: string; progress: number } | null;

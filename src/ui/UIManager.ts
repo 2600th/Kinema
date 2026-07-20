@@ -193,14 +193,21 @@ export class UIManager implements Disposable {
     );
 
     this.unsubscribers.push(
-      this.eventBus.on("collectible:changed", ({ count }) => {
-        this.hud.updateCollectibles(count);
+      this.eventBus.on("collectible:changed", ({ count, total }) => {
+        this.hud.updateCollectibles(count, total);
       }),
     );
 
     this.unsubscribers.push(
       this.eventBus.on("collectible:collected", ({ value }) => {
         this.hud.celebrateCollectible(value);
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on("collectible:allCollected", ({ total }) => {
+        this.hud.celebrateAllCollectibles(total);
+        this.hud.showStatus(`All ${total} collectibles collected!`, 3200);
       }),
     );
 

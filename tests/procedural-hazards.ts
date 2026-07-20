@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { getShowcaseBayTopY, getShowcaseStationZ } from "../src/level/ShowcaseLayout";
 import { waitForGrounded } from "./helpers/kinema";
 
 type HealthState = {
@@ -12,6 +13,12 @@ type HazardDebugEntry = {
   id: string;
   station: string;
   position: { x: number; y: number; z: number };
+};
+
+const CHECKPOINT_POSITION = {
+  x: 10,
+  y: getShowcaseBayTopY() + 0.12,
+  z: getShowcaseStationZ("door"),
 };
 
 async function waitForRuntimeReady(page: Page, url: string): Promise<void> {
@@ -35,6 +42,61 @@ async function moveToSafeStationSpawn(page: Page): Promise<void> {
 }
 
 test.describe("Procedural Hazards", () => {
+  test("lethal damage recovers at an active checkpoint without reloading or losing coins", async ({ page }) => {
+    test.setTimeout(420_000);
+    await waitForRuntimeReady(page, "/?spawn=entrance");
+    await page.evaluate(() => window.__KINEMA__.setGraphicsProfile("performance"));
+    expect(await page.evaluate(() => window.__KINEMA__.getActiveCheckpoint())).toBeNull();
+
+    await page.evaluate((position) => window.__KINEMA__.teleportPlayer(position), CHECKPOINT_POSITION);
+    await expect
+      .poll(() => page.evaluate(() => window.__KINEMA__.getActiveCheckpoint()), { timeout: 20_000 })
+      .toMatchObject({ id: "showcase-checkpoint", position: CHECKPOINT_POSITION });
+
+    const firstCoinId = await page.evaluate(() => window.__KINEMA__.listCollectibles()[0]?.id ?? null);
+    expect(firstCoinId).not.toBeNull();
+    await page.evaluate((id) => window.__KINEMA__.teleportToCollectible(id as string), firstCoinId);
+    await page.waitForFunction(() => window.__KINEMA__.getCollectibleCount() === 1, undefined, {
+      timeout: 20_000,
+    });
+
+    const hazards = await listHazards(page);
+    expect(hazards.length).toBeGreaterThanOrEqual(3);
+    for (const [index, hazard] of hazards.slice(0, 3).entries()) {
+      await page.evaluate((hazardId) => window.__KINEMA__.teleportToHazard(hazardId), hazard.id);
+      if (index < 2) {
+        await page.waitForFunction(
+          (expectedHealth) => window.__KINEMA__.getHealth().current === expectedHealth,
+          2 - index,
+          { timeout: 20_000 },
+        );
+        await moveToSafeStationSpawn(page);
+        await page.waitForFunction(() => window.__KINEMA__.getHealth().invulnerable === false, undefined, {
+          timeout: 90_000,
+        });
+      }
+    }
+
+    await page.waitForFunction(
+      (checkpoint) => {
+        const health = window.__KINEMA__.getHealth();
+        const player = window.__KINEMA__.player.position;
+        return (
+          health.current === health.max &&
+          health.invulnerable &&
+          window.__KINEMA__.getCollectibleCount() === 1 &&
+          Math.hypot(player.x - checkpoint.x, player.y - checkpoint.y, player.z - checkpoint.z) < 1.5
+        );
+      },
+      CHECKPOINT_POSITION,
+      { timeout: 30_000 },
+    );
+    expect(await page.evaluate(() => window.__KINEMA__.getCollectibleTotal())).toBe(70);
+    expect(await page.evaluate(() => window.__KINEMA__.listCollectibles().length)).toBe(69);
+    await expect(page.locator(".collectible-count")).toHaveText("1/70");
+    await expect(page.locator(".hud-status-card", { hasText: "Respawned" })).toBeVisible();
+  });
+
   test("spike hazards remove hearts once per contact window and full-reset the station on the last hit", async ({
     page,
   }) => {

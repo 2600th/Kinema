@@ -73,6 +73,24 @@ describe("VehicleManager", () => {
     expect(vehicle.setInput).toHaveBeenCalledWith(vehicleInput);
   });
 
+  it("emits held boost edges once and clears boost on exit", () => {
+    const { eventBus, manager } = createManager();
+    const vehicle = createVehicle();
+    const boostChanged = vi.fn();
+    eventBus.on("vehicle:boostChanged", boostChanged);
+    manager.register(vehicle as unknown as VehicleController);
+    eventBus.emit("vehicle:enter", { vehicle: vehicle as unknown as VehicleController });
+
+    manager.setInput({ ...NULL_INPUT, sprint: true });
+    manager.setInput({ ...NULL_INPUT, sprint: true });
+    manager.setInput(NULL_INPUT);
+    manager.setInput(NULL_INPUT);
+    manager.setInput({ ...NULL_INPUT, sprint: true });
+    manager.requestExit();
+
+    expect(boostChanged.mock.calls.map(([payload]) => payload.active)).toEqual([true, false, true, false]);
+  });
+
   it("allows manual recovery only when stationary or upside-down", () => {
     const upright = { x: 0, y: 0, z: 0, w: 1 };
     const upsideDown = { x: 1, y: 0, z: 0, w: 0 };

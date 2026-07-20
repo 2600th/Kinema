@@ -409,6 +409,13 @@
   animation: hud-collectible-celebrate 0.52s cubic-bezier(0.18, 0.85, 0.24, 1);
 }
 
+.hud-collectible-chip.is-all-collected {
+  animation: hud-collectible-celebrate 1.4s cubic-bezier(0.18, 0.85, 0.24, 1);
+  box-shadow:
+    0 0 0 1px rgba(255, 224, 143, 0.7),
+    0 0 34px rgba(255, 193, 86, 0.5);
+}
+
 .hud-health-chip {
   top: max(env(safe-area-inset-top), clamp(var(--k-space-3), 2dvh, 20px));
   right: max(env(safe-area-inset-right), clamp(var(--k-space-3), 2dvw, 20px));
@@ -922,6 +929,7 @@
 :root[data-reduced-motion="reduce"] .hud-health-chip.is-restored,
 :root[data-reduced-motion="reduce"] .hud-collectible-chip.is-boosted,
 :root[data-reduced-motion="reduce"] .hud-collectible-chip.is-celebrating,
+:root[data-reduced-motion="reduce"] .hud-collectible-chip.is-all-collected,
 :root[data-reduced-motion="reduce"] .hud-heart.is-lost,
 :root[data-reduced-motion="reduce"] .hud-heart.is-alert,
 :root[data-reduced-motion="reduce"] .hud-heart.is-refilled,
@@ -952,6 +960,7 @@
   :root:not([data-reduced-motion="normal"]) .hud-health-chip.is-restored,
   :root:not([data-reduced-motion="normal"]) .hud-collectible-chip.is-boosted,
   :root:not([data-reduced-motion="normal"]) .hud-collectible-chip.is-celebrating,
+  :root:not([data-reduced-motion="normal"]) .hud-collectible-chip.is-all-collected,
   :root:not([data-reduced-motion="normal"]) .hud-heart.is-lost,
   :root:not([data-reduced-motion="normal"]) .hud-heart.is-alert,
   :root:not([data-reduced-motion="normal"]) .hud-heart.is-refilled,

@@ -35,6 +35,7 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
   private manualResetHoldSeconds = 0;
   private manualResetNeedsRelease = false;
   private forcedExitFallback: SpawnPointData | null = null;
+  private boostActive = false;
   private unsubs: (() => void)[] = [];
 
   constructor(
@@ -72,6 +73,7 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
 
   setInput(input: InputState): void {
     this.lastInput = input;
+    this.updateBoostState(this.active !== null && input.sprint);
     if (this.active) {
       this.active.setInput(input);
     }
@@ -202,6 +204,7 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
       console.warn(`[VehicleManager] Forced exit from ${vehicle.id} used its safe fallback pose.`, error);
     }
     this.active = null;
+    this.updateBoostState(false);
     this.forcedExitFallback = null;
     // Spawn player BEFORE snapping camera so it targets the exit point,
     // not the pre-spawn (stale) player position.
@@ -309,5 +312,11 @@ export class VehicleManager implements FixedUpdatable, PostPhysicsUpdatable, Upd
       this.eventBus.emit("vehicle:resetHoldProgress", null);
     }
     this.manualResetHoldSeconds = 0;
+  }
+
+  private updateBoostState(active: boolean): void {
+    if (active === this.boostActive) return;
+    this.boostActive = active;
+    this.eventBus.emit("vehicle:boostChanged", { active });
   }
 }

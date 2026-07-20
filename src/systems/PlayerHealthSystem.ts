@@ -1,14 +1,13 @@
 import type { EventBus } from "@core/EventBus";
 import type { RuntimeSystem } from "@core/RuntimeSystem";
+import type { SpawnPointData } from "@core/types";
 import type * as THREE from "three";
 
 export type DamageReason = "spike" | "fall";
-export type DeathResolutionMode = "respawn" | "full-reset";
-
-export interface PendingDeathResolution {
-  mode: DeathResolutionMode;
-  reason: DamageReason;
-}
+export type PendingDeathResolution =
+  | { mode: "respawn"; reason: DamageReason }
+  | { mode: "full-reset"; reason: DamageReason }
+  | { mode: "checkpoint-respawn"; reason: DamageReason; spawnPoint: SpawnPointData };
 
 export interface HealthDebugState {
   current: number;
@@ -26,6 +25,17 @@ export interface DamageResult {
 const DEFAULT_HEARTS = 3;
 const SPIKE_IFRAMES_SECONDS = 2.5;
 
+function cloneDeathResolution(resolution: PendingDeathResolution): PendingDeathResolution {
+  if (resolution.mode !== "checkpoint-respawn") return { ...resolution };
+  return {
+    ...resolution,
+    spawnPoint: {
+      position: resolution.spawnPoint.position.clone(),
+      rotation: resolution.spawnPoint.rotation?.clone(),
+    },
+  };
+}
+
 export class PlayerHealthSystem implements RuntimeSystem {
   readonly id = "player-health";
 
@@ -35,7 +45,10 @@ export class PlayerHealthSystem implements RuntimeSystem {
   private invulnerabilityReason: DamageReason | null = null;
   private pendingDeath: PendingDeathResolution | null = null;
 
-  constructor(private readonly eventBus: EventBus) {}
+  constructor(
+    private readonly eventBus: EventBus,
+    private readonly getActiveCheckpointSpawn: () => SpawnPointData | null = () => null,
+  ) {}
 
   setupLevel(): void {
     this.resetHearts();
@@ -94,7 +107,14 @@ export class PlayerHealthSystem implements RuntimeSystem {
   consumePendingDeathResolution(): PendingDeathResolution | null {
     const pending = this.pendingDeath;
     this.pendingDeath = null;
-    return pending ? { ...pending } : null;
+    return pending ? cloneDeathResolution(pending) : null;
+  }
+
+  restoreAfterCheckpointRespawn(reason: DamageReason): void {
+    this.currentHearts = this.maxHearts;
+    this.pendingDeath = null;
+    this.eventBus.emit("health:changed", { current: this.currentHearts, max: this.maxHearts });
+    this.setInvulnerability(SPIKE_IFRAMES_SECONDS, reason);
   }
 
   dispose(): void {
@@ -115,9 +135,19 @@ export class PlayerHealthSystem implements RuntimeSystem {
 
     if (this.currentHearts <= 0) {
       this.setInvulnerability(0, null);
-      this.pendingDeath = { mode: "full-reset", reason };
+      const checkpoint = this.getActiveCheckpointSpawn();
+      this.pendingDeath = checkpoint
+        ? {
+            mode: "checkpoint-respawn",
+            reason,
+            spawnPoint: {
+              position: checkpoint.position.clone(),
+              rotation: checkpoint.rotation?.clone(),
+            },
+          }
+        : { mode: "full-reset", reason };
       this.eventBus.emit("player:dying", { reason });
-      return { accepted: true, deathTriggered: true, resolution: { ...this.pendingDeath } };
+      return { accepted: true, deathTriggered: true, resolution: cloneDeathResolution(this.pendingDeath) };
     }
 
     if (grantsIFrames) {
@@ -142,7 +172,7 @@ export class PlayerHealthSystem implements RuntimeSystem {
     return {
       accepted: true,
       deathTriggered: !grantsIFrames,
-      resolution: this.pendingDeath ? { ...this.pendingDeath } : null,
+      resolution: this.pendingDeath ? cloneDeathResolution(this.pendingDeath) : null,
     };
   }
 

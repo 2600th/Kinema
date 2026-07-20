@@ -192,6 +192,7 @@ test.describe("Character traversal states", () => {
   });
 
   test("ladder entry and climb speed preserve analog magnitude", async ({ page }) => {
+    await page.evaluate(() => window.__KINEMA__.clearInteractionEvents());
     const sample = async (moveY: number) =>
       page.evaluate(
         async ({ position, axis }) => {
@@ -221,6 +222,9 @@ test.describe("Character traversal states", () => {
     expect(halfAnalog.player.velocity.y).toBeCloseTo(1.3, 1);
     expect(fullAnalog.player.velocity.y).toBeCloseTo(2.6, 1);
     expect(fullAnalog.player.velocity.y).toBeGreaterThan(halfAnalog.player.velocity.y * 1.8);
+    const ladderEvents = await page.evaluate(() => window.__KINEMA__.getInteractionEvents());
+    expect(ladderEvents.some((event) => event.type === "player:ladderAttached")).toBe(true);
+    expect(ladderEvents.some((event) => event.type === "player:ladderReleased")).toBe(true);
   });
 });
 
@@ -247,6 +251,7 @@ test.describe("Character step assist", () => {
 
   test("walks 0.20m, runs 0.28m, and remains blocked by 0.35m ledges", async ({ page }) => {
     test.setTimeout(180_000);
+    await page.evaluate(() => window.__KINEMA__.clearInteractionEvents());
     const exerciseLedge = async (x: number, sprint: boolean) =>
       page.evaluate(
         async ({ laneX, run }) => {
@@ -289,5 +294,9 @@ test.describe("Character step assist", () => {
     const step020 = await exerciseLedge(-4, false);
     expect(step020.minZ).toBeLessThan(0);
     expect(step020.rise).toBeGreaterThan(0.12);
+    const sprintStarts = await page.evaluate(
+      () => window.__KINEMA__.getInteractionEvents().filter((event) => event.type === "player:sprintStarted").length,
+    );
+    expect(sprintStarts).toBe(2);
   });
 });

@@ -327,6 +327,41 @@ export class GameParticles {
     this.beaconGlowPool.clear();
   }
 
+  coinCelebration(position: THREE.Vector3): void {
+    _emitPos.copy(position);
+    _emitPos.y += 0.25;
+
+    _glowVelMin.set(-1.1, 0.7, -1.1);
+    _glowVelMax.set(1.1, 2.8, 1.1);
+    this.coinGlowPool.emit(_emitPos, 42, {
+      velocityMin: _glowVelMin,
+      velocityMax: _glowVelMax,
+      lifetime: 0.85,
+      spread: 0.36,
+    });
+
+    _sparkVelMin.set(-3.4, 0.45, -3.4);
+    _sparkVelMax.set(3.4, 3.6, 3.4);
+    this.sparkPool.emit(_emitPos, 52, {
+      velocityMin: _sparkVelMin,
+      velocityMax: _sparkVelMax,
+      lifetime: 0.62,
+      spread: 0.22,
+    });
+  }
+
+  vehicleTransitionDust(position: THREE.Vector3): void {
+    _emitPos.copy(position);
+    _dustVelMin.set(-1.15, 0.12, -1.15);
+    _dustVelMax.set(1.15, 0.95, 1.15);
+    this.dustPool.emit(_emitPos, 16, {
+      velocityMin: _dustVelMin,
+      velocityMax: _dustVelMax,
+      lifetime: 0.58,
+      spread: 0.38,
+    });
+  }
+
   setVisible(visible: boolean): void {
     this.dustPool.setVisible(visible);
     this.sparkPool.setVisible(visible);

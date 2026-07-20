@@ -117,7 +117,7 @@ describe("HUD damage flash intensity", () => {
     const { hud, parent } = createHud();
     hud.showGameHUD();
     hud.setObjective("Reach the checkpoint");
-    hud.updateCollectibles(7);
+    hud.updateCollectibles(7, 70);
     const root = findDescendant(parent, (child) => child.id === "hud");
     const collectible = findDescendant(parent, (child) => child.className.includes("hud-collectible-chip"));
     const objective = findDescendant(parent, (child) => child.id === "hud-objective");
@@ -146,10 +146,32 @@ describe("HUD damage flash intensity", () => {
     expect(collectible?.attributes.get("aria-hidden")).toBe("false");
     expect(objective?.classList.contains("is-visible")).toBe(true);
     expect(objective?.attributes.get("aria-hidden")).toBe("false");
-    expect(findDescendant(parent, (child) => child.className === "collectible-count")?.textContent).toBe("7");
+    expect(findDescendant(parent, (child) => child.className === "collectible-count")?.textContent).toBe("7/70");
     expect(findDescendant(parent, (child) => child.className === "hud-objective-text")?.textContent).toBe(
       "Reach the checkpoint",
     );
+  });
+
+  it("presents value-based collectible progress and a distinct final celebration", () => {
+    const { hud, parent } = createHud();
+    const collectible = findDescendant(parent, (child) => child.className.includes("hud-collectible-chip"));
+    const count = findDescendant(parent, (child) => child.className === "collectible-count");
+    expect(collectible).not.toBeNull();
+
+    hud.updateCollectibles(7, 70);
+    expect(count?.textContent).toBe("7/70");
+    expect(collectible?.attributes.get("aria-label")).toBe("Collectibles: 7 of 70");
+
+    hud.celebrateCollectible(1);
+    expect(collectible?.classList.contains("is-celebrating")).toBe(true);
+    hud.celebrateAllCollectibles(70);
+    expect(collectible?.classList.contains("is-celebrating")).toBe(false);
+    expect(collectible?.classList.contains("is-all-collected")).toBe(true);
+    expect(
+      findDescendant(collectible as FakeElement, (child) => child.textContent === "All 70 collected!"),
+    ).not.toBeNull();
+    vi.advanceTimersByTime(1400);
+    expect(collectible?.classList.contains("is-all-collected")).toBe(false);
   });
 
   it("composes editor hiding with menu accessibility suppression in either release order", () => {

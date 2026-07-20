@@ -54,6 +54,8 @@ export class CoinCollectibleSystem implements RuntimeSystem {
 
   private coins: CoinEntry[] = [];
   private collectedCount = 0;
+  private totalValue = 0;
+  private completionEmitted = false;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -109,6 +111,10 @@ export class CoinCollectibleSystem implements RuntimeSystem {
     return this.collectedCount;
   }
 
+  getTotalValue(): number {
+    return this.totalValue;
+  }
+
   listRemainingCoins(): CoinDebugEntry[] {
     return this.coins.map((coin) => ({
       id: coin.id,
@@ -142,6 +148,8 @@ export class CoinCollectibleSystem implements RuntimeSystem {
   private spawnCoins(placements: CoinPlacement[]): void {
     this.clearCoinMeshes();
     this.collectedCount = 0;
+    this.totalValue = placements.reduce((total, placement) => total + placement.value, 0);
+    this.completionEmitted = false;
 
     for (let index = 0; index < placements.length; index++) {
       const placement = placements[index];
@@ -159,7 +167,7 @@ export class CoinCollectibleSystem implements RuntimeSystem {
       });
     }
 
-    this.eventBus.emit("collectible:changed", { count: 0 });
+    this.eventBus.emit("collectible:changed", { count: 0, total: this.totalValue });
   }
 
   private collectCoin(index: number): void {
@@ -171,19 +179,30 @@ export class CoinCollectibleSystem implements RuntimeSystem {
     coin.mesh.getWorldPosition(_eventPosition);
     this.scene.remove(coin.mesh);
     this.collectedCount += coin.value;
-    this.eventBus.emit("collectible:changed", { count: this.collectedCount });
+    this.eventBus.emit("collectible:changed", { count: this.collectedCount, total: this.totalValue });
     this.eventBus.emit("collectible:collected", {
       id: coin.id,
       position: _eventPosition.clone(),
       count: this.collectedCount,
+      total: this.totalValue,
       value: coin.value,
     });
+    if (!this.completionEmitted && this.totalValue > 0 && this.collectedCount >= this.totalValue) {
+      this.completionEmitted = true;
+      this.eventBus.emit("collectible:allCollected", {
+        count: this.collectedCount,
+        total: this.totalValue,
+        position: _eventPosition.clone(),
+      });
+    }
   }
 
   private resetCoins(): void {
     this.clearCoinMeshes();
     this.collectedCount = 0;
-    this.eventBus.emit("collectible:changed", { count: 0 });
+    this.totalValue = 0;
+    this.completionEmitted = false;
+    this.eventBus.emit("collectible:changed", { count: 0, total: 0 });
   }
 
   private clearCoinMeshes(): void {

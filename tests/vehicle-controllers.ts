@@ -479,7 +479,27 @@ test.describe("Vehicle Controllers", () => {
   test("vehicle exit clears active state and player regains grounded control", async ({ page }) => {
     await waitForVehiclesStationReady(page);
     await enterVehicle(page, "car-1");
+    await page.evaluate(() => {
+      window.__KINEMA__.clearInteractionEvents();
+      window.__KINEMA__.simulateVehicleInput({ moveY: 1, sprint: true }, 24);
+    });
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          window.__KINEMA__
+            .getInteractionEvents()
+            .some((event) => event.type === "vehicle:boostChanged" && event.active),
+        ),
+      )
+      .toBe(true);
     await exitActiveVehicle(page);
+    const boostEdges = await page.evaluate(() =>
+      window.__KINEMA__
+        .getInteractionEvents()
+        .filter((event) => event.type === "vehicle:boostChanged")
+        .map((event) => (event.type === "vehicle:boostChanged" ? event.active : null)),
+    );
+    expect(boostEdges).toEqual([true, false]);
 
     const grounded = await page.evaluate(() => window.__KINEMA__.waitFor("p.isGrounded === true", 10_000));
     expect(grounded).toBe(true);
@@ -589,15 +609,17 @@ test.describe("Vehicle Controllers", () => {
     await enterVehicle(page, "car-1");
 
     await page.evaluate(() => {
-      (window as unknown as { __KINEMA_RESET_TEST_GAMEPAD__: { active: boolean } }).__KINEMA_RESET_TEST_GAMEPAD__.active =
-        true;
+      (
+        window as unknown as { __KINEMA_RESET_TEST_GAMEPAD__: { active: boolean } }
+      ).__KINEMA_RESET_TEST_GAMEPAD__.active = true;
     });
     await expect(page.locator("#hud-hold")).toHaveClass(/is-visible/, { timeout: 5_000 });
     await expect(page.locator("#hud-hold .hud-hold-key")).toHaveText("B");
 
     await page.evaluate(() => {
-      (window as unknown as { __KINEMA_RESET_TEST_GAMEPAD__: { active: boolean } }).__KINEMA_RESET_TEST_GAMEPAD__.active =
-        false;
+      (
+        window as unknown as { __KINEMA_RESET_TEST_GAMEPAD__: { active: boolean } }
+      ).__KINEMA_RESET_TEST_GAMEPAD__.active = false;
     });
     await expect(page.locator("#hud-hold")).not.toHaveClass(/is-visible/, { timeout: 5_000 });
   });
