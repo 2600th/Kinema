@@ -135,12 +135,18 @@ async function selectHierarchyObject(page: import("@playwright/test").Page, id: 
   await expect(row).toHaveClass(/ke-tree-row-selected/);
 }
 
-async function dragTransformGizmo(
+type EditorPhysicsCounters = {
+  poseSyncs: number;
+  colliderDescriptorBuilds: number;
+  colliderReplacements: number;
+};
+
+async function beginTransformGizmoDrag(
   page: import("@playwright/test").Page,
   mode: "translate" | "rotate" | "scale",
 ): Promise<{
-  preview: { poseSyncs: number; colliderDescriptorBuilds: number; colliderReplacements: number };
-  release: { poseSyncs: number; colliderDescriptorBuilds: number; colliderReplacements: number };
+  preview: EditorPhysicsCounters;
+  release(): Promise<EditorPhysicsCounters>;
 }> {
   const title = mode === "translate" ? "Move (W)" : mode === "rotate" ? "Rotate (E)" : "Scale (R)";
   await page.getByTitle(title, { exact: true }).click();
@@ -165,9 +171,21 @@ async function dragTransformGizmo(
   await page.mouse.down();
   await page.mouse.move(end.x, end.y, { steps: 8 });
   const preview = await page.evaluate(() => window.__KINEMA__.getEditorPhysicsSyncCounters());
-  await page.mouse.up();
-  const release = await page.evaluate(() => window.__KINEMA__.getEditorPhysicsSyncCounters());
-  return { preview, release };
+  return {
+    preview,
+    release: async () => {
+      await page.mouse.up();
+      return page.evaluate(() => window.__KINEMA__.getEditorPhysicsSyncCounters());
+    },
+  };
+}
+
+async function dragTransformGizmo(
+  page: import("@playwright/test").Page,
+  mode: "translate" | "rotate" | "scale",
+): Promise<{ preview: EditorPhysicsCounters; release: EditorPhysicsCounters }> {
+  const drag = await beginTransformGizmoDrag(page, mode);
+  return { preview: drag.preview, release: await drag.release() };
 }
 
 test("explains session-only and missing GLB models", async ({ page }) => {
@@ -796,6 +814,62 @@ test("commits transform input before Ctrl+S and treats Ctrl+Shift+Z as redo only
   expect(await readTransform()).toEqual(first);
   await page.keyboard.press("Control+Shift+Z");
   expect(await readTransform()).toEqual(second);
+});
+
+test("commits a held gizmo drag at Ctrl+S and ignores the later pointer release", async ({ page }) => {
+  test.setTimeout(180_000);
+  await page.addInitScript(() => {
+    localStorage.setItem("kinema.user-settings.v1", JSON.stringify({ graphicsProfile: "performance" }));
+  });
+  await page.goto("/?station=steps", { waitUntil: "domcontentloaded" });
+  await waitForKinema(page);
+  await waitForGrounded(page);
+  await openEditor(page);
+  await loadKin022Fixture(page);
+  await selectHierarchyObject(page, KIN022_IDS[0]);
+  const transformPose = {
+    position: { x: 0, y: 0, z: 10 },
+    quaternion: { x: 0, y: 0, z: 0, w: 1 },
+  };
+  expect(await page.evaluate((pose) => window.__KINEMA__.setEditorCameraPose(pose), transformPose)).toBe(true);
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+  const readTransform = () =>
+    page.evaluate(
+      (id) => window.__KINEMA__.getEditorSnapshot().objects.find((object) => object.id === id)?.transform,
+      KIN022_IDS[0],
+    );
+  const baseline = await readTransform();
+  const drag = await beginTransformGizmoDrag(page, "translate");
+  expect(drag.preview.poseSyncs).toBeGreaterThan(0);
+  const dragged = await readTransform();
+  expect(dragged).not.toEqual(baseline);
+
+  page.once("dialog", (dialog) => void dialog.accept("kin022-held-gizmo-save"));
+  const downloadPromise = page.waitForEvent("download");
+  await page.keyboard.press("Control+S");
+  await downloadPromise;
+  const storedTransform = await page.evaluate((id) => {
+    const index = JSON.parse(localStorage.getItem("kinema_level_index") ?? "[]") as Array<{
+      key: string;
+      name: string;
+    }>;
+    const entry = index.find((candidate) => candidate.name === "kin022-held-gizmo-save");
+    const stored = entry ? localStorage.getItem(entry.key) : null;
+    if (!stored) return null;
+    const level = JSON.parse(stored) as { objects: Array<{ id: string; transform: unknown }> };
+    return level.objects.find((object) => object.id === id)?.transform ?? null;
+  }, KIN022_IDS[0]);
+  expect(storedTransform).toEqual(dragged);
+
+  await page.keyboard.press("Control+Z");
+  expect(await readTransform()).toEqual(baseline);
+  await page.keyboard.press("Control+Shift+Z");
+  expect(await readTransform()).toEqual(dragged);
+  await drag.release();
+  await page.keyboard.press("Control+Z");
+  expect(await readTransform()).toEqual(baseline);
+  await page.keyboard.press("Control+Shift+Z");
+  expect(await readTransform()).toEqual(dragged);
 });
 
 test("rejects stale async editor lifecycle completions", async ({ page }) => {

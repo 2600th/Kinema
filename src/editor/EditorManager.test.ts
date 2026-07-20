@@ -37,7 +37,9 @@ interface EditorManagerHarness {
   applyInspectorTransform(transform: TransformTuple, phase: "preview" | "commit"): void;
   applyTransform(id: string, transform: TransformTuple): boolean;
   onDragStateChanged(dragging: boolean): void;
-  dragStartTransform: TransformTuple | null;
+  onGizmoObjectChanged(): void;
+  gizmoDragSession: { objectId: string; object: EditorObject; before: TransformTuple } | null;
+  grid: { enabled: boolean };
   history: CommandHistory;
 }
 
@@ -191,6 +193,8 @@ interface DeleteManagerHarness {
   deleteSubtree(rootId: string): boolean;
   cancelPendingMaterialEdit(): void;
   materialEditSession: MaterialManagerHarness["materialEditSession"];
+  gizmoDragSession: { objectId: string; object: EditorObject; before: TransformTuple } | null;
+  onDragStateChanged(dragging: boolean): void;
   applyInspectorTransform(transform: TransformTuple, phase: "preview" | "commit"): void;
   applyMaterialChange(id: string, material: NonNullable<EditorObject["material"]>, phase: "preview" | "commit"): void;
   deleteById(id: string): void;
@@ -341,10 +345,19 @@ function makeManager(selected: EditorObject): EditorManagerHarness {
   manager.inspectorPanel = { setSelection: vi.fn() };
   manager.showPhysicsMutationError = vi.fn();
   manager.markDirty = vi.fn();
-  manager.syncPhysicsSubtree = vi.fn();
+  manager.syncPhysicsSubtree = vi.fn(() => ({ ok: true }));
   manager.inspectorEditStartTransform = null;
   manager.inspectorEditObjectId = null;
+  manager.grid = { enabled: false };
   return manager;
+}
+
+function previewGizmoTransform(manager: EditorManagerHarness, target: EditorObject, transform: TransformTuple): void {
+  manager.onDragStateChanged(true);
+  target.mesh.position.fromArray(transform.position);
+  target.mesh.rotation.set(...transform.rotation);
+  target.mesh.scale.fromArray(transform.scale);
+  manager.onGizmoObjectChanged();
 }
 
 type PhysicsFailurePhase =
@@ -1565,6 +1578,71 @@ describe("EditorManager scalar and material history transactions", () => {
     expect(order.slice(0, 2)).toEqual(["cancel", "unload"]);
   });
 
+  it("preserves active drags for invalid or stale loads, then cancels the exact object before authoritative teardown", async () => {
+    const after: TransformTuple = { position: [6, 5, 4], rotation: [0.4, 0.3, 0.2], scale: [2, 2, 2] };
+    const beginDrag = (harness: ReturnType<typeof makeDeleteHarness>) => {
+      const target = harness.document.selected;
+      if (!target) throw new Error("Expected selected load fixture target.");
+      const before = structuredClone(target.transform);
+      harness.manager.onDragStateChanged(true);
+      target.mesh.position.fromArray(after.position);
+      target.mesh.rotation.set(...after.rotation);
+      target.mesh.scale.fromArray(after.scale);
+      target.transform = structuredClone(after);
+      return { target, before };
+    };
+
+    const invalidHarness = makeDeleteHarness();
+    const invalidDrag = beginDrag(invalidHarness);
+    const invalidToken = invalidHarness.manager.loadTransaction.begin("user-load");
+    if (!invalidToken) throw new Error("Expected an invalid-load token.");
+    await invalidHarness.manager.applyLoadedLevelContents(
+      { ...emptyLevelData(), version: 1 } as unknown as LevelData,
+      "user-load",
+      invalidToken,
+    );
+    expect(invalidDrag.target.transform).toEqual(after);
+    expect(invalidHarness.manager.gizmoDragSession).toMatchObject({
+      objectId: invalidDrag.target.id,
+      object: invalidDrag.target,
+      before: invalidDrag.before,
+    });
+
+    const staleHarness = makeDeleteHarness();
+    const staleDrag = beginDrag(staleHarness);
+    const staleToken = staleHarness.manager.loadTransaction.begin("user-load");
+    if (!staleToken) throw new Error("Expected a stale-load token.");
+    staleHarness.manager.loadTransaction.invalidate();
+    expect(await staleHarness.manager.applyLoadedLevelContents(emptyLevelData(), "user-load", staleToken)).toBe(
+      "superseded",
+    );
+    expect(staleDrag.target.transform).toEqual(after);
+    expect(staleHarness.manager.gizmoDragSession).not.toBeNull();
+
+    const currentHarness = makeDeleteHarness();
+    const currentDrag = beginDrag(currentHarness);
+    let bodyPose = [...after.position];
+    currentHarness.manager.syncPhysicsSubtree = vi.fn((root: EditorObject) => {
+      bodyPose = root.mesh.position.toArray();
+      return { ok: true };
+    });
+    const unload = currentHarness.levelManager.unload.bind(currentHarness.levelManager);
+    vi.spyOn(currentHarness.levelManager, "unload").mockImplementation(() => {
+      expect(currentDrag.target.transform).toEqual(currentDrag.before);
+      expect(currentDrag.target.mesh.position.toArray()).toEqual(currentDrag.before.position);
+      expect(bodyPose).toEqual(currentDrag.before.position);
+      unload();
+    });
+    const currentToken = currentHarness.manager.loadTransaction.begin("user-load");
+    if (!currentToken) throw new Error("Expected a current-load token.");
+    expect(await currentHarness.manager.applyLoadedLevelContents(emptyLevelData(), "user-load", currentToken)).toBe(
+      "completed",
+    );
+    expect(currentHarness.manager.gizmoDragSession).toBeNull();
+    expect(currentHarness.markDirty).not.toHaveBeenCalled();
+    expect(currentHarness.manager.history.undo()).toBe(false);
+  });
+
   it("cancels pending material state before external unload and manager disposal", () => {
     const externalOrder: string[] = [];
     const externalManager = Object.create(EditorManager.prototype) as ExternalUnloadHarness;
@@ -1593,6 +1671,36 @@ describe("EditorManager scalar and material history transactions", () => {
     });
     disposeManager.dispose();
     expect(disposeOrder.slice(0, 3)).toEqual(["cancel", "clear", "invalidate"]);
+  });
+
+  it("cancels an active gizmo drag before external unload without publishing history or dirty state", () => {
+    const target = makeObject();
+    const manager = makeManager(target) as unknown as EditorManagerHarness & {
+      materialEditSession: null;
+      prepareForExternalUnload(): void;
+    };
+    const before = structuredClone(target.transform);
+    const after: TransformTuple = { position: [3, 5, 7], rotation: [0.1, 0.3, 0.5], scale: [2, 2, 2] };
+    let bodyPose = [...before.position];
+    Object.assign(manager, {
+      materialEditSession: null,
+      history: new CommandHistory(manager.markDirty as unknown as () => void),
+      syncPhysicsSubtree: vi.fn((root: EditorObject) => {
+        bodyPose = root.mesh.position.toArray();
+        return { ok: true };
+      }),
+    });
+    previewGizmoTransform(manager, target, after);
+    expect(bodyPose).toEqual(after.position);
+
+    manager.prepareForExternalUnload();
+
+    expect(target.mesh.position.toArray()).toEqual(before.position);
+    expect(target.transform).toEqual(before);
+    expect(bodyPose).toEqual(before.position);
+    expect(manager.gizmoDragSession).toBeNull();
+    expect(manager.markDirty).not.toHaveBeenCalled();
+    expect(manager.history.undo()).toBe(false);
   });
 
   it("cancels a real transform preview and clears detached command ownership before dispose teardown", () => {
@@ -1643,9 +1751,314 @@ describe("EditorManager scalar and material history transactions", () => {
     expect(order.indexOf("discard")).toBeLessThan(order.indexOf("teardown"));
     expect(order.indexOf("discard")).toBeLessThan(order.indexOf("gizmo"));
   });
+
+  it("restores an active gizmo drag before dispose tears down physics-dependent runtime state", () => {
+    const target = makeObject();
+    const manager = makeManager(target) as unknown as EditorManagerHarness & {
+      materialEditSession: null;
+      loadTransaction: { invalidate(): void };
+      glbPlacementTool: { cancelPendingImport(context: object): void };
+      buildToolContext(): object;
+      abortPlayTest(): void;
+      unsubs: (() => void)[];
+      panels: { dispose(): void }[];
+      gizmo: { dispose(scene: THREE.Scene): void };
+      renderer: { scene: THREE.Scene };
+      grid: { enabled: boolean; dispose(scene: THREE.Scene): void };
+      clearSelectionHelper(): void;
+      dispose(): void;
+    };
+    const before = structuredClone(target.transform);
+    const after: TransformTuple = { position: [7, 6, 5], rotation: [0.5, 0.4, 0.3], scale: [2, 3, 4] };
+    let bodyPose = [...before.position];
+    const teardown = vi.fn(() => {
+      expect(target.transform).toEqual(before);
+      expect(bodyPose).toEqual(before.position);
+    });
+    Object.assign(manager, {
+      materialEditSession: null,
+      history: new CommandHistory(manager.markDirty as unknown as () => void),
+      syncPhysicsSubtree: vi.fn((root: EditorObject) => {
+        bodyPose = root.mesh.position.toArray();
+        return { ok: true };
+      }),
+      loadTransaction: { invalidate: vi.fn() },
+      glbPlacementTool: { cancelPendingImport: vi.fn() },
+      buildToolContext: vi.fn(() => ({})),
+      abortPlayTest: teardown,
+      unsubs: [],
+      panels: [],
+      gizmo: { dispose: vi.fn() },
+      renderer: { scene: new THREE.Scene() },
+      grid: { enabled: false, dispose: vi.fn() },
+      clearSelectionHelper: vi.fn(),
+    });
+    previewGizmoTransform(manager, target, after);
+
+    manager.dispose();
+
+    expect(teardown).toHaveBeenCalledOnce();
+    expect(target.mesh.position.toArray()).toEqual(before.position);
+    expect(target.transform).toEqual(before);
+    expect(manager.gizmoDragSession).toBeNull();
+    expect(manager.markDirty).not.toHaveBeenCalled();
+    expect(manager.history.undo()).toBe(false);
+  });
 });
 
 describe("EditorManager gizmo history transactions", () => {
+  it("owns an active drag by exact object identity and commits it once before selection changes", () => {
+    const target = makeObject();
+    target.id = "drag-target";
+    const other = { ...makeObject(), id: "other", mesh: new THREE.Mesh(new THREE.BoxGeometry()) };
+    const manager = makeManager(target) as unknown as EditorManagerHarness & {
+      document: EditorDocument;
+      materialEditSession: null;
+      gizmo: { attach: ReturnType<typeof vi.fn> };
+      hierarchyPanel: { setSelection: ReturnType<typeof vi.fn> };
+      setSelectionHelper: ReturnType<typeof vi.fn>;
+      eventBus: { emit: ReturnType<typeof vi.fn> };
+      setSelection(object: EditorObject | null): void;
+    };
+    const document = new EditorDocument(new THREE.Scene(), {} as PhysicsWorld);
+    document.objects = [target, other];
+    document.selected = target;
+    Object.assign(manager, {
+      document,
+      materialEditSession: null,
+      gizmo: { attach: vi.fn() },
+      hierarchyPanel: { setSelection: vi.fn() },
+      setSelectionHelper: vi.fn(),
+      eventBus: { emit: vi.fn() },
+      history: new CommandHistory(manager.markDirty as unknown as () => void),
+    });
+    const before = structuredClone(target.transform);
+    const after: TransformTuple = { position: [4, 3, 2], rotation: [0.3, 0.2, 0.1], scale: [2, 2, 2] };
+
+    previewGizmoTransform(manager, target, after);
+
+    expect(manager.gizmoDragSession).toMatchObject({ objectId: target.id, object: target, before });
+    manager.setSelection(other);
+    manager.onDragStateChanged(false);
+
+    expect(document.selected).toBe(other);
+    expect(target.transform).toEqual(after);
+    expect(manager.gizmoDragSession).toBeNull();
+    expect(manager.markDirty).toHaveBeenCalledOnce();
+    expect(manager.history.undo()).toBe(true);
+    expect(target.transform).toEqual(before);
+  });
+
+  it("commits an active drag once before an ordinary hierarchy mutation", () => {
+    const target = makeObject();
+    const manager = makeManager(target) as unknown as EditorManagerHarness & {
+      document: EditorDocument;
+      materialEditSession: null;
+      gizmo: { attach: ReturnType<typeof vi.fn> };
+      hierarchyPanel: {
+        setSelection: ReturnType<typeof vi.fn>;
+        setObjects: ReturnType<typeof vi.fn>;
+      };
+      setSelectionHelper: ReturnType<typeof vi.fn>;
+      eventBus: { emit: ReturnType<typeof vi.fn> };
+      reportFailure: ReturnType<typeof vi.fn>;
+      renameById(id: string, name: string): void;
+    };
+    const document = new EditorDocument(new THREE.Scene(), {} as PhysicsWorld);
+    document.objects = [target];
+    document.selected = target;
+    Object.assign(manager, {
+      document,
+      materialEditSession: null,
+      gizmo: { attach: vi.fn() },
+      hierarchyPanel: { setSelection: vi.fn(), setObjects: vi.fn() },
+      setSelectionHelper: vi.fn(),
+      eventBus: { emit: vi.fn() },
+      reportFailure: vi.fn(),
+      history: new CommandHistory(manager.markDirty as unknown as () => void),
+    });
+    const before = structuredClone(target.transform);
+    const after: TransformTuple = { position: [2, 4, 6], rotation: [0.1, 0.2, 0.3], scale: [1, 1, 1] };
+
+    previewGizmoTransform(manager, target, after);
+    manager.renameById(target.id, "Renamed after drag");
+    manager.onDragStateChanged(false);
+
+    expect(manager.gizmoDragSession).toBeNull();
+    expect(target.transform).toEqual(after);
+    expect(target.name).toBe("Renamed after drag");
+    expect(manager.markDirty).toHaveBeenCalledTimes(2);
+    expect(manager.history.undo()).toBe(true);
+    expect(target.name).toBe("Object");
+    expect(manager.history.undo()).toBe(true);
+    expect(target.transform).toEqual(before);
+    expect(manager.history.undo()).toBe(false);
+  });
+
+  it("commits an active drag before save and makes the later pointer-up idempotent", async () => {
+    const target = makeObject();
+    const manager = makeManager(target) as unknown as EditorManagerHarness & {
+      materialEditSession: null;
+      documentState: { value: { name: string } };
+      saveLevel(): Promise<void>;
+    };
+    Object.assign(manager, {
+      materialEditSession: null,
+      documentState: { value: { name: "Untitled" } },
+      history: new CommandHistory(manager.markDirty as unknown as () => void),
+    });
+    const before = structuredClone(target.transform);
+    const after: TransformTuple = { position: [8, 7, 6], rotation: [0.2, 0.4, 0.6], scale: [1, 1, 1] };
+    const prompt = vi.fn(() => null);
+    vi.stubGlobal("window", { prompt });
+    try {
+      previewGizmoTransform(manager, target, after);
+      await manager.saveLevel();
+      manager.onDragStateChanged(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(prompt).toHaveBeenCalledOnce();
+    expect(manager.gizmoDragSession).toBeNull();
+    expect(manager.markDirty).toHaveBeenCalledOnce();
+    expect(manager.history.undo()).toBe(true);
+    expect(target.transform).toEqual(before);
+    expect(manager.history.undo()).toBe(false);
+  });
+
+  it("commits an active drag before a successful playtest snapshot and clears its history entry", () => {
+    const makeElement = () => ({
+      className: "",
+      title: "",
+      textContent: "",
+      style: {},
+      appendChild: vi.fn(),
+      addEventListener: vi.fn(),
+      setAttribute: vi.fn(),
+      remove: vi.fn(),
+    });
+    vi.stubGlobal("document", {
+      createElement: vi.fn(makeElement),
+      createElementNS: vi.fn(makeElement),
+      body: { appendChild: vi.fn() },
+    });
+    const target = makeObject();
+    const manager = makeManager(target) as unknown as EditorManagerHarness & {
+      active: boolean;
+      playTestActive: boolean;
+      materialEditSession: null;
+      document: EditorDocument;
+      player: { spawn: ReturnType<typeof vi.fn> };
+      playTestSnapshot: string | null;
+      playTestStopButton: object | null;
+      syncUnloadProtection: ReturnType<typeof vi.fn>;
+      exit: ReturnType<typeof vi.fn>;
+      startPlayTest(): void;
+    };
+    const editorDocument = new EditorDocument(new THREE.Scene(), {} as PhysicsWorld);
+    editorDocument.objects = [target];
+    editorDocument.selected = target;
+    const history = new CommandHistory(manager.markDirty as unknown as () => void);
+    const clear = vi.spyOn(history, "clear");
+    Object.assign(manager, {
+      active: true,
+      playTestActive: false,
+      materialEditSession: null,
+      document: editorDocument,
+      history,
+      player: { spawn: vi.fn() },
+      playTestSnapshot: null,
+      playTestStopButton: null,
+      syncUnloadProtection: vi.fn(),
+      exit: vi.fn(),
+    });
+    const after: TransformTuple = { position: [5, 4, 3], rotation: [0.3, 0.2, 0.1], scale: [2, 2, 2] };
+    try {
+      previewGizmoTransform(manager, target, after);
+      manager.startPlayTest();
+      manager.onDragStateChanged(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(manager.playTestActive).toBe(true);
+    expect(manager.gizmoDragSession).toBeNull();
+    expect(manager.markDirty).toHaveBeenCalledOnce();
+    expect(clear).toHaveBeenCalledOnce();
+    expect(manager.history.undo()).toBe(false);
+    const snapshot = JSON.parse(manager.playTestSnapshot ?? "null") as LevelData | null;
+    expect(snapshot?.objects.find((object) => object.id === target.id)?.transform).toEqual(after);
+  });
+
+  it("restores a rejected active drag and aborts selection, save, and playtest continuation", async () => {
+    type BoundaryManager = EditorManagerHarness & {
+      active: boolean;
+      playTestActive: boolean;
+      materialEditSession: null;
+      documentState: { value: { name: string } };
+      gizmo: { attach: ReturnType<typeof vi.fn> };
+      hierarchyPanel: { setSelection: ReturnType<typeof vi.fn> };
+      setSelectionHelper: ReturnType<typeof vi.fn>;
+      eventBus: { emit: ReturnType<typeof vi.fn> };
+      setSelection(object: EditorObject | null): void;
+      saveLevel(): Promise<void>;
+      startPlayTest(): void;
+    };
+    const after: TransformTuple = { position: [9, 8, 7], rotation: [0.3, 0.2, 0.1], scale: [2, 2, 2] };
+    const makeBoundary = (): { manager: BoundaryManager; target: EditorObject; other: EditorObject } => {
+      const target = makeObject();
+      const other = { ...makeObject(), id: "other", mesh: new THREE.Mesh(new THREE.BoxGeometry()) };
+      const manager = makeManager(target) as unknown as BoundaryManager;
+      const document = new EditorDocument(new THREE.Scene(), {} as PhysicsWorld);
+      document.objects = [target, other];
+      document.selected = target;
+      let canMutate = true;
+      Object.assign(manager, {
+        active: true,
+        playTestActive: false,
+        document,
+        materialEditSession: null,
+        documentState: { value: { name: "Untitled" } },
+        gizmo: { attach: vi.fn() },
+        hierarchyPanel: { setSelection: vi.fn() },
+        setSelectionHelper: vi.fn(),
+        eventBus: { emit: vi.fn() },
+        history: new CommandHistory(manager.markDirty as unknown as () => void, () => canMutate),
+      });
+      previewGizmoTransform(manager, target, after);
+      canMutate = false;
+      return { manager, target, other };
+    };
+
+    const selection = makeBoundary();
+    selection.manager.setSelection(selection.other);
+    expect((selection.manager.document as EditorDocument).selected).toBe(selection.target);
+    expect(selection.target.transform.position).toEqual([0, 0, 0]);
+    expect(selection.manager.gizmoDragSession).toBeNull();
+
+    const save = makeBoundary();
+    const prompt = vi.fn(() => null);
+    vi.stubGlobal("window", { prompt });
+    try {
+      await save.manager.saveLevel();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(prompt).not.toHaveBeenCalled();
+    expect(save.target.transform.position).toEqual([0, 0, 0]);
+    expect(save.manager.gizmoDragSession).toBeNull();
+
+    const playtest = makeBoundary();
+    const clear = vi.spyOn(playtest.manager.history, "clear");
+    expect(() => playtest.manager.startPlayTest()).not.toThrow();
+    expect(clear).not.toHaveBeenCalled();
+    expect(playtest.manager.playTestActive).toBe(false);
+    expect(playtest.target.transform.position).toEqual([0, 0, 0]);
+    expect(playtest.manager.gizmoDragSession).toBeNull();
+    expect(playtest.manager.markDirty).not.toHaveBeenCalled();
+  });
+
   it("reconciles the before body pose when preliminary gizmo restore sync rolls back to preview", () => {
     const selected = makeObject();
     const manager = makeManager(selected);
@@ -1656,7 +2069,7 @@ describe("EditorManager gizmo history transactions", () => {
     selected.mesh.position.fromArray(after.position);
     selected.mesh.rotation.set(...after.rotation);
     selected.transform = structuredClone(after);
-    manager.dragStartTransform = before;
+    manager.gizmoDragSession = { objectId: selected.id, object: selected, before };
     manager.history = new CommandHistory(() => (manager.markDirty as unknown as () => void)());
     let failPreliminaryRestore = true;
     manager.syncPhysicsSubtree = vi.fn((root: EditorObject) => {
@@ -1805,10 +2218,14 @@ describe("EditorManager gizmo history transactions", () => {
   it("rolls a failed gizmo commit back and does not dirty or retain history", () => {
     const selected = makeObject();
     const manager = makeManager(selected);
-    manager.dragStartTransform = {
-      position: [0, 0, 0],
-      rotation: [0, 0, 0],
-      scale: [1, 1, 1],
+    manager.gizmoDragSession = {
+      objectId: selected.id,
+      object: selected,
+      before: {
+        position: [0, 0, 0],
+        rotation: [0, 0, 0],
+        scale: [1, 1, 1],
+      },
     };
     manager.history = new CommandHistory(() => (manager.markDirty as unknown as () => void)());
     manager.syncPhysicsSubtree = vi

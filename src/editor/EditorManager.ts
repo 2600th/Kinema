@@ -126,13 +126,18 @@ type EditorDeleteSubtreeTransaction = {
   selectedWithinSubtree: EditorObject | null;
   finalized: boolean;
 };
+type EditorGizmoDragSession = {
+  objectId: string;
+  object: EditorObject;
+  before: EditorTransformSnapshot;
+};
 
 export class EditorManager {
   private active = false;
   private raycaster = new THREE.Raycaster();
   private mouse = new THREE.Vector2();
   private selectionHelper: THREE.BoxHelper | null = null;
-  private dragStartTransform: EditorTransformSnapshot | null = null;
+  private gizmoDragSession: EditorGizmoDragSession | null = null;
   private inspectorEditStartTransform: EditorTransformSnapshot | null = null;
   private inspectorEditObjectId: string | null = null;
   private materialEditSession: { objectId: string; before: EditorMaterialState } | null = null;
@@ -1869,6 +1874,36 @@ export class EditorManager {
     this.applyMaterial(session.objectId, session.before);
   }
 
+  private commitPendingGizmoDrag(): boolean {
+    const session = this.gizmoDragSession;
+    if (!session) return true;
+    this.gizmoDragSession = null;
+    const current = this.document.findById(session.objectId);
+    if (current !== session.object) {
+      this.restorePendingGizmoDrag(session);
+      return false;
+    }
+    const after = this.captureTransformState(session.object);
+    return this.commitTransform(session.object, session.before, after);
+  }
+
+  private cancelPendingGizmoDrag(): void {
+    const session = this.gizmoDragSession;
+    if (!session) return;
+    this.gizmoDragSession = null;
+    this.restorePendingGizmoDrag(session);
+  }
+
+  private restorePendingGizmoDrag(session: EditorGizmoDragSession): boolean {
+    this.restoreObjectTransform(session.object, session.before);
+    const restored = this.syncPhysicsSubtree(session.object, neverRebuildCollider);
+    if (restored.ok) return true;
+    const reconciled = this.syncPhysicsSubtree(session.object, neverRebuildCollider);
+    const rollbackFailure = reconciled.ok ? "" : ` Pose reconciliation also failed. ${reconciled.reason}`;
+    this.showPhysicsMutationError(`Gizmo drag cancellation failed. ${restored.reason}${rollbackFailure}`);
+    return reconciled.ok;
+  }
+
   private commitPendingTransformEdit(): boolean {
     const before = this.inspectorEditStartTransform;
     const objectId = this.inspectorEditObjectId;
@@ -1894,10 +1929,11 @@ export class EditorManager {
   }
 
   private commitPendingEdit(): boolean {
-    return this.commitPendingTransformEdit() && this.commitPendingMaterialEdit();
+    return this.commitPendingGizmoDrag() && this.commitPendingTransformEdit() && this.commitPendingMaterialEdit();
   }
 
   private cancelPendingEdit(): void {
+    this.cancelPendingGizmoDrag();
     this.cancelPendingTransformEdit();
     this.cancelPendingMaterialEdit();
   }
@@ -2167,23 +2203,25 @@ export class EditorManager {
 
   private onDragStateChanged(dragging: boolean): void {
     if (!this.guardDocumentMutation()) return;
-    if (dragging && this.document.selected) {
-      this.dragStartTransform = this.captureTransformState(this.document.selected);
-    } else if (!dragging && this.document.selected && this.dragStartTransform) {
+    if (dragging) {
+      if (this.gizmoDragSession || !this.document.selected) return;
       const target = this.document.selected;
-      const before = this.dragStartTransform;
-      const after = this.captureTransformState(target);
-      this.commitTransform(target, before, after);
-      this.dragStartTransform = null;
+      this.gizmoDragSession = {
+        objectId: target.id,
+        object: target,
+        before: this.captureTransformState(target),
+      };
+      return;
     }
+    this.commitPendingGizmoDrag();
   }
 
   private onGizmoObjectChanged(): void {
     if (!this.guardDocumentMutation()) return;
-    if (!this.document.selected) return;
-    const selected = this.document.selected;
+    const selected = this.gizmoDragSession?.object ?? this.document.selected;
+    if (!selected) return;
     if (this.grid.enabled) {
-      this.applySnapToSelection();
+      this.applySnapToObject(selected);
     }
     selected.mesh.updateWorldMatrix(true, true);
     const validation = this.validatePhysicsSubtree(selected);
@@ -2266,10 +2304,9 @@ export class EditorManager {
     this.toolbarPanel.setSnapActive(this.grid.enabled);
   }
 
-  private applySnapToSelection(): void {
-    if (!this.document.selected) return;
+  private applySnapToObject(object: EditorObject): void {
     const snap = this.grid.positionSnap;
-    const pos = this.document.selected.mesh.position;
+    const pos = object.mesh.position;
     pos.set(Math.round(pos.x / snap) * snap, Math.round(pos.y / snap) * snap, Math.round(pos.z / snap) * snap);
   }
 

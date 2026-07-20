@@ -87,3 +87,24 @@
 - [x] Run `npm run test`, `npx tsc`, scoped Biome error gate for every touched source/test file, `npm run build`, and relevant serial Playwright grep(s), without overlapping heavy commands.
 - [x] Review `git diff`, ensure only fix files are staged, write the report, and commit with a detailed imperative subject.
 - [x] Mark the KIN-022 todo final-review wave complete and return status, commit, tests, browser result, concerns, and report path.
+
+### Task 5: Active gizmo drag lifecycle extension
+
+**Files:**
+- Modify: `src/editor/EditorManager.ts`
+- Modify: `src/editor/EditorManager.test.ts`
+- Modify: `tests/editor-flow.ts`
+
+**Interfaces:**
+- Replaces the anonymous drag-start snapshot with an owned session containing the exact object ID,
+  object reference, and before transform.
+- Extends `commitPendingEdit()` and `cancelPendingEdit()` to include active gizmo drags.
+
+- [x] Add strict-RED manager regressions for save, playtest, selection, authoritative load, external
+  unload, dispose, rejected history publication, and pointer-up deduplication.
+- [x] Add a strict-RED serial browser journey that holds a physical gizmo drag across Ctrl+S and
+  proves the saved transform plus one-step undo/redo behavior.
+- [x] Implement exact-object gizmo commit/cancel primitives and route them through the shared pending
+  lifecycle boundary.
+- [x] Run focused/full unit, typecheck, scoped Biome, build, and serial targeted browser verification.
+- [x] Append the evidence report and commit the extension separately.
