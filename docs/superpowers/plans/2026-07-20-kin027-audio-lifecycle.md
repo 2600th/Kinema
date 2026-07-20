@@ -8,6 +8,8 @@
 
 **Tech Stack:** TypeScript 5.9, Tone.js 15.1, Vitest 4, Playwright/Chromium, Biome, Vite 8.
 
+**Status:** Complete.
+
 ## Behavior Contract
 
 - Pause keeps user volume semantics: SFX target is `0.79 * userSfxVolume * 0.1`, music duck is at most `0.3`, and car/drone/slide sustained graphs are muted without oscillator recreation.
@@ -101,3 +103,13 @@
 - Tone’s official guidance requires `Tone.start()` from a user action and only treats audio as ready after its promise resolves. Tone context resume is asynchronous, so rejected visibility restoration must remain retryable from later gestures.
 - Tone Transport pause/stop affects transport-synced music sources, not the unsynced car/drone/slide oscillators. Application pause therefore uses derived buses, while document backgrounding suspends the native context for complete silence.
 - Browser audio quality and crackle are perceptual. Automated checks prove ownership, gain targets, context state, allocation counts, and absence of scheduling errors; a human listening pass remains a distinct acceptance item.
+
+## Completion Record
+
+- Full Vitest passed: 83 files / 695 tests.
+- TypeScript and the production build passed; the existing large-chunk warning remains.
+- Scoped Biome passed all seven touched source/test files with zero diagnostics.
+- Full serial `pause-pointer-lock` Playwright coverage passed 5/5, and the final lifecycle stress rerun passed 1/1 after review fixes.
+- Repository-wide Biome remains on its documented baseline failure (134 errors, 269 warnings, 11 infos); no touched-file diagnostics remain.
+- A GPT-5.6 SOL review found a hidden-tab/in-flight unlock race and an unstarted pooled Chorus. Both received regression coverage and the re-review verdict was Ready YES.
+- Manual perceptual listening remains a follow-up; automated evidence covers gain/context state, allocation ownership, scheduling stability, and disposal rather than subjective mix quality.

@@ -126,3 +126,57 @@ test("spawn direct entry returns from pause to one standard main-menu root", asy
   await expect(page.locator(".menu-screen.active")).toHaveCount(1);
   await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
 });
+
+test("audio lifecycle survives repeated pause, editor, and tab visibility transitions", async ({
+  page,
+  context,
+}, testInfo) => {
+  const runtimeErrors: string[] = [];
+  page.on("pageerror", (error) => runtimeErrors.push(`pageerror: ${error.message}`));
+  page.on("console", (message) => {
+    if (message.type() === "error") runtimeErrors.push(`console: ${message.text()}`);
+  });
+
+  await openDirectRun(page, "/?station=steps");
+  await page.mouse.click(960, 540);
+
+  for (let cycle = 0; cycle < 10; cycle++) {
+    await pressEscape(page);
+    await expect(page.getByRole("heading", { name: "Paused", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Settings", exact: true }).hover();
+    await page.getByRole("button", { name: "Resume", exact: true }).hover();
+    await page.getByRole("button", { name: "Resume", exact: true }).click();
+    await expect(page.locator(".menu-overlay.active")).toHaveCount(0);
+  }
+
+  for (let cycle = 0; cycle < 3; cycle++) {
+    await page.evaluate(() => window.__KINEMA__.openEditor());
+    await expect.poll(() => page.evaluate(() => window.__KINEMA__.isEditorActive())).toBe(true);
+    await page.evaluate(() => window.__KINEMA__.closeEditor());
+    await expect.poll(() => page.evaluate(() => window.__KINEMA__.isEditorActive())).toBe(false);
+  }
+
+  await page.evaluate(() => {
+    (window as Window & { __AUDIO_VISIBILITY__?: string[] }).__AUDIO_VISIBILITY__ = [];
+    document.addEventListener("visibilitychange", () => {
+      (window as Window & { __AUDIO_VISIBILITY__?: string[] }).__AUDIO_VISIBILITY__?.push(document.visibilityState);
+    });
+  });
+  const backgroundPage = await context.newPage();
+  await backgroundPage.goto("about:blank");
+  await backgroundPage.bringToFront();
+  await page.waitForTimeout(250);
+  await page.bringToFront();
+  await page.waitForTimeout(250);
+  await backgroundPage.close();
+
+  const visibilityTransitions = await page.evaluate(
+    () => (window as Window & { __AUDIO_VISIBILITY__?: string[] }).__AUDIO_VISIBILITY__ ?? [],
+  );
+  await testInfo.attach("audio-lifecycle-observation.json", {
+    body: JSON.stringify({ runtimeErrors, visibilityTransitions }, null, 2),
+    contentType: "application/json",
+  });
+
+  expect(runtimeErrors).toEqual([]);
+});

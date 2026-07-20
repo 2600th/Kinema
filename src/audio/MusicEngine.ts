@@ -246,12 +246,15 @@ export class MusicEngine {
     this.output.gain.linearRampToValueAtTime(0, now + fadeOutSec);
 
     const gen = this.stopGeneration;
+    const stoppedLoops = this.getLoopGeneration();
     const timer = setTimeout(
       () => {
         if (this.stopTimer !== timer) return;
         this.stopTimer = null;
         if (this.stopGeneration !== gen) return;
-        this.disposeLoops(true);
+        const stillCurrent = this.isCurrentLoopGeneration(stoppedLoops);
+        this.disposeLoopGeneration(stoppedLoops, stillCurrent);
+        this.clearCurrentLoopGeneration(stoppedLoops);
       },
       fadeOutSec * 1000 + 100,
     );
@@ -332,16 +335,41 @@ export class MusicEngine {
   }
 
   private disposeLoops(stopTransport: boolean): void {
-    const loops = [this.padLoop, this.bassLoop, this.melodyLoop, this.percLoop];
+    const loops = this.getLoopGeneration();
+    this.disposeLoopGeneration(loops, stopTransport);
+    this.clearCurrentLoopGeneration(loops);
+  }
+
+  private getLoopGeneration(): readonly [Tone.Loop | null, Tone.Loop | null, Tone.Loop | null, Tone.Loop | null] {
+    return [this.padLoop, this.bassLoop, this.melodyLoop, this.percLoop];
+  }
+
+  private isCurrentLoopGeneration(
+    loops: readonly [Tone.Loop | null, Tone.Loop | null, Tone.Loop | null, Tone.Loop | null],
+  ): boolean {
+    return (
+      this.padLoop === loops[0] &&
+      this.bassLoop === loops[1] &&
+      this.melodyLoop === loops[2] &&
+      this.percLoop === loops[3]
+    );
+  }
+
+  private clearCurrentLoopGeneration(
+    loops: readonly [Tone.Loop | null, Tone.Loop | null, Tone.Loop | null, Tone.Loop | null],
+  ): void {
+    if (this.padLoop === loops[0]) this.padLoop = null;
+    if (this.bassLoop === loops[1]) this.bassLoop = null;
+    if (this.melodyLoop === loops[2]) this.melodyLoop = null;
+    if (this.percLoop === loops[3]) this.percLoop = null;
+  }
+
+  private disposeLoopGeneration(loops: readonly (Tone.Loop | null)[], stopTransport: boolean): void {
     const hadLoops = loops.some((loop) => loop !== null);
     for (const loop of loops) {
       loop?.stop();
       loop?.dispose();
     }
-    this.padLoop = null;
-    this.bassLoop = null;
-    this.melodyLoop = null;
-    this.percLoop = null;
     if (stopTransport && hadLoops) {
       const transport = Tone.getTransport();
       transport.stop();

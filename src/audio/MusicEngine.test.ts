@@ -125,4 +125,31 @@ describe("MusicEngine restart lifecycle", () => {
     expect(tone.transport.stop).toHaveBeenCalledTimes(1);
     expect(tone.transport.cancel).toHaveBeenCalledWith(0);
   });
+
+  it("binds deferred cleanup to the loop generation captured by stop", async () => {
+    const { MusicEngine } = await import("./MusicEngine");
+    const engine = new MusicEngine();
+    engine.start(0);
+    const stoppedGeneration = [...tone.state.loops];
+    engine.stop(1.5);
+
+    const replacementSlots = [
+      new tone.Loop(() => {}, "2n"),
+      new tone.Loop(() => {}, "4n"),
+      new tone.Loop(() => {}, "4n"),
+      new tone.Loop(() => {}, "8n"),
+    ];
+    const internals = engine as unknown as {
+      padLoop: InstanceType<typeof tone.Loop>;
+      bassLoop: InstanceType<typeof tone.Loop>;
+      melodyLoop: InstanceType<typeof tone.Loop>;
+      percLoop: InstanceType<typeof tone.Loop>;
+    };
+    [internals.padLoop, internals.bassLoop, internals.melodyLoop, internals.percLoop] = replacementSlots;
+
+    await vi.advanceTimersByTimeAsync(1_600);
+
+    expect(stoppedGeneration.every((loop) => loop.dispose.mock.calls.length === 1)).toBe(true);
+    expect(replacementSlots.every((loop) => loop.dispose.mock.calls.length === 0)).toBe(true);
+  });
 });

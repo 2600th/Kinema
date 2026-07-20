@@ -48,9 +48,15 @@ export class AudioManager implements AudioController {
   private masterCompressor: Tone.Compressor | Tone.Gain;
   private masterLimiter: Tone.Limiter | Tone.Gain;
   private unsubscribers: Array<() => void> = [];
-  private pendingUnducks = new Set<ReturnType<typeof setTimeout>>();
+  private transientDucks = new Map<ReturnType<typeof setTimeout>, number>();
   private toneStarted = false;
+  private toneStartPromise: Promise<boolean> | null = null;
   private pendingMusicFadeIn: number | null = null;
+  private userSfxVolume = 1;
+  private pauseMenuOpen = false;
+  private editorOpen = false;
+  private disposed = false;
+  private visibilityTransition: Promise<void> = Promise.resolve();
   private lastLandedImpact = 0;
   private lastLandedFrame = -1;
   private frameCounter = 0;
@@ -105,23 +111,51 @@ export class AudioManager implements AudioController {
 
     this.bindEvents();
     this.listenForUserGesture();
+    this.listenForDocumentVisibility();
   }
 
-  private async ensureToneStarted(): Promise<void> {
-    if (this.toneStarted) return;
-    try {
-      if (Tone.getContext().state !== "running") {
-        await Tone.start();
+  private ensureToneStarted(): Promise<boolean> {
+    if (this.disposed || document.hidden) return Promise.resolve(false);
+    if (Tone.getContext().state === "running") {
+      this.markToneStarted();
+      return Promise.resolve(true);
+    }
+    if (this.toneStartPromise) return this.toneStartPromise;
+
+    const request = (async (): Promise<boolean> => {
+      while (!this.disposed) {
+        if (document.hidden) {
+          await this.suspendToneContext();
+          if (this.disposed || document.hidden) return false;
+        }
+        try {
+          if (Tone.getContext().state !== "running") await Tone.start();
+        } catch {
+          // Browser gesture policy can reject visibility restoration. Persistent
+          // gesture listeners retry this path on the next user action.
+          return false;
+        }
+        if (document.hidden) continue;
+        if (Tone.getContext().state !== "running") return false;
+        this.markToneStarted();
+        return true;
       }
-      this.toneStarted = true;
-      // Fulfil any pending music request that was queued before Tone started
-      if (this.pendingMusicFadeIn !== null) {
-        const fade = this.pendingMusicFadeIn;
-        this.pendingMusicFadeIn = null;
-        this.musicEngine.start(fade);
-      }
-    } catch {
-      // Tone.start() rejected — will retry on next user gesture
+      return false;
+    })();
+    this.toneStartPromise = request;
+    void request.then(() => {
+      if (this.toneStartPromise === request) this.toneStartPromise = null;
+    });
+    return request;
+  }
+
+  private markToneStarted(): void {
+    if (this.toneStarted || this.disposed) return;
+    this.toneStarted = true;
+    if (this.pendingMusicFadeIn !== null) {
+      const fade = this.pendingMusicFadeIn;
+      this.pendingMusicFadeIn = null;
+      this.musicEngine.start(fade);
     }
   }
 
@@ -183,8 +217,8 @@ export class AudioManager implements AudioController {
   }
 
   setSfxVolume(value: number): void {
-    // Scale on top of the -2dB base offset
-    this.sfxGain.gain.rampTo(clamp(value, 0, 1) * 0.79, 0.05);
+    this.userSfxVolume = clamp(value, 0, 1);
+    this.applySfxContextGain();
   }
 
   startEngine(): void {
@@ -226,22 +260,23 @@ export class AudioManager implements AudioController {
     this.sfxEngine.updateEngine(this.vehicleSpeedNorm, this.vehicleDriftAmount, this.vehicleHandbrake);
   }
 
-  /** Duck-then-restore with a timer that is cancelled on dispose, so the
-   *  deferred unduck can't poke disposed Tone nodes after a level teardown. */
+  /** Add a temporary duck that composes with every active application context. */
   private duckFor(amount: number, durationMs: number): void {
-    this.musicEngine.duck(amount);
     const id = setTimeout(() => {
-      this.pendingUnducks.delete(id);
-      this.musicEngine.unduck();
+      this.transientDucks.delete(id);
+      this.applyMusicContextDuck();
     }, durationMs);
-    this.pendingUnducks.add(id);
+    this.transientDucks.set(id, clamp(amount, 0, 1));
+    this.applyMusicContextDuck();
   }
 
   dispose(): void {
-    for (const id of this.pendingUnducks) {
+    this.disposed = true;
+    this.pendingMusicFadeIn = null;
+    for (const id of this.transientDucks.keys()) {
       clearTimeout(id);
     }
-    this.pendingUnducks.clear();
+    this.transientDucks.clear();
     this.stopEngine();
     this.sfxEngine.slopeSlideStop();
     this.slopeSlideActive = false;
@@ -261,9 +296,6 @@ export class AudioManager implements AudioController {
   private listenForUserGesture(): void {
     const gestureEvents = ["click", "keydown", "touchstart", "pointerdown"] as const;
     const handler = (): void => {
-      for (const evt of gestureEvents) {
-        document.removeEventListener(evt, handler, true);
-      }
       void this.ensureToneStarted();
     };
     for (const evt of gestureEvents) {
@@ -274,6 +306,52 @@ export class AudioManager implements AudioController {
         document.removeEventListener(evt, handler, true);
       }
     });
+  }
+
+  private listenForDocumentVisibility(): void {
+    const handler = (): void => {
+      this.visibilityTransition = this.visibilityTransition
+        .then(async () => {
+          if (this.disposed) return;
+          if (document.hidden) {
+            await this.suspendToneContext();
+            if (!this.disposed && document.hidden) this.toneStarted = false;
+            return;
+          }
+          await this.ensureToneStarted();
+        })
+        .catch(() => {
+          // A later visibility event or user gesture retries restoration.
+        });
+    };
+    document.addEventListener("visibilitychange", handler);
+    this.unsubscribers.push(() => document.removeEventListener("visibilitychange", handler));
+  }
+
+  private async suspendToneContext(): Promise<void> {
+    const rawContext = Tone.getContext().rawContext as BaseAudioContext & { suspend?: () => Promise<void> };
+    if (rawContext.state === "running" && typeof rawContext.suspend === "function") {
+      await rawContext.suspend();
+    }
+  }
+
+  private applySfxContextGain(): void {
+    const contextMultiplier = this.pauseMenuOpen ? 0.1 : 1;
+    this.sfxGain.gain.rampTo(this.userSfxVolume * 0.79 * contextMultiplier, 0.05);
+  }
+
+  private applyMusicContextDuck(): void {
+    let amount = 1;
+    if (this.pauseMenuOpen) amount = Math.min(amount, 0.3);
+    if (this.editorOpen) amount = Math.min(amount, 0.15);
+    for (const transientAmount of this.transientDucks.values()) {
+      amount = Math.min(amount, transientAmount);
+    }
+    if (amount < 1) {
+      this.musicEngine.duck(amount);
+    } else {
+      this.musicEngine.unduck();
+    }
   }
 
   private bindEvents(): void {
@@ -549,19 +627,35 @@ export class AudioManager implements AudioController {
     // ── Menu / UI ──────────────────────────────────────
     this.unsubscribers.push(
       this.eventBus.on("menu:opened", ({ screen }) => {
-        if (!this.toneStarted) return;
         if (screen === "pause") {
-          this.sfxEngine.menuOpen();
-          this.musicEngine.duck(0.3);
+          this.pauseMenuOpen = true;
+          this.applySfxContextGain();
+          this.sfxEngine.setSustainedPaused(true);
+          this.applyMusicContextDuck();
+          if (this.toneStarted) this.sfxEngine.menuOpen();
         }
       }),
     );
 
     this.unsubscribers.push(
       this.eventBus.on("menu:closed", () => {
-        if (!this.toneStarted) return;
-        this.sfxEngine.menuClose();
-        this.musicEngine.unduck();
+        if (this.toneStarted) this.sfxEngine.menuClose();
+        if (!this.pauseMenuOpen) return;
+        this.pauseMenuOpen = false;
+        this.applySfxContextGain();
+        this.sfxEngine.setSustainedPaused(false);
+        this.applyMusicContextDuck();
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on("editor:opened", () => {
+        this.editorOpen = true;
+        this.applyMusicContextDuck();
+      }),
+      this.eventBus.on("editor:closed", () => {
+        this.editorOpen = false;
+        this.applyMusicContextDuck();
       }),
     );
 

@@ -19,6 +19,8 @@ export class SFXEngine {
   private reverb: Tone.Reverb;
   private delay: Tone.FeedbackDelay;
   private effectsBus: Tone.Gain;
+  private sustainedBus: Tone.Gain;
+  private sustainedPaused = false;
 
   // Reusable synths
   private toneSynth: Tone.Synth;
@@ -30,6 +32,11 @@ export class SFXEngine {
   private footstepFilter: Tone.Filter;
   private sparkleSynth: Tone.Synth;
   private subSynth: Tone.Synth;
+  private uiSynth: Tone.Synth;
+  private checkpointChorus: Tone.Chorus;
+  private checkpointSynth: Tone.FMSynth;
+  private deathReverb: Tone.Reverb;
+  private deathNoiseSynth: Tone.NoiseSynth;
 
   // Per-synth last-trigger tracking to avoid "start time must be strictly greater" errors
   private lastToneSynthTime = 0;
@@ -37,6 +44,10 @@ export class SFXEngine {
   private lastSparkleSynthTime = 0;
   private lastSubSynthTime = 0;
   private lastFootstepTime = 0;
+  private lastUiSynthTime = 0;
+  private lastUiHoverTime = Number.NEGATIVE_INFINITY;
+  private lastCheckpointSynthTime = 0;
+  private lastDeathSynthTime = 0;
 
   // Loading ambient sound
   private loadingOsc: Tone.Oscillator | null = null;
@@ -77,6 +88,7 @@ export class SFXEngine {
 
     this.effectsBus = new Tone.Gain(1);
     this.effectsBus.chain(this.delay, this.reverb, this.output);
+    this.sustainedBus = new Tone.Gain(1).connect(this.output);
 
     // Tone synth for general one-shot tones
     this.toneSynth = new Tone.Synth({
@@ -123,6 +135,33 @@ export class SFXEngine {
       envelope: { attack: 0.005, decay: 0.15, sustain: 0, release: 0.05 },
       volume: -18,
     }).connect(this.output);
+
+    this.uiSynth = new Tone.Synth({
+      oscillator: { type: "sine" },
+      envelope: { attack: 0.002, decay: 0.02, sustain: 0, release: 0.01 },
+      volume: -18,
+    }).connect(this.output);
+
+    this.checkpointChorus = new Tone.Chorus({ frequency: 2.5, delayTime: 3.5, depth: 0.6, wet: 0.4 }).connect(
+      this.effectsBus,
+    );
+    this.checkpointChorus.start();
+    this.checkpointSynth = new Tone.FMSynth({
+      harmonicity: 3,
+      modulationIndex: 1.5,
+      oscillator: { type: "sine" },
+      modulation: { type: "triangle" },
+      envelope: { attack: 0.01, decay: 0.3, sustain: 0.15, release: 0.5 },
+      modulationEnvelope: { attack: 0.01, decay: 0.2, sustain: 0, release: 0.3 },
+      volume: -8,
+    }).connect(this.checkpointChorus);
+
+    this.deathReverb = new Tone.Reverb({ decay: 1.5, wet: 0.8 }).connect(this.output);
+    this.deathNoiseSynth = new Tone.NoiseSynth({
+      noise: { type: "white" },
+      envelope: { attack: 0.005, decay: 0.1, sustain: 0, release: 0.05 },
+      volume: -16,
+    }).connect(this.deathReverb);
   }
 
   // ── Helpers ────────────────────────────────────────────────
@@ -155,6 +194,24 @@ export class SFXEngine {
   private safeFootstepTime(): number {
     const now = Math.max(Tone.now(), this.lastFootstepTime + 0.02);
     this.lastFootstepTime = now;
+    return now;
+  }
+
+  private safeUiSynthTime(now = Tone.now()): number {
+    const safeTime = Math.max(now, this.lastUiSynthTime + 0.02);
+    this.lastUiSynthTime = safeTime;
+    return safeTime;
+  }
+
+  private safeCheckpointSynthTime(): number {
+    const now = Math.max(Tone.now(), this.lastCheckpointSynthTime + 0.02);
+    this.lastCheckpointSynthTime = now + 0.24;
+    return now;
+  }
+
+  private safeDeathSynthTime(): number {
+    const now = Math.max(Tone.now(), this.lastDeathSynthTime + 0.02);
+    this.lastDeathSynthTime = now;
     return now;
   }
 
@@ -349,11 +406,7 @@ export class SFXEngine {
       envelope: { attack: 0.015, decay: 0.42, sustain: 0.12, release: 0.5 },
     });
     this.polySynth.volume.value = -8;
-    this.polySynth.triggerAttackRelease(
-      [523.25 * pitchVar, 659.25 * pitchVar, 783.99 * pitchVar],
-      0.45,
-      now,
-    );
+    this.polySynth.triggerAttackRelease([523.25 * pitchVar, 659.25 * pitchVar, 783.99 * pitchVar], 0.45, now);
     this.sparkleSynth.volume.value = -13;
     this.sparkleSynth.triggerAttackRelease(1567.98 * pitchVar, 0.32, sparkleNow + 0.05);
     this.defer(() => {
@@ -408,27 +461,14 @@ export class SFXEngine {
   checkpoint(): void {
     // Warm FMSynth arpeggio C5 -> E5 -> G5 -> C6 with chorus + delay
     if (Tone.getContext().state !== "running") return;
-    const now = Tone.now();
-    this.delay.wet.value = 0.3;
-    const chorus = new Tone.Chorus({ frequency: 2.5, delayTime: 3.5, depth: 0.6, wet: 0.4 }).connect(this.effectsBus);
-    const fm = new Tone.FMSynth({
-      harmonicity: 3,
-      modulationIndex: 1.5,
-      oscillator: { type: "sine" },
-      modulation: { type: "triangle" },
-      envelope: { attack: 0.01, decay: 0.3, sustain: 0.15, release: 0.5 },
-      modulationEnvelope: { attack: 0.01, decay: 0.2, sustain: 0, release: 0.3 },
-      volume: -8,
-    }).connect(chorus);
-    fm.triggerAttackRelease("C5", 0.1, now);
-    fm.triggerAttackRelease("E5", 0.1, now + 0.08);
-    fm.triggerAttackRelease("G5", 0.1, now + 0.16);
-    fm.triggerAttackRelease("C6", 0.15, now + 0.24);
-    this.defer(() => {
-      fm.dispose();
-      chorus.dispose();
-      this.delay.wet.value = 0;
-    }, 1500);
+    const now = this.safeCheckpointSynthTime();
+    this.delay.wet.cancelScheduledValues(now);
+    this.delay.wet.setValueAtTime(0.3, now);
+    this.delay.wet.setValueAtTime(0, now + 1.5);
+    this.checkpointSynth.triggerAttackRelease("C5", 0.1, now);
+    this.checkpointSynth.triggerAttackRelease("E5", 0.1, now + 0.08);
+    this.checkpointSynth.triggerAttackRelease("G5", 0.1, now + 0.16);
+    this.checkpointSynth.triggerAttackRelease("C6", 0.15, now + 0.24);
   }
 
   coinCollect(): void {
@@ -701,7 +741,7 @@ export class SFXEngine {
   /** Start continuous drone rotor sound — triangle osc + filtered white noise */
   droneRotorStart(): void {
     if (this.droneOsc) return;
-    this.droneGain = new Tone.Gain(0).connect(this.output);
+    this.droneGain = new Tone.Gain(0).connect(this.sustainedBus);
     // Triangle oscillator for rotor whine
     this.droneOsc = new Tone.Oscillator({ type: "triangle", frequency: 220, volume: -16 }).connect(this.droneGain);
     // Filtered white noise for air
@@ -786,7 +826,7 @@ export class SFXEngine {
   /** Start continuous slope slide sound */
   slopeSlideStart(): void {
     if (this.slideNoise) return;
-    this.slideGain = new Tone.Gain(0).connect(this.output);
+    this.slideGain = new Tone.Gain(0).connect(this.sustainedBus);
     this.slideFilter = new Tone.Filter({ frequency: 1000, type: "bandpass", Q: 2 }).connect(this.slideGain);
     this.slideNoise = new Tone.Noise("white");
     this.slideNoise.connect(this.slideFilter);
@@ -861,27 +901,28 @@ export class SFXEngine {
   uiClick(): void {
     if (Tone.getContext().state !== "running") return;
     // Sine pop 1kHz 20ms
-    const now = Tone.now();
-    const s = new Tone.Synth({
-      oscillator: { type: "sine" },
-      envelope: { attack: 0.002, decay: 0.02, sustain: 0, release: 0.01 },
-      volume: -18,
-    }).connect(this.output);
-    s.triggerAttackRelease(1000, 0.02, now);
-    this.defer(() => s.dispose(), 150);
+    const now = this.safeUiSynthTime();
+    this.uiSynth.envelope.attack = 0.002;
+    this.uiSynth.envelope.decay = 0.02;
+    this.uiSynth.envelope.sustain = 0;
+    this.uiSynth.envelope.release = 0.01;
+    this.uiSynth.volume.value = -18;
+    this.uiSynth.triggerAttackRelease(1000, 0.02, now);
   }
 
   uiHover(): void {
     if (Tone.getContext().state !== "running") return;
     // High sine tick 3kHz 10ms, quiet
     const now = Tone.now();
-    const s = new Tone.Synth({
-      oscillator: { type: "sine" },
-      envelope: { attack: 0.001, decay: 0.01, sustain: 0, release: 0.005 },
-      volume: -26,
-    }).connect(this.output);
-    s.triggerAttackRelease(3000, 0.01, now);
-    this.defer(() => s.dispose(), 100);
+    if (now - this.lastUiHoverTime < 0.06) return;
+    this.lastUiHoverTime = now;
+    const safeTime = this.safeUiSynthTime(now);
+    this.uiSynth.envelope.attack = 0.001;
+    this.uiSynth.envelope.decay = 0.01;
+    this.uiSynth.envelope.sustain = 0;
+    this.uiSynth.envelope.release = 0.005;
+    this.uiSynth.volume.value = -26;
+    this.uiSynth.triggerAttackRelease(3000, 0.01, safeTime);
   }
 
   // ── Death / Respawn SFX ──────────────────────────────────
@@ -931,18 +972,8 @@ export class SFXEngine {
   /** Filtered noise burst with long reverb tail for death midpoint */
   deathMidpoint(): void {
     if (Tone.getContext().state !== "running") return;
-    const now = Tone.now();
-    const rev = new Tone.Reverb({ decay: 1.5, wet: 0.8 }).connect(this.output);
-    const noise = new Tone.NoiseSynth({
-      noise: { type: "white" },
-      envelope: { attack: 0.005, decay: 0.1, sustain: 0, release: 0.05 },
-      volume: -16,
-    }).connect(rev);
-    noise.triggerAttackRelease("16n", now);
-    this.defer(() => {
-      noise.dispose();
-      rev.dispose();
-    }, 1500);
+    const now = this.safeDeathSynthTime();
+    this.deathNoiseSynth.triggerAttackRelease("16n", now);
   }
 
   /** Quick ascending respawn chime — bright and hopeful */
@@ -1014,7 +1045,7 @@ export class SFXEngine {
 
   startEngine(): void {
     if (this.engineOsc) return;
-    this.engineGain = new Tone.Gain(0).connect(this.output);
+    this.engineGain = new Tone.Gain(0).connect(this.sustainedBus);
     this.engineFilter = new Tone.Filter({ type: "lowpass", frequency: 260, rolloff: -24, Q: 0.7 }).connect(
       this.engineGain,
     );
@@ -1098,9 +1129,16 @@ export class SFXEngine {
     }, 220);
   }
 
+  setSustainedPaused(paused: boolean): void {
+    if (this.disposed || this.sustainedPaused === paused) return;
+    this.sustainedPaused = paused;
+    this.sustainedBus.gain.rampTo(paused ? 0 : 1, 0.05);
+  }
+
   // ── Lifecycle ─────────────────────────────────────────────
 
   dispose(): void {
+    if (this.disposed) return;
     this.disposed = true;
     this.loadingAmbientStop();
     this.stopEngine();
@@ -1114,9 +1152,15 @@ export class SFXEngine {
     this.footstepFilter.dispose();
     this.sparkleSynth.dispose();
     this.subSynth.dispose();
+    this.uiSynth.dispose();
+    this.checkpointSynth.dispose();
+    this.checkpointChorus.dispose();
+    this.deathNoiseSynth.dispose();
+    this.deathReverb.dispose();
     this.reverb.dispose();
     this.delay.dispose();
     this.effectsBus.dispose();
+    this.sustainedBus.dispose();
     this.output.dispose();
   }
 }
