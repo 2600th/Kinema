@@ -6,6 +6,23 @@ const _fcUp = new THREE.Vector3(0, 1, 0);
 const _fcEuler = new THREE.Euler(0, 0, 0, "YXZ");
 const _fcEnableEuler = new THREE.Euler(0, 0, 0, "YXZ");
 
+export interface FreeCameraPose {
+  readonly position: readonly [number, number, number];
+  readonly quaternion: readonly [number, number, number, number];
+}
+
+function freezePose(position: THREE.Vector3, quaternion: THREE.Quaternion): FreeCameraPose {
+  return Object.freeze({
+    position: Object.freeze([position.x, position.y, position.z] as [number, number, number]),
+    quaternion: Object.freeze([
+      quaternion.x,
+      quaternion.y,
+      quaternion.z,
+      quaternion.w,
+    ] as [number, number, number, number]),
+  });
+}
+
 export class FreeCamera {
   private enabled = false;
   private keys = new Set<string>();
@@ -86,12 +103,26 @@ export class FreeCamera {
     private domElement: HTMLElement,
   ) {}
 
-  enable(): void {
-    if (this.enabled) return;
-    this.enabled = true;
+  capturePose(): FreeCameraPose {
+    return freezePose(this.camera.position, this.camera.quaternion);
+  }
+
+  restorePose(pose: FreeCameraPose): void {
+    this.camera.position.set(...pose.position);
+    this.camera.quaternion.set(...pose.quaternion);
+    this.syncOrientationFromCamera();
+  }
+
+  syncOrientationFromCamera(): void {
     const euler = _fcEnableEuler.setFromQuaternion(this.camera.quaternion, "YXZ");
     this.pitch = euler.x;
     this.yaw = euler.y;
+  }
+
+  enable(): void {
+    if (this.enabled) return;
+    this.enabled = true;
+    this.syncOrientationFromCamera();
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("keyup", this.onKeyUp);
     this.domElement.addEventListener("mousedown", this.onMouseDown);

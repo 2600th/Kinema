@@ -886,6 +886,17 @@ async function bootstrap(): Promise<void> {
         const state = editorManager?.getDocumentState() ?? { name: "Untitled", dirty: false };
         return { name: state.name, dirty: state.dirty };
       },
+      getEditorSnapshot() {
+        return editorManager?.getEditorSnapshot() ?? { selectedId: null, objects: [] };
+      },
+      setEditorCameraPose(pose) {
+        if (!editorManager?.isActive()) return false;
+        editorManager.setEditorCameraPose({
+          position: [pose.position.x, pose.position.y, pose.position.z],
+          quaternion: [pose.quaternion.x, pose.quaternion.y, pose.quaternion.z, pose.quaternion.w],
+        });
+        return true;
+      },
       getEditorPhysicsSyncCounters() {
         return (
           editorPhysicsSyncDebug?.getEditorPhysicsSyncCounters() ?? {

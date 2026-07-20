@@ -54,7 +54,7 @@ import {
   validatePhysicsAttachment,
   validateWorldMatrixAttachment,
 } from "./EditorPhysicsSync";
-import { FreeCamera } from "./FreeCamera";
+import { FreeCamera, type FreeCameraPose } from "./FreeCamera";
 import { type LevelData, LevelSerializer } from "./LevelSerializer";
 import { BrushPanel } from "./panels/BrushPanel";
 import { HierarchyPanel } from "./panels/HierarchyPanel";
@@ -70,6 +70,29 @@ import { SelectionTool } from "./tools/SelectionTool";
 type EditorLoadResult = "completed" | "failed" | "superseded";
 type EditorTransformSnapshot = EditorTransformState;
 const neverRebuildCollider = (_entry: EditorObject, _nextPose: ObjectWorldPhysicsPose): boolean => false;
+export interface EditorWorkspaceObjectSnapshot {
+  id: string;
+  name: string;
+  meshUuid: string;
+  parentId: string | null;
+  children: string[];
+  visible: boolean;
+  locked: boolean;
+  transform: {
+    position: [number, number, number];
+    rotation: [number, number, number];
+    scale: [number, number, number];
+  };
+  source: EditorObject["source"];
+  material?: EditorObject["material"];
+  physicsType: "static" | "dynamic" | "kinematic";
+}
+
+export interface EditorWorkspaceSnapshot {
+  selectedId: string | null;
+  objects: EditorWorkspaceObjectSnapshot[];
+}
+
 type EditorDeleteSubtreeNodeTracking = {
   object: EditorObject;
   wasLevelTracked: boolean;
@@ -101,7 +124,6 @@ export class EditorManager {
   private playTestActive = false;
   private restoringPlayTest = false;
   private playTestSnapshot: string | null = null;
-  private playTestCameraState: { position: THREE.Vector3; quaternion: THREE.Quaternion } | null = null;
   private playTestStopButton: HTMLElement | null = null;
   private unloadProtectionEnabled = false;
   private loadTransaction = new EditorLoadTransaction();
@@ -111,6 +133,8 @@ export class EditorManager {
   private grid: SnapGrid;
   private gridWasVisible = true;
   private freeCamera: FreeCamera;
+  private editorCameraPose: FreeCameraPose | null = null;
+  private documentNeedsRebuild = true;
   private history: CommandHistory;
   private deleteSubtreeTransactions = new WeakMap<EditorSubtreeState, EditorDeleteSubtreeTransaction>();
 
@@ -230,19 +254,7 @@ export class EditorManager {
 
     this.unsubs.push(this.eventBus.on("editor:toggle", () => this.toggle()));
     this.unsubs.push(this.eventBus.on("level:willUnload", () => this.prepareForExternalUnload()));
-    this.unsubs.push(
-      this.eventBus.on("level:loaded", ({ name }) => {
-        this.loadTransaction.invalidate();
-        this.glbPlacementTool.cancelPendingImport(this.buildToolContext());
-        this.restoringPlayTest = false;
-        this.toolbarPanel.setLoadBusy(false);
-        this.history.clear();
-        const identity = this.levelManager.getCurrentLevelIdentity();
-        this.documentState.markClean(
-          normalizeEditorDocumentName(identity ?? { name, origin: "system", kind: "asset" }),
-        );
-      }),
-    );
+    this.unsubs.push(this.eventBus.on("level:loaded", ({ name }) => this.handleLevelLoaded(name)));
 
     // Hide editor panels + play-test stop button when menu overlay opens
     this.unsubs.push(
@@ -279,6 +291,18 @@ export class EditorManager {
     this.unsubs.push(() => window.removeEventListener("keydown", onGlobalKeyDown));
   }
 
+  private handleLevelLoaded(name: string): void {
+    this.loadTransaction.invalidate();
+    this.glbPlacementTool.cancelPendingImport(this.buildToolContext());
+    this.restoringPlayTest = false;
+    this.editorCameraPose = null;
+    this.documentNeedsRebuild = true;
+    this.toolbarPanel.setLoadBusy(false);
+    this.history.clear();
+    const identity = this.levelManager.getCurrentLevelIdentity();
+    this.documentState.markClean(normalizeEditorDocumentName(identity ?? { name, origin: "system", kind: "asset" }));
+  }
+
   /* ==================================================================
    *  Public API
    * ================================================================== */
@@ -301,6 +325,34 @@ export class EditorManager {
 
   getDocumentState(): Readonly<EditorDocumentSnapshot> {
     return this.documentState.value;
+  }
+
+  getEditorSnapshot(): EditorWorkspaceSnapshot {
+    return {
+      selectedId: this.document.selected?.id ?? null,
+      objects: this.document.objects.map((object) => ({
+        id: object.id,
+        name: object.name,
+        meshUuid: object.mesh.uuid,
+        parentId: object.parentId ?? null,
+        children: [...(object.children ?? [])],
+        visible: object.visible ?? true,
+        locked: object.locked ?? false,
+        transform: {
+          position: [...object.transform.position],
+          rotation: [...object.transform.rotation],
+          scale: [...object.transform.scale],
+        },
+        source: { ...object.source },
+        material: object.material ? { ...object.material } : undefined,
+        physicsType: object.physicsType ?? "static",
+      })),
+    };
+  }
+
+  setEditorCameraPose(pose: FreeCameraPose): void {
+    this.freeCamera.restorePose(pose);
+    this.editorCameraPose = this.freeCamera.capturePose();
   }
 
   shouldWarnBeforeUnload(): boolean {
@@ -627,12 +679,7 @@ export class EditorManager {
    *  Enter / Exit
    * ================================================================== */
 
-  /**
-   * @param rebuildObjects - When true (default), scans levelManager for objects.
-   *   Set to false when restoring from play-test snapshot (applyLoadedLevel
-   *   handles object population instead).
-   */
-  private enter(rebuildObjects = true): void {
+  private enter(): void {
     this.active = true;
     this.gameLoop.setSimulationEnabled(false);
     this.interactionManager.setEnabled(false);
@@ -642,12 +689,15 @@ export class EditorManager {
     exitPointerLockIfSupported();
     this.renderer.canvas.style.cursor = "default";
     this.eventBus.emit("editor:opened", undefined);
+    if (this.editorCameraPose) {
+      this.freeCamera.restorePose(this.editorCameraPose);
+    } else {
+      this.editorCameraPose = this.freeCamera.capturePose();
+    }
     this.freeCamera.enable();
     this.grid.setVisible(this.gridWasVisible);
     for (const panel of this.panels) panel.show();
-    if (rebuildObjects) {
-      this.buildEditorObjects();
-    }
+    if (this.documentNeedsRebuild) this.buildEditorObjects();
     this.syncHierarchy();
     this.syncToolbarState();
     this.bindEditorInput();
@@ -657,6 +707,7 @@ export class EditorManager {
   }
 
   private exit(): void {
+    this.editorCameraPose = this.freeCamera.capturePose();
     this.active = false;
     this.gameLoop.setSimulationEnabled(true);
     this.interactionManager.setEnabled(true);
@@ -701,12 +752,6 @@ export class EditorManager {
     // Serialize current level state
     const data = LevelSerializer.serialize("__playtest__", this.document.objects);
     this.playTestSnapshot = JSON.stringify(data);
-
-    // Save camera state (enter() will call freeCamera.enable() which re-derives yaw/pitch)
-    this.playTestCameraState = {
-      position: this.renderer.camera.position.clone(),
-      quaternion: this.renderer.camera.quaternion.clone(),
-    };
 
     this.playTestActive = true;
     this.syncUnloadProtection();
@@ -787,7 +832,6 @@ export class EditorManager {
     }
 
     const snapshot = this.playTestSnapshot;
-    const cameraState = this.playTestCameraState;
     this.restoringPlayTest = true;
     this.syncUnloadProtection();
     this.clearPlayTestState();
@@ -808,15 +852,7 @@ export class EditorManager {
 
       // ── Step 2: Re-enter editor mode (skip buildEditorObjects — objects
       //    are already populated by applyLoadedLevel) ──
-      this.enter(false);
-
-      // ── Step 3: Restore camera state ──
-      if (cameraState) {
-        this.renderer.camera.position.copy(cameraState.position);
-        this.renderer.camera.quaternion.copy(cameraState.quaternion);
-        this.freeCamera.disable();
-        this.freeCamera.enable();
-      }
+      this.enter();
 
       // Clear selection and sync UI
       this.setSelection(null);
@@ -827,7 +863,7 @@ export class EditorManager {
       this.markDirty();
       if (!this.active) {
         try {
-          this.enter(false);
+          this.enter();
         } catch (recoveryError) {
           console.error("[Editor] Failed to re-enter the editor after restore failure:", recoveryError);
         }
@@ -856,7 +892,6 @@ export class EditorManager {
     this.playTestStopButton?.remove();
     this.playTestStopButton = null;
     this.playTestSnapshot = null;
-    this.playTestCameraState = null;
     this.syncUnloadProtection();
   }
 
@@ -1106,8 +1141,7 @@ export class EditorManager {
     cam.lookAt(center);
 
     // Re-sync FreeCamera yaw/pitch from the new quaternion
-    this.freeCamera.disable();
-    this.freeCamera.enable();
+    this.freeCamera.syncOrientationFromCamera();
   }
 
   private setSelectionHelper(target: THREE.Object3D | null): void {
@@ -1159,7 +1193,15 @@ export class EditorManager {
         map.set(dyn.mesh.uuid, entry);
       }
     }
+    for (const entry of map.values()) {
+      const parent = entry.mesh.parent ? map.get(entry.mesh.parent.uuid) : undefined;
+      entry.parentId = parent?.id ?? null;
+      entry.children = entry.mesh.children
+        .map((child) => map.get(child.uuid)?.id)
+        .filter((id): id is string => id !== undefined);
+    }
     this.document.objects = Array.from(map.values());
+    this.documentNeedsRebuild = false;
   }
 
   private buildEditorObject(mesh: THREE.Object3D): EditorObject {
@@ -2688,6 +2730,7 @@ export class EditorManager {
         this.levelManager.removeLevelObject(obj.mesh);
         this.levelManager.addLevelObject(obj.mesh, this.createLevelObjectTracking(obj));
       }
+      this.documentNeedsRebuild = false;
     } catch (err) {
       if (!this.loadTransaction.isCurrent(loadToken)) return "superseded";
       console.error(`[Editor] ${intent === "user-load" ? "Level load" : "Play-test restore"} failed:`, err);

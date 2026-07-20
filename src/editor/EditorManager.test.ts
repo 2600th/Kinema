@@ -1,6 +1,6 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { EventBus } from "../core/EventBus";
 import { LevelManager } from "../level/LevelManager";
 import type { PhysicsWorld } from "../physics/PhysicsWorld";
@@ -14,6 +14,7 @@ import {
   getObjectWorldPhysicsPose,
   resetEditorPhysicsSyncCounters,
 } from "./EditorPhysicsSync";
+import { FreeCamera, type FreeCameraPose } from "./FreeCamera";
 import type { LevelData } from "./LevelSerializer";
 
 type TransformTuple = {
@@ -199,7 +200,116 @@ interface DeleteManagerHarness {
   ): Promise<"completed" | "failed" | "superseded">;
 }
 
+interface LifecycleManagerHarness {
+  active: boolean;
+  playTestActive: boolean;
+  restoringPlayTest: boolean;
+  editorCameraPose: FreeCameraPose | null;
+  documentNeedsRebuild: boolean;
+  document: EditorDocument;
+  documentState: { value: { name: string; dirty: boolean }; markClean(name: string): void };
+  renderer: { scene: THREE.Scene; camera: THREE.PerspectiveCamera; canvas: HTMLElement };
+  levelManager: {
+    getLevelObjects(): THREE.Object3D[];
+    getDynamicBodies(): { mesh: THREE.Object3D; body: RAPIER.RigidBody }[];
+    getLevelObjectTracking(mesh: THREE.Object3D): { physics?: { body?: RAPIER.RigidBody; collider?: RAPIER.Collider } };
+    getCurrentLevelIdentity(): null;
+  };
+  gameLoop: { setSimulationEnabled(enabled: boolean): void };
+  interactionManager: { setEnabled(enabled: boolean): void };
+  player: { setActive(active: boolean): void; setEnabled(enabled: boolean): void };
+  eventBus: { emit: ReturnType<typeof vi.fn> };
+  freeCamera: FreeCamera;
+  grid: { enabled: boolean; setVisible(visible: boolean): void; isVisible(): boolean };
+  gridWasVisible: boolean;
+  panels: { show(): void; hide(): void }[];
+  activeTool: object;
+  switchTool: ReturnType<typeof vi.fn>;
+  gizmo: { attach: ReturnType<typeof vi.fn> };
+  inspectorPanel: { setSelection: ReturnType<typeof vi.fn> };
+  hierarchyPanel: { setSelection: ReturnType<typeof vi.fn>; setObjects: ReturnType<typeof vi.fn> };
+  toolbarPanel: {
+    setActiveMode: ReturnType<typeof vi.fn>;
+    setSnapActive: ReturnType<typeof vi.fn>;
+    setGridActive: ReturnType<typeof vi.fn>;
+    setDocumentState: ReturnType<typeof vi.fn>;
+  };
+  materialEditSession: null;
+  inspectorEditStartTransform: null;
+  inspectorEditObjectId: null;
+  unloadProtectionEnabled: boolean;
+  history: CommandHistory;
+  buildEditorObjects(): void;
+  bindEditorInput: ReturnType<typeof vi.fn>;
+  unbindEditorInput: ReturnType<typeof vi.fn>;
+  setSelectionHelper: ReturnType<typeof vi.fn>;
+  enter(): void;
+  exit(): void;
+  handleLevelLoaded(name: string): void;
+}
+
+interface PlayTestLifecycleHarness {
+  active: boolean;
+  playTestActive: boolean;
+  restoringPlayTest: boolean;
+  editorCameraPose: FreeCameraPose | null;
+  document: { objects: EditorObject[] };
+  renderer: { camera: THREE.PerspectiveCamera };
+  player: { spawn: ReturnType<typeof vi.fn> };
+  history: { clear: ReturnType<typeof vi.fn> };
+  loadTransaction: EditorLoadTransaction;
+  playTestSnapshot: string | null;
+  playTestStopButton: { remove(): void } | null;
+  freeCamera: {
+    capturePose(): FreeCameraPose;
+    disable(): void;
+    enable(): void;
+  };
+  guardDocumentMutation(): boolean;
+  commitPendingMaterialEdit(): boolean;
+  exit: ReturnType<typeof vi.fn>;
+  enter: ReturnType<typeof vi.fn>;
+  applyLoadedLevel: ReturnType<typeof vi.fn>;
+  setSelection: ReturnType<typeof vi.fn>;
+  syncHierarchy: ReturnType<typeof vi.fn>;
+  syncUnloadProtection: ReturnType<typeof vi.fn>;
+  toolbarPanel: { showSaveError: ReturnType<typeof vi.fn> };
+  markDirty: ReturnType<typeof vi.fn>;
+  startPlayTest(): void;
+  stopPlayTest(): Promise<void>;
+}
+
+interface DebugManagerHarness {
+  document: EditorDocument;
+  editorCameraPose: FreeCameraPose | null;
+  freeCamera: {
+    restorePose: ReturnType<typeof vi.fn>;
+    capturePose: ReturnType<typeof vi.fn>;
+  };
+  getEditorSnapshot(): {
+    selectedId: string | null;
+    objects: Array<{
+      id: string;
+      name: string;
+      meshUuid: string;
+      parentId: string | null;
+      children: string[];
+      visible: boolean;
+      locked: boolean;
+      transform: TransformTuple;
+      source: EditorObject["source"];
+      material?: EditorObject["material"];
+      physicsType: "static" | "dynamic" | "kinematic";
+    }>;
+  };
+  setEditorCameraPose(pose: FreeCameraPose): void;
+}
+
 type DeleteHarness = ReturnType<typeof makeDeleteHarness>;
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function makeObject(): EditorObject {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
@@ -2672,6 +2782,351 @@ describe("EditorManager subtree delete transactions", () => {
     manager.deleteSelection();
 
     expect(deleteSubtree.mock.calls).toEqual([[root.id], [root.id]]);
+  });
+});
+
+describe("EditorManager persistent workspace lifecycle", () => {
+  function makeLifecycleManager() {
+    vi.stubGlobal("window", new EventTarget());
+    vi.stubGlobal("document", { exitPointerLock: vi.fn() });
+    const scene = new THREE.Scene();
+    const runtimeCamera = new THREE.PerspectiveCamera();
+    runtimeCamera.position.set(8.5, 3.25, -6.75);
+    runtimeCamera.quaternion.setFromEuler(new THREE.Euler(-0.28, 1.34, 0, "YXZ"));
+    const canvas = {
+      style: { cursor: "" },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    } as unknown as HTMLElement;
+    const document = new EditorDocument(scene, {} as PhysicsWorld);
+    const parent = makeTrackedObject("parent", null, ["child"], "static");
+    const child = makeTrackedObject("child", "parent", [], "static");
+    parent.locked = true;
+    child.visible = false;
+    child.mesh.visible = false;
+    scene.add(parent.mesh);
+    parent.mesh.add(child.mesh);
+    document.objects = [parent, child];
+    document.selected = child;
+    const buildEditorObjects = vi.fn();
+    const history = new CommandHistory();
+    let historyValue = 0;
+    history.push({
+      execute: () => {
+        historyValue = 1;
+      },
+      undo: () => {
+        historyValue = 0;
+      },
+    });
+    const manager = Object.create(EditorManager.prototype) as LifecycleManagerHarness;
+    Object.assign(manager, {
+      active: true,
+      playTestActive: false,
+      restoringPlayTest: false,
+      editorCameraPose: null,
+      documentNeedsRebuild: false,
+      document,
+      documentState: { value: { name: "Workspace", dirty: false }, markClean: vi.fn() },
+      renderer: { scene, camera: runtimeCamera, canvas },
+      levelManager: {
+        getLevelObjects: vi.fn(() => []),
+        getDynamicBodies: vi.fn(() => []),
+        getLevelObjectTracking: vi.fn(() => ({})),
+        getCurrentLevelIdentity: vi.fn(() => null),
+      },
+      gameLoop: {
+        setSimulationEnabled: vi.fn((enabled: boolean) => {
+          if (enabled) {
+            runtimeCamera.position.set(100, 200, 300);
+            runtimeCamera.quaternion.identity();
+          }
+        }),
+      },
+      interactionManager: { setEnabled: vi.fn() },
+      player: { setActive: vi.fn(), setEnabled: vi.fn() },
+      eventBus: { emit: vi.fn() },
+      freeCamera: new FreeCamera(runtimeCamera, canvas),
+      grid: { enabled: true, setVisible: vi.fn(), isVisible: vi.fn(() => true) },
+      gridWasVisible: true,
+      panels: [{ show: vi.fn(), hide: vi.fn() }],
+      activeTool: {},
+      switchTool: vi.fn(),
+      gizmo: { attach: vi.fn() },
+      inspectorPanel: { setSelection: vi.fn() },
+      hierarchyPanel: { setSelection: vi.fn(), setObjects: vi.fn() },
+      toolbarPanel: {
+        setActiveMode: vi.fn(),
+        setSnapActive: vi.fn(),
+        setGridActive: vi.fn(),
+        setDocumentState: vi.fn(),
+      },
+      materialEditSession: null,
+      inspectorEditStartTransform: null,
+      inspectorEditObjectId: null,
+      unloadProtectionEnabled: false,
+      history,
+      buildEditorObjects,
+      bindEditorInput: vi.fn(),
+      unbindEditorInput: vi.fn(),
+      setSelectionHelper: vi.fn(),
+    });
+    return { manager, runtimeCamera, document, parent, child, buildEditorObjects, historyValue: () => historyValue };
+  }
+
+  it("captures before gameplay resumes and restores the exact live workspace on plain exit and enter", () => {
+    const { manager, runtimeCamera, document, parent, child, buildEditorObjects, historyValue } = makeLifecycleManager();
+    const expectedPose = {
+      position: runtimeCamera.position.toArray(),
+      quaternion: runtimeCamera.quaternion.toArray(),
+    };
+    const objects = document.objects;
+    const parentChildren = parent.children;
+
+    manager.exit();
+    expect(runtimeCamera.position.toArray()).toEqual([100, 200, 300]);
+    manager.enter();
+
+    expect(runtimeCamera.position.toArray()).toEqual(expectedPose.position);
+    expect(runtimeCamera.quaternion.toArray()).toEqual(expectedPose.quaternion);
+    expect(document.objects).toBe(objects);
+    expect(document.objects).toEqual([parent, child]);
+    expect(parent.children).toBe(parentChildren);
+    expect(parent.children).toEqual([child.id]);
+    expect(parent.locked).toBe(true);
+    expect(child.visible).toBe(false);
+    expect(child.mesh.visible).toBe(false);
+    expect(document.selected).toBeNull();
+    expect(buildEditorObjects).not.toHaveBeenCalled();
+    expect(manager.history.undo()).toBe(true);
+    expect(historyValue()).toBe(0);
+  });
+
+  it("invalidates the saved editor pose and live wrappers on a genuine level load", () => {
+    const manager = Object.create(EditorManager.prototype) as LifecycleManagerHarness;
+    const markClean = vi.fn();
+    const clear = vi.fn();
+    Object.assign(manager, {
+      editorCameraPose: Object.freeze({
+        position: Object.freeze([1, 2, 3]),
+        quaternion: Object.freeze([0, 0, 0, 1]),
+      }),
+      documentNeedsRebuild: false,
+      loadTransaction: { invalidate: vi.fn() },
+      glbPlacementTool: { cancelPendingImport: vi.fn() },
+      buildToolContext: vi.fn(() => ({})),
+      restoringPlayTest: true,
+      toolbarPanel: { setLoadBusy: vi.fn() },
+      history: { clear },
+      levelManager: { getCurrentLevelIdentity: vi.fn(() => null) },
+      documentState: { markClean },
+    });
+
+    manager.handleLevelLoaded("Replacement");
+
+    expect(manager.editorCameraPose).toBeNull();
+    expect(manager.documentNeedsRebuild).toBe(true);
+    expect(clear).toHaveBeenCalledOnce();
+    expect(markClean).toHaveBeenCalledWith("Replacement");
+  });
+
+  it("rebuilds hierarchy metadata from the tracked Three graph only when required", () => {
+    const scene = new THREE.Scene();
+    const parentMesh = new THREE.Group();
+    const childMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
+    const siblingMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
+    parentMesh.userData.editorSource = { type: "primitive", primitive: "group" };
+    childMesh.userData.editorSource = { type: "primitive", primitive: "cube" };
+    siblingMesh.userData.editorSource = { type: "primitive", primitive: "cube" };
+    scene.add(parentMesh, siblingMesh);
+    parentMesh.add(new THREE.Object3D(), childMesh);
+    const document = new EditorDocument(scene, {} as PhysicsWorld);
+    const manager = Object.create(EditorManager.prototype) as LifecycleManagerHarness;
+    Object.assign(manager, {
+      document,
+      documentNeedsRebuild: true,
+      levelManager: {
+        getLevelObjects: vi.fn(() => [childMesh, parentMesh, siblingMesh]),
+        getDynamicBodies: vi.fn(() => []),
+        getLevelObjectTracking: vi.fn(() => ({})),
+      },
+    });
+
+    manager.buildEditorObjects();
+
+    const parent = document.objects.find((object) => object.mesh === parentMesh);
+    const child = document.objects.find((object) => object.mesh === childMesh);
+    const sibling = document.objects.find((object) => object.mesh === siblingMesh);
+    expect(document.objects.map((object) => object.mesh)).toEqual([childMesh, parentMesh, siblingMesh]);
+    expect(parent?.parentId).toBeNull();
+    expect(parent?.children).toEqual([child?.id]);
+    expect(child?.parentId).toBe(parent?.id);
+    expect(child?.children).toEqual([]);
+    expect(sibling?.parentId).toBeNull();
+    expect(sibling?.children).toEqual([]);
+    expect(manager.documentNeedsRebuild).toBe(false);
+  });
+
+  it("routes playtest start and stop through the shared editor pose path", async () => {
+    const makeElement = () => ({
+      className: "",
+      title: "",
+      textContent: "",
+      style: {},
+      appendChild: vi.fn(),
+      addEventListener: vi.fn(),
+      setAttribute: vi.fn(),
+      remove: vi.fn(),
+    });
+    vi.stubGlobal("document", {
+      createElement: vi.fn(makeElement),
+      createElementNS: vi.fn(makeElement),
+      body: { appendChild: vi.fn() },
+    });
+    const runtimeCamera = new THREE.PerspectiveCamera();
+    runtimeCamera.position.set(4, 5, 6);
+    runtimeCamera.quaternion.setFromEuler(new THREE.Euler(0.2, -0.7, 0, "YXZ"));
+    const expectedPose = Object.freeze({
+      position: Object.freeze([4, 5, 6] as const),
+      quaternion: Object.freeze(runtimeCamera.quaternion.toArray()),
+    });
+    const manager = Object.create(EditorManager.prototype) as PlayTestLifecycleHarness;
+    const capturePose = vi.fn(() => expectedPose);
+    const disable = vi.fn();
+    const enable = vi.fn();
+    const exit = vi.fn(() => {
+      manager.editorCameraPose = manager.freeCamera.capturePose();
+      manager.active = false;
+    });
+    Object.assign(manager, {
+      active: true,
+      playTestActive: false,
+      restoringPlayTest: false,
+      editorCameraPose: null,
+      document: { objects: [] },
+      renderer: { camera: runtimeCamera },
+      player: { spawn: vi.fn() },
+      history: { clear: vi.fn() },
+      loadTransaction: new EditorLoadTransaction(),
+      playTestSnapshot: null,
+      playTestStopButton: null,
+      freeCamera: { capturePose, disable, enable },
+      guardDocumentMutation: () => true,
+      commitPendingMaterialEdit: () => true,
+      exit,
+      enter: vi.fn(() => {
+        manager.active = true;
+      }),
+      applyLoadedLevel: vi.fn(async () => "completed"),
+      setSelection: vi.fn(),
+      syncHierarchy: vi.fn(),
+      syncUnloadProtection: vi.fn(),
+      toolbarPanel: { showSaveError: vi.fn() },
+      markDirty: vi.fn(),
+    });
+
+    manager.startPlayTest();
+
+    expect(exit).toHaveBeenCalledOnce();
+    expect(capturePose).toHaveBeenCalledOnce();
+    expect(manager.editorCameraPose).toBe(expectedPose);
+    expect(Object.hasOwn(manager, "playTestCameraState")).toBe(false);
+    disable.mockClear();
+    enable.mockClear();
+
+    await manager.stopPlayTest();
+
+    expect(manager.enter).toHaveBeenCalledWith();
+    expect(disable).not.toHaveBeenCalled();
+    expect(enable).not.toHaveBeenCalled();
+  });
+});
+
+describe("EditorManager development workspace projection", () => {
+  it("returns a cloned primitive projection of the live editor document", () => {
+    const scene = new THREE.Scene();
+    const document = new EditorDocument(scene, {} as PhysicsWorld);
+    const parent = makeTrackedObject("parent", null, ["child"], "static");
+    const child = makeTrackedObject("child", "parent", [], "dynamic");
+    parent.locked = true;
+    child.visible = false;
+    parent.transform.position = [1, 2, 3];
+    child.source = { type: "glb", asset: "/fixture.glb" };
+    child.material = {
+      color: "#123456",
+      roughness: 0.2,
+      metalness: 0.3,
+      emissive: "#000000",
+      emissiveIntensity: 0.4,
+      opacity: 0.5,
+    };
+    document.objects = [parent, child];
+    document.selected = child;
+    const manager = Object.create(EditorManager.prototype) as DebugManagerHarness;
+    manager.document = document;
+
+    const snapshot = manager.getEditorSnapshot();
+
+    expect(snapshot).toEqual({
+      selectedId: child.id,
+      objects: [
+        {
+          id: parent.id,
+          name: parent.name,
+          meshUuid: parent.mesh.uuid,
+          parentId: null,
+          children: [child.id],
+          visible: true,
+          locked: true,
+          transform: { position: [1, 2, 3], rotation: [0, 0, 0], scale: [1, 1, 1] },
+          source: { type: "primitive", primitive: "group" },
+          material: undefined,
+          physicsType: "static",
+        },
+        {
+          id: child.id,
+          name: child.name,
+          meshUuid: child.mesh.uuid,
+          parentId: parent.id,
+          children: [],
+          visible: false,
+          locked: false,
+          transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+          source: { type: "glb", asset: "/fixture.glb" },
+          material: child.material,
+          physicsType: "dynamic",
+        },
+      ],
+    });
+    expect(snapshot.objects[0]?.children).not.toBe(parent.children);
+    expect(snapshot.objects[0]?.transform.position).not.toBe(parent.transform.position);
+    expect(snapshot.objects[1]?.source).not.toBe(child.source);
+    expect(snapshot.objects[1]?.material).not.toBe(child.material);
+  });
+
+  it("sets and clones the persistent editor camera pose through FreeCamera", () => {
+    const pose: FreeCameraPose = {
+      position: [9, 8, 7],
+      quaternion: [0.1, 0.2, 0.3, 0.9],
+    };
+    const captured = Object.freeze({
+      position: Object.freeze([9, 8, 7] as const),
+      quaternion: Object.freeze([0.1, 0.2, 0.3, 0.9] as const),
+    });
+    const manager = Object.create(EditorManager.prototype) as DebugManagerHarness;
+    Object.assign(manager, {
+      editorCameraPose: null,
+      freeCamera: {
+        restorePose: vi.fn(),
+        capturePose: vi.fn(() => captured),
+      },
+    });
+
+    manager.setEditorCameraPose(pose);
+
+    expect(manager.freeCamera.restorePose).toHaveBeenCalledWith(pose);
+    expect(manager.freeCamera.capturePose).toHaveBeenCalledOnce();
+    expect(manager.editorCameraPose).toBe(captured);
   });
 });
 

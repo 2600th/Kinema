@@ -72,6 +72,41 @@ export interface KinemaEditorPhysicsSyncCounters {
   colliderReplacements: number;
 }
 
+export interface KinemaEditorWorkspaceObjectSnapshot {
+  id: string;
+  name: string;
+  meshUuid: string;
+  parentId: string | null;
+  children: string[];
+  visible: boolean;
+  locked: boolean;
+  transform: {
+    position: [number, number, number];
+    rotation: [number, number, number];
+    scale: [number, number, number];
+  };
+  source: {
+    type: "primitive" | "glb" | "sprite" | "brush";
+    asset?: string;
+    primitive?: string;
+    brush?: string;
+  };
+  material?: {
+    color: string;
+    roughness: number;
+    metalness: number;
+    emissive: string;
+    emissiveIntensity: number;
+    opacity: number;
+  };
+  physicsType: "static" | "dynamic" | "kinematic";
+}
+
+export interface KinemaEditorWorkspaceSnapshot {
+  selectedId: string | null;
+  objects: KinemaEditorWorkspaceObjectSnapshot[];
+}
+
 export interface KinemaLevelObjectState {
   name: string;
   visible: boolean;
@@ -148,6 +183,8 @@ export interface KinemaDebugApi {
   getEditorObjectCount(): number;
   getEditorSaveEventCount(): number;
   getEditorDocumentState(): { name: string; dirty: boolean };
+  getEditorSnapshot(): KinemaEditorWorkspaceSnapshot;
+  setEditorCameraPose(pose: KinemaCameraPose): boolean;
   getEditorPhysicsSyncCounters(): KinemaEditorPhysicsSyncCounters;
   resetEditorPhysicsSyncCounters(): void;
   getEditorUnloadProtectionState(): { registered: boolean; lastPrevented: boolean };
