@@ -11,7 +11,17 @@ import type { RendererManager } from "@renderer/RendererManager";
 import * as THREE from "three";
 import { BRUSH_REGISTRY, getBrushById } from "./brushes/index";
 import { CommandHistory } from "./CommandHistory";
-import { buildDeleteSubtreeCommand, type EditorSubtreeState } from "./EditorCommands";
+import {
+  buildDeleteSubtreeCommand,
+  buildLockCommand,
+  buildMaterialCommand,
+  buildRenameCommand,
+  buildVisibilityCommand,
+  type EditorHierarchyState,
+  type EditorMaterialState,
+  type EditorSerializedMaterialState,
+  type EditorSubtreeState,
+} from "./EditorCommands";
 import { EditorDocument, type EditorSubtreeSnapshot } from "./EditorDocument";
 import {
   type EditorDocumentSnapshot,
@@ -70,6 +80,7 @@ export class EditorManager {
   private dragStartTransform: EditorTransformSnapshot | null = null;
   private inspectorEditStartTransform: EditorTransformSnapshot | null = null;
   private inspectorEditObjectId: string | null = null;
+  private materialEditSession: { objectId: string; before: EditorMaterialState } | null = null;
 
   /* ---- Data model ---- */
   private document: EditorDocument;
@@ -154,48 +165,9 @@ export class EditorManager {
       onSelect: (id) => this.selectById(id),
       onDelete: (id) => this.deleteById(id),
       onDuplicate: (id) => this.duplicateById(id),
-      onRename: (id, name) => {
-        if (!this.guardDocumentMutation()) return;
-        const previousName = this.document.findById(id)?.name;
-        this.document.renameById(id, name);
-        if (previousName !== undefined && previousName !== this.document.findById(id)?.name) {
-          this.markDirty();
-        }
-        this.syncHierarchy();
-      },
-      onToggleVisible: (id) => {
-        if (!this.guardDocumentMutation()) return;
-        const target = this.document.findById(id);
-        const previousVisibility = target?.visible ?? true;
-        const wasSelected = this.document.selected?.id === id;
-        this.document.toggleVisibleById(id);
-        if (target && previousVisibility !== (target.visible ?? true)) {
-          this.markDirty();
-        }
-        // If hiding the selected object, deselect to detach gizmo/inspector
-        if (wasSelected) {
-          const obj = this.document.findById(id);
-          if (obj && !obj.visible) {
-            this.setSelection(null);
-          }
-        }
-        this.syncHierarchy();
-      },
-      onToggleLock: (id) => {
-        if (!this.guardDocumentMutation()) return;
-        const target = this.document.findById(id);
-        const previousLock = target?.locked ?? false;
-        const wasSelected = this.document.selected?.id === id;
-        this.document.toggleLockById(id);
-        if (target && previousLock !== (target.locked ?? false)) {
-          this.markDirty();
-        }
-        // toggleLockById clears document.selected directly; sync gizmo/inspector
-        if (wasSelected && !this.document.selected) {
-          this.setSelection(null);
-        }
-        this.syncHierarchy();
-      },
+      onRename: (id, name) => this.renameById(id, name),
+      onToggleVisible: (id) => this.toggleVisibilityById(id),
+      onToggleLock: (id) => this.toggleLockById(id),
       onReparent: (childId, newParentId) => {
         if (!this.guardDocumentMutation()) return;
         const child = this.document.findById(childId);
@@ -295,7 +267,7 @@ export class EditorManager {
 
     this.inspectorPanel = new InspectorPanel({
       onTransformChange: (_id, t, phase) => this.applyInspectorTransform(t, phase),
-      onMaterialChange: (_id, m) => this.applyMaterialChange(m),
+      onMaterialChange: (id, m, phase) => this.applyMaterialChange(id, m, phase),
       onPhysicsTypeChange: (id, type) => this.applyPhysicsTypeChange(id, type),
     });
 
@@ -338,7 +310,7 @@ export class EditorManager {
     this.documentState.markClean(normalizeEditorDocumentName(this.levelManager.getCurrentLevelIdentity()));
 
     this.unsubs.push(this.eventBus.on("editor:toggle", () => this.toggle()));
-    this.unsubs.push(this.eventBus.on("level:willUnload", () => this.history.clear()));
+    this.unsubs.push(this.eventBus.on("level:willUnload", () => this.prepareForExternalUnload()));
     this.unsubs.push(
       this.eventBus.on("level:loaded", ({ name }) => {
         this.loadTransaction.invalidate();
@@ -440,6 +412,7 @@ export class EditorManager {
   }
 
   dispose(): void {
+    this.cancelPendingMaterialEdit();
     this.loadTransaction.invalidate();
     this.glbPlacementTool.cancelPendingImport(this.buildToolContext());
     this.abortPlayTest();
@@ -782,6 +755,7 @@ export class EditorManager {
 
   startPlayTest(): void {
     if (!this.active || this.playTestActive || !this.guardDocumentMutation()) return;
+    if (!this.commitPendingMaterialEdit()) return;
 
     // Undo entries capture mesh/parent references that the play-test
     // restore (applyLoadedLevel) tears down and rebuilds; running them
@@ -1159,6 +1133,7 @@ export class EditorManager {
   }
 
   private setSelection(obj: EditorObject | null): void {
+    if (this.document.selected?.id !== obj?.id && !this.commitPendingMaterialEdit()) return;
     if (
       this.inspectorEditStartTransform &&
       this.document.selected &&
@@ -1355,6 +1330,74 @@ export class EditorManager {
    *  Hierarchy operations (delegate to EditorDocument)
    * ================================================================== */
 
+  private renameById(id: string, name: string): void {
+    if (!this.guardDocumentMutation() || !this.commitPendingMaterialEdit()) return;
+    const target = this.document.findById(id);
+    if (!target) return;
+    const result = buildRenameCommand(this, id, target.name, name);
+    if (result.ok) this.history.push(result.command);
+  }
+
+  private toggleVisibilityById(id: string): void {
+    if (!this.guardDocumentMutation() || !this.commitPendingMaterialEdit()) return;
+    const target = this.document.findById(id);
+    if (!target) return;
+    const visible = target.visible ?? true;
+    const result = buildVisibilityCommand(this, id, visible, !visible, this.document.selected?.id ?? null);
+    if (result.ok) this.history.push(result.command);
+  }
+
+  private toggleLockById(id: string): void {
+    if (!this.guardDocumentMutation() || !this.commitPendingMaterialEdit()) return;
+    const target = this.document.findById(id);
+    if (!target) return;
+    const locked = target.locked ?? false;
+    const result = buildLockCommand(this, id, locked, !locked, this.document.selected?.id ?? null);
+    if (result.ok) this.history.push(result.command);
+  }
+
+  applyHierarchy(state: EditorHierarchyState): boolean {
+    const target = this.document.findById(state.id);
+    if (!target) return false;
+    if (state.type === "rename") {
+      target.name = state.name;
+      target.mesh.name = state.name;
+    } else if (state.type === "visibility") {
+      target.visible = state.visible;
+      target.mesh.visible = state.visible;
+      this.syncSelectionAfterScalarMutation(state.selectionId);
+    } else {
+      target.locked = state.locked;
+      this.syncSelectionAfterScalarMutation(state.selectionId);
+    }
+    if (state.type === "rename") this.syncSelectionAfterScalarMutation(this.document.selected?.id ?? null);
+    try {
+      this.syncHierarchy();
+    } catch (error) {
+      this.reportFailure(`Object ${state.type} committed, but hierarchy publication failed. ${String(error)}`);
+    }
+    return true;
+  }
+
+  private syncSelectionAfterScalarMutation(selectionId: string | null): void {
+    const selection = selectionId ? (this.document.findById(selectionId) ?? null) : null;
+    this.document.selected = selection;
+    const publications = [
+      () => this.gizmo.attach(selection?.mesh ?? null),
+      () => this.inspectorPanel.setSelection(selection),
+      () => this.hierarchyPanel.setSelection(selection?.id ?? null),
+      () => this.setSelectionHelper(selection?.mesh ?? null),
+      () => this.eventBus.emit("editor:objectSelected", selection ? { id: selection.id } : null),
+    ];
+    for (const publish of publications) {
+      try {
+        publish();
+      } catch (error) {
+        this.reportFailure(`Object property committed, but selection publication failed. ${String(error)}`);
+      }
+    }
+  }
+
   deleteSubtree(rootId: string): boolean {
     if (!this.guardDocumentMutation()) return false;
     const result = buildDeleteSubtreeCommand(this, rootId);
@@ -1438,49 +1481,117 @@ export class EditorManager {
    *  Material editing
    * ================================================================== */
 
-  private applyMaterialChange(material: {
-    color: string;
-    roughness: number;
-    metalness: number;
-    emissive: string;
-    emissiveIntensity: number;
-    opacity: number;
-  }): void {
+  private applyMaterialChange(id: string, material: EditorSerializedMaterialState, phase: "preview" | "commit"): void {
     if (!this.guardDocumentMutation()) return;
-    if (!this.document.selected) return;
-    const root = this.document.selected.mesh;
+    const target = this.document.findById(id);
+    if (!target) return;
+    if (this.materialEditSession?.objectId !== id) {
+      if (!this.commitPendingMaterialEdit()) return;
+      const before = this.captureMaterialState(target);
+      if (before.live.length === 0) return;
+      this.materialEditSession = { objectId: id, before };
+    }
 
-    const applyToMaterial = (mat: THREE.MeshStandardMaterial): void => {
-      mat.color.set(material.color);
-      mat.roughness = material.roughness;
-      mat.metalness = material.metalness;
-      mat.emissive.set(material.emissive);
-      mat.emissiveIntensity = material.emissiveIntensity;
-      mat.opacity = material.opacity;
-      // Only trigger shader recompile when transparent flag actually changes
-      // (uniform-only changes like color/roughness auto-sync without needsUpdate)
-      const needsTransparent = material.opacity < 1;
-      if (mat.transparent !== needsTransparent) {
-        mat.transparent = needsTransparent;
-        mat.needsUpdate = true;
-      }
-    };
+    const preview = this.captureMaterialState(target, material);
+    if (!this.applyMaterial(id, preview)) {
+      this.materialEditSession = null;
+      return;
+    }
+    if (phase === "commit") this.commitPendingMaterialEdit();
+  }
 
-    // GLB objects are Groups: the inspector shows material controls for them
-    // (sourced from the first child material), so apply must traverse too —
-    // otherwise the controls are silent no-ops for GLBs.
-    let applied = false;
+  private collectLiveMaterials(root: THREE.Object3D): THREE.MeshStandardMaterial[] {
+    const materials: THREE.MeshStandardMaterial[] = [];
+    const seen = new Set<THREE.MeshStandardMaterial>();
     root.traverse((child) => {
-      if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshStandardMaterial) {
-        applyToMaterial(child.material);
-        applied = true;
+      if (!(child instanceof THREE.Mesh)) return;
+      const candidates = Array.isArray(child.material) ? child.material : [child.material];
+      for (const material of candidates) {
+        if (!(material instanceof THREE.MeshStandardMaterial) || seen.has(material)) continue;
+        seen.add(material);
+        materials.push(material);
       }
     });
-    if (!applied) return;
+    return materials;
+  }
 
-    // Update editor object material record
-    this.document.selected.material = { ...material };
-    this.markDirty();
+  private captureMaterialState(target: EditorObject, preview?: EditorSerializedMaterialState): EditorMaterialState {
+    const serialized = preview ?? target.material;
+    const serializedSnapshot = serialized
+      ? Object.freeze({
+          color: serialized.color,
+          roughness: serialized.roughness,
+          metalness: serialized.metalness,
+          emissive: serialized.emissive,
+          emissiveIntensity: serialized.emissiveIntensity,
+          opacity: serialized.opacity,
+        })
+      : undefined;
+    const live = this.collectLiveMaterials(target.mesh).map((material) =>
+      Object.freeze({
+        material,
+        color: preview ? preview.color : `#${material.color.getHexString()}`,
+        roughness: preview ? preview.roughness : material.roughness,
+        metalness: preview ? preview.metalness : material.metalness,
+        emissive: preview ? preview.emissive : `#${material.emissive.getHexString()}`,
+        emissiveIntensity: preview ? preview.emissiveIntensity : material.emissiveIntensity,
+        opacity: preview ? preview.opacity : material.opacity,
+        transparent: preview ? preview.opacity < 1 : material.transparent,
+      }),
+    );
+    return Object.freeze({ serialized: serializedSnapshot, live: Object.freeze(live) });
+  }
+
+  applyMaterial(id: string, state: EditorMaterialState): boolean {
+    const target = this.document.findById(id);
+    if (!target || state.live.length === 0) return false;
+    for (const snapshot of state.live) {
+      const material = snapshot.material as THREE.MeshStandardMaterial;
+      material.color.set(snapshot.color);
+      material.roughness = snapshot.roughness;
+      material.metalness = snapshot.metalness;
+      material.emissive.set(snapshot.emissive);
+      material.emissiveIntensity = snapshot.emissiveIntensity;
+      material.opacity = snapshot.opacity;
+      if (material.transparent !== snapshot.transparent) {
+        material.transparent = snapshot.transparent;
+        material.needsUpdate = true;
+      }
+    }
+    target.material = state.serialized ? { ...state.serialized } : undefined;
+    if (this.document.selected?.id === id) {
+      try {
+        this.inspectorPanel.setSelection(target);
+      } catch (error) {
+        this.reportFailure(`Material committed, but inspector publication failed. ${String(error)}`);
+      }
+    }
+    return true;
+  }
+
+  private commitPendingMaterialEdit(): boolean {
+    const session = this.materialEditSession;
+    if (!session) return true;
+    this.materialEditSession = null;
+    const target = this.document.findById(session.objectId);
+    if (!target) return false;
+    const after = this.captureMaterialState(target);
+    if (!this.applyMaterial(session.objectId, session.before)) return false;
+    const result = buildMaterialCommand(this, session.objectId, session.before, after);
+    if (!result.ok) return true;
+    return this.history.push(result.command);
+  }
+
+  private cancelPendingMaterialEdit(): void {
+    const session = this.materialEditSession;
+    if (!session) return;
+    this.materialEditSession = null;
+    this.applyMaterial(session.objectId, session.before);
+  }
+
+  private prepareForExternalUnload(): void {
+    this.cancelPendingMaterialEdit();
+    this.history.clear();
   }
 
   /* ==================================================================
@@ -1946,6 +2057,7 @@ export class EditorManager {
    * ================================================================== */
 
   private async saveLevel(): Promise<void> {
+    if (!this.commitPendingMaterialEdit()) return;
     const currentName = this.documentState.value.name;
     const name = window.prompt("Level name:", currentName === "Untitled" ? "custom" : currentName)?.trim();
     if (!name) return;
@@ -2035,6 +2147,7 @@ export class EditorManager {
       }
     }
     if (!this.loadTransaction.isCurrent(loadToken)) return "superseded";
+    if (intent === "user-load") this.cancelPendingMaterialEdit();
     if (intent === "user-load") this.history.clear();
 
     try {

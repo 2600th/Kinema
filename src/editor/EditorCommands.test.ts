@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import { CommandHistory } from "./CommandHistory";
 import {
   buildDeleteSubtreeCommand,
+  buildLockCommand,
+  buildRenameCommand,
+  buildVisibilityCommand,
+  type CommandBuildResult,
   createStateCommand,
+  type EditorHierarchyState,
   type EditorMutationHost,
   type EditorTransformState,
 } from "./EditorCommands";
@@ -53,6 +58,114 @@ function buildDelete(host: EditorMutationHost, rootId = "root") {
   if (!result.ok) throw new Error(result.reason);
   return result.command;
 }
+
+function unwrapCommand(result: CommandBuildResult) {
+  if (!result.ok) throw new Error(result.reason);
+  return result.command;
+}
+
+describe("scalar editor commands", () => {
+  it("round-trips explicit rename, visibility, and lock state with one dirty notification per boundary", () => {
+    const target = {
+      id: "target",
+      name: "Before",
+      meshName: "Before",
+      visible: true,
+      meshVisible: true,
+      locked: false,
+    };
+    let selectedId: string | null = target.id;
+    const host = makeMutationHost();
+    host.applyHierarchy = vi.fn((state: EditorHierarchyState) => {
+      if (state.id !== target.id) return false;
+      if (state.type === "rename") {
+        target.name = state.name;
+        target.meshName = state.name;
+      } else if (state.type === "visibility") {
+        target.visible = state.visible;
+        target.meshVisible = state.visible;
+        selectedId = state.selectionId;
+      } else {
+        target.locked = state.locked;
+        selectedId = state.selectionId;
+      }
+      return true;
+    });
+    const dirty = vi.fn();
+    const history = new CommandHistory(dirty);
+    const project = () => ({ ...target, selectedId });
+
+    const cases = [
+      {
+        command: unwrapCommand(buildRenameCommand(host, target.id, "Before", "After")),
+        beforeProjection: project(),
+        afterProjection: { ...project(), name: "After", meshName: "After" },
+      },
+      {
+        command: unwrapCommand(buildVisibilityCommand(host, target.id, true, false, target.id)),
+        beforeProjection: project(),
+        afterProjection: { ...project(), visible: false, meshVisible: false, selectedId: null },
+      },
+      {
+        command: unwrapCommand(buildLockCommand(host, target.id, false, true, target.id)),
+        beforeProjection: project(),
+        afterProjection: { ...project(), locked: true, selectedId: null },
+      },
+    ];
+
+    for (const { command, beforeProjection, afterProjection } of cases) {
+      expect(history.push(command)).toBe(true);
+      expect(project()).toEqual(afterProjection);
+      expect(history.undo()).toBe(true);
+      expect(project()).toEqual(beforeProjection);
+      expect(history.redo()).toBe(true);
+      expect(project()).toEqual(afterProjection);
+      expect(history.undo()).toBe(true);
+      expect(project()).toEqual(beforeProjection);
+    }
+
+    expect(dirty).toHaveBeenCalledTimes(cases.length * 4);
+  });
+
+  it("restores the exact prior selection when undoing hide and lock commands", () => {
+    const selections: Array<string | null> = [];
+    const host = makeMutationHost();
+    host.applyHierarchy = vi.fn((state: EditorHierarchyState) => {
+      if (state.type !== "rename") selections.push(state.selectionId);
+      return true;
+    });
+    const history = new CommandHistory();
+
+    expect(history.push(unwrapCommand(buildVisibilityCommand(host, "target", true, false, "target")))).toBe(true);
+    expect(history.undo()).toBe(true);
+    expect(history.push(unwrapCommand(buildLockCommand(host, "target", false, true, "target")))).toBe(true);
+    expect(history.undo()).toBe(true);
+
+    expect(selections).toEqual([null, "target", null, "target"]);
+  });
+
+  it("rejects scalar no-ops before history can dirty or mutate", () => {
+    const host = makeMutationHost();
+    const dirty = vi.fn();
+    const history = new CommandHistory(dirty);
+    const results = [
+      buildRenameCommand(host, "target", "Same", "Same"),
+      buildVisibilityCommand(host, "target", true, true, "target"),
+      buildLockCommand(host, "target", false, false, "target"),
+    ];
+
+    expect(results).toEqual([
+      expect.objectContaining({ ok: false }),
+      expect.objectContaining({ ok: false }),
+      expect.objectContaining({ ok: false }),
+    ]);
+    for (const result of results) {
+      if (result.ok) history.push(result.command);
+    }
+    expect(host.applyHierarchy).not.toHaveBeenCalled();
+    expect(dirty).not.toHaveBeenCalled();
+  });
+});
 
 describe("buildDeleteSubtreeCommand", () => {
   it("reuses one subtree state across execute, undo, redo, and applied discard", () => {

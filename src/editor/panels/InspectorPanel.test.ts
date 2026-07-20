@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { bindTransformEditEvents } from "./InspectorPanel";
+import { bindEditEvents } from "./InspectorPanel";
 
 class FakeInput {
   private listeners = new Map<string, ((event: { key?: string }) => void)[]>();
@@ -15,13 +15,13 @@ class FakeInput {
   }
 }
 
-describe("bindTransformEditEvents", () => {
-  it("previews every input but commits exactly once at the change boundary", () => {
+describe("bindEditEvents", () => {
+  it("previews every material input but commits exactly once across Enter, change, and blur", () => {
     const input = new FakeInput();
     const preview = vi.fn();
     const commit = vi.fn();
 
-    bindTransformEditEvents(input, preview, commit);
+    bindEditEvents(input, preview, commit);
     input.dispatch("input");
     input.dispatch("input");
     input.dispatch("input");

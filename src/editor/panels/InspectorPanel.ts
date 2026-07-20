@@ -25,11 +25,12 @@ export interface InspectorCallbacks {
       emissiveIntensity: number;
       opacity: number;
     },
+    phase: "preview" | "commit",
   ) => void;
   onPhysicsTypeChange: (id: string, type: "static" | "dynamic" | "kinematic") => void;
 }
 
-export function bindTransformEditEvents(
+export function bindEditEvents(
   input: { addEventListener(type: string, listener: (event: { key?: string }) => void): void },
   preview: () => void,
   commit: () => void,
@@ -208,15 +209,23 @@ export class InspectorPanel extends EditorPanel {
     /* Wire up transform input callbacks */
     const fireTransform = (phase: "preview" | "commit"): void => {
       if (this.updating || !this.selection) return;
-      this.callbacks.onTransformChange(this.selection.id, {
-        position: this.readVec3(this.posInputs),
-        rotation: this.readVec3Rad(this.rotInputs),
-        scale: this.readVec3(this.scaleInputs),
-      }, phase);
+      this.callbacks.onTransformChange(
+        this.selection.id,
+        {
+          position: this.readVec3(this.posInputs),
+          rotation: this.readVec3Rad(this.rotInputs),
+          scale: this.readVec3(this.scaleInputs),
+        },
+        phase,
+      );
     };
 
     for (const input of [...this.posInputs, ...this.rotInputs, ...this.scaleInputs]) {
-      bindTransformEditEvents(input, () => fireTransform("preview"), () => fireTransform("commit"));
+      bindEditEvents(
+        input,
+        () => fireTransform("preview"),
+        () => fireTransform("commit"),
+      );
     }
 
     this.transformSection.appendChild(this.transformBody);
@@ -262,26 +271,38 @@ export class InspectorPanel extends EditorPanel {
     this.opacitySlider = opacityResult.slider;
 
     /* Wire up material input callbacks */
-    const fireMaterial = (): void => {
+    const fireMaterial = (phase: "preview" | "commit"): void => {
       if (this.updating || !this.selection) return;
-      this.callbacks.onMaterialChange(this.selection.id, {
-        color: this.colorInput.value,
-        roughness: parseFloat(this.roughnessSlider.value),
-        metalness: parseFloat(this.metalnessSlider.value),
-        emissive: this.emissiveInput.value,
-        emissiveIntensity: parseFloat(this.emissiveIntensitySlider.value),
-        opacity: parseFloat(this.opacitySlider.value),
-      });
+      this.callbacks.onMaterialChange(
+        this.selection.id,
+        {
+          color: this.colorInput.value,
+          roughness: parseFloat(this.roughnessSlider.value),
+          metalness: parseFloat(this.metalnessSlider.value),
+          emissive: this.emissiveInput.value,
+          emissiveIntensity: parseFloat(this.emissiveIntensitySlider.value),
+          opacity: parseFloat(this.opacitySlider.value),
+        },
+        phase,
+      );
     };
 
-    this.colorInput.addEventListener("input", () => {
-      this.colorHex.textContent = this.colorInput.value;
-      fireMaterial();
-    });
-    this.emissiveInput.addEventListener("input", () => {
-      this.emissiveHex.textContent = this.emissiveInput.value;
-      fireMaterial();
-    });
+    bindEditEvents(
+      this.colorInput,
+      () => {
+        this.colorHex.textContent = this.colorInput.value;
+        fireMaterial("preview");
+      },
+      () => fireMaterial("commit"),
+    );
+    bindEditEvents(
+      this.emissiveInput,
+      () => {
+        this.emissiveHex.textContent = this.emissiveInput.value;
+        fireMaterial("preview");
+      },
+      () => fireMaterial("commit"),
+    );
 
     for (const slider of [
       this.roughnessSlider,
@@ -289,10 +310,14 @@ export class InspectorPanel extends EditorPanel {
       this.emissiveIntensitySlider,
       this.opacitySlider,
     ]) {
-      slider.addEventListener("input", () => {
-        this.syncSliderDisplay(slider);
-        fireMaterial();
-      });
+      bindEditEvents(
+        slider,
+        () => {
+          this.syncSliderDisplay(slider);
+          fireMaterial("preview");
+        },
+        () => fireMaterial("commit"),
+      );
     }
 
     this.materialSection.appendChild(this.materialBody);

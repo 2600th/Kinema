@@ -32,7 +32,10 @@ export type EditorMaterialState = Readonly<{
 }>;
 
 export type EditorPhysicsState = unknown;
-export type EditorHierarchyState = unknown;
+export type EditorHierarchyState =
+  | Readonly<{ type: "rename"; id: string; name: string }>
+  | Readonly<{ type: "visibility"; id: string; visible: boolean; selectionId: string | null }>
+  | Readonly<{ type: "lock"; id: string; locked: boolean; selectionId: string | null }>;
 export type EditorSubtreeState = Readonly<{ rootId: string }>;
 export type EditorMutationNotice = unknown;
 
@@ -57,6 +60,116 @@ type DeleteSubtreeMutationHost = Pick<
 
 export function createStateCommand<T>(before: T, after: T, apply: (value: T) => boolean): Command {
   return { execute: () => apply(after), undo: () => apply(before) };
+}
+
+type ScalarMutationHost = Pick<EditorMutationHost, "applyHierarchy">;
+
+function buildScalarCommand(
+  host: ScalarMutationHost,
+  before: EditorHierarchyState,
+  after: EditorHierarchyState,
+): CommandBuildResult {
+  if (!before.id.trim()) return { ok: false, reason: "Cannot edit an object without an id." };
+  if (JSON.stringify(before) === JSON.stringify(after)) {
+    return { ok: false, reason: `Object "${before.id}" already has the requested value.` };
+  }
+  return { ok: true, command: createStateCommand(before, after, (state) => host.applyHierarchy(state)) };
+}
+
+export function buildRenameCommand(
+  host: ScalarMutationHost,
+  id: string,
+  beforeName: string,
+  afterName: string,
+): CommandBuildResult {
+  return buildScalarCommand(
+    host,
+    Object.freeze({ type: "rename", id, name: beforeName }),
+    Object.freeze({ type: "rename", id, name: afterName }),
+  );
+}
+
+export function buildVisibilityCommand(
+  host: ScalarMutationHost,
+  id: string,
+  beforeVisible: boolean,
+  afterVisible: boolean,
+  selectionId: string | null,
+): CommandBuildResult {
+  return buildScalarCommand(
+    host,
+    Object.freeze({ type: "visibility", id, visible: beforeVisible, selectionId }),
+    Object.freeze({
+      type: "visibility",
+      id,
+      visible: afterVisible,
+      selectionId: !afterVisible && selectionId === id ? null : selectionId,
+    }),
+  );
+}
+
+export function buildLockCommand(
+  host: ScalarMutationHost,
+  id: string,
+  beforeLocked: boolean,
+  afterLocked: boolean,
+  selectionId: string | null,
+): CommandBuildResult {
+  return buildScalarCommand(
+    host,
+    Object.freeze({ type: "lock", id, locked: beforeLocked, selectionId }),
+    Object.freeze({
+      type: "lock",
+      id,
+      locked: afterLocked,
+      selectionId: afterLocked && selectionId === id ? null : selectionId,
+    }),
+  );
+}
+
+type MaterialMutationHost = Pick<EditorMutationHost, "applyMaterial">;
+
+function materialStatesEqual(before: EditorMaterialState, after: EditorMaterialState): boolean {
+  if (before.serialized === undefined || after.serialized === undefined) {
+    if (before.serialized !== after.serialized) return false;
+  } else if (
+    before.serialized.color !== after.serialized.color ||
+    before.serialized.roughness !== after.serialized.roughness ||
+    before.serialized.metalness !== after.serialized.metalness ||
+    before.serialized.emissive !== after.serialized.emissive ||
+    before.serialized.emissiveIntensity !== after.serialized.emissiveIntensity ||
+    before.serialized.opacity !== after.serialized.opacity
+  ) {
+    return false;
+  }
+  if (before.live.length !== after.live.length) return false;
+  return before.live.every((snapshot, index) => {
+    const other = after.live[index];
+    return (
+      other !== undefined &&
+      snapshot.material === other.material &&
+      snapshot.color === other.color &&
+      snapshot.roughness === other.roughness &&
+      snapshot.metalness === other.metalness &&
+      snapshot.emissive === other.emissive &&
+      snapshot.emissiveIntensity === other.emissiveIntensity &&
+      snapshot.opacity === other.opacity &&
+      snapshot.transparent === other.transparent
+    );
+  });
+}
+
+export function buildMaterialCommand(
+  host: MaterialMutationHost,
+  id: string,
+  before: EditorMaterialState,
+  after: EditorMaterialState,
+): CommandBuildResult {
+  if (!id.trim()) return { ok: false, reason: "Cannot edit material without an object id." };
+  if (materialStatesEqual(before, after)) {
+    return { ok: false, reason: `Object "${id}" already has the requested material.` };
+  }
+  return { ok: true, command: createStateCommand(before, after, (state) => host.applyMaterial(id, state)) };
 }
 
 function describeFailure(error: unknown): string {
