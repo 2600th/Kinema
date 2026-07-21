@@ -1,5 +1,59 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import RAPIER from "@dimforge/rapier3d-compat";
+import { PhysicsWorld } from "@physics/PhysicsWorld";
+import * as THREE from "three";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { ProceduralBuilder } from "./ProceduralBuilder";
+
+const STATION_SIGN_NAMES = [
+  ["steps", "StationSign_steps"],
+  ["slopes", "StationSign_slopes"],
+  ["movement", "StationSign_movement"],
+  ["doubleJump", "StationSign_doubleJump"],
+  ["grab", "StationSign_grab"],
+  ["throw", "StationSign_throw"],
+  ["door", "StationSign_door"],
+  ["vehicles", "StationSign_vehicles"],
+  ["platformsMoving", "StationSign_platformsMoving"],
+  ["platformsPhysics", "StationSign_platformsPhysics"],
+  ["materials", "StationSign_materials"],
+  ["vfx", "StationSign_vfx"],
+  ["navigation", "StationSign_navigation"],
+  ["futureA", "StationSign_futureA"],
+] as const;
+
+type BuilderFixtureInternals = {
+  createGroundGridTexture(): THREE.CanvasTexture;
+  createSectionLabel(
+    text: string,
+    position: THREE.Vector3,
+    scaleX?: number,
+    scaleY?: number,
+    name?: string,
+  ): void;
+  createKinematicDrum(...args: unknown[]): void;
+  createNavcatBay(...args: unknown[]): void;
+  createVfxBayV2(...args: unknown[]): Promise<void>;
+};
+
+beforeAll(async () => {
+  const originalWarn = console.warn.bind(console);
+  const warnSpy = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
+    const first = args[0];
+    if (
+      typeof first === "string" &&
+      first.includes("using deprecated parameters for the initialization function; pass a single object instead")
+    ) {
+      return;
+    }
+    originalWarn(...args);
+  });
+  try {
+    await RAPIER.init();
+  } finally {
+    warnSpy.mockRestore();
+  }
+});
 
 function getSectionLabelInstructions(): string[] {
   const source = readFileSync(new URL("./ProceduralBuilder.ts", import.meta.url), "utf8");
@@ -7,6 +61,72 @@ function getSectionLabelInstructions(): string[] {
 }
 
 describe("procedural showcase instructions", () => {
+  it(
+    "builds every stable station and readability-cue name without colliding the steep-slope marker",
+    async () => {
+      const scene = new THREE.Scene();
+      const physicsWorld = PhysicsWorld.create();
+      let slopeColliders: RAPIER.Collider[] = [];
+
+      try {
+        for (const [station] of STATION_SIGN_NAMES) {
+          const builder = new ProceduralBuilder(scene, physicsWorld, 1, { value: 0 }, station);
+          const internals = builder as unknown as BuilderFixtureInternals;
+          vi.spyOn(internals, "createGroundGridTexture").mockReturnValue(new THREE.CanvasTexture());
+          vi.spyOn(internals, "createSectionLabel").mockImplementation(
+            (text, position, scaleX = 9.6, scaleY = 2.7, name) => {
+              const label = new THREE.Object3D();
+              label.name = name ?? `Label_${text.slice(0, 18)}`;
+              label.position.copy(position);
+              label.scale.set(scaleX, scaleY, 1);
+              label.userData.labelText = text;
+              scene.add(label);
+            },
+          );
+          vi.spyOn(internals, "createKinematicDrum").mockImplementation(() => {});
+          vi.spyOn(internals, "createNavcatBay").mockImplementation(() => {});
+          vi.spyOn(internals, "createVfxBayV2").mockResolvedValue(undefined);
+
+          await builder.build();
+          if (station === "slopes") slopeColliders = builder.getResult().colliders;
+        }
+
+        const expectedNames = [
+          ...STATION_SIGN_NAMES.map(([, name]) => name),
+          "StepsTooTallCue_col",
+          "StepsTooTallLabel",
+          "SlopesTooSteepMarker",
+          "SlopesTooSteepLabel",
+        ];
+        const builtNames: string[] = [];
+        scene.traverse((object) => {
+          if (expectedNames.includes(object.name)) builtNames.push(object.name);
+        });
+        expect(builtNames.sort()).toEqual([...expectedNames].sort());
+
+        const marker = scene.getObjectByName("SlopesTooSteepMarker");
+        expect(marker).toBeDefined();
+        const markerCollider = slopeColliders.find((collider) => {
+          if (collider.shapeType() !== RAPIER.ShapeType.Cuboid) return false;
+          const halfExtents = collider.halfExtents();
+          const position = collider.translation();
+          return (
+            Math.abs(halfExtents.x - 3.2) < 1e-4 &&
+            Math.abs(halfExtents.y - 0.02) < 1e-4 &&
+            Math.abs(halfExtents.z - 0.55) < 1e-4 &&
+            Math.abs(position.x - (marker?.position.x ?? 0)) < 1e-4 &&
+            Math.abs(position.y - (marker?.position.y ?? 0)) < 1e-4 &&
+            Math.abs(position.z - (marker?.position.z ?? 0)) < 1e-4
+          );
+        });
+        expect(markerCollider).toBeUndefined();
+      } finally {
+        physicsWorld.dispose();
+      }
+    },
+    30_000,
+  );
+
   it("keeps remappable control guidance binding-neutral", () => {
     const instructions = getSectionLabelInstructions().join("\n");
 

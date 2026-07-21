@@ -81,7 +81,7 @@ for (const anchor of REVIEW_ANCHORS) {
   });
 }
 
-const VFX_PARITY_OBJECTS = ["StationFloor_col", "ShowcaseBay0_col", "ShowcaseBayAccent0", "VFX_StationSign"] as const;
+const VFX_PARITY_OBJECTS = ["StationFloor_col", "ShowcaseBay0_col", "ShowcaseBayAccent0", "StationSign_vfx"] as const;
 
 function installLoadingStageObserver(): void {
   const stateWindow = window as unknown as Window & { __KINEMA_LOADING_STAGES__: string[] };
@@ -201,7 +201,7 @@ test.describe("VFX renderer-path parity", () => {
       referenceObjects = parityObjects;
 
       const stationLabel = await page.evaluate(
-        () => window.__KINEMA__.getLevelObjectState("VFX_StationSign")?.labelText,
+        () => window.__KINEMA__.getLevelObjectState("StationSign_vfx")?.labelText,
       );
       expect(stationLabel).toBe(
         rendererPath.backend === "WebGLRenderer"

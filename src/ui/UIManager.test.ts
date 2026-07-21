@@ -205,6 +205,22 @@ describe("UIManager", () => {
     ui.dispose();
   });
 
+  it("does not show drone altitude guidance when entering a non-drone vehicle", () => {
+    const listeners = new Map<string, (payload: unknown) => void>();
+    const on = vi.fn((event: string, handler: (payload: unknown) => void) => {
+      listeners.set(event, handler);
+      return () => {};
+    });
+    const ui = new UIManager({ on } as never);
+    const hud = hudInstances[0];
+
+    listeners.get("input:sourceChanged")?.({ source: "gamepad" });
+    listeners.get("vehicle:enter")?.({ vehicle: { type: "car" } });
+
+    expect(hud.showStatus).not.toHaveBeenCalled();
+    ui.dispose();
+  });
+
   it("uses the crouch glyph for vehicle reset progress and restores interaction afterward", () => {
     const listeners = new Map<string, (payload: any) => void>();
     const on = vi.fn((event: string, handler: (payload: any) => void) => {
