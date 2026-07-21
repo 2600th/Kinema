@@ -43,6 +43,7 @@ interface RendererManagerHarness {
   lutName: string;
   lutReady: boolean;
   envName: string;
+  showcaseArtDirectionId: "dawn" | "aurora" | "dusk";
   postFXUniforms: {
     ssrOpacity: { value: number };
     casStrength: { value: number };
@@ -85,6 +86,30 @@ const BALANCED_POST_EFFECTS: PostEffectSettings = {
 };
 
 describe("RendererManager quality mutation boundaries", () => {
+  it("replaces and disposes its renderer-owned sky texture when applying a different candidate", () => {
+    const previousTexture = new THREE.DataTexture();
+    const disposePrevious = vi.spyOn(previousTexture, "dispose");
+    const scene = new THREE.Scene();
+    scene.background = previousTexture;
+    const manager = createManagerHarness({
+      scene,
+      showcaseArtDirectionId: "dawn",
+      showcaseSkyTexture: previousTexture,
+    } as never);
+
+    (
+      manager as unknown as { applyShowcaseArtDirection(id: "dawn" | "aurora" | "dusk"): void }
+    ).applyShowcaseArtDirection("aurora");
+
+    expect(disposePrevious).toHaveBeenCalledOnce();
+    expect(scene.background).toBeInstanceOf(THREE.DataTexture);
+    expect(scene.background).not.toBe(previousTexture);
+    expect(scene.fog).toBeInstanceOf(THREE.Fog);
+    expect((scene.fog as THREE.Fog).near).toBe(110);
+    expect((scene.fog as THREE.Fog).far).toBe(400);
+    expect((manager as unknown as RendererManagerHarness).showcaseArtDirectionId).toBe("aurora");
+  });
+
   it("warms the full advanced pipeline through one hidden exact-path frame", async () => {
     const order: string[] = [];
     const compileScene = vi.fn(async () => {

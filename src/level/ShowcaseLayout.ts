@@ -42,6 +42,8 @@ export const SHOWCASE_LAYOUT = {
 export type ShowcaseStationKey = keyof typeof SHOWCASE_LAYOUT.stations;
 export type ShowcaseReviewSpawnKey = ShowcaseStationKey | "entrance" | "overviewMid" | "overviewEnd";
 export const SHOWCASE_ENTRANCE_START_Z = SHOWCASE_LAYOUT.stations.steps + 14;
+export const SHOWCASE_BOUNDARY_HEIGHT = 1.25;
+export const SHOWCASE_ISOLATED_FLOOR_LENGTH = 50;
 
 // Corridor order from entrance (positive Z) to end wall (negative Z).
 export const SHOWCASE_STATION_ORDER: ShowcaseStationKey[] = [
@@ -78,8 +80,8 @@ export const STATION_SPAWN_OVERRIDES: Partial<
   throw: { offset: [0, 0, 4] },
   door: { offset: [0, 0, 4] },
   vehicles: { offset: [0, 0, 4] },
-  platformsMoving: { offset: [0, 1, 2] },
-  platformsPhysics: { offset: [0, 1, 2] },
+  platformsMoving: { offset: [0, 0, 2] },
+  platformsPhysics: { offset: [0, 0, 2] },
   materials: { offset: [0, 0, 2] },
   vfx: { offset: [0, 0, 2] },
   navigation: { offset: [0, 0, 4] },
@@ -94,6 +96,9 @@ export function getShowcaseBayTopY(): number {
   return SHOWCASE_LAYOUT.bay.pedestalY + SHOWCASE_LAYOUT.bay.pedestalHeight * 0.5;
 }
 
+/** Player capsule center at first contact with the showcase floor. */
+export const SHOWCASE_GROUNDED_SPAWN_Y = getShowcaseBayTopY() + 0.325;
+
 export interface ShowcaseReviewSpawn {
   key: ShowcaseReviewSpawnKey;
   label: string;
@@ -104,14 +109,12 @@ export interface ShowcaseReviewSpawn {
   cameraPitch: number;
 }
 
-const REVIEW_GROUND_Y = getShowcaseBayTopY() + 0.325;
-
 export const PROCEDURAL_REVIEW_SPAWNS: Record<ShowcaseReviewSpawnKey, ShowcaseReviewSpawn> = {
   entrance: {
     key: "entrance",
     label: "Corridor Entrance",
     station: null,
-    offset: [0, REVIEW_GROUND_Y, SHOWCASE_ENTRANCE_START_Z],
+    offset: [0, SHOWCASE_GROUNDED_SPAWN_Y, SHOWCASE_ENTRANCE_START_Z],
     rotation: [0, 0, 0],
     cameraYaw: 0,
     cameraPitch: -0.1,
@@ -120,7 +123,7 @@ export const PROCEDURAL_REVIEW_SPAWNS: Record<ShowcaseReviewSpawnKey, ShowcaseRe
     key: "overviewMid",
     label: "Mid Corridor Overview",
     station: null,
-    offset: [6, REVIEW_GROUND_Y, 44],
+    offset: [6, SHOWCASE_GROUNDED_SPAWN_Y, 44],
     rotation: [0, Math.PI * 0.82, 0],
     cameraYaw: -0.18,
     cameraPitch: -0.12,
@@ -129,7 +132,7 @@ export const PROCEDURAL_REVIEW_SPAWNS: Record<ShowcaseReviewSpawnKey, ShowcaseRe
     key: "overviewEnd",
     label: "Deep Corridor Overview",
     station: null,
-    offset: [-6, REVIEW_GROUND_Y, -168],
+    offset: [-6, SHOWCASE_GROUNDED_SPAWN_Y, -168],
     rotation: [0, 0.12, 0],
     cameraYaw: 0.12,
     cameraPitch: -0.12,
@@ -138,7 +141,7 @@ export const PROCEDURAL_REVIEW_SPAWNS: Record<ShowcaseReviewSpawnKey, ShowcaseRe
     key: "steps",
     label: "Steps Bay",
     station: "steps",
-    offset: [0, REVIEW_GROUND_Y, 9.5],
+    offset: [0, SHOWCASE_GROUNDED_SPAWN_Y, 9.5],
     rotation: [0, 0, 0],
     cameraYaw: 0,
     cameraPitch: -0.18,
@@ -147,7 +150,7 @@ export const PROCEDURAL_REVIEW_SPAWNS: Record<ShowcaseReviewSpawnKey, ShowcaseRe
     key: "slopes",
     label: "Slopes Bay",
     station: "slopes",
-    offset: [0, REVIEW_GROUND_Y, 9.2],
+    offset: [0, SHOWCASE_GROUNDED_SPAWN_Y, 9.2],
     rotation: [0, 0, 0],
     cameraYaw: 0,
     cameraPitch: -0.2,
@@ -156,7 +159,7 @@ export const PROCEDURAL_REVIEW_SPAWNS: Record<ShowcaseReviewSpawnKey, ShowcaseRe
     key: "movement",
     label: "Movement Bay",
     station: "movement",
-    offset: [0, REVIEW_GROUND_Y, 10.4],
+    offset: [0, SHOWCASE_GROUNDED_SPAWN_Y, 10.4],
     rotation: [0, 0.08, 0],
     cameraYaw: 0.08,
     cameraPitch: -0.2,
@@ -165,7 +168,7 @@ export const PROCEDURAL_REVIEW_SPAWNS: Record<ShowcaseReviewSpawnKey, ShowcaseRe
     key: "doubleJump",
     label: "Double Jump Bay",
     station: "doubleJump",
-    offset: [-2.5, REVIEW_GROUND_Y, 9.2],
+    offset: [-2.5, SHOWCASE_GROUNDED_SPAWN_Y, 9.2],
     rotation: [0, 0.12, 0],
     cameraYaw: 0.12,
     cameraPitch: -0.26,
@@ -174,7 +177,7 @@ export const PROCEDURAL_REVIEW_SPAWNS: Record<ShowcaseReviewSpawnKey, ShowcaseRe
     key: "grab",
     label: "Grab Bay",
     station: "grab",
-    offset: [0, REVIEW_GROUND_Y, 9.0],
+    offset: [0, SHOWCASE_GROUNDED_SPAWN_Y, 9.0],
     rotation: [0, 0, 0],
     cameraYaw: 0,
     cameraPitch: -0.18,
@@ -183,7 +186,7 @@ export const PROCEDURAL_REVIEW_SPAWNS: Record<ShowcaseReviewSpawnKey, ShowcaseRe
     key: "throw",
     label: "Throw Bay",
     station: "throw",
-    offset: [0, REVIEW_GROUND_Y, 8.9],
+    offset: [0, SHOWCASE_GROUNDED_SPAWN_Y, 8.9],
     rotation: [0, 0, 0],
     cameraYaw: 0,
     cameraPitch: -0.2,
@@ -192,7 +195,7 @@ export const PROCEDURAL_REVIEW_SPAWNS: Record<ShowcaseReviewSpawnKey, ShowcaseRe
     key: "door",
     label: "Door Bay",
     station: "door",
-    offset: [0, REVIEW_GROUND_Y, 9.0],
+    offset: [0, SHOWCASE_GROUNDED_SPAWN_Y, 9.0],
     rotation: [0, 0, 0],
     cameraYaw: 0,
     cameraPitch: -0.18,
@@ -201,7 +204,7 @@ export const PROCEDURAL_REVIEW_SPAWNS: Record<ShowcaseReviewSpawnKey, ShowcaseRe
     key: "vehicles",
     label: "Vehicles Bay",
     station: "vehicles",
-    offset: [0, REVIEW_GROUND_Y, 9.4],
+    offset: [0, SHOWCASE_GROUNDED_SPAWN_Y, 9.4],
     rotation: [0, 0, 0],
     cameraYaw: 0,
     cameraPitch: -0.17,
@@ -210,7 +213,7 @@ export const PROCEDURAL_REVIEW_SPAWNS: Record<ShowcaseReviewSpawnKey, ShowcaseRe
     key: "platformsMoving",
     label: "Moving Platforms Bay",
     station: "platformsMoving",
-    offset: [-4.5, REVIEW_GROUND_Y, 13.2],
+    offset: [-4.5, SHOWCASE_GROUNDED_SPAWN_Y, 13.2],
     rotation: [0, 0.12, 0],
     cameraYaw: 0.12,
     cameraPitch: -0.16,
@@ -219,7 +222,7 @@ export const PROCEDURAL_REVIEW_SPAWNS: Record<ShowcaseReviewSpawnKey, ShowcaseRe
     key: "platformsPhysics",
     label: "Physics Platforms Bay",
     station: "platformsPhysics",
-    offset: [5, REVIEW_GROUND_Y, 13.2],
+    offset: [5, SHOWCASE_GROUNDED_SPAWN_Y, 13.2],
     rotation: [0, -0.08, 0],
     cameraYaw: -0.08,
     cameraPitch: -0.16,
@@ -228,7 +231,7 @@ export const PROCEDURAL_REVIEW_SPAWNS: Record<ShowcaseReviewSpawnKey, ShowcaseRe
     key: "materials",
     label: "Materials Bay",
     station: "materials",
-    offset: [0, REVIEW_GROUND_Y, 8.8],
+    offset: [0, SHOWCASE_GROUNDED_SPAWN_Y, 8.8],
     rotation: [0, 0, 0],
     cameraYaw: 0,
     cameraPitch: -0.18,
@@ -237,7 +240,7 @@ export const PROCEDURAL_REVIEW_SPAWNS: Record<ShowcaseReviewSpawnKey, ShowcaseRe
     key: "vfx",
     label: "VFX Bay",
     station: "vfx",
-    offset: [0, REVIEW_GROUND_Y, 8.8],
+    offset: [0, SHOWCASE_GROUNDED_SPAWN_Y, 8.8],
     rotation: [0, 0, 0],
     cameraYaw: 0,
     cameraPitch: -0.22,
@@ -246,7 +249,7 @@ export const PROCEDURAL_REVIEW_SPAWNS: Record<ShowcaseReviewSpawnKey, ShowcaseRe
     key: "navigation",
     label: "Navigation Bay",
     station: "navigation",
-    offset: [0, REVIEW_GROUND_Y, 9.1],
+    offset: [0, SHOWCASE_GROUNDED_SPAWN_Y, 9.1],
     rotation: [0, 0, 0],
     cameraYaw: 0,
     cameraPitch: -0.18,
@@ -255,7 +258,7 @@ export const PROCEDURAL_REVIEW_SPAWNS: Record<ShowcaseReviewSpawnKey, ShowcaseRe
     key: "futureA",
     label: "Future Bay",
     station: "futureA",
-    offset: [0, REVIEW_GROUND_Y, 11.8],
+    offset: [0, SHOWCASE_GROUNDED_SPAWN_Y, 11.8],
     rotation: [0, 0, 0],
     cameraYaw: 0,
     cameraPitch: -0.18,

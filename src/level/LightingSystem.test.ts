@@ -3,6 +3,25 @@ import { describe, expect, it, vi } from "vitest";
 import { LightingSystem } from "./LightingSystem";
 
 describe("LightingSystem shadow resource changes", () => {
+  it("preserves renderer-owned sky, fog, and environment presentation", () => {
+    const scene = new THREE.Scene();
+    const background = new THREE.DataTexture();
+    const fog = new THREE.Fog(0x8e99a6, 95, 360);
+    scene.background = background;
+    scene.fog = fog;
+    scene.environmentIntensity = 0.42;
+    scene.backgroundIntensity = 0.73;
+    scene.backgroundBlurriness = 0;
+
+    new LightingSystem(scene).addLighting();
+
+    expect(scene.background).toBe(background);
+    expect(scene.fog).toBe(fog);
+    expect(scene.environmentIntensity).toBe(0.42);
+    expect(scene.backgroundIntensity).toBe(0.73);
+    expect(scene.backgroundBlurriness).toBe(0);
+  });
+
   it("defers a live shadow-map resize through the GPU resource scheduler", () => {
     const scheduled = new Map<string, () => void>();
     const schedule = vi.fn((key: string, mutation: () => void) => {

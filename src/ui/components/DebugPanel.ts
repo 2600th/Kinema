@@ -257,12 +257,12 @@ export class DebugPanel implements Disposable {
     envSection.appendChild(
       this.createRange(
         "envBackgroundIntensity",
-        "Background Intensity",
+        "Sky Intensity",
         0,
         2,
         0.05,
         1.0,
-        "Indirect light contribution from the environment map.",
+        "Scales the designed sky brightness without changing HDR lighting.",
         (value: number) => {
           this.eventBus.emit("debug:envBackgroundIntensity", value);
         },
@@ -272,12 +272,12 @@ export class DebugPanel implements Disposable {
     envSection.appendChild(
       this.createRange(
         "envBackgroundBlurriness",
-        "Background Blur",
+        "Sky Blur",
         0,
         1,
         0.05,
-        0.5,
-        "Blur amount for the environment background.",
+        0,
+        "Blurs the designed sky without changing HDR lighting.",
         (value: number) => {
           this.eventBus.emit("debug:envBackgroundBlurriness", value);
         },
@@ -287,12 +287,12 @@ export class DebugPanel implements Disposable {
     envSection.appendChild(
       this.createRange(
         "envRotationDegrees",
-        "Environment Rotation",
+        "IBL Rotation",
         -180,
         180,
         1,
         0,
-        "Rotates environment lighting/background around Y axis (degrees).",
+        "Rotates HDR image-based lighting around the Y axis.",
         (value: number) => {
           this.eventBus.emit("debug:environmentRotation", value);
         },
@@ -302,10 +302,10 @@ export class DebugPanel implements Disposable {
     envSection.appendChild(
       this.createSelect(
         "envName",
-        "Environment",
+        "HDR Lighting",
         [...ENV_NAMES],
         "Royal Esplanade",
-        "Select an HDR environment map for lighting and background.",
+        "Selects the HDR environment used for image-based lighting.",
         (value) => {
           this.eventBus.emit("debug:environment", value);
         },

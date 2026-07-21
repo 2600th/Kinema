@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { DEFAULT_PLAYER_CONFIG } from "../src/core/constants";
 import { getShowcaseBayTopY, getShowcaseStationZ } from "../src/level/ShowcaseLayout";
 import { waitForGrounded } from "./helpers/kinema";
 
@@ -20,6 +21,7 @@ const CHECKPOINT_POSITION = {
   y: getShowcaseBayTopY() + 0.12,
   z: getShowcaseStationZ("door"),
 };
+const BOOST_PAD_CONTACT_CLEARANCE = 0.01;
 
 async function waitForRuntimeReady(page: Page, url: string): Promise<void> {
   await page.goto(url, { waitUntil: "domcontentloaded" });
@@ -206,6 +208,7 @@ test.describe("Procedural Hazards", () => {
         { timeout: 20_000 },
       );
       await waitForGrounded(page);
+      await expect(page.locator(".iris-container")).toHaveCount(0);
     }
 
     await page.evaluate(() => window.__KINEMA__.forcePlayerPosition({ x: 0, y: -40, z: 0 }));
@@ -222,5 +225,98 @@ test.describe("Procedural Hazards", () => {
       { timeout: 30_000 },
     );
     await waitForGrounded(page);
+    await expect(page.locator(".iris-container")).toHaveCount(0);
+  });
+
+  test("the physics boost arc stays inside the raised station boundary", async ({ page }) => {
+    test.setTimeout(240_000);
+    await waitForRuntimeReady(page, "/?station=platformsPhysics");
+    await page.evaluate(() => window.__KINEMA__.setGraphicsProfile("performance"));
+
+    const geometry = await page.evaluate(() => ({
+      boost: window.__KINEMA__.getLevelObjectState("BoostPlatformStatic_col"),
+      boundary: window.__KINEMA__.getLevelObjectState("StationBoundaryWall_L_col"),
+    }));
+    expect(geometry.boost).not.toBeNull();
+    expect(geometry.boundary).not.toBeNull();
+    if (!geometry.boost || !geometry.boundary) throw new Error("Physics boost safety geometry was not loaded");
+    expect(geometry.boundary.size.y).toBeGreaterThanOrEqual(1.2);
+
+    const launch = await page.evaluate(
+      async ({ boost, boundary, capsuleExtent, contactClearance }) => {
+        const k = window.__KINEMA__;
+        const innerWallX = boundary.position.x + boundary.size.x * 0.5;
+        const outerWallX = boundary.position.x - boundary.size.x * 0.5;
+        const launchStartY = boost.position.y + boost.size.y * 0.5 + capsuleExtent + contactClearance;
+        k.setCameraLook(0, Math.PI / 2);
+        k.startPlayerMotionCapture();
+        k.simulateMove(0, 1, 600);
+        k.teleportPlayer({
+          x: boost.position.x,
+          y: launchStartY,
+          z: boost.position.z,
+        });
+
+        return new Promise<{
+          crossedOuterWallPlane: boolean;
+          finalGrounded: boolean;
+          health: number;
+          launched: boolean;
+          maxVerticalVelocity: number;
+          maxY: number;
+          minX: number;
+          samples: number;
+          timedOut: boolean;
+        }>((resolve) => {
+          const startedAt = performance.now();
+          let crossedOuterWallPlane = false;
+          let launched = false;
+
+          const sample = () => {
+            const player = k.player;
+            launched ||= player.velocity.y > 5 || player.position.y > launchStartY + 0.25;
+            crossedOuterWallPlane ||= player.position.x < outerWallX;
+            const reachedBoundary = player.position.x < innerWallX + 1;
+            const completed = launched && reachedBoundary && player.isGrounded && Math.abs(player.velocity.x) < 0.1;
+            const timedOut = performance.now() - startedAt > 30_000;
+            if (completed || crossedOuterWallPlane || timedOut) {
+              k.clearSimulatedInput();
+              const motion = k.stopPlayerMotionCapture();
+              resolve({
+                crossedOuterWallPlane: crossedOuterWallPlane || motion.minX < outerWallX,
+                finalGrounded: player.isGrounded,
+                health: k.getHealth().current,
+                launched,
+                maxVerticalVelocity: motion.maxVerticalVelocity,
+                maxY: motion.maxY,
+                minX: motion.minX,
+                samples: motion.samples,
+                timedOut,
+              });
+              return;
+            }
+            requestAnimationFrame(sample);
+          };
+          requestAnimationFrame(sample);
+        });
+      },
+      {
+        ...(geometry as {
+          boost: NonNullable<typeof geometry.boost>;
+          boundary: NonNullable<typeof geometry.boundary>;
+        }),
+        contactClearance: BOOST_PAD_CONTACT_CLEARANCE,
+        capsuleExtent: DEFAULT_PLAYER_CONFIG.capsuleHalfHeight + DEFAULT_PLAYER_CONFIG.capsuleRadius,
+      },
+    );
+
+    const launchEvidence = JSON.stringify(launch);
+    expect(launch.timedOut, launchEvidence).toBe(false);
+    expect(launch.launched, launchEvidence).toBe(true);
+    expect(launch.maxVerticalVelocity, launchEvidence).toBeGreaterThan(20);
+    expect(launch.maxY, launchEvidence).toBeGreaterThan(2);
+    expect(launch.crossedOuterWallPlane, launchEvidence).toBe(false);
+    expect(launch.finalGrounded, launchEvidence).toBe(true);
+    expect(launch.health, launchEvidence).toBe(3);
   });
 });

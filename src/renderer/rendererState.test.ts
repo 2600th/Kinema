@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { buildRendererPipelineDescriptor } from "./pipelineProfile";
 import {
   applyPostEffectSettingsBatch,
+  buildRendererDebugFlags,
   getEffectivePostEffectSettings,
   getGraphicsProfileDefaults,
   getRendererPostEffectCapabilities,
@@ -18,6 +20,51 @@ const ALL_ENABLED: PostEffectSettings = {
 };
 
 describe("renderer post-effect state", () => {
+  it("includes the selected showcase art direction in renderer debug flags", () => {
+    const descriptor = buildRendererPipelineDescriptor({
+      profile: "balanced",
+      aaMode: "fxaa",
+      postProcessingEnabled: true,
+      aoEnabled: true,
+      aoOnlyView: false,
+      bloomEnabled: true,
+      ssrEnabled: false,
+      casEnabled: false,
+      casStrength: 0,
+      vignetteEnabled: true,
+      lutEnabled: true,
+    });
+    const flags = buildRendererDebugFlags({
+      isWebGPUPipeline: true,
+      compatibilityPostActive: false,
+      backendInfo: { isWebGPUBackend: true },
+      postEffectCapabilities: getRendererPostEffectCapabilities(true),
+      postProcessingEnabled: true,
+      shadowsEnabled: true,
+      shadowQuality: "auto",
+      shadowQualityResolvedProfile: "balanced",
+      exposure: 0.85,
+      graphicsProfile: "balanced",
+      envRotationDegrees: 0,
+      showcaseArtDirection: "aurora",
+      descriptor,
+      aoOnlyView: false,
+      ssrOpacity: 0.4,
+      ssrResolutionScale: 0.5,
+      bloomStrength: 0.1,
+      casStrength: 0,
+      vignetteEnabled: true,
+      vignetteDarkness: 0.38,
+      lutEnabled: true,
+      lutStrength: 0.38,
+      lutName: "Cubicle 99",
+      lutReady: true,
+      envName: "Sunrise",
+    });
+
+    expect(flags.showcaseArtDirection).toBe("aurora");
+  });
+
   it("keeps the established profile defaults", () => {
     expect(getGraphicsProfileDefaults("performance")).toMatchObject({
       gtaoEnabled: false,

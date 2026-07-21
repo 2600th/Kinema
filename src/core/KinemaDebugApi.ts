@@ -47,6 +47,14 @@ export interface KinemaPlayerState {
   verticalVelocity: number;
 }
 
+export interface KinemaPlayerMotionCapture {
+  active: boolean;
+  samples: number;
+  maxVerticalVelocity: number;
+  maxY: number;
+  minX: number;
+}
+
 export interface KinemaVehicleState {
   id: string;
   active: boolean;
@@ -171,6 +179,8 @@ export interface KinemaDebugApi {
   freezeForCapture(): Promise<void>;
   listReviewSpawns(): string[];
   teleportToReviewSpawn(key: string): boolean;
+  startPlayerMotionCapture(): void;
+  stopPlayerMotionCapture(): KinemaPlayerMotionCapture;
   simulateMove(moveX: number, moveY: number, frames?: number): void;
   simulateHoldInteract(frames?: number): void;
   clearSimulatedInput(): void;

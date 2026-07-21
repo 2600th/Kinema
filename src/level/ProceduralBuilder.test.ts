@@ -55,4 +55,39 @@ describe("procedural showcase instructions", () => {
     expect(source).toContain("slope.quaternion");
     expect(source).toContain("new THREE.Vector3(width, rise, run)");
   });
+
+  it("uses the shared grounded spawn base for full and isolated showcase loads", () => {
+    const source = readFileSync(new URL("./ProceduralBuilder.ts", import.meta.url), "utf8");
+
+    expect(source).toContain("SHOWCASE_GROUNDED_SPAWN_Y");
+    expect(source).not.toContain("position: new THREE.Vector3(0, 2, showcaseCenterZ + SHOWCASE_ENTRANCE_START_Z)");
+    expect(source).not.toContain("position: new THREE.Vector3(ox, 2 + oy, targetZ + 10 + oz)");
+  });
+
+  it("reuses the named perimeter treatment for corridor and isolated station floors", () => {
+    const source = readFileSync(new URL("./ProceduralBuilder.ts", import.meta.url), "utf8");
+
+    expect(source).toMatch(/this\.addPerimeterTreatment\(\s*"ShowcaseBoundaryWall"/);
+    expect(source).toMatch(/this\.addPerimeterTreatment\(\s*"StationBoundaryWall"/);
+    expect(source).toContain("`${namePrefix}_LTrim`");
+    expect(source).toContain("`${namePrefix}_EndTrim`");
+  });
+
+  it("keeps only the end-landmark core and crown independent from fog", () => {
+    const source = readFileSync(new URL("./ProceduralBuilder.ts", import.meta.url), "utf8");
+
+    expect(source).toContain('landmark.name = "ShowcaseEndLandmark"');
+    expect(source).toContain('body.name = "ShowcaseEndLandmarkBody"');
+    expect(source).toContain('core.name = "ShowcaseEndLandmarkCore"');
+    expect(source).toContain('crown.name = "ShowcaseEndLandmarkCrown"');
+    expect(source.match(/fog: false/g)).toHaveLength(2);
+  });
+
+  it("adds alternating corridor wayfinding signs without changing isolated station labels", () => {
+    const source = readFileSync(new URL("./ProceduralBuilder.ts", import.meta.url), "utf8");
+
+    expect(source).toContain("SHOWCASE_STATION_ORDER.slice(1)");
+    expect(source).toContain("`Wayfinding_${key}`");
+    expect(source).toContain("side * 16");
+  });
 });

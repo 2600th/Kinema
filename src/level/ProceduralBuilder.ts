@@ -9,7 +9,10 @@ import { createBush, createFlower, createRock, createTree, scatterProps } from "
 import {
   getShowcaseBayTopY,
   getShowcaseStationZ,
+  SHOWCASE_BOUNDARY_HEIGHT,
   SHOWCASE_ENTRANCE_START_Z,
+  SHOWCASE_GROUNDED_SPAWN_Y,
+  SHOWCASE_ISOLATED_FLOOR_LENGTH,
   SHOWCASE_LAYOUT,
   SHOWCASE_STATION_ORDER,
   type ShowcaseStationKey,
@@ -158,7 +161,9 @@ export class ProceduralBuilder {
   private vfxLightningLightRef: THREE.PointLight | null = null;
   private vfxDisposeCallbacks: Array<() => void> = [];
   private vfxUpdateCallbacks: Array<(dt: number) => void> = [];
-  private spawnPointData: SpawnPointData = { position: new THREE.Vector3(0, 2, 0) };
+  private spawnPointData: SpawnPointData = {
+    position: new THREE.Vector3(0, SHOWCASE_GROUNDED_SPAWN_Y, 0),
+  };
   private navMeshManagerRef: NavMeshManager | null = null;
   private navPatrolSystemRef: NavPatrolSystem | null = null;
   private navDebugOverlayRef: NavDebugOverlay | null = null;
@@ -274,7 +279,7 @@ export class ProceduralBuilder {
     if (!buildAll) {
       // Minimal floor so the player doesn't fall through
       const stationZ = getShowcaseStationZ(this.stationFilterKey!);
-      const stationFloorSize = new THREE.Vector3(60, 1, 30);
+      const stationFloorSize = new THREE.Vector3(60, 1, SHOWCASE_ISOLATED_FLOOR_LENGTH);
       const stationFloor = new THREE.Mesh(
         new THREE.BoxGeometry(stationFloorSize.x, stationFloorSize.y, stationFloorSize.z),
         floorMat,
@@ -285,6 +290,7 @@ export class ProceduralBuilder {
       this.scene.add(stationFloor);
       this.meshes.push(stationFloor);
       this.colliders.push(this.colliderFactory.createFixedCuboid(stationFloor.position, stationFloorSize, 0.7));
+      this.addPerimeterTreatment("StationBoundaryWall", stationFloorSize.x, stationFloorSize.z, stationZ, -1);
     }
 
     // Broad floor
@@ -353,51 +359,7 @@ export class ProceduralBuilder {
       this.meshes.push(hallFloor);
       this.colliders.push(this.colliderFactory.createFixedCuboid(hallFloor.position, hallFloorSize, 0.7));
 
-      const boundaryWallMat = new THREE.MeshStandardMaterial({
-        color: 0x7b8aa5,
-        roughness: 0.45,
-        metalness: 0.08,
-      });
-      const boundaryWallSize = new THREE.Vector3(0.5, 0.7, hallLength);
-      const boundaryEndWallSize = new THREE.Vector3(
-        hallWidth - boundaryWallSize.x * 2,
-        boundaryWallSize.y,
-        boundaryWallSize.x,
-      );
-      const boundaryWallY = -1.0 + boundaryWallSize.y * 0.5;
-      const boundaryEndWallZ = hallLength * 0.5 - boundaryEndWallSize.z * 0.5;
-      this.createFixedStaticBox(
-        "ShowcaseBoundaryWall_L",
-        boundaryWallSize,
-        new THREE.Vector3(-hallWidth * 0.5 + boundaryWallSize.x * 0.5, boundaryWallY, showcaseCenterZ),
-        new THREE.Euler(),
-        boundaryWallMat,
-        "showcase-boundary",
-      );
-      this.createFixedStaticBox(
-        "ShowcaseBoundaryWall_R",
-        boundaryWallSize,
-        new THREE.Vector3(hallWidth * 0.5 - boundaryWallSize.x * 0.5, boundaryWallY, showcaseCenterZ),
-        new THREE.Euler(),
-        boundaryWallMat,
-        "showcase-boundary",
-      );
-      this.createFixedStaticBox(
-        "ShowcaseBoundaryWall_Entrance",
-        boundaryEndWallSize,
-        new THREE.Vector3(0, boundaryWallY, showcaseCenterZ + boundaryEndWallZ),
-        new THREE.Euler(),
-        boundaryWallMat,
-        "showcase-boundary",
-      );
-      this.createFixedStaticBox(
-        "ShowcaseBoundaryWall_End",
-        boundaryEndWallSize,
-        new THREE.Vector3(0, boundaryWallY, showcaseCenterZ - boundaryEndWallZ),
-        new THREE.Euler(),
-        boundaryWallMat,
-        "showcase-boundary",
-      );
+      this.addPerimeterTreatment("ShowcaseBoundaryWall", hallWidth, hallLength, showcaseCenterZ, -1);
 
       // ── Floating sparkle particles throughout the corridor ──
       const sparkles = new SparkleParticles({
@@ -433,6 +395,22 @@ export class ProceduralBuilder {
       0xc0c0c0, // navigation — silver
       0xffdf00, // futureA — bright yellow
     ];
+    const stationWayfindingLabels: Record<ShowcaseStationKey, string> = {
+      steps: "Steps",
+      slopes: "Slopes",
+      movement: "Movement",
+      doubleJump: "Double Jump",
+      grab: "Grab",
+      throw: "Throw",
+      door: "Door",
+      vehicles: "Vehicles",
+      platformsMoving: "Moving Platforms",
+      platformsPhysics: "Physics Platforms",
+      materials: "Materials",
+      vfx: "VFX",
+      navigation: "Navigation",
+      futureA: "Future Lab",
+    };
 
     // Bay pedestals: all in normal mode, single target in station mode.
     const stationKeys = buildAll ? SHOWCASE_STATION_ORDER : [this.stationFilterKey!];
@@ -622,10 +600,23 @@ export class ProceduralBuilder {
       this.meshes.push(light);
     }
 
+    if (buildAll) {
+      for (const [index, key] of SHOWCASE_STATION_ORDER.slice(1).entries()) {
+        const side = index % 2 === 0 ? 1 : -1;
+        this.createSectionLabel(
+          stationWayfindingLabels[key],
+          new THREE.Vector3(side * 16, 4.6, getShowcaseStationZ(key) + 8),
+          5.8,
+          1.35,
+          `Wayfinding_${key}`,
+        );
+      }
+    }
+
     // Spawn point: near corridor entrance in full mode, near target station in station mode.
     if (buildAll) {
       this.spawnPointData = {
-        position: new THREE.Vector3(0, 2, showcaseCenterZ + SHOWCASE_ENTRANCE_START_Z),
+        position: new THREE.Vector3(0, SHOWCASE_GROUNDED_SPAWN_Y, showcaseCenterZ + SHOWCASE_ENTRANCE_START_Z),
         rotation: new THREE.Euler(0, Math.PI, 0),
       };
     } else {
@@ -638,7 +629,7 @@ export class ProceduralBuilder {
         ? new THREE.Euler(override.rotation[0], override.rotation[1], override.rotation[2])
         : new THREE.Euler(0, Math.PI, 0);
       this.spawnPointData = {
-        position: new THREE.Vector3(ox, 2 + oy, targetZ + 10 + oz),
+        position: new THREE.Vector3(ox, SHOWCASE_GROUNDED_SPAWN_Y + oy, targetZ + 10 + oz),
         rotation: rot,
       };
     }
@@ -1526,6 +1517,58 @@ export class ProceduralBuilder {
         this.scene.add(barrier);
         this.meshes.push(barrier);
       });
+
+      const landmark = new THREE.Group();
+      landmark.name = "ShowcaseEndLandmark";
+      landmark.position.set(22, bayTopY, zFutureA - 8);
+
+      const landmarkBodyMat = new THREE.MeshStandardMaterial({
+        color: 0x151d2b,
+        roughness: 0.62,
+        metalness: 0.28,
+        fog: true,
+      });
+      const landmarkCoreMat = new THREE.MeshStandardMaterial({
+        color: 0x27394d,
+        emissive: 0x45d8ff,
+        emissiveIntensity: 2.2,
+        roughness: 0.24,
+        metalness: 0.32,
+        fog: false,
+      });
+      const landmarkCrownMat = new THREE.MeshStandardMaterial({
+        color: 0xffef9c,
+        emissive: 0xffcf45,
+        emissiveIntensity: 3.1,
+        roughness: 0.2,
+        metalness: 0.18,
+        fog: false,
+      });
+
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(4.5, 5.5, 60, 16), landmarkBodyMat);
+      body.name = "ShowcaseEndLandmarkBody";
+      body.position.y = 30;
+      body.castShadow = true;
+      body.receiveShadow = true;
+      landmark.add(body);
+
+      const core = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 3.2, 56, 12), landmarkCoreMat);
+      core.name = "ShowcaseEndLandmarkCore";
+      core.position.set(0, 31, 2.6);
+      landmark.add(core);
+
+      const crown = new THREE.Mesh(new THREE.SphereGeometry(4.2, 16, 12), landmarkCrownMat);
+      crown.name = "ShowcaseEndLandmarkCrown";
+      crown.position.y = 63;
+      landmark.add(crown);
+
+      const crownRing = new THREE.Mesh(new THREE.TorusGeometry(10, 0.55, 8, 32), landmarkCrownMat);
+      crownRing.name = "ShowcaseEndLandmarkCrownRing";
+      crownRing.position.y = 63;
+      landmark.add(crownRing);
+
+      this.scene.add(landmark);
+      this.meshes.push(landmark);
     } // end futureA
 
     await this.yieldProgress(0.92);
@@ -2379,6 +2422,88 @@ export class ProceduralBuilder {
     material: THREE.Material,
   ): void {
     this.createFixedStaticBox(name, size, position, rotation, material, "showcase-ramp");
+  }
+
+  private addPerimeterTreatment(
+    namePrefix: "ShowcaseBoundaryWall" | "StationBoundaryWall",
+    width: number,
+    length: number,
+    centerZ: number,
+    floorSurfaceY: number,
+  ): void {
+    const wallThickness = 0.5;
+    const trimThickness = 0.16;
+    const trimHeight = 0.1;
+    const wallY = floorSurfaceY + SHOWCASE_BOUNDARY_HEIGHT * 0.5;
+    const trimY = floorSurfaceY + SHOWCASE_BOUNDARY_HEIGHT - trimHeight * 0.5;
+    const sideSize = new THREE.Vector3(wallThickness, SHOWCASE_BOUNDARY_HEIGHT, length);
+    const endSize = new THREE.Vector3(width - wallThickness * 2, SHOWCASE_BOUNDARY_HEIGHT, wallThickness);
+    const endOffsetZ = length * 0.5 - wallThickness * 0.5;
+    const wallMaterial = new THREE.MeshStandardMaterial({
+      color: 0x30425a,
+      roughness: 0.58,
+      metalness: 0.16,
+      emissive: 0x102b40,
+      emissiveIntensity: 0.65,
+    });
+    const trimMaterial = new THREE.MeshStandardMaterial({
+      color: 0xa7f4ff,
+      emissive: 0x3bdfff,
+      emissiveIntensity: 2.7,
+      roughness: 0.22,
+      metalness: 0.3,
+    });
+
+    this.createFixedStaticBox(
+      `${namePrefix}_L`,
+      sideSize,
+      new THREE.Vector3(-width * 0.5 + wallThickness * 0.5, wallY, centerZ),
+      new THREE.Euler(),
+      wallMaterial,
+      "showcase-boundary",
+    );
+    this.createFixedStaticBox(
+      `${namePrefix}_R`,
+      sideSize,
+      new THREE.Vector3(width * 0.5 - wallThickness * 0.5, wallY, centerZ),
+      new THREE.Euler(),
+      wallMaterial,
+      "showcase-boundary",
+    );
+    this.createFixedStaticBox(
+      `${namePrefix}_Entrance`,
+      endSize,
+      new THREE.Vector3(0, wallY, centerZ + endOffsetZ),
+      new THREE.Euler(),
+      wallMaterial,
+      "showcase-boundary",
+    );
+    this.createFixedStaticBox(
+      `${namePrefix}_End`,
+      endSize,
+      new THREE.Vector3(0, wallY, centerZ - endOffsetZ),
+      new THREE.Euler(),
+      wallMaterial,
+      "showcase-boundary",
+    );
+
+    const addTrim = (name: string, size: THREE.Vector3, position: THREE.Vector3): void => {
+      const trim = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), trimMaterial);
+      trim.name = name;
+      trim.position.copy(position);
+      trim.castShadow = false;
+      trim.receiveShadow = false;
+      this.scene.add(trim);
+      this.meshes.push(trim);
+    };
+    const sideTrimSize = new THREE.Vector3(trimThickness, trimHeight, length - wallThickness * 2);
+    const endTrimSize = new THREE.Vector3(width - wallThickness * 2, trimHeight, trimThickness);
+    const innerSideX = width * 0.5 - wallThickness - trimThickness * 0.5;
+    const innerEndZ = length * 0.5 - wallThickness - trimThickness * 0.5;
+    addTrim(`${namePrefix}_LTrim`, sideTrimSize, new THREE.Vector3(-innerSideX, trimY, centerZ));
+    addTrim(`${namePrefix}_RTrim`, sideTrimSize, new THREE.Vector3(innerSideX, trimY, centerZ));
+    addTrim(`${namePrefix}_EntranceTrim`, endTrimSize, new THREE.Vector3(0, trimY, centerZ + innerEndZ));
+    addTrim(`${namePrefix}_EndTrim`, endTrimSize, new THREE.Vector3(0, trimY, centerZ - innerEndZ));
   }
 
   private createFixedStaticBox(

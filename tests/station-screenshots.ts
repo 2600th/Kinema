@@ -53,9 +53,7 @@ async function expectNavigationPatrol(page: import("@playwright/test").Page): Pr
   expect(maxDisplacement).toBeGreaterThan(0.5);
 }
 
-async function exerciseNavigationDebugKeys(
-  page: import("@playwright/test").Page,
-): Promise<void> {
+async function exerciseNavigationDebugKeys(page: import("@playwright/test").Page): Promise<void> {
   const before = await page.evaluate(() => window.__KINEMA__.getNavigationDebugState());
   expect(before.overlayAvailable).toBe(true);
   expect(before.targetAvailable).toBe(true);
@@ -103,6 +101,17 @@ for (const station of ALL_STATIONS) {
     const playerState = await getPlayer(page);
     expect(playerState).not.toBeNull();
     expect(playerState.position.y).toBeGreaterThan(-5);
+
+    const isolatedFrame = await page.evaluate(() => ({
+      camera: window.__KINEMA__.getCameraPose(),
+      entrance: window.__KINEMA__.getLevelObjectState("StationBoundaryWall_Entrance_col"),
+      player: window.__KINEMA__.player,
+    }));
+    expect(isolatedFrame.entrance).not.toBeNull();
+    if (!isolatedFrame.entrance) throw new Error("Isolated station entrance perimeter was not loaded");
+    const entranceInnerFaceZ = isolatedFrame.entrance.position.z - isolatedFrame.entrance.size.z * 0.5;
+    expect(isolatedFrame.player.position.z).toBeLessThan(entranceInnerFaceZ);
+    expect(isolatedFrame.camera.position.z).toBeLessThan(entranceInnerFaceZ);
 
     if (station === "navigation") {
       await page.evaluate(() => window.__KINEMA__.setCameraLook(-0.08, 0));

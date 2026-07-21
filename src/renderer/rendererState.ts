@@ -1,5 +1,6 @@
 import type { AntiAliasingMode, GraphicsProfile, ShadowQualityTier, UserSettings } from "@core/UserSettings";
 import type { RendererPipelineDescriptor } from "./pipelineProfile";
+import type { ShowcaseArtDirectionId } from "./showcaseArtDirection";
 
 export type PostEffectSettings = Pick<
   UserSettings,
@@ -115,6 +116,7 @@ export interface RendererDebugFlags {
   exposure: number;
   graphicsProfile: GraphicsProfile;
   envRotationDegrees: number;
+  showcaseArtDirection: ShowcaseArtDirectionId;
   aaMode: AntiAliasingMode;
   aoOnly: boolean;
   ssaoEnabled: boolean;
@@ -146,6 +148,7 @@ export interface BuildRendererDebugFlagsArgs {
   exposure: number;
   graphicsProfile: GraphicsProfile;
   envRotationDegrees: number;
+  showcaseArtDirection: ShowcaseArtDirectionId;
   descriptor: RendererPipelineDescriptor;
   aoOnlyView: boolean;
   ssrOpacity: number;
@@ -232,6 +235,7 @@ export function buildRendererDebugFlags(args: BuildRendererDebugFlagsArgs): Rend
     exposure: args.exposure,
     graphicsProfile: args.graphicsProfile,
     envRotationDegrees: args.envRotationDegrees,
+    showcaseArtDirection: args.showcaseArtDirection,
     aaMode: args.descriptor.aaMode,
     aoOnly: args.aoOnlyView,
     ssaoEnabled: args.postEffectCapabilities.ssaoEnabled && args.descriptor.useAo,

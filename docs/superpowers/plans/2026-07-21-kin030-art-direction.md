@@ -39,7 +39,7 @@ All candidates retain environment intensity 0.68, background intensity 1, and ba
 1. Export the grounded procedural spawn height and use it for full and isolated station spawns.
 2. Raise corridor boundaries to 1.25m, darken their apron material, and add thin emissive trim along the inner top edge. Reuse the perimeter treatment around the minimal station floor so isolated station captures also have no raw floor/void seam.
 3. Add a tall named end pylon at `futureA`, reusing dark/emissive procedural materials and simple cylinder/ring/lamp geometry; keep station colors unchanged.
-4. Add deterministic object-state assertions and write the launch test RED-first: place the player on `BoostPlatformStatic`, face/hold maximum movement toward the nearest hall edge through the real 6x auto-bounce arc, prove the player rises above the normal-jump ceiling, sample the complete airborne path, assert the capsule center never crosses the inner safe plane (`x > -29.15`), and finish grounded without fall damage. Adjust rail geometry only from observed failure evidence.
+4. Add deterministic object-state assertions and write the launch test RED-first: pre-arm maximum movement toward the nearest hall edge, release the non-embedded capsule 1cm above `BoostPlatformStatic`, and hold movement through the real 6x auto-bounce arc. Capture motion at fixed-step rate to prove launch velocity exceeds 20m/s and the apex exceeds 2m, sample through stopped wall contact, assert the player center never crosses the wall's outer face, and finish grounded without fall damage. Adjust rail geometry only from observed failure evidence.
 
 ### 3. Browser capture and approval gate
 

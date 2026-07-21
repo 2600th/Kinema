@@ -1,4 +1,4 @@
-import type { KinemaDebugApi, KinemaInteractionEvent } from "@core/KinemaDebugApi";
+import type { KinemaDebugApi, KinemaInteractionEvent, KinemaPlayerMotionCapture } from "@core/KinemaDebugApi";
 import { shouldUseCompatibilityRenderer } from "@core/mobilePlatform";
 import type { InputState } from "@core/types";
 import RAPIER from "@dimforge/rapier3d-compat";
@@ -63,7 +63,7 @@ async function bootstrap(): Promise<void> {
 
   // Dynamic imports — parallelized so bundler/browser can fetch all chunks concurrently.
   const [
-    { RendererManager, resolveCompatibilityPostEnabled, resolveShaderWarmupEnabled },
+    { RendererManager, resolveCompatibilityPostEnabled, resolveShaderWarmupEnabled, resolveShowcaseArtDirectionId },
     { PhysicsWorld },
     { GameLoop },
     { EventBus },
@@ -113,6 +113,7 @@ async function bootstrap(): Promise<void> {
     forceWebGL: forceWebGPUWebGL,
     preferCompatibilityRenderer: forceCompatibilityRenderer || platformCompatibilityRenderer,
     compatibilityPostEnabled,
+    showcaseArtDirection: resolveShowcaseArtDirectionId(bootstrapParams.get("sky")),
     compatibilityActivationReason: forceCompatibilityRenderer
       ? "explicit"
       : platformCompatibilityRenderer
@@ -535,6 +536,29 @@ async function bootstrap(): Promise<void> {
   if (import.meta.env.DEV) {
     let editorSaveEventCount = 0;
     const interactionEvents: KinemaInteractionEvent[] = [];
+    const playerMotionCapture: KinemaPlayerMotionCapture = {
+      active: false,
+      samples: 0,
+      maxVerticalVelocity: Number.NEGATIVE_INFINITY,
+      maxY: Number.NEGATIVE_INFINITY,
+      minX: Number.POSITIVE_INFINITY,
+    };
+    const samplePlayerMotion = (): void => {
+      if (!playerMotionCapture.active) return;
+      const position = playerController.position;
+      const velocity = playerController.body.linvel();
+      playerMotionCapture.samples++;
+      playerMotionCapture.maxVerticalVelocity = Math.max(playerMotionCapture.maxVerticalVelocity, velocity.y);
+      playerMotionCapture.maxY = Math.max(playerMotionCapture.maxY, position.y);
+      playerMotionCapture.minX = Math.min(playerMotionCapture.minX, position.x);
+    };
+    const snapshotPlayerMotion = (): KinemaPlayerMotionCapture => ({ ...playerMotionCapture });
+    game.registerSystem({
+      id: "player-motion-capture",
+      fixedUpdate: samplePlayerMotion,
+      postPhysicsUpdate: samplePlayerMotion,
+      dispose() {},
+    });
     const recordInteractionEvent = (event: KinemaInteractionEvent): void => {
       interactionEvents.push(event);
       if (interactionEvents.length > 128) interactionEvents.shift();
@@ -689,6 +713,19 @@ async function bootstrap(): Promise<void> {
         playerController.spawn(reviewSpawn.spawn);
         camera.snapToAngle(reviewSpawn.cameraYaw, reviewSpawn.cameraPitch);
         return true;
+      },
+      startPlayerMotionCapture() {
+        playerMotionCapture.active = true;
+        playerMotionCapture.samples = 0;
+        playerMotionCapture.maxVerticalVelocity = Number.NEGATIVE_INFINITY;
+        playerMotionCapture.maxY = Number.NEGATIVE_INFINITY;
+        playerMotionCapture.minX = Number.POSITIVE_INFINITY;
+        samplePlayerMotion();
+      },
+      stopPlayerMotionCapture() {
+        samplePlayerMotion();
+        playerMotionCapture.active = false;
+        return snapshotPlayerMotion();
       },
       /** Simulate movement input for several frames (headless testing). */
       simulateMove(moveX: number, moveY: number, frames = 30) {

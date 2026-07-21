@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { SHOWCASE_BOUNDARY_HEIGHT, SHOWCASE_GROUNDED_SPAWN_Y } from "../src/level/ShowcaseLayout";
 import { waitForGrounded, waitForKinema, waitForLoadingGone } from "./helpers/kinema";
 
 const REVIEW_SPAWNS = [
@@ -33,22 +34,50 @@ test("procedural review spawns render from reusable review points", async ({ pag
   await waitForKinema(page);
   await waitForLoadingGone(page);
 
-  const boundaryWalls = await page.evaluate(() => {
+  const firstInteractivePlayer = await page.evaluate(() => window.__KINEMA__.player);
+  expect(firstInteractivePlayer.isGrounded).toBe(true);
+  expect(firstInteractivePlayer.position.y).toBeGreaterThanOrEqual(SHOWCASE_GROUNDED_SPAWN_Y - 0.05);
+  expect(firstInteractivePlayer.position.y).toBeLessThan(0.5);
+
+  const corridorState = await page.evaluate(() => {
     const k = window.__KINEMA__;
     return {
       entrance: k?.getLevelObjectState?.("ShowcaseBoundaryWall_Entrance_col") ?? null,
       exit: k?.getLevelObjectState?.("ShowcaseBoundaryWall_End_col") ?? null,
+      leftTrim: k?.getLevelObjectState?.("ShowcaseBoundaryWall_LTrim") ?? null,
+      endTrim: k?.getLevelObjectState?.("ShowcaseBoundaryWall_EndTrim") ?? null,
+      landmark: k?.getLevelObjectState?.("ShowcaseEndLandmark") ?? null,
+      landmarkCore: k?.getLevelObjectState?.("ShowcaseEndLandmarkCore") ?? null,
+      landmarkCrown: k?.getLevelObjectState?.("ShowcaseEndLandmarkCrown") ?? null,
+      slopesWayfinding: k?.getLevelObjectState?.("Wayfinding_slopes") ?? null,
+      movementWayfinding: k?.getLevelObjectState?.("Wayfinding_movement") ?? null,
     };
   });
-  expect(boundaryWalls.entrance).not.toBeNull();
-  expect(boundaryWalls.exit).not.toBeNull();
-  if (!boundaryWalls.entrance || !boundaryWalls.exit) throw new Error("Boundary walls were not loaded");
-  expect(boundaryWalls.entrance.position.z).toBeGreaterThan(250);
-  expect(boundaryWalls.exit.position.z).toBeLessThan(-250);
-  expect(boundaryWalls.entrance.size.x).toBeGreaterThan(58);
-  expect(boundaryWalls.entrance.size.y).toBeLessThan(1);
-  expect(Math.abs(boundaryWalls.entrance.position.x)).toBeLessThan(0.1);
-  expect(Math.abs(boundaryWalls.exit.position.x)).toBeLessThan(0.1);
+  expect(corridorState.entrance).not.toBeNull();
+  expect(corridorState.exit).not.toBeNull();
+  expect(corridorState.leftTrim).not.toBeNull();
+  expect(corridorState.endTrim).not.toBeNull();
+  expect(corridorState.landmark).not.toBeNull();
+  expect(corridorState.landmark?.position.x).toBeGreaterThan(20);
+  expect(corridorState.landmark?.size.x).toBeGreaterThan(20);
+  expect(corridorState.landmark?.size.y).toBeGreaterThan(65);
+  expect(corridorState.landmarkCore?.material?.emissive).not.toBeNull();
+  expect(corridorState.landmarkCrown?.material?.emissive).not.toBeNull();
+  expect(corridorState.slopesWayfinding?.labelText).toBe("Slopes");
+  expect(corridorState.movementWayfinding?.labelText).toBe("Movement");
+  expect(corridorState.slopesWayfinding?.position.x).toBeGreaterThan(10);
+  expect(corridorState.movementWayfinding?.position.x).toBeLessThan(-10);
+  if (!corridorState.entrance || !corridorState.exit || !corridorState.leftTrim || !corridorState.endTrim) {
+    throw new Error("Corridor perimeter treatment was not loaded");
+  }
+  expect(corridorState.entrance.position.z).toBeGreaterThan(250);
+  expect(corridorState.exit.position.z).toBeLessThan(-250);
+  expect(corridorState.entrance.size.x).toBeGreaterThan(58);
+  expect(corridorState.entrance.size.y).toBeCloseTo(SHOWCASE_BOUNDARY_HEIGHT);
+  expect(corridorState.leftTrim.size.x).toBeLessThan(0.2);
+  expect(corridorState.endTrim.size.y).toBeLessThanOrEqual(0.11);
+  expect(Math.abs(corridorState.entrance.position.x)).toBeLessThan(0.1);
+  expect(Math.abs(corridorState.exit.position.x)).toBeLessThan(0.1);
 
   for (const spawn of REVIEW_SPAWNS) {
     const teleported = await page.evaluate((spawnKey) => {

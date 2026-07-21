@@ -49,6 +49,15 @@ class FakeElement {
   }
 }
 
+function findElement(root: FakeElement, text: string): FakeElement | null {
+  if (root.textContent === text) return root;
+  for (const child of root.children) {
+    const found = findElement(child, text);
+    if (found) return found;
+  }
+  return null;
+}
+
 describe("DebugPanel", () => {
   const originalDocument = globalThis.document;
 
@@ -113,6 +122,21 @@ describe("DebugPanel", () => {
     expect(panel.checkboxControls.get("cameraCollision").checked).toBe(false);
     expect(panel.checkboxControls.get("shadowFrustums").checked).toBe(true);
     expect(panel.metricBackend.textContent).toBe("WebGPU");
+  });
+
+  it("describes the designed sky separately from HDR lighting controls", () => {
+    const parent = new FakeElement("div");
+    const eventBus = { emit: vi.fn(), on: vi.fn(() => () => {}) };
+    new DebugPanel(parent as unknown as HTMLElement, eventBus as unknown as EventBus);
+
+    const skyIntensity = findElement(parent, "Sky Intensity")?.parentElement;
+    const skyBlur = findElement(parent, "Sky Blur")?.parentElement;
+    const iblRotation = findElement(parent, "IBL Rotation")?.parentElement;
+    const environment = findElement(parent, "HDR Lighting")?.parentElement;
+    expect(skyIntensity?.title).toBe("Scales the designed sky brightness without changing HDR lighting.");
+    expect(skyBlur?.title).toBe("Blurs the designed sky without changing HDR lighting.");
+    expect(iblRotation?.title).toBe("Rotates HDR image-based lighting around the Y axis.");
+    expect(environment?.title).toBe("Selects the HDR environment used for image-based lighting.");
   });
 
   it("shows rolling p50 and p95 frame times while visible", () => {

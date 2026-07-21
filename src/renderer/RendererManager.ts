@@ -60,9 +60,17 @@ import {
   type RendererDebugFlags,
   type RendererPostEffectCapabilities,
 } from "./rendererState";
+import {
+  applyShowcaseArtDirection as applyShowcaseArtDirectionToScene,
+  createShowcaseSkyTexture,
+  DEFAULT_SHOWCASE_ART_DIRECTION_ID,
+  SHOWCASE_ART_DIRECTIONS,
+  type ShowcaseArtDirectionId,
+} from "./showcaseArtDirection";
 
 export { resolveCompatibilityPostEnabled } from "./rendererBootstrap";
 export { resolveShaderWarmupEnabled } from "./shaderWarmup";
+export { resolveShowcaseArtDirectionId } from "./showcaseArtDirection";
 
 /**
  * Renderer notes for the r183 WebGPU path.
@@ -128,6 +136,8 @@ export class RendererManager implements Disposable {
   private readonly assetLibrary = new RendererAssetLibrary();
   private graphicsProfile: GraphicsProfile = "cinematic";
   private envName = "Sunrise";
+  private showcaseArtDirectionId: ShowcaseArtDirectionId;
+  private showcaseSkyTexture: THREE.DataTexture | null = null;
   private postProcessingEnabled = true;
   private shadowsEnabled = true;
   private shadowQualityTier: ShadowQualityTier = "auto";
@@ -195,6 +205,7 @@ export class RendererManager implements Disposable {
       preferCompatibilityRenderer?: boolean;
       compatibilityPostEnabled?: boolean;
       compatibilityActivationReason?: CompatibilityActivationReason;
+      showcaseArtDirection?: ShowcaseArtDirectionId;
     } = {},
   ) {
     this.forceWebGL = options.forceWebGL ?? false;
@@ -203,9 +214,9 @@ export class RendererManager implements Disposable {
     this.compatibilityPostAvailable = this.compatibilityPostEnabled;
     this.compatibilityActivationReason =
       options.compatibilityActivationReason ?? (this.preferCompatibilityRenderer ? "explicit" : null);
+    this.showcaseArtDirectionId = options.showcaseArtDirection ?? DEFAULT_SHOWCASE_ART_DIRECTION_ID;
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0xe8d8c8);
-    this.scene.fog = new THREE.Fog(0xe8d8c8, 140, 400);
+    this.applyShowcaseArtDirection(this.showcaseArtDirectionId);
     applyEnvironmentRotation(this.scene, this.envRotationDegrees);
 
     const initialViewport = resolveViewportMetrics(window);
@@ -271,9 +282,6 @@ export class RendererManager implements Disposable {
           throw new Error("Failed to build room environment during WebGPU bootstrap");
         }
         applyEnvironmentTarget(this.scene, bootstrapEnvTarget, this.envRotationDegrees);
-        this.scene.environmentIntensity = 0.68;
-        this.scene.backgroundIntensity = 1.0;
-        this.scene.backgroundBlurriness = 0.15;
 
         (this as { renderer: THREE.WebGLRenderer | WebGPURenderer }).renderer = bootstrapRenderer;
         this.isWebGPUPipeline = true;
@@ -332,9 +340,17 @@ export class RendererManager implements Disposable {
       throw new Error("Failed to build room environment during fallback bootstrap");
     }
     applyEnvironmentTarget(this.scene, envTarget, this.envRotationDegrees);
-    this.scene.environmentIntensity = 0.68;
-    this.scene.backgroundIntensity = 1.0;
-    this.scene.backgroundBlurriness = 0.15;
+  }
+
+  private applyShowcaseArtDirection(id: ShowcaseArtDirectionId): void {
+    if (this.showcaseSkyTexture && this.showcaseArtDirectionId === id) return;
+
+    const nextTexture = createShowcaseSkyTexture(SHOWCASE_ART_DIRECTIONS[id]);
+    const previousTexture = this.showcaseSkyTexture;
+    this.showcaseArtDirectionId = id;
+    this.showcaseSkyTexture = nextTexture;
+    applyShowcaseArtDirectionToScene(this.scene, SHOWCASE_ART_DIRECTIONS[id], nextTexture);
+    previousTexture?.dispose();
   }
 
   get canvas(): HTMLCanvasElement {
@@ -966,6 +982,7 @@ export class RendererManager implements Disposable {
       exposure: this.toneExposure,
       graphicsProfile: this.appliedGraphicsProfile,
       envRotationDegrees: this.envRotationDegrees,
+      showcaseArtDirection: this.showcaseArtDirectionId,
       descriptor,
       aoOnlyView: qualityState.aoOnlyView,
       ssrOpacity: qualityState.ssrOpacity,
@@ -1161,6 +1178,9 @@ export class RendererManager implements Disposable {
     this.pipelineRebuildNeeded = false;
     this.currentPipelineDescriptor = null;
     this.tslRuntime = null;
+    if (this.scene.background === this.showcaseSkyTexture) this.scene.background = null;
+    this.showcaseSkyTexture?.dispose();
+    this.showcaseSkyTexture = null;
     this.assetLibrary.dispose();
     this.presentationListeners.clear();
 

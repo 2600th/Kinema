@@ -15,12 +15,8 @@ export interface ShadowToggleRendererLike {
 export function applyEnvironmentRotation(scene: THREE.Scene, envRotationDegrees: number): void {
   const radians = THREE.MathUtils.degToRad(envRotationDegrees);
   _envRotation.set(0, radians, 0);
-  const sceneWithRotation = scene as THREE.Scene & {
-    environmentRotation?: THREE.Euler;
-    backgroundRotation?: THREE.Euler;
-  };
+  const sceneWithRotation = scene as THREE.Scene & { environmentRotation?: THREE.Euler };
   sceneWithRotation.environmentRotation = _envRotation;
-  sceneWithRotation.backgroundRotation = _envRotation;
 }
 
 export function applyEnvironmentTarget(
@@ -29,7 +25,6 @@ export function applyEnvironmentTarget(
   envRotationDegrees: number,
 ): void {
   scene.environment = envTarget.texture;
-  scene.background = envTarget.texture;
   applyEnvironmentRotation(scene, envRotationDegrees);
 }
 
