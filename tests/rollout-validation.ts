@@ -32,6 +32,10 @@ const BACK_CHECKPOINT_POSITION = {
 const BOOST_PAD_CONTACT_CLEARANCE = 0.01;
 const COIN_VISUAL_RADIUS = 0.62;
 const COIN_CLEARANCE_EPSILON = 0.01;
+const COIN_COLLECTION_SAMPLE_IDS: Partial<Record<(typeof SHOWCASE_STATION_ORDER)[number], string>> = {
+  platformsMoving: "platformsMoving-coin-4",
+  platformsPhysics: "platformsPhysics-coin-2",
+};
 // GrabGoalSystem resets in fixedUpdate before physics.step. One render frame can then run up to
 // MAX_PHYSICS_STEPS (currently four) semi-implicit gravity steps, whose vertical displacements are
 // g·dt², 2g·dt², ... N·g·dt². Their triangular sum bounds only browser-observed y drift; the exact
@@ -401,7 +405,7 @@ async function proveCoinCollection(page: Page): Promise<void> {
         return (preferredId ? stationCoins.find((entry) => entry.id === preferredId) : stationCoins[0]) ?? null;
       },
       {
-        preferredId: station === "platformsPhysics" ? "platformsPhysics-coin-2" : null,
+        preferredId: COIN_COLLECTION_SAMPLE_IDS[station] ?? null,
         stationKey: station,
       },
     );
@@ -423,9 +427,8 @@ async function proveCoinCollection(page: Page): Promise<void> {
       )
       .toBe(true);
     const before = await page.evaluate(() => window.__KINEMA__.getCollectibleCount());
-    // The moving-platform sample needs extra pre-input drift margin; the physics-platform route is authored
-    // around the closer approach so its moving body does not carry the player past the coin.
-    const approachOffset = station === "platformsMoving" ? 1.8 : 1.2;
+    // The moving station samples its static ground lane; moving-platform behavior is proved separately below.
+    const approachOffset = 1.2;
     await page.evaluate(
       ({ target, offset }) => {
         window.__KINEMA__.teleportPlayer({ x: target.x + offset, y: target.y, z: target.z });

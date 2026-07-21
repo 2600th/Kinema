@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { getProceduralCoinPlacements } from "./CoinLayout";
 import {
@@ -48,6 +49,19 @@ function overlapsVolume(volume: Volume, x: number, y: number, z: number, radius:
 const COIN_VISUAL_RADIUS = 0.62;
 
 describe("procedural pickup layouts", () => {
+  it("uses a static moving-platform coin for the rollout collection proof", () => {
+    const rolloutSource = readFileSync(new URL("../../tests/rollout-validation.ts", import.meta.url), "utf8");
+
+    expect(rolloutSource).toContain('platformsMoving: "platformsMoving-coin-4"');
+    expect(rolloutSource).toContain('platformsPhysics: "platformsPhysics-coin-2"');
+    expect(rolloutSource).toContain("const approachOffset = 1.2;");
+    expect(rolloutSource).not.toContain('station === "platformsMoving" ? 1.8 : 1.2');
+
+    const movingCoin = getProceduralCoinPlacements("platformsMoving")[3];
+    expect(movingCoin?.position.x).toBe(6);
+    expect(movingCoin?.position.z).toBeCloseTo(getShowcaseStationZ("platformsMoving") - 1.4);
+  });
+
   it("keeps the reserved bay empty while preserving the showcase total in a VFX back trail", () => {
     expect(getProceduralCoinPlacements()).toHaveLength(70);
     expect(getProceduralCoinPlacements("futureA")).toEqual([]);
