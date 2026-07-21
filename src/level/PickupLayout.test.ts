@@ -62,6 +62,27 @@ describe("procedural pickup layouts", () => {
     expect(movingCoin?.position.z).toBeCloseTo(getShowcaseStationZ("platformsMoving") - 1.4);
   });
 
+  it("requires stable post-teleport grounding in the door and coin rollout proofs", () => {
+    const rolloutSource = readFileSync(new URL("../../tests/rollout-validation.ts", import.meta.url), "utf8");
+    const stableGroundedHelper =
+      rolloutSource.match(/async function waitForStableGrounded[\s\S]*?(?=\nasync function pulseDoorAction)/)?.[0] ??
+      "";
+    const doorProof =
+      rolloutSource.match(
+        /async function proveDoorActionAndReset[\s\S]*?(?=\nasync function proveGrabGoalReset)/,
+      )?.[0] ?? "";
+    const coinProof =
+      rolloutSource.match(
+        /async function proveCoinCollection[\s\S]*?(?=\nasync function provePhysicsPlatformSafety)/,
+      )?.[0] ?? "";
+
+    expect(stableGroundedHelper).toContain("consecutiveGroundedFrames >= 5");
+    expect(stableGroundedHelper).toContain("performance.now() + 60_000");
+    expect(doorProof).toContain("await waitForStableGrounded(page");
+    expect(doorProof).not.toContain("await waitForGrounded(page)");
+    expect(coinProof).toContain("await waitForStableGrounded(page");
+  });
+
   it("keeps the reserved bay empty while preserving the showcase total in a VFX back trail", () => {
     expect(getProceduralCoinPlacements()).toHaveLength(70);
     expect(getProceduralCoinPlacements("futureA")).toEqual([]);

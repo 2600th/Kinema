@@ -32,6 +32,7 @@ const BACK_CHECKPOINT_POSITION = {
 const BOOST_PAD_CONTACT_CLEARANCE = 0.01;
 const COIN_VISUAL_RADIUS = 0.62;
 const COIN_CLEARANCE_EPSILON = 0.01;
+const DOOR_PROMPT_TIMEOUT_MS = 30_000;
 const COIN_COLLECTION_SAMPLE_IDS: Partial<Record<(typeof SHOWCASE_STATION_ORDER)[number], string>> = {
   platformsMoving: "platformsMoving-coin-4",
   platformsPhysics: "platformsPhysics-coin-2",
@@ -165,6 +166,32 @@ async function activateInputSource(page: Page, source: InputSource): Promise<voi
   await dispatchTouch(crouch, "touchend", 43);
 }
 
+async function waitForStableGrounded(page: Page, message: string): Promise<void> {
+  expect(
+    await page.evaluate(
+      () =>
+        new Promise<boolean>((resolve) => {
+          const deadline = performance.now() + 60_000;
+          let consecutiveGroundedFrames = 0;
+          const sample = () => {
+            consecutiveGroundedFrames = window.__KINEMA__.player.isGrounded ? consecutiveGroundedFrames + 1 : 0;
+            if (consecutiveGroundedFrames >= 5) {
+              resolve(true);
+              return;
+            }
+            if (performance.now() >= deadline) {
+              resolve(false);
+              return;
+            }
+            requestAnimationFrame(sample);
+          };
+          requestAnimationFrame(sample);
+        }),
+    ),
+    message,
+  ).toBe(true);
+}
+
 async function pulseDoorAction(page: Page, source: InputSource): Promise<void> {
   if (source === "keyboard") {
     await page.keyboard.press("KeyF");
@@ -188,15 +215,19 @@ async function proveDoorActionAndReset(page: Page, source: InputSource): Promise
     window.__KINEMA__.teleportPlayer(position);
     window.__KINEMA__.setCameraLook(-0.08, 0);
   }, DOOR_POSITION);
-  await waitForGrounded(page);
+  await waitForStableGrounded(page, `${source} door approach remains grounded across physics frames`);
   const expectedGlyph = source === "keyboard" ? "F" : source === "gamepad" ? "X" : "✋";
-  await expect(page.locator("#hud-prompt")).toContainText(`${expectedGlyph} to Open Door`);
+  await expect(page.locator("#hud-prompt")).toContainText(`${expectedGlyph} to Open Door`, {
+    timeout: DOOR_PROMPT_TIMEOUT_MS,
+  });
 
   await pulseDoorAction(page, source);
   await expect
     .poll(() => page.evaluate(() => window.__KINEMA__.getInteractionEvents()), { timeout: 60_000 })
     .toContainEqual({ type: "interaction:doorToggled", id: "door1", open: true });
-  await expect(page.locator("#hud-prompt")).toContainText(`${expectedGlyph} to Close Door`);
+  await expect(page.locator("#hud-prompt")).toContainText(`${expectedGlyph} to Close Door`, {
+    timeout: DOOR_PROMPT_TIMEOUT_MS,
+  });
   await waitForInputRelease(page);
   await expect
     .poll(() => page.evaluate(() => window.__KINEMA__.player.state), { timeout: 60_000 })
@@ -210,7 +241,9 @@ async function proveDoorActionAndReset(page: Page, source: InputSource): Promise
   await expect
     .poll(() => page.evaluate(() => window.__KINEMA__.player.state), { timeout: 60_000 })
     .not.toBe("interact");
-  await expect(page.locator("#hud-prompt")).toContainText(`${expectedGlyph} to Open Door`);
+  await expect(page.locator("#hud-prompt")).toContainText(`${expectedGlyph} to Open Door`, {
+    timeout: DOOR_PROMPT_TIMEOUT_MS,
+  });
 }
 
 async function proveGrabGoalReset(page: Page): Promise<void> {
@@ -437,29 +470,7 @@ async function proveCoinCollection(page: Page): Promise<void> {
       { offset: approachOffset, target: coin.position },
     );
     // Require a stable grounded window so a stale pre-teleport flag cannot pass this synchronization point.
-    expect(
-      await page.evaluate(
-        () =>
-          new Promise<boolean>((resolve) => {
-            const deadline = performance.now() + 60_000;
-            let consecutiveGroundedFrames = 0;
-            const sample = () => {
-              consecutiveGroundedFrames = window.__KINEMA__.player.isGrounded ? consecutiveGroundedFrames + 1 : 0;
-              if (consecutiveGroundedFrames >= 5) {
-                resolve(true);
-                return;
-              }
-              if (performance.now() >= deadline) {
-                resolve(false);
-                return;
-              }
-              requestAnimationFrame(sample);
-            };
-            requestAnimationFrame(sample);
-          }),
-      ),
-      `${station} approach remains grounded across physics frames`,
-    ).toBe(true);
+    await waitForStableGrounded(page, `${station} approach remains grounded across physics frames`);
     expect(await page.evaluate(() => window.__KINEMA__.getCollectibleCount())).toBe(before);
     const preCollection = await page.evaluate(() => ({
       count: window.__KINEMA__.getCollectibleCount(),
