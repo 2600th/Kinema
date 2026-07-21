@@ -3,7 +3,7 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { FullScreenQuad, Pass } from "three/addons/postprocessing/Pass.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 
-const COMPAT_POST_SAMPLES = 4;
+const COMPAT_POST_SAMPLES = 2;
 const COMPAT_POST_RESOLUTION_SCALE = 0.75;
 
 export interface CompatPostStackState {

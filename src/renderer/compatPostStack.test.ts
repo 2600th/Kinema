@@ -70,8 +70,8 @@ describe("CompatPostStack", () => {
     const failure = new Error("composer failed");
     const info = { autoReset: true, reset: vi.fn() };
     const composer = {
-      renderTarget1: { samples: 4 },
-      renderTarget2: { samples: 4 },
+      renderTarget1: { samples: 2 },
+      renderTarget2: { samples: 2 },
       addPass: vi.fn(),
       setPixelRatio: vi.fn(),
       setSize: vi.fn(),
@@ -82,7 +82,7 @@ describe("CompatPostStack", () => {
       dispose: vi.fn(),
     };
     const factory: CompatPostStackFactory = {
-      createRenderTarget: vi.fn(() => ({ samples: 4 }) as never),
+      createRenderTarget: vi.fn(() => ({ samples: 2 }) as never),
       createComposer: vi.fn(() => composer as never),
       createRenderPass: vi.fn(() => ({}) as never),
       createGradePass: vi.fn(() => ({ setState: vi.fn(), dispose: vi.fn() }) as never),
@@ -101,7 +101,7 @@ describe("CompatPostStack", () => {
       factory,
     );
 
-    expect(factory.createRenderTarget).toHaveBeenCalledWith(800, 600, 4);
+    expect(factory.createRenderTarget).toHaveBeenCalledWith(800, 600, 2);
     expect(() => stack.render()).toThrow(failure);
     expect(info.reset).toHaveBeenCalledOnce();
     expect(info.autoReset).toBe(true);
@@ -140,8 +140,8 @@ describe("CompatPostStack", () => {
 
   it("synchronizes size, grade state, and idempotent ownership disposal", () => {
     const composer = {
-      renderTarget1: { samples: 4 },
-      renderTarget2: { samples: 4 },
+      renderTarget1: { samples: 2 },
+      renderTarget2: { samples: 2 },
       addPass: vi.fn(),
       setPixelRatio: vi.fn(),
       setSize: vi.fn(),
@@ -150,7 +150,7 @@ describe("CompatPostStack", () => {
     };
     const gradePass = { setState: vi.fn(), dispose: vi.fn() };
     const factory: CompatPostStackFactory = {
-      createRenderTarget: vi.fn(() => ({ samples: 4 }) as never),
+      createRenderTarget: vi.fn(() => ({ samples: 2 }) as never),
       createComposer: vi.fn(() => composer as never),
       createRenderPass: vi.fn(() => ({}) as never),
       createGradePass: vi.fn(() => gradePass as never),

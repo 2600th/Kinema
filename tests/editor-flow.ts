@@ -161,8 +161,7 @@ async function beginTransformGizmoDrag(
   const center = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
   const axisOffset = mode === "rotate" ? 130 : mode === "scale" ? 105 : 0;
   const start = { x: center.x + axisOffset, y: center.y };
-  const end =
-    mode === "rotate" ? { x: center.x, y: center.y - 130 } : { x: center.x + 180, y: center.y };
+  const end = mode === "rotate" ? { x: center.x, y: center.y - 130 } : { x: center.x + 180, y: center.y };
   await page.mouse.move(start.x, start.y);
   const pointerTarget = await page.evaluate(({ x, y }) => {
     const element = document.elementFromPoint(x, y);
@@ -215,8 +214,7 @@ test("explains session-only and missing GLB models", async ({ page }) => {
     ),
   );
 
-  const noticeCopy =
-    "Imported model is session-only — copy it to public/assets/models/ to keep it after reload.";
+  const noticeCopy = "Imported model is session-only — copy it to public/assets/models/ to keep it after reload.";
   const sessionNotice = page.locator('.ke-session-import-notice[role="status"]');
   await expect(sessionNotice).toContainText(noticeCopy, { timeout: 60_000 });
   await expect(sessionNotice.getByRole("button", { name: "Dismiss", exact: true })).toBeVisible();
@@ -605,9 +603,7 @@ test("undoes every editor mutation and preserves workspace state", async ({ page
   expect(rotate.release).toMatchObject({ colliderDescriptorBuilds: 0, colliderReplacements: 0 });
   const afterRotate = await page.evaluate(() => window.__KINEMA__.getEditorSnapshot());
   expect(afterRotate.selectedId).toBe(KIN022_IDS[0]);
-  expect(afterRotate.objects.find((object) => object.id === KIN022_IDS[0])?.transform).not.toEqual(
-    baselineTransform,
-  );
+  expect(afterRotate.objects.find((object) => object.id === KIN022_IDS[0])?.transform).not.toEqual(baselineTransform);
   await page.keyboard.press("Control+Z");
   expect(await page.evaluate(() => window.__KINEMA__.getEditorSnapshot())).toEqual(transformBaseline);
   expect(await getKin022Projection(page)).toEqual(KIN022_ORIGINAL_PROJECTION);
@@ -841,13 +837,10 @@ test("commits a held gizmo drag at Ctrl+S and ignores the later pointer release"
   expect(await page.evaluate((pose) => window.__KINEMA__.setEditorCameraPose(pose), transformPose)).toBe(true);
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
   const readTransform = () =>
-    page.evaluate(
-      (id) => {
-        const transform = window.__KINEMA__.getEditorSnapshot().objects.find((object) => object.id === id)?.transform;
-        return transform ? JSON.parse(JSON.stringify(transform)) : undefined;
-      },
-      KIN022_IDS[0],
-    );
+    page.evaluate((id) => {
+      const transform = window.__KINEMA__.getEditorSnapshot().objects.find((object) => object.id === id)?.transform;
+      return transform ? JSON.parse(JSON.stringify(transform)) : undefined;
+    }, KIN022_IDS[0]);
   const baseline = await readTransform();
   const drag = await beginTransformGizmoDrag(page, "translate");
   expect(drag.preview.poseSyncs).toBeGreaterThan(0);
@@ -870,10 +863,12 @@ test("commits a held gizmo drag at Ctrl+S and ignores the later pointer release"
     return level.objects.find((object) => object.id === id)?.transform ?? null;
   }, KIN022_IDS[0]);
   expect(storedTransform).toEqual(dragged);
-  await expect.poll(() => page.evaluate(() => window.__KINEMA__.getEditorDocumentState())).toEqual({
-    name: "kin022-held-gizmo-save",
-    dirty: false,
-  });
+  await expect
+    .poll(() => page.evaluate(() => window.__KINEMA__.getEditorDocumentState()))
+    .toEqual({
+      name: "kin022-held-gizmo-save",
+      dirty: false,
+    });
 
   await drag.moveAgain();
   expect(await readTransform()).toEqual(dragged);
@@ -1119,7 +1114,7 @@ test("play-test cannot survive a main-menu transition and soft-brick the next ru
   await page.getByRole("button", { name: "Main Menu", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Kinema", exact: true })).toBeVisible();
   await expect(page.locator(".menu-screen.active")).toHaveCount(1);
-  await expect(page.getByRole("button", { name: "Resume", exact: true }).locator("..")).not.toHaveClass(/active/);
+  await expect(page.getByRole("dialog", { name: "Paused", includeHidden: true })).not.toHaveClass(/active/);
   await expect.poll(() => page.evaluate(() => window.__KINEMA__.isPlayTesting())).toBe(false);
   await expect(page.locator(".ke-playtest-bar")).toHaveCount(0);
 

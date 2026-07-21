@@ -818,7 +818,7 @@ test.describe("menu accessibility", () => {
     await expect(page.locator("#hud-status-lane")).toHaveAttribute("aria-live", "polite");
     await expect(page.locator("#hud-status-lane")).toHaveAttribute("aria-hidden", "true");
     await expect(page.locator("#hud-objective")).toHaveAttribute("aria-live", "polite");
-    await expect(page.locator(".hud-collectible-chip")).toHaveAttribute("aria-label", "Collectibles: 0");
+    await expect(page.locator(".hud-collectible-chip")).toHaveAttribute("aria-label", "Collectibles: 0 of 0");
     await expect(page.locator(".hud-health-chip")).toHaveAttribute("aria-label", "Health: 3 of 3 hearts");
   });
 });

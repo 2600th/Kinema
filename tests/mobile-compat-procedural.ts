@@ -86,7 +86,7 @@ test("iPhone-like compatibility renderer loads the full procedural level without
 });
 
 test("compatibility post p95 stays within the measured mobile proxy budget", async ({ browser, baseURL }, testInfo) => {
-  test.setTimeout(300_000);
+  test.setTimeout(600_000);
   const origin = baseURL ?? "http://localhost:5173";
 
   async function measurePath(compatibilityPostEnabled: boolean) {

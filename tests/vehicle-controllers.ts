@@ -689,23 +689,20 @@ test.describe("Vehicle Controllers", () => {
     await page.evaluate(() => window.__KINEMA__.simulateVehicleInput({ moveY: 1, sprint: true }, 90));
 
     await page.waitForFunction(
-      () => {
+      (start) => {
         const s = window.__KINEMA__.getVehicleState("drone-1");
         if (!s) return false;
-        const speed = Math.hypot(s.velocity.x, s.velocity.y, s.velocity.z);
-        return speed > 0.2;
+        const horizontalSpeed = Math.hypot(s.velocity.x, s.velocity.z);
+        const horizontalDistance = Math.hypot(s.position.x - start.position.x, s.position.z - start.position.z);
+        return horizontalSpeed > 0.2 && horizontalDistance > 0.05;
       },
-      undefined,
+      before,
       { timeout: 10_000 },
     );
 
     const after = await getVehicleState(page, "drone-1");
-    const moved = Math.hypot(
-      after.position.x - before.position.x,
-      after.position.y - before.position.y,
-      after.position.z - before.position.z,
-    );
-    const speed = Math.hypot(after.velocity.x, after.velocity.y, after.velocity.z);
+    const moved = Math.hypot(after.position.x - before.position.x, after.position.z - before.position.z);
+    const speed = Math.hypot(after.velocity.x, after.velocity.z);
     expect(after.active).toBe(true);
     expect(speed).toBeGreaterThan(0.2);
     expect(moved).toBeGreaterThan(0.05);

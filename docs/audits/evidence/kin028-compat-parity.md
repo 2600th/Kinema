@@ -11,7 +11,9 @@ Both paths used an iPhone-like 844 x 390 context, the VFX station, the balanced 
 | Bare `compatPost=0` | 133.40, 166.60, 150.00 | 150.00 ms | 0 |
 | Enabled compatibility post | 133.40, 166.60, 133.30 | 133.40 ms | 0 |
 
-The enabled/bare median ratio was 0.889, inside the required maximum of 1.10. The result includes the final half-float `RenderPass -> CompatGradePass` stack at 0.75 internal resolution with device-capped 4x MSAA. It should be treated as a non-regression observation on this proxy, not evidence of a performance improvement on physical Apple hardware.
+The enabled/bare median ratio was 0.889, inside the required maximum of 1.10. It should be treated as a non-regression observation on this proxy, not evidence of a performance improvement on physical Apple hardware.
+
+Full-suite revalidation later on 2026-07-21 found a repeatable sustained-load ratio of 1.143 with the original 4x offscreen MSAA cap. Reducing only the cap to 2x, while retaining the 0.75 internal scale and unchanged half-float `RenderPass -> CompatGradePass` stack, produced bare p95 windows of `233.4, 233.4, 233.3ms` and enabled windows of `266.5, 250.0, 250.0ms`. The median ratio was `250.0 / 233.4 = 1.071`, inside the unchanged 1.10 gate, with zero runtime errors.
 
 ## Visual and structural parity
 

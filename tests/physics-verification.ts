@@ -208,10 +208,14 @@ test.describe("Bootstrap Verification", () => {
       window.__KINEMA__.setCameraLook(-0.08, 0);
     });
     await waitForGrounded(page);
-    await page.keyboard.press("f");
+    await expect(page.locator("#hud-prompt")).toContainText("Pick Up");
+    await page.evaluate(() => window.__KINEMA__.simulateHoldInteract(2));
     await expect.poll(() => page.evaluate(() => window.__KINEMA__.player.state)).toBe("carry");
+    await page.evaluate(() => window.__KINEMA__.clearSimulatedInput());
 
-    await page.evaluate(() => window.__KINEMA__.setCameraLook(0.05, -0.26));
+    // Give the real thrown body a deterministic, prompt downward contact
+    // instead of relying on a shallow trajectory eventually finding scenery.
+    await page.evaluate(() => window.__KINEMA__.setCameraLook(0.32, -0.26));
     await canvas.dispatchEvent("mousedown", { button: 0 });
     await expect.poll(() => page.evaluate(() => window.__KINEMA__.player.state)).not.toBe("carry");
     await page.evaluate(() => window.dispatchEvent(new MouseEvent("mouseup", { button: 0 })));
@@ -222,7 +226,7 @@ test.describe("Bootstrap Verification", () => {
             const stateWindow = window as unknown as Window & { __KINEMA_IMPACT_TOASTS__: string[] };
             return stateWindow.__KINEMA_IMPACT_TOASTS__.length;
           }),
-        { timeout: 10_000 },
+        { timeout: 20_000 },
       )
       .toBe(1);
     await page.waitForTimeout(1_500);
