@@ -45,7 +45,7 @@ function overlapsVolume(volume: Volume, x: number, y: number, z: number, radius:
   );
 }
 
-const COIN_VISUAL_RADIUS = 0.57;
+const COIN_VISUAL_RADIUS = 0.62;
 
 describe("procedural pickup layouts", () => {
   it("keeps the reserved bay empty while preserving the showcase total in a VFX back trail", () => {
@@ -120,6 +120,15 @@ describe("procedural pickup layouts", () => {
     for (let index = 1; index < doubleJump.length; index += 1) {
       expect(doubleJump[index].position.y).toBeGreaterThan(doubleJump[index - 1].position.y);
     }
+    const doubleJumpStepTops = [
+      getShowcaseBayTopY() + 0.5,
+      getShowcaseBayTopY() + 1.3 + 0.225,
+      getShowcaseBayTopY() + 2.9 + 0.225,
+      getShowcaseBayTopY() + 4.1 + 0.25,
+    ];
+    doubleJumpStepTops.forEach((stepTop, index) => {
+      expect(doubleJump[index].position.y - stepTop).toBeGreaterThanOrEqual(COIN_VISUAL_RADIUS);
+    });
 
     const materials = getProceduralCoinPlacements("materials");
     expect(materials.map((coin) => coin.position.x)).toEqual([-16.8, -8.4, 0, 8.4, 16.8]);

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { SHOWCASE_BOUNDARY_HEIGHT, SHOWCASE_GROUNDED_SPAWN_Y } from "../src/level/ShowcaseLayout";
-import { waitForGrounded, waitForKinema, waitForLoadingGone } from "./helpers/kinema";
+import { waitForKinema, waitForLoadingGone } from "./helpers/kinema";
 
 const REVIEW_SPAWNS = [
   "entrance",
@@ -21,9 +21,10 @@ const REVIEW_SPAWNS = [
   "futureA",
   "overviewEnd",
 ] as const;
+const REVIEW_PROFILE = "balanced" as const;
 
-test("procedural review spawns render from reusable review points", async ({ page }) => {
-  test.setTimeout(240_000);
+test("procedural review spawns render from reusable review points", async ({ page }, testInfo) => {
+  test.setTimeout(600_000);
   const consoleErrors: string[] = [];
   page.on("console", (msg) => {
     if (msg.type() === "error") consoleErrors.push(msg.text());
@@ -33,6 +34,9 @@ test("procedural review spawns render from reusable review points", async ({ pag
   await page.locator("canvas").waitFor({ state: "visible", timeout: 15_000 });
   await waitForKinema(page);
   await waitForLoadingGone(page);
+  expect(await page.evaluate((profile) => window.__KINEMA__.setGraphicsProfile(profile), REVIEW_PROFILE)).toBe(
+    REVIEW_PROFILE,
+  );
 
   const firstInteractivePlayer = await page.evaluate(() => window.__KINEMA__.player);
   expect(firstInteractivePlayer.isGrounded).toBe(true);
@@ -79,13 +83,11 @@ test("procedural review spawns render from reusable review points", async ({ pag
   expect(Math.abs(corridorState.entrance.position.x)).toBeLessThan(0.1);
   expect(Math.abs(corridorState.exit.position.x)).toBeLessThan(0.1);
 
-  for (const spawn of REVIEW_SPAWNS) {
+  for (const [index, spawn] of REVIEW_SPAWNS.entries()) {
     const teleported = await page.evaluate((spawnKey) => {
       return window.__KINEMA__.teleportToReviewSpawn?.(spawnKey) ?? false;
     }, spawn);
     expect(teleported).toBe(true);
-
-    await waitForGrounded(page);
 
     const playerState = await page.evaluate(() => {
       const k = window.__KINEMA__;
@@ -93,6 +95,21 @@ test("procedural review spawns render from reusable review points", async ({ pag
     });
     expect(playerState).not.toBeNull();
     expect(playerState.position.y).toBeGreaterThan(-5);
+
+    await page.evaluate(async (profile) => {
+      await document.fonts.ready;
+      await window.__KINEMA__.freezeForCapture();
+      await window.__KINEMA__.setGraphicsProfile(profile);
+    }, REVIEW_PROFILE);
+    await expect
+      .poll(() => page.evaluate(() => window.__KINEMA__.getRendererDebugFlags().graphicsProfile), {
+        timeout: 60_000,
+      })
+      .toBe(REVIEW_PROFILE);
+    await expect(page.locator("#renderer-status-badge")).toHaveText(/ · balanced$/);
+    await page.screenshot({
+      path: testInfo.outputPath(`${String(index + 1).padStart(2, "0")}-${spawn}.png`),
+    });
   }
 
   const vehicleIds = await page.evaluate(() => {

@@ -41,8 +41,8 @@ const STATION_LOCAL_COIN_LAYOUTS: Record<ShowcaseStationKey, readonly LocalCoinP
   doubleJump: [
     coin([-6, ROUTE_COIN_HEIGHT + 0.2, 0]),
     coin([-2.8, ROUTE_COIN_HEIGHT + 1.05, 0]),
-    coin([0.3, REWARD_COIN_HEIGHT + 1.55, 0]),
-    coin([4.2, REWARD_COIN_HEIGHT + 2.35, 0]),
+    coin([0.3, REWARD_COIN_HEIGHT + 1.6, 0]),
+    coin([4.2, REWARD_COIN_HEIGHT + 2.85, 0]),
     coin([8.1, REWARD_COIN_HEIGHT + 2.95, -0.2]),
   ],
   grab: [

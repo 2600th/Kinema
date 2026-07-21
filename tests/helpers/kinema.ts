@@ -30,6 +30,24 @@ export async function waitForLoadingGone(page: Page): Promise<void> {
   await page.locator(".loading-screen").waitFor({ state: "hidden", timeout: KINEMA_TIMEOUT_MS });
 }
 
+export async function waitForRenderFrame(page: Page): Promise<void> {
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+}
+
+export async function waitForInputRelease(page: Page): Promise<void> {
+  await waitForRenderFrame(page);
+  await waitForRenderFrame(page);
+}
+
+export async function waitForGamepadPoll(page: Page, previousCalls: number): Promise<void> {
+  await page.waitForFunction(
+    (calls) =>
+      (window as unknown as { __KINEMA_TEST_GAMEPAD__: { calls: number } }).__KINEMA_TEST_GAMEPAD__.calls > calls,
+    previousCalls,
+    { timeout: KINEMA_TIMEOUT_MS },
+  );
+}
+
 export async function getPlayer(page: Page): Promise<KinemaDebugApi["player"]> {
   await waitForKinema(page);
   return page.evaluate(() => {

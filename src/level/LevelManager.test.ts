@@ -1375,5 +1375,11 @@ describe("LevelManager moving platform metadata", () => {
 
     expect((body.userData as any).kind).toBe("moving-platform");
     expect(Math.abs((body.userData as any).platformLinearVelocity.x)).toBeGreaterThan(0.01);
+    const firstPhaseX = mesh.position.x;
+
+    (manager as unknown as { simTime: number }).simTime = Math.PI * 2;
+    manager.fixedUpdate(0.25);
+
+    expect(mesh.position.x).toBeCloseTo(firstPhaseX, 6);
   });
 });

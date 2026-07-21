@@ -17,6 +17,13 @@ export interface KinemaVector3 {
   z: number;
 }
 
+export function isFixedWorldCollider(collider: {
+  isSensor(): boolean;
+  parent(): { isFixed(): boolean } | null;
+}): boolean {
+  return !collider.isSensor() && (collider.parent()?.isFixed() ?? true);
+}
+
 export interface KinemaQuaternion {
   x: number;
   y: number;
@@ -170,6 +177,7 @@ export interface KinemaDebugApi {
     origin: KinemaVector3,
     direction: KinemaVector3,
     maxToi: number,
+    options?: { fixedOnly?: boolean },
   ): { timeOfImpact: number; normal: KinemaVector3 } | null;
   restartCurrentRun(): Promise<void>;
   readonly player: KinemaPlayerState;

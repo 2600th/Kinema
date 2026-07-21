@@ -1,4 +1,9 @@
-import type { KinemaDebugApi, KinemaInteractionEvent, KinemaPlayerMotionCapture } from "@core/KinemaDebugApi";
+import {
+  isFixedWorldCollider,
+  type KinemaDebugApi,
+  type KinemaInteractionEvent,
+  type KinemaPlayerMotionCapture,
+} from "@core/KinemaDebugApi";
 import { shouldUseCompatibilityRenderer } from "@core/mobilePlatform";
 import type { InputState } from "@core/types";
 import RAPIER from "@dimforge/rapier3d-compat";
@@ -610,8 +615,20 @@ async function bootstrap(): Promise<void> {
       getRendererMemoryState: () => renderer.getMemoryDebugState(),
       getLastLoadStats: () => levelManager.getLastLoadStats(),
       getColliderShapeStats: () => levelManager.getColliderShapeStats(),
-      castWorldRay(origin: THREE.Vector3Like, direction: THREE.Vector3Like, maxToi: number) {
-        const hit = physicsWorld.castRayAndGetNormal(origin, direction, maxToi);
+      castWorldRay(
+        origin: THREE.Vector3Like,
+        direction: THREE.Vector3Like,
+        maxToi: number,
+        options?: { fixedOnly?: boolean },
+      ) {
+        const hit = physicsWorld.castRayAndGetNormal(
+          origin,
+          direction,
+          maxToi,
+          undefined,
+          undefined,
+          options?.fixedOnly ? isFixedWorldCollider : undefined,
+        );
         if (!hit) return null;
         return {
           timeOfImpact: hit.timeOfImpact,
