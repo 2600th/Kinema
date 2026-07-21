@@ -90,6 +90,20 @@ describe("GrabGoalSystem", () => {
     expect(mainSource).toContain("placeGrabCubeOnGoal: (name?: string) => game.placeGrabCubeOnGoal(name)");
   });
 
+  it("keeps horizontal browser reset checks strict while bounding vertical fixed-step catch-up", () => {
+    const rolloutSource = readFileSync(new URL("../../tests/rollout-validation.ts", import.meta.url), "utf8");
+
+    expect(rolloutSource).toContain("MAX_PHYSICS_STEPS");
+    expect(rolloutSource).toContain('for (const component of ["x", "z"] as const)');
+    expect(rolloutSource).toContain(
+      "expect(Math.abs(restored.position[component] - authored.position[component])).toBeLessThanOrEqual(1e-3);",
+    );
+    expect(rolloutSource).toContain(
+      "GRAVITY * PHYSICS_TIMESTEP ** 2 * ((MAX_PHYSICS_STEPS * (MAX_PHYSICS_STEPS + 1)) / 2)",
+    );
+    expect(rolloutSource).toContain("restored.position.y - authored.position.y");
+  });
+
   it("completes a settled delivery and restores the authored cube pose for replay", () => {
     const { authoredPose, authoredRotation, cube, eventBus, system } = createFixture();
     const completed: Array<{ id: string; text: string; position?: THREE.Vector3 }> = [];

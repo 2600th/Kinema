@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { DEFAULT_PLAYER_CONFIG, GRAVITY, PHYSICS_TIMESTEP } from "../src/core/constants";
+import { DEFAULT_PLAYER_CONFIG, GRAVITY, MAX_PHYSICS_STEPS, PHYSICS_TIMESTEP } from "../src/core/constants";
 import { getShowcaseBayTopY, getShowcaseStationZ, SHOWCASE_STATION_ORDER } from "../src/level/ShowcaseLayout";
 import { SHOWCASE_NON_INTERACTIVE_BAY_CLASSIFICATIONS } from "../src/level/showcaseBayClassification";
 import {
@@ -32,9 +32,11 @@ const BACK_CHECKPOINT_POSITION = {
 const BOOST_PAD_CONTACT_CLEARANCE = 0.01;
 const COIN_VISUAL_RADIUS = 0.62;
 const COIN_CLEARANCE_EPSILON = 0.01;
-// GrabGoalSystem resets in fixedUpdate before GameLoop steps physics, so the first browser-observable
-// "ready" pose may include exactly one gravity integration; the unit test still asserts the exact reset calls.
-const RESET_ONE_TICK_POSITION_TOLERANCE = GRAVITY * PHYSICS_TIMESTEP ** 2;
+// GrabGoalSystem resets in fixedUpdate before physics.step. One render frame can then run up to
+// MAX_PHYSICS_STEPS (currently four) semi-implicit gravity steps, whose vertical displacements are
+// g·dt², 2g·dt², ... N·g·dt². Their triangular sum bounds only browser-observed y drift; the exact
+// unit reset remains unchanged, while horizontal position and quaternion checks stay strict.
+const RESET_MAX_Y_DISPLACEMENT = GRAVITY * PHYSICS_TIMESTEP ** 2 * ((MAX_PHYSICS_STEPS * (MAX_PHYSICS_STEPS + 1)) / 2);
 const VFX_PROFILE_TARGETS = {
   performance: {
     configured: 1120,
@@ -234,11 +236,10 @@ async function proveGrabGoalReset(page: Page): Promise<void> {
   );
   expect(restored).not.toBeNull();
   if (!authored || !restored) return;
-  for (const component of ["x", "y", "z"] as const) {
-    expect(Math.abs(restored.position[component] - authored.position[component])).toBeLessThanOrEqual(
-      RESET_ONE_TICK_POSITION_TOLERANCE,
-    );
+  for (const component of ["x", "z"] as const) {
+    expect(Math.abs(restored.position[component] - authored.position[component])).toBeLessThanOrEqual(1e-3);
   }
+  expect(Math.abs(restored.position.y - authored.position.y)).toBeLessThanOrEqual(RESET_MAX_Y_DISPLACEMENT);
   for (const component of ["x", "y", "z", "w"] as const) {
     expect(Math.abs(restored.rotation[component] - authored.rotation[component])).toBeLessThanOrEqual(1e-3);
   }
