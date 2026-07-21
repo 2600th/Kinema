@@ -654,6 +654,13 @@ export class ProceduralBuilder {
 
     // --- Per-station geometry (gated by isTarget) ---
 
+    const warningMat = new THREE.MeshStandardMaterial({
+      color: 0xff6b45,
+      emissive: 0x7a1608,
+      emissiveIntensity: 0.55,
+      roughness: 0.42,
+    });
+
     if (isTarget("steps")) {
       // Rough plane section (materials + footing). Kept inside the showcase corridor.
       const roughPlane = new THREE.Mesh(new THREE.BoxGeometry(10, 0.6, 10), obstacleMat);
@@ -687,11 +694,27 @@ export class ProceduralBuilder {
       addStep("Step2_col", new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(-8, bayTopY + 0.07, zSteps - 4));
       addStep("Step3_col", new THREE.Vector3(4, 0.14, 0.55), new THREE.Vector3(-8, bayTopY + 0.07, zSteps - 3));
       addStep("Step4_col", new THREE.Vector3(4, 0.2, 4), new THREE.Vector3(-8, bayTopY + 0.1, zSteps));
+      this.createFixedStaticBox(
+        "StepsTooTallCue",
+        new THREE.Vector3(4, 0.45, 2.4),
+        new THREE.Vector3(0, bayTopY + 0.225, zSteps - 1.2),
+        new THREE.Euler(),
+        warningMat,
+        "showcase-step-limit",
+      );
+      this.createSectionLabel(
+        "Too tall — jump",
+        new THREE.Vector3(0, bayTopY + 1.5, zSteps - 1.2),
+        4.8,
+        1.0,
+        "StepsTooTallLabel",
+      );
       this.createSectionLabel(
         "Steps & Autostep\nAutomatic stair climbing",
         new THREE.Vector3(0, 2.0, zSteps + 3),
         8.4,
         1.75,
+        "StationSign_steps",
       );
       this.createStaircase(new THREE.Vector3(8, bayTopY, zSteps - 6), 10, 0.14, 0.78, 4.8, stepMat);
       this.createStepsPhysicsPlayground(zSteps, bayTopY);
@@ -736,11 +759,24 @@ export class ProceduralBuilder {
           ),
         );
       });
+      const steepMarker = new THREE.Mesh(new THREE.BoxGeometry(6.4, 0.04, 1.1), warningMat);
+      steepMarker.position.set(10, bayTopY + 0.03, zSlopes + 6.1);
+      steepMarker.name = "SlopesTooSteepMarker";
+      this.scene.add(steepMarker);
+      this.meshes.push(steepMarker);
+      this.createSectionLabel(
+        "Too steep — slide",
+        new THREE.Vector3(10, bayTopY + 1.45, zSlopes + 6.4),
+        5.2,
+        1.0,
+        "SlopesTooSteepLabel",
+      );
       this.createSectionLabel(
         "Slopes\n23.5\u00B0 \u2022 43.1\u00B0 \u2022 62.7\u00B0",
         new THREE.Vector3(0, 3.6, zSlopes + 6),
         7.2,
         1.55,
+        "StationSign_slopes",
       );
     } // end slopes
 
@@ -755,6 +791,7 @@ export class ProceduralBuilder {
         new THREE.Vector3(0, 3.0, zMovement + 6),
         11.2,
         2.25,
+        "StationSign_movement",
       );
     } // end movement
 
@@ -765,13 +802,20 @@ export class ProceduralBuilder {
         new THREE.Vector3(-2, 4.9, zDoubleJump),
         7.6,
         1.65,
+        "StationSign_doubleJump",
       );
     } // end doubleJump
 
     await this.yieldProgress(0.6);
 
     if (isTarget("grab")) {
-      this.createSectionLabel("Grab & Pull\nInteract to grab / release", new THREE.Vector3(0, 2.55, zGrab), 10.2, 2.2);
+      this.createSectionLabel(
+        "Grab & Pull\nInteract to grab / release",
+        new THREE.Vector3(0, 2.55, zGrab),
+        10.2,
+        2.2,
+        "StationSign_grab",
+      );
       const grabbableMat = new THREE.MeshPhysicalMaterial({
         color: 0x4fa8d8,
         roughness: 0.3,
@@ -823,6 +867,7 @@ export class ProceduralBuilder {
         new THREE.Vector3(0, 3.6, zThrow + 5),
         11.0,
         2.25,
+        "StationSign_throw",
       );
 
       // ── THROW STATION — CARNIVAL GALLERY ENVIRONMENT ──────────────────────
@@ -1352,15 +1397,22 @@ export class ProceduralBuilder {
     } // end throw
 
     if (isTarget("door")) {
-      this.createSectionLabel("Door & Beacon\nInteract near objects", new THREE.Vector3(0, 2.55, zDoor), 10.2, 2.15);
+      this.createSectionLabel(
+        "Door & Beacon\nInteract near objects",
+        new THREE.Vector3(0, 2.55, zDoor),
+        10.2,
+        2.15,
+        "StationSign_door",
+      );
     } // end door
 
     if (isTarget("vehicles")) {
       this.createSectionLabel(
-        "Vehicles\nInteract to enter / exit \u2022 E/Q altitude (drone)",
+        "Vehicles\nInteract to enter / exit \u2022 Controls adapt to input",
         new THREE.Vector3(0, 2.55, zVehicles),
         9.2,
         2.05,
+        "StationSign_vehicles",
       );
       this.createVehicleCrashPlayground(zVehicles, bayTopY);
     } // end vehicles
@@ -1401,6 +1453,7 @@ export class ProceduralBuilder {
         new THREE.Vector3(0, 3.6, zPlatformsMoving + 6.5),
         9.2,
         1.9,
+        "StationSign_platformsMoving",
       );
     } // end platformsMoving
 
@@ -1459,6 +1512,7 @@ export class ProceduralBuilder {
         new THREE.Vector3(0, 3.6, zPlatformsPhysics + 6.5),
         12.4,
         2.05,
+        "StationSign_platformsPhysics",
       );
     } // end platformsPhysics
 
@@ -1469,6 +1523,7 @@ export class ProceduralBuilder {
         new THREE.Vector3(0, 3.2, zMaterials + 6),
         11.4,
         2.45,
+        "StationSign_materials",
       );
       this.createMaterialsBay(new THREE.Vector3(0, bayTopY, zMaterials), bayWidth, obstacleMat);
       this.createMaterialsPhysicsProps(new THREE.Vector3(0, bayTopY, zMaterials), bayWidth);
@@ -1483,7 +1538,7 @@ export class ProceduralBuilder {
         new THREE.Vector3(0, 3.2, zVfx + 6),
         11.4,
         2.15,
-        "VFX_StationSign",
+        "StationSign_vfx",
       );
       await this.createVfxBayV2(new THREE.Vector3(0, bayTopY, zVfx), bayWidth);
     } // end vfx
@@ -1491,17 +1546,24 @@ export class ProceduralBuilder {
     if (isTarget("navigation")) {
       // Navigation bay: navmesh + patrol agents.
       this.createSectionLabel(
-        "Navigation\nNavMesh \u2022 Crowd Patrol \u2022 N=debug \u2022 T=target",
+        "Navigation\nNavMesh \u2022 Crowd Patrol \u2022 Dynamic Targets",
         new THREE.Vector3(0, 3.2, zNavigation + 6),
         11.4,
         2.25,
+        "StationSign_navigation",
       );
       this.createNavcatBay(zNavigation, bayTopY);
     } // end navigation
 
     if (isTarget("futureA")) {
       // Reserved bay with "under construction" visual treatment.
-      this.createSectionLabel("Reserved\nFuture demos", new THREE.Vector3(0, 2.5, zFutureA), 8.8, 2.0);
+      this.createSectionLabel(
+        "Reserved\nFuture demos",
+        new THREE.Vector3(0, 2.5, zFutureA),
+        8.8,
+        2.0,
+        "StationSign_futureA",
+      );
 
       const yellowMat = new THREE.MeshStandardMaterial({ color: 0xffcc00, roughness: 0.9 });
       const darkMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.9 });

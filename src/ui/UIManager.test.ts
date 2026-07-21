@@ -186,6 +186,25 @@ describe("UIManager", () => {
     ui.dispose();
   });
 
+  it("routes source-aware throw and drone altitude guidance", () => {
+    const listeners = new Map<string, (payload: unknown) => void>();
+    const on = vi.fn((event: string, handler: (payload: unknown) => void) => {
+      listeners.set(event, handler);
+      return () => {};
+    });
+    const ui = new UIManager({ on } as never);
+    const hud = hudInstances[0];
+
+    listeners.get("input:sourceChanged")?.({ source: "touch" });
+    listeners.get("interaction:pickUp")?.({ object: {} });
+    expect(hud.showStatus).toHaveBeenCalledWith("Interact to throw", 2200);
+
+    listeners.get("input:sourceChanged")?.({ source: "gamepad" });
+    listeners.get("vehicle:enter")?.({ vehicle: { type: "drone" } });
+    expect(hud.showStatus).toHaveBeenCalledWith("Right Stick ↑ / ↓ to change drone altitude", 2800);
+    ui.dispose();
+  });
+
   it("uses the crouch glyph for vehicle reset progress and restores interaction afterward", () => {
     const listeners = new Map<string, (payload: any) => void>();
     const on = vi.fn((event: string, handler: (payload: any) => void) => {

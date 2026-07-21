@@ -55,6 +55,10 @@ function bindingKeys(source: "keyboard" | "gamepad" | "touch", bindings = create
   return getHelpBindings(source, bindings).flatMap((section) => section.bindings.map((binding) => binding.key));
 }
 
+function allBindings(source: "keyboard" | "gamepad" | "touch") {
+  return getHelpBindings(source, createDefaultKeyboardBindings()).flatMap((section) => section.bindings);
+}
+
 describe("getHelpBindings", () => {
   const originalDocument = globalThis.document;
   const originalWindow = globalThis.window;
@@ -85,17 +89,39 @@ describe("getHelpBindings", () => {
 
   it("shows keyboard controls for keyboard input", () => {
     expect(bindingKeys("keyboard")).toEqual(expect.arrayContaining(["W A S D", "Space", "Left Shift", "C", "F"]));
+    expect(allBindings("keyboard")).toEqual(
+      expect.arrayContaining([
+        { key: "LMB", description: "Throw" },
+        { key: "E / Q", description: "Change drone altitude" },
+      ]),
+    );
   });
 
   it("shows gamepad controls for gamepad input", () => {
     const keys = bindingKeys("gamepad");
     expect(keys).toEqual(expect.arrayContaining(["Left Stick", "A", "LB", "B", "X"]));
+    expect(allBindings("gamepad")).toEqual(
+      expect.arrayContaining([
+        { key: "RT", description: "Throw" },
+        { key: "Right Stick ↑ / ↓", description: "Change drone altitude" },
+      ]),
+    );
+    expect(keys).not.toContain("LMB");
+    expect(keys).not.toContain("E / Q");
     expect(keys).not.toContain("Menu");
   });
 
   it("shows touch controls for touch input", () => {
     const keys = bindingKeys("touch");
     expect(keys).toEqual(expect.arrayContaining(["Left Stick", "↑", "⇧", "↓", "✋"]));
+    expect(allBindings("touch")).toEqual(
+      expect.arrayContaining([
+        { key: "Interact", description: "Throw" },
+        { key: "Right Look Zone ↑ / ↓", description: "Change drone altitude" },
+      ]),
+    );
+    expect(keys).not.toContain("LMB");
+    expect(keys).not.toContain("E / Q");
     expect(keys).not.toContain("Primary");
     expect(keys).not.toContain("Menu");
   });

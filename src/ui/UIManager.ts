@@ -11,6 +11,7 @@ import { FadeScreen } from "./components/FadeScreen";
 import { HUD } from "./components/HUD";
 import { LoadingScreen } from "./components/LoadingScreen";
 import { RendererStatusBadge } from "./components/RendererStatusBadge";
+import { getDroneAltitudeGuidance, getThrowGuidance } from "./inputGuidance";
 
 /**
  * DOM-based UI overlay manager.
@@ -105,6 +106,20 @@ export class UIManager implements Disposable {
       this.eventBus.on("input:sourceChanged", ({ source }) => {
         this.inputSource = source;
         this.updateHoldGlyph();
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on("interaction:pickUp", () => {
+        this.hud.showStatus(getThrowGuidance(this.inputSource), 2200);
+      }),
+    );
+
+    this.unsubscribers.push(
+      this.eventBus.on("vehicle:enter", ({ vehicle }) => {
+        if (vehicle.type === "drone") {
+          this.hud.showStatus(getDroneAltitudeGuidance(this.inputSource), 2800);
+        }
       }),
     );
 

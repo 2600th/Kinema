@@ -2,6 +2,7 @@ import type { EventBus } from "@core/EventBus";
 import type { InputSource } from "@core/types";
 import type { ReadonlyKeyboardBindings } from "@input/InputBindings";
 import { getInputGlyph } from "@input/InputGlyphs";
+import { getDroneAltitudeGuidance, getThrowGuidance } from "../inputGuidance";
 
 interface HelpMenuOptions {
   eventBus: EventBus;
@@ -40,7 +41,11 @@ export function getHelpBindings(
         title: "Interaction",
         bindings: [
           { key: getInputGlyph("interact", source), description: "Interact / Grab" },
-          { key: "RT", description: "Throw / Primary action" },
+          { key: getThrowGuidance(source).replace(" to throw", ""), description: "Throw" },
+          {
+            key: getDroneAltitudeGuidance(source).replace(" to change drone altitude", ""),
+            description: "Change drone altitude",
+          },
         ],
       },
       {
@@ -63,7 +68,14 @@ export function getHelpBindings(
       },
       {
         title: "Interaction",
-        bindings: [{ key: getInputGlyph("interact", source), description: "Interact / Grab" }],
+        bindings: [
+          { key: getInputGlyph("interact", source), description: "Interact / Grab" },
+          { key: getThrowGuidance(source).replace(" to throw", ""), description: "Throw" },
+          {
+            key: getDroneAltitudeGuidance(source).replace(" to change drone altitude", ""),
+            description: "Change drone altitude",
+          },
+        ],
       },
       {
         title: "Camera & System",
@@ -95,9 +107,11 @@ export function getHelpBindings(
       title: "Interaction",
       bindings: [
         { key: getInputGlyph("interact", source, keyboardBindings), description: "Interact / Grab" },
-        { key: "LMB", description: "Throw / Primary action" },
-        { key: "E", description: "Altitude Up" },
-        { key: "Q", description: "Altitude Down" },
+        { key: getThrowGuidance(source).replace(" to throw", ""), description: "Throw" },
+        {
+          key: getDroneAltitudeGuidance(source).replace(" to change drone altitude", ""),
+          description: "Change drone altitude",
+        },
       ],
     },
     {

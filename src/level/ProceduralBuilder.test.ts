@@ -28,13 +28,43 @@ describe("procedural showcase instructions", () => {
     expect(source).not.toContain("getWorldPosition(new THREE.Vector3())");
   });
 
-  it("gives the VFX station sign a stable cross-renderer inspection name", () => {
+  it("gives every primary station sign a stable cross-renderer inspection name", () => {
+    const source = readFileSync(new URL("./ProceduralBuilder.ts", import.meta.url), "utf8");
+    const expectedNames = [
+      "StationSign_steps",
+      "StationSign_slopes",
+      "StationSign_movement",
+      "StationSign_doubleJump",
+      "StationSign_grab",
+      "StationSign_throw",
+      "StationSign_door",
+      "StationSign_vehicles",
+      "StationSign_platformsMoving",
+      "StationSign_platformsPhysics",
+      "StationSign_materials",
+      "StationSign_vfx",
+      "StationSign_navigation",
+      "StationSign_futureA",
+    ];
+
+    for (const name of expectedNames) expect(source.match(new RegExp(`"${name}"`, "g"))).toHaveLength(1);
+  });
+
+  it("authors named step-limit and steep-slope readability cues", () => {
     const source = readFileSync(new URL("./ProceduralBuilder.ts", import.meta.url), "utf8");
 
-    expect(source).toMatch(
-      /this\.createSectionLabel\(\s*getVfxStationLabel\(this\.supportsAdvancedGpuEffects\),\s*new THREE\.Vector3\(0, 3\.2, zVfx \+ 6\),\s*11\.4,\s*2\.15,\s*"VFX_StationSign",\s*\)/,
-    );
-    expect(source.match(/"VFX_StationSign"/g)).toHaveLength(1);
+    expect(source).toMatch(/this\.createFixedStaticBox\(\s*"StepsTooTallCue",\s*new THREE\.Vector3\(4, 0\.45, 2\.4\)/);
+    expect(source).toContain('"StepsTooTallLabel"');
+    expect(source).toContain('steepMarker.name = "SlopesTooSteepMarker"');
+    expect(source).toContain('"SlopesTooSteepLabel"');
+  });
+
+  it("keeps vehicle and navigation signs binding-neutral", () => {
+    const instructions = getSectionLabelInstructions();
+
+    expect(instructions).toContain("Vehicles\nInteract to enter / exit • Controls adapt to input");
+    expect(instructions).toContain("Navigation\nNavMesh • Crowd Patrol • Dynamic Targets");
+    expect(instructions.join("\n")).not.toMatch(/N=debug|T=target/);
   });
 
   it("defers navigation worker readiness instead of blocking procedural load", () => {
