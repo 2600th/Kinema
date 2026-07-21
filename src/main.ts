@@ -853,10 +853,12 @@ async function bootstrap(): Promise<void> {
         if (!entry) return null;
         const pos = entry.body.translation();
         const vel = entry.body.linvel();
+        const rotation = entry.body.rotation();
         return {
           name,
           position: { x: pos.x, y: pos.y, z: pos.z },
           velocity: { x: vel.x, y: vel.y, z: vel.z },
+          rotation: { x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w },
         };
       },
       getNavAgentStates() {

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import RAPIER from "@dimforge/rapier3d-compat";
+import { ColliderFactory } from "@physics/ColliderFactory";
 import { PhysicsWorld } from "@physics/PhysicsWorld";
 import * as THREE from "three";
 import { beforeAll, describe, expect, it, vi } from "vitest";
@@ -60,6 +61,24 @@ function getSectionLabelInstructions(): string[] {
   return [...source.matchAll(/this\.createSectionLabel\(\s*("(?:\\.|[^"\\])*")/g)].map((match) => JSON.parse(match[1]));
 }
 
+function installBuilderTestDoubles(builder: ProceduralBuilder, scene: THREE.Scene): void {
+  const internals = builder as unknown as BuilderFixtureInternals;
+  vi.spyOn(internals, "createGroundGridTexture").mockReturnValue(new THREE.CanvasTexture());
+  vi.spyOn(internals, "createSectionLabel").mockImplementation(
+    (text, position, scaleX = 9.6, scaleY = 2.7, name) => {
+      const label = new THREE.Object3D();
+      label.name = name ?? `Label_${text.slice(0, 18)}`;
+      label.position.copy(position);
+      label.scale.set(scaleX, scaleY, 1);
+      label.userData.labelText = text;
+      scene.add(label);
+    },
+  );
+  vi.spyOn(internals, "createKinematicDrum").mockImplementation(() => {});
+  vi.spyOn(internals, "createNavcatBay").mockImplementation(() => {});
+  vi.spyOn(internals, "createVfxBayV2").mockResolvedValue(undefined);
+}
+
 describe("procedural showcase instructions", () => {
   it(
     "builds every stable station and readability-cue name without colliding the steep-slope marker",
@@ -71,21 +90,7 @@ describe("procedural showcase instructions", () => {
       try {
         for (const [station] of STATION_SIGN_NAMES) {
           const builder = new ProceduralBuilder(scene, physicsWorld, 1, { value: 0 }, station);
-          const internals = builder as unknown as BuilderFixtureInternals;
-          vi.spyOn(internals, "createGroundGridTexture").mockReturnValue(new THREE.CanvasTexture());
-          vi.spyOn(internals, "createSectionLabel").mockImplementation(
-            (text, position, scaleX = 9.6, scaleY = 2.7, name) => {
-              const label = new THREE.Object3D();
-              label.name = name ?? `Label_${text.slice(0, 18)}`;
-              label.position.copy(position);
-              label.scale.set(scaleX, scaleY, 1);
-              label.userData.labelText = text;
-              scene.add(label);
-            },
-          );
-          vi.spyOn(internals, "createKinematicDrum").mockImplementation(() => {});
-          vi.spyOn(internals, "createNavcatBay").mockImplementation(() => {});
-          vi.spyOn(internals, "createVfxBayV2").mockResolvedValue(undefined);
+          installBuilderTestDoubles(builder, scene);
 
           await builder.build();
           if (station === "slopes") slopeColliders = builder.getResult().colliders;
@@ -179,15 +184,31 @@ describe("procedural showcase instructions", () => {
     expect(source).toContain('"SlopesTooSteepLabel"');
   });
 
-  it("authors the named grab delivery target without collision", () => {
-    const source = readFileSync(new URL("./ProceduralBuilder.ts", import.meta.url), "utf8");
+  it("builds the named grab delivery target without creating target colliders", async () => {
+    const scene = new THREE.Scene();
+    const physicsWorld = PhysicsWorld.create();
+    const trimeshSpy = vi.spyOn(ColliderFactory.prototype, "createTrimesh");
 
-    expect(source).toContain('goal.name = "GrabGoalOutline"');
-    expect(source).toContain('goalCore.name = "GrabGoalCore"');
-    expect(source).toContain('"Deliver a cube\\nTarget resets automatically"');
-    expect(source).toContain('"GrabGoalLabel"');
-    expect(source).not.toContain("this.colliderFactory.createTrimesh(goal)");
-    expect(source).not.toContain("this.colliderFactory.createTrimesh(goalCore)");
+    try {
+      const builder = new ProceduralBuilder(scene, physicsWorld, 1, { value: 0 }, "grab");
+      installBuilderTestDoubles(builder, scene);
+      await builder.build();
+
+      const outline = scene.getObjectByName("GrabGoalOutline");
+      const core = scene.getObjectByName("GrabGoalCore");
+      const label = scene.getObjectByName("GrabGoalLabel");
+      expect(outline).toBeInstanceOf(THREE.Mesh);
+      expect(core).toBeInstanceOf(THREE.Mesh);
+      expect(label).toBeDefined();
+      expect(label?.userData.labelText).toBe("Deliver a cube\nTarget resets automatically");
+
+      const trimeshNames = trimeshSpy.mock.calls.map(([mesh]) => mesh.name);
+      expect(trimeshNames).not.toContain("GrabGoalOutline");
+      expect(trimeshNames).not.toContain("GrabGoalCore");
+    } finally {
+      trimeshSpy.mockRestore();
+      physicsWorld.dispose();
+    }
   });
 
   it("keeps vehicle and navigation signs binding-neutral", () => {

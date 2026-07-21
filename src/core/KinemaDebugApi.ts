@@ -69,6 +69,7 @@ export interface KinemaDynamicBodyState {
   name: string;
   position: KinemaVector3;
   velocity: KinemaVector3;
+  rotation: KinemaQuaternion;
 }
 
 export interface KinemaCheckpointState {

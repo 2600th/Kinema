@@ -24,13 +24,14 @@ function createFixture(bodyType = RAPIER.RigidBodyType.Dynamic) {
   const authoredRotation = new THREE.Quaternion(0, 0.25, 0, Math.sqrt(1 - 0.25 ** 2));
   let translation = authoredPose.clone();
   let rotation = authoredRotation.clone();
+  let linearVelocity = new THREE.Vector3();
   let currentBodyType = bodyType;
   const cube = {
     userData: { kind: "showcase-prop", name: "PushCubeS" },
     bodyType: vi.fn(() => currentBodyType),
     translation: vi.fn(() => translation),
     rotation: vi.fn(() => rotation),
-    linvel: vi.fn(() => ({ x: 0, y: 0, z: 0 })),
+    linvel: vi.fn(() => linearVelocity),
     angvel: vi.fn(() => ({ x: 0, y: 0, z: 0 })),
     setTranslation: vi.fn((next: THREE.Vector3Like) => {
       translation = new THREE.Vector3(next.x, next.y, next.z);
@@ -56,10 +57,17 @@ function createFixture(bodyType = RAPIER.RigidBodyType.Dynamic) {
 
   return {
     authoredPose,
+    authoredRotation,
     cube,
     eventBus,
+    setBodyTranslation: (next: THREE.Vector3) => {
+      translation = next.clone();
+    },
     setBodyType: (next: RAPIER.RigidBodyType) => {
       currentBodyType = next;
+    },
+    setLinearVelocity: (next: THREE.Vector3) => {
+      linearVelocity = next.clone();
     },
     system,
   };
@@ -83,7 +91,7 @@ describe("GrabGoalSystem", () => {
   });
 
   it("completes a settled delivery and restores the authored cube pose for replay", () => {
-    const { authoredPose, cube, eventBus, system } = createFixture();
+    const { authoredPose, authoredRotation, cube, eventBus, system } = createFixture();
     const completed: Array<{ id: string; text: string; position?: THREE.Vector3 }> = [];
     eventBus.on("objective:completed", (payload) => completed.push(payload));
 
@@ -109,9 +117,38 @@ describe("GrabGoalSystem", () => {
 
     expect(system.getDebugState()).toMatchObject({ phase: "ready", activeCube: null, completions: 1 });
     expect(cube.setTranslation).toHaveBeenLastCalledWith(authoredPose, true);
+    expect(cube.setRotation).toHaveBeenLastCalledWith(authoredRotation, true);
     expect(cube.setLinvel).toHaveBeenLastCalledWith({ x: 0, y: 0, z: 0 }, true);
     expect(cube.setAngvel).toHaveBeenLastCalledWith({ x: 0, y: 0, z: 0 }, true);
     expect(cube.wakeUp).toHaveBeenCalledOnce();
+  });
+
+  it("does not settle or complete a cube that is still moving", () => {
+    const { eventBus, setLinearVelocity, system } = createFixture();
+    const completed = vi.fn();
+    eventBus.on("objective:completed", completed);
+    system.setupStation("grab");
+    expect(system.placeCubeOnGoal()).toBe(true);
+    setLinearVelocity(new THREE.Vector3(0.5, 0, 0));
+
+    system.fixedUpdate(1);
+
+    expect(system.getDebugState()).toMatchObject({ phase: "ready", activeCube: null, completions: 0 });
+    expect(completed).not.toHaveBeenCalled();
+  });
+
+  it("does not settle or complete a cube outside the goal bounds", () => {
+    const { eventBus, setBodyTranslation, system } = createFixture();
+    const completed = vi.fn();
+    eventBus.on("objective:completed", completed);
+    system.setupStation("grab");
+    expect(system.placeCubeOnGoal()).toBe(true);
+    setBodyTranslation(new THREE.Vector3(4, 0.52, 0));
+
+    system.fixedUpdate(1);
+
+    expect(system.getDebugState()).toMatchObject({ phase: "ready", activeCube: null, completions: 0 });
+    expect(completed).not.toHaveBeenCalled();
   });
 
   it("keeps non-grab stations inactive", () => {
