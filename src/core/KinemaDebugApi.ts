@@ -1,10 +1,11 @@
 import type { PlayerController } from "@character/PlayerController";
 import type { FrameStats } from "@core/GameLoop";
-import type { GamepadMenuAction, InputState } from "@core/types";
+import type { GamepadMenuAction, InputSource, InputState } from "@core/types";
 import type { GraphicsProfile } from "@core/UserSettings";
 import type { ColliderShapeStats, LevelManager, LoadStats } from "@level/LevelManager";
 import type { RendererDebugFlags } from "@renderer/rendererState";
 import type { CoinDebugEntry } from "@systems/CoinCollectibleSystem";
+import type { GrabGoalDebugState } from "@systems/GrabGoalSystem";
 import type { ParticleSystem } from "@systems/ParticleSystem";
 import type { HealthDebugState } from "@systems/PlayerHealthSystem";
 import type { HazardDebugEntry } from "@systems/SpikeHazardSystem";
@@ -154,7 +155,8 @@ export type KinemaInteractionEvent =
   | { type: "player:ladderAttached" }
   | { type: "player:ladderReleased" }
   | { type: "vehicle:boostChanged"; active: boolean }
-  | { type: "collectible:allCollected"; count: number; total: number };
+  | { type: "collectible:allCollected"; count: number; total: number }
+  | { type: "objective:completed"; id: string; text: string; position?: KinemaVector3 };
 
 /** Complete contract for the development-only browser automation surface. */
 export interface KinemaDebugApi {
@@ -174,6 +176,7 @@ export interface KinemaDebugApi {
   simulateJump(): void;
   simulateCrouch(): void;
   simulateGamepadMenuInput(action: GamepadMenuAction): void;
+  getInputSource(): InputSource;
   setCameraLook(pitch: number, yaw: number): void;
   getCameraPose(): KinemaCameraPose;
   freezeForCapture(): Promise<void>;
@@ -198,6 +201,8 @@ export interface KinemaDebugApi {
   getNavAgentStates(): KinemaNavAgentState[];
   getNavigationDebugState(): KinemaNavigationDebugState;
   getVfxDebugState(): KinemaVfxDebugState;
+  getGrabGoalState(): GrabGoalDebugState;
+  placeGrabCubeOnGoal(name?: string): boolean;
   getLevelObjectState(name: string): KinemaLevelObjectState | null;
   getGraphicsProfile(): GraphicsProfile;
   getRendererDebugFlags(): Readonly<RendererDebugFlags>;

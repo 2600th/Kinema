@@ -209,7 +209,7 @@ export interface EventMap {
   "interaction:holdProgress": { id: string; progress: number; position: THREE.Vector3 } | null;
   "checkpoint:activated": { id: string; position: { x: number; y: number; z: number } };
   "objective:set": { id: string; text: string };
-  "objective:completed": { id: string; text: string };
+  "objective:completed": { id: string; text: string; position?: THREE.Vector3 };
   "level:willUnload": undefined;
   "level:loaded": { name: string };
   "level:unloaded": { name: string };

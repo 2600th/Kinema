@@ -28,6 +28,7 @@ import { pickPostEffectSettings } from "@renderer/rendererState";
 import { CheckpointObjectiveSystem } from "@systems/CheckpointObjectiveSystem";
 import { CoinCollectibleSystem, type CoinDebugEntry } from "@systems/CoinCollectibleSystem";
 import { DebugRuntimeSystem } from "@systems/DebugRuntimeSystem";
+import { type GrabGoalDebugState, GrabGoalSystem } from "@systems/GrabGoalSystem";
 import { InteractableSystem } from "@systems/InteractableSystem";
 import { ParticleSystem } from "@systems/ParticleSystem";
 import { type HealthDebugState, PlayerHealthSystem } from "@systems/PlayerHealthSystem";
@@ -95,6 +96,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
   private readonly healthSystem: PlayerHealthSystem;
   private readonly spikeHazardSystem: SpikeHazardSystem;
   private readonly coinSystem: CoinCollectibleSystem;
+  private readonly grabGoalSystem: GrabGoalSystem;
   private readonly debugSystem: DebugRuntimeSystem;
   private readonly particleSystem: ParticleSystem;
   private readonly checkpointSystem: CheckpointObjectiveSystem;
@@ -143,6 +145,9 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
 
     this.coinSystem = new CoinCollectibleSystem(renderer.scene, eventBus, playerController, vehicleManager);
     this.registerSystem(this.coinSystem);
+
+    this.grabGoalSystem = new GrabGoalSystem(renderer.scene, eventBus, levelManager);
+    this.registerSystem(this.grabGoalSystem);
 
     this.particleSystem = new ParticleSystem(renderer, eventBus, playerController, vehicleManager);
     this.registerSystem(this.particleSystem);
@@ -650,6 +655,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     this.healthSystem.setupCustomLevel();
     this.spikeHazardSystem.setupCustomLevel();
     this.coinSystem.setupCustomLevel();
+    this.grabGoalSystem.setupCustomLevel();
     this.interactableSystem.setupCustomLevel();
   }
 
@@ -659,6 +665,7 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
     this.healthSystem.setupStation(key);
     this.spikeHazardSystem.setupStation(key);
     this.coinSystem.setupStation(key);
+    this.grabGoalSystem.setupStation(key);
     this.interactableSystem.setupStation(key);
   }
 
@@ -671,6 +678,14 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
       ...this.levelManager.getVfxDebugState(),
       ...this.particleSystem.getDebugState(),
     };
+  }
+
+  getGrabGoalState(): GrabGoalDebugState {
+    return this.grabGoalSystem.getDebugState();
+  }
+
+  placeGrabCubeOnGoal(name?: string): boolean {
+    return this.grabGoalSystem.placeCubeOnGoal(name);
   }
 
   teardownLevel(): void {

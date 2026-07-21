@@ -75,6 +75,10 @@ export class ParticleSystem implements RuntimeSystem {
       this.eventBus.on("collectible:allCollected", ({ position }) => {
         this.withGameParticles((particles) => particles.coinCelebration(position));
       }),
+      this.eventBus.on("objective:completed", ({ position }) => {
+        if (!position) return;
+        this.withGameParticles((particles) => particles.beaconComplete(position));
+      }),
     );
     this.unsubs.push(
       this.eventBus.on("vehicle:enter", ({ vehicle, position }) => {

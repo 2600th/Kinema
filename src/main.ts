@@ -596,6 +596,14 @@ async function bootstrap(): Promise<void> {
     eventBus.on("collectible:allCollected", ({ count, total }) => {
       recordInteractionEvent({ type: "collectible:allCollected", count, total });
     });
+    eventBus.on("objective:completed", ({ id, text, position }) => {
+      recordInteractionEvent({
+        type: "objective:completed",
+        id,
+        text,
+        position: position ? { x: position.x, y: position.y, z: position.z } : undefined,
+      });
+    });
     const kinemaDebugApi = {
       getFrameStats: () => gameLoop.getFrameStats(),
       resetFrameStats: () => gameLoop.resetFrameStats(),
@@ -612,6 +620,9 @@ async function bootstrap(): Promise<void> {
       },
       restartCurrentRun,
       getVfxDebugState: () => game.getVfxDebugState(),
+      getGrabGoalState: () => game.getGrabGoalState(),
+      placeGrabCubeOnGoal: (name?: string) => game.placeGrabCubeOnGoal(name),
+      getInputSource: () => inputManager.lastInputSource,
       get player() {
         const pos = playerController.position;
         const vel = playerController.body.linvel();

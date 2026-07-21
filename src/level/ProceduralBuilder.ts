@@ -816,6 +816,41 @@ export class ProceduralBuilder {
         2.2,
         "StationSign_grab",
       );
+      const goalCenter = new THREE.Vector3(-12, bayTopY + 0.04, zGrab - 2);
+      const goalMat = new THREE.MeshStandardMaterial({
+        color: 0x0a2730,
+        emissive: 0x00d8ff,
+        emissiveIntensity: 1.4,
+        roughness: 0.3,
+      });
+      const goal = new THREE.Mesh(new THREE.RingGeometry(1.45, 1.75, 32), goalMat);
+      goal.rotation.x = -Math.PI / 2;
+      goal.position.copy(goalCenter);
+      goal.name = "GrabGoalOutline";
+      this.scene.add(goal);
+      this.meshes.push(goal);
+      const goalCore = new THREE.Mesh(
+        new THREE.CircleGeometry(1.42, 32),
+        new THREE.MeshStandardMaterial({
+          color: 0x06212a,
+          emissive: 0x00758a,
+          emissiveIntensity: 0.8,
+          transparent: true,
+          opacity: 0.7,
+        }),
+      );
+      goalCore.rotation.x = -Math.PI / 2;
+      goalCore.position.copy(goalCenter).add(new THREE.Vector3(0, 0.005, 0));
+      goalCore.name = "GrabGoalCore";
+      this.scene.add(goalCore);
+      this.meshes.push(goalCore);
+      this.createSectionLabel(
+        "Deliver a cube\nTarget resets automatically",
+        new THREE.Vector3(-12, bayTopY + 2.0, zGrab - 2),
+        6.2,
+        1.35,
+        "GrabGoalLabel",
+      );
       const grabbableMat = new THREE.MeshPhysicalMaterial({
         color: 0x4fa8d8,
         roughness: 0.3,

@@ -118,6 +118,24 @@ describe("ParticleSystem", () => {
     expect(vehicleDust).toHaveBeenNthCalledWith(2, vehiclePosition);
   });
 
+  it("emits one completion burst only for objectives with a world position", async () => {
+    const { eventBus, system } = createSystem();
+    eventBus.emit("level:loaded", { name: "grab" });
+    await vi.dynamicImportSettled();
+    const particles = (system as any).gameParticles;
+    const completionBurst = vi.spyOn(particles, "beaconComplete");
+    const completionPosition = new THREE.Vector3(1, 2, 3);
+
+    eventBus.emit("objective:completed", {
+      id: "grab-delivery",
+      text: "Cube delivered",
+      position: completionPosition,
+    });
+    eventBus.emit("objective:completed", { id: "beacon", text: "Reach the beacon" });
+
+    expect(completionBurst).toHaveBeenCalledExactlyOnceWith(completionPosition);
+  });
+
   it("advances retained grounded handling and boost state with current profile density", async () => {
     const { eventBus, system } = createSystem();
     eventBus.emit("level:loaded", { name: "vehicles" });

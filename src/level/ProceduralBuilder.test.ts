@@ -179,6 +179,17 @@ describe("procedural showcase instructions", () => {
     expect(source).toContain('"SlopesTooSteepLabel"');
   });
 
+  it("authors the named grab delivery target without collision", () => {
+    const source = readFileSync(new URL("./ProceduralBuilder.ts", import.meta.url), "utf8");
+
+    expect(source).toContain('goal.name = "GrabGoalOutline"');
+    expect(source).toContain('goalCore.name = "GrabGoalCore"');
+    expect(source).toContain('"Deliver a cube\\nTarget resets automatically"');
+    expect(source).toContain('"GrabGoalLabel"');
+    expect(source).not.toContain("this.colliderFactory.createTrimesh(goal)");
+    expect(source).not.toContain("this.colliderFactory.createTrimesh(goalCore)");
+  });
+
   it("keeps vehicle and navigation signs binding-neutral", () => {
     const instructions = getSectionLabelInstructions();
 
