@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { getProceduralCoinPlacements } from "./CoinLayout";
-import { getShowcaseBayTopY, getShowcaseStationZ } from "./ShowcaseLayout";
+import {
+  getShowcaseBayTopY,
+  getShowcaseStationZ,
+  SHOWCASE_ISOLATED_FLOOR_LENGTH,
+  SHOWCASE_LAYOUT,
+} from "./ShowcaseLayout";
 import { getProceduralSpikePlacements } from "./SpikeLayout";
 
 interface Footprint {
@@ -51,7 +56,17 @@ describe("procedural pickup layouts", () => {
       (entry) => entry.position.z < getShowcaseStationZ("vfx") - 5,
     );
     expect(backTrail).toHaveLength(5);
-    expect(backTrail.at(-1)?.position.x).toBeCloseTo(18);
+    const vfxStationZ = getShowcaseStationZ("vfx");
+    const isolatedFloorHalfWidth = SHOWCASE_LAYOUT.hall.width * 0.5;
+    const isolatedFloorHalfLength = SHOWCASE_ISOLATED_FLOOR_LENGTH * 0.5;
+    backTrail.forEach((entry) => {
+      expect(Math.abs(entry.position.x)).toBeLessThanOrEqual(isolatedFloorHalfWidth);
+      expect(Math.abs(entry.position.z - vfxStationZ)).toBeLessThanOrEqual(isolatedFloorHalfLength);
+    });
+
+    const endpoint = backTrail.at(-1);
+    expect(endpoint?.position.x).toBeCloseTo(18);
+    expect(endpoint?.position.z).toBeCloseTo(vfxStationZ - 15);
   });
 
   it("keeps spike hazards out of the authored platform footprints in the overlap-prone bays", () => {
