@@ -48,6 +48,15 @@ interface ThrowablePoolEntry {
   recycleDelay: number;
 }
 
+export interface ThrowablePoolDebugState {
+  readonly poolSize: number;
+  readonly slots: ReadonlyArray<{
+    readonly activeId: string | null;
+    readonly reserveIds: readonly string[];
+    readonly refillDelay: number;
+  }>;
+}
+
 const THROWABLE_POOL_SIZE = 3;
 const THROWABLE_RECYCLE_DELAY = 1.25;
 const THROWABLE_REFILL_DELAY = 1.6;
@@ -243,6 +252,17 @@ export class InteractableSystem implements RuntimeSystem {
     for (const throwable of this.throwableObjects.values()) {
       throwable.renderUpdate(alpha);
     }
+  }
+
+  getThrowablePoolDebugState(): ThrowablePoolDebugState {
+    return {
+      poolSize: THROWABLE_POOL_SIZE,
+      slots: this.throwableSlotStates.map((slot) => ({
+        activeId: slot.activeId,
+        reserveIds: [...slot.reserveIds],
+        refillDelay: slot.refillDelay,
+      })),
+    };
   }
 
   private spawnInteractables(): void {

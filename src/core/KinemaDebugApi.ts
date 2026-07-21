@@ -6,6 +6,7 @@ import type { ColliderShapeStats, LevelManager, LoadStats } from "@level/LevelMa
 import type { RendererDebugFlags } from "@renderer/rendererState";
 import type { CoinDebugEntry } from "@systems/CoinCollectibleSystem";
 import type { GrabGoalDebugState } from "@systems/GrabGoalSystem";
+import type { ThrowablePoolDebugState } from "@systems/InteractableSystem";
 import type { ParticleSystem } from "@systems/ParticleSystem";
 import type { HealthDebugState } from "@systems/PlayerHealthSystem";
 import type { HazardDebugEntry } from "@systems/SpikeHazardSystem";
@@ -211,6 +212,7 @@ export interface KinemaDebugApi {
   getNavigationDebugState(): KinemaNavigationDebugState;
   getVfxDebugState(): KinemaVfxDebugState;
   getGrabGoalState(): GrabGoalDebugState;
+  getThrowablePoolDebugState(): ThrowablePoolDebugState;
   placeGrabCubeOnGoal(name?: string): boolean;
   getLevelObjectState(name: string): KinemaLevelObjectState | null;
   getGraphicsProfile(): GraphicsProfile;

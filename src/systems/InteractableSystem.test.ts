@@ -30,6 +30,29 @@ function createSystem(now: () => number, force: () => number) {
   return { contact, eventBus, eventQueue, interactionManager, system, showStatus };
 }
 
+describe("InteractableSystem throwable pools", () => {
+  it("reports throwable slot activity without exposing mutable reserve arrays", () => {
+    const { system } = createSystem(
+      () => 0,
+      () => 0,
+    );
+    const internals = system as unknown as {
+      throwableSlotStates: Array<{ activeId: string | null; reserveIds: string[]; refillDelay: number }>;
+    };
+    internals.throwableSlotStates = [
+      { activeId: "throw-0-1", reserveIds: ["throw-0-2", "throw-0-0"], refillDelay: 0.25 },
+    ];
+
+    const snapshot = system.getThrowablePoolDebugState();
+    expect(snapshot).toEqual({
+      poolSize: 3,
+      slots: [{ activeId: "throw-0-1", reserveIds: ["throw-0-2", "throw-0-0"], refillDelay: 0.25 }],
+    });
+    (snapshot.slots[0]?.reserveIds as string[]).push("mutated");
+    expect(internals.throwableSlotStates[0]?.reserveIds).toEqual(["throw-0-2", "throw-0-0"]);
+  });
+});
+
 describe("InteractableSystem impact toast grace", () => {
   it("retires an activated beacon and removes its listener on dispose", () => {
     const { eventBus, interactionManager, system } = createSystem(

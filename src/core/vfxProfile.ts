@@ -15,6 +15,16 @@ export interface AmbientVfxCounts {
   readonly orbit: number;
 }
 
+export interface AmbientVfxProfileTarget {
+  readonly configured: number;
+  readonly sparkles: number;
+  readonly motes: number;
+  readonly grassBlades: number;
+  readonly embers: number;
+  readonly rain: number;
+  readonly orbit: number;
+}
+
 const AUTHORED_AMBIENT_VFX_COUNTS: AmbientVfxCounts = {
   sparkles: 400,
   motes: 60,
@@ -42,5 +52,21 @@ export function getAmbientVfxCounts(profile: GraphicsProfile): AmbientVfxCounts 
     rain: scaleVfxCount(AUTHORED_AMBIENT_VFX_COUNTS.rain, profile),
     embers: scaleVfxCount(AUTHORED_AMBIENT_VFX_COUNTS.embers, profile),
     orbit: scaleVfxCount(AUTHORED_AMBIENT_VFX_COUNTS.orbit, profile),
+  };
+}
+
+export function getAmbientVfxProfileTarget(profile: GraphicsProfile): AmbientVfxProfileTarget {
+  const counts = getAmbientVfxCounts(profile);
+  const target = {
+    sparkles: counts.sparkles,
+    motes: counts.motes,
+    grassBlades: counts.grassPerStrip * 6,
+    embers: counts.embers,
+    rain: counts.rain,
+    orbit: counts.orbit,
+  };
+  return {
+    configured: target.sparkles + target.motes + target.grassBlades + target.embers + target.rain + target.orbit,
+    ...target,
   };
 }

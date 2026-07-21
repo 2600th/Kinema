@@ -2,7 +2,7 @@ import { COLLISION_GROUP_WORLD } from "@core/constants";
 import type { EventBus } from "@core/EventBus";
 import type { Disposable, SpawnPointData } from "@core/types";
 import type { GraphicsProfile, ShadowQualityTier } from "@core/UserSettings";
-import { getVfxDensity } from "@core/vfxProfile";
+import { getAmbientVfxProfileTarget, getVfxDensity } from "@core/vfxProfile";
 import RAPIER from "@dimforge/rapier3d-compat";
 import { getBrushById } from "@editor/brushes/index";
 import { validateEditorLevelData } from "@editor/EditorLevelValidator";
@@ -418,6 +418,7 @@ export class LevelManager implements Disposable {
       this.vfxAmbientCounts.orbit;
     return {
       selectedProfile: this.graphicsProfile,
+      selectedProfileTarget: getAmbientVfxProfileTarget(this.graphicsProfile),
       buildProfile: this.vfxBuildProfile,
       density: this.vfxBuildProfile ? getVfxDensity(this.vfxBuildProfile) : null,
       ambient: {

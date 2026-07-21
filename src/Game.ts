@@ -29,7 +29,7 @@ import { CheckpointObjectiveSystem } from "@systems/CheckpointObjectiveSystem";
 import { CoinCollectibleSystem, type CoinDebugEntry } from "@systems/CoinCollectibleSystem";
 import { DebugRuntimeSystem } from "@systems/DebugRuntimeSystem";
 import { type GrabGoalDebugState, GrabGoalSystem } from "@systems/GrabGoalSystem";
-import { InteractableSystem } from "@systems/InteractableSystem";
+import { InteractableSystem, type ThrowablePoolDebugState } from "@systems/InteractableSystem";
 import { ParticleSystem } from "@systems/ParticleSystem";
 import { type HealthDebugState, PlayerHealthSystem } from "@systems/PlayerHealthSystem";
 import { type HazardDebugEntry, SpikeHazardSystem } from "@systems/SpikeHazardSystem";
@@ -682,6 +682,10 @@ export class Game implements FixedUpdatable, PostPhysicsUpdatable, Updatable, Di
 
   getGrabGoalState(): GrabGoalDebugState {
     return this.grabGoalSystem.getDebugState();
+  }
+
+  getThrowablePoolDebugState(): ThrowablePoolDebugState {
+    return this.interactableSystem.getThrowablePoolDebugState();
   }
 
   placeGrabCubeOnGoal(name?: string): boolean {

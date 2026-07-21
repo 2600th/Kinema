@@ -638,6 +638,7 @@ async function bootstrap(): Promise<void> {
       restartCurrentRun,
       getVfxDebugState: () => game.getVfxDebugState(),
       getGrabGoalState: () => game.getGrabGoalState(),
+      getThrowablePoolDebugState: () => game.getThrowablePoolDebugState(),
       placeGrabCubeOnGoal: (name?: string) => game.placeGrabCubeOnGoal(name),
       getInputSource: () => inputManager.lastInputSource,
       get player() {

@@ -164,12 +164,16 @@ test.describe("Procedural Hazards", () => {
     await waitForRuntimeReady(page, "/?station=platformsPhysics");
 
     await page.evaluate(async () => {
-      const [{ EventBus }, { DeathEffect }] = await Promise.all([
-        import("/src/core/EventBus.ts"),
-        import("/src/ui/components/DeathEffect.ts"),
+      const [eventBusModule, deathEffectModule] = await Promise.all([
+        import(new URL("/src/core/EventBus.ts", location.href).href) as Promise<typeof import("../src/core/EventBus")>,
+        import(new URL("/src/ui/components/DeathEffect.ts", location.href).href) as Promise<
+          typeof import("../src/ui/components/DeathEffect")
+        >,
       ]);
+      const { EventBus } = eventBusModule;
+      const { DeathEffect } = deathEffectModule;
       const originalSetTimeout = window.setTimeout;
-      window.setTimeout = (() => 0) as typeof window.setTimeout;
+      window.setTimeout = (() => 0) as unknown as typeof window.setTimeout;
       const effect = new DeathEffect(new EventBus());
       void effect.play();
       (effect as unknown as { burstParticles(): void }).burstParticles();

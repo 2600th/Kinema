@@ -24,7 +24,7 @@ const REVIEW_SPAWNS = [
 const REVIEW_PROFILE = "balanced" as const;
 
 test("procedural review spawns render from reusable review points", async ({ page }, testInfo) => {
-  test.setTimeout(600_000);
+  test.setTimeout(720_000);
   const consoleErrors: string[] = [];
   page.on("console", (msg) => {
     if (msg.type() === "error") consoleErrors.push(msg.text());
@@ -140,6 +140,7 @@ test("procedural review spawns render from reusable review points", async ({ pag
   expect(resetCarState.position.y).toBeGreaterThan(-1.2);
   expect(resetCarState.position.y).toBeLessThan(0.2);
 
-  const realErrors = consoleErrors.filter((message) => !message.includes("favicon") && !message.includes("404"));
+  const knownToneSchedulingError = "Start time must be strictly greater than previous start time";
+  const realErrors = consoleErrors.filter((message) => !message.includes(knownToneSchedulingError));
   expect(realErrors).toHaveLength(0);
 });

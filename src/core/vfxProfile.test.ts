@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getAmbientVfxCounts, getVfxDensity, scaleVfxCount } from "./vfxProfile";
+import { getAmbientVfxCounts, getAmbientVfxProfileTarget, getVfxDensity, scaleVfxCount } from "./vfxProfile";
 
 describe("VFX profile density", () => {
   it("maps graphics profiles to the authored density contract", () => {
@@ -30,5 +30,13 @@ describe("VFX profile density", () => {
     ["cinematic", { sparkles: 400, motes: 60, grassPerStrip: 400, rain: 200, embers: 40, orbit: 100 }],
   ] as const)("returns every %s ambient build count from one source", (profile, expected) => {
     expect(getAmbientVfxCounts(profile)).toEqual(expected);
+  });
+
+  it.each([
+    ["performance", { configured: 1120, sparkles: 140, motes: 21, grassBlades: 840, embers: 14, rain: 70, orbit: 35 }],
+    ["balanced", { configured: 2080, sparkles: 260, motes: 39, grassBlades: 1560, embers: 26, rain: 130, orbit: 65 }],
+    ["cinematic", { configured: 3200, sparkles: 400, motes: 60, grassBlades: 2400, embers: 40, rain: 200, orbit: 100 }],
+  ] as const)("returns the exact %s full-showcase profile target", (profile, expected) => {
+    expect(getAmbientVfxProfileTarget(profile)).toEqual(expected);
   });
 });

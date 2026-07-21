@@ -1,6 +1,7 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { DEFAULT_PLAYER_CONFIG } from "../src/core/constants";
+import { DEFAULT_PLAYER_CONFIG, GRAVITY, PHYSICS_TIMESTEP } from "../src/core/constants";
 import { getShowcaseBayTopY, getShowcaseStationZ, SHOWCASE_STATION_ORDER } from "../src/level/ShowcaseLayout";
+import { SHOWCASE_NON_INTERACTIVE_BAY_CLASSIFICATIONS } from "../src/level/showcaseBayClassification";
 import {
   waitForGamepadPoll,
   waitForGrounded,
@@ -31,6 +32,38 @@ const BACK_CHECKPOINT_POSITION = {
 const BOOST_PAD_CONTACT_CLEARANCE = 0.01;
 const COIN_VISUAL_RADIUS = 0.62;
 const COIN_CLEARANCE_EPSILON = 0.01;
+// GrabGoalSystem resets in fixedUpdate before GameLoop steps physics, so the first browser-observable
+// "ready" pose may include exactly one gravity integration; the unit test still asserts the exact reset calls.
+const RESET_ONE_TICK_POSITION_TOLERANCE = GRAVITY * PHYSICS_TIMESTEP ** 2;
+const VFX_PROFILE_TARGETS = {
+  performance: {
+    configured: 1120,
+    sparkles: 140,
+    motes: 21,
+    grassBlades: 840,
+    embers: 14,
+    rain: 70,
+    orbit: 35,
+  },
+  balanced: {
+    configured: 2080,
+    sparkles: 260,
+    motes: 39,
+    grassBlades: 1560,
+    embers: 26,
+    rain: 130,
+    orbit: 65,
+  },
+  cinematic: {
+    configured: 3200,
+    sparkles: 400,
+    motes: 60,
+    grassBlades: 2400,
+    embers: 40,
+    rain: 200,
+    orbit: 100,
+  },
+} as const;
 
 type InputSource = (typeof INPUTS)[number];
 type GamepadState = { activeButton: number | null; calls: number };
@@ -181,14 +214,30 @@ async function proveGrabGoalReset(page: Page): Promise<void> {
   await expect
     .poll(() => page.evaluate(() => window.__KINEMA__.getGrabGoalState().phase), { timeout: 60_000 })
     .toBe("completed");
-  await expect
-    .poll(() => page.evaluate(() => window.__KINEMA__.getGrabGoalState().phase), { timeout: 60_000 })
-    .toBe("ready");
-  const restored = await page.evaluate(() => window.__KINEMA__.getDynamicBodyState("PushCubeS_dyn"));
+  const restored = await page.evaluate(
+    () =>
+      new Promise<ReturnType<typeof window.__KINEMA__.getDynamicBodyState>>((resolve) => {
+        const deadline = performance.now() + 60_000;
+        const sampleReset = () => {
+          if (window.__KINEMA__.getGrabGoalState().phase === "ready") {
+            resolve(window.__KINEMA__.getDynamicBodyState("PushCubeS_dyn"));
+            return;
+          }
+          if (performance.now() >= deadline) {
+            resolve(null);
+            return;
+          }
+          requestAnimationFrame(sampleReset);
+        };
+        requestAnimationFrame(sampleReset);
+      }),
+  );
   expect(restored).not.toBeNull();
   if (!authored || !restored) return;
   for (const component of ["x", "y", "z"] as const) {
-    expect(Math.abs(restored.position[component] - authored.position[component])).toBeLessThanOrEqual(1e-3);
+    expect(Math.abs(restored.position[component] - authored.position[component])).toBeLessThanOrEqual(
+      RESET_ONE_TICK_POSITION_TOLERANCE,
+    );
   }
   for (const component of ["x", "y", "z", "w"] as const) {
     expect(Math.abs(restored.rotation[component] - authored.rotation[component])).toBeLessThanOrEqual(1e-3);
@@ -196,25 +245,102 @@ async function proveGrabGoalReset(page: Page): Promise<void> {
 }
 
 async function proveRealThrowRefill(page: Page): Promise<void> {
-  const canvas = page.locator("canvas[data-engine]");
+  const pickedIds: string[] = [];
+  let pickedSlot: number | null = null;
+  await page.evaluate(() => window.__KINEMA__.clearInteractionEvents());
+  for (let cycle = 0; cycle < 4; cycle++) {
+    let expectedActiveId: string | null = null;
+    if (pickedSlot !== null) {
+      const slot = pickedSlot;
+      await expect
+        .poll(
+          () =>
+            page.evaluate(
+              (slotIndex) => window.__KINEMA__.getThrowablePoolDebugState().slots[slotIndex]?.activeId ?? null,
+              slot,
+            ),
+          { message: `throw cycle ${cycle + 1} receives a real table refill`, timeout: 120_000 },
+        )
+        .not.toBeNull();
+      expectedActiveId = await page.evaluate(
+        (slotIndex) => window.__KINEMA__.getThrowablePoolDebugState().slots[slotIndex]?.activeId ?? null,
+        slot,
+      );
+    }
+    await page.evaluate((position) => {
+      window.__KINEMA__.teleportPlayer(position);
+      window.__KINEMA__.setCameraLook(-0.08, 0);
+    }, THROW_PICKUP_POSITION);
+    await waitForGrounded(page);
+    await expect(page.locator("#hud-prompt")).toContainText("Pick Up", { timeout: 30_000 });
+    await page.keyboard.down("KeyF");
+    try {
+      await expect
+        .poll(() => page.evaluate(() => window.__KINEMA__.player.state), {
+          message: `throw cycle ${cycle + 1} enters carry through real input`,
+          timeout: 30_000,
+        })
+        .toBe("carry");
+    } finally {
+      await page.keyboard.up("KeyF");
+      await waitForInputRelease(page);
+    }
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const events = window.__KINEMA__.getInteractionEvents();
+          return [...events].reverse().find((event) => event.type === "interaction:triggered")?.id ?? null;
+        }),
+      )
+      .toMatch(/^throw-\d+-/);
+    const pickedId = await page.evaluate(() => {
+      const events = window.__KINEMA__.getInteractionEvents();
+      return [...events].reverse().find((event) => event.type === "interaction:triggered")?.id ?? "";
+    });
+    if (expectedActiveId !== null) expect(pickedId).toBe(expectedActiveId);
+    pickedIds.push(pickedId);
+    pickedSlot ??= Number(pickedId.split("-")[1]);
+    // Throw into the open corridor behind the pickup table so the body crosses the real recycle radius.
+    await page.evaluate(() => window.__KINEMA__.setCameraLook(-0.18, Math.PI));
+    await waitForRenderFrame(page);
+    await waitForRenderFrame(page);
+    await page.mouse.down({ button: "left" });
+    try {
+      await expect
+        .poll(() => page.evaluate(() => window.__KINEMA__.player.state), {
+          message: `throw cycle ${cycle + 1} exits carry through real primary input`,
+          timeout: 30_000,
+        })
+        .not.toBe("carry");
+    } finally {
+      await page.mouse.up({ button: "left" });
+      await waitForInputRelease(page);
+    }
+    if (cycle < 3 && pickedSlot !== null) {
+      const slot = pickedSlot;
+      await expect
+        .poll(
+          () =>
+            page.evaluate(
+              ({ id, slotIndex }) =>
+                window.__KINEMA__.getThrowablePoolDebugState().slots[slotIndex]?.reserveIds.includes(id) ?? false,
+              { id: pickedId, slotIndex: slot },
+            ),
+          { message: `throw cycle ${cycle + 1} crosses the recycle boundary`, timeout: 120_000 },
+        )
+        .toBe(true);
+    }
+  }
+  const pickedParts = pickedIds.map((id) => id.split("-").map(Number));
+  expect(pickedParts.map(([, slot]) => slot)).toEqual(Array(4).fill(pickedParts[0]?.[1]));
+  expect(new Set(pickedIds.slice(0, 3)).size).toBe(3);
+  expect(pickedIds.slice(0, 3)).toContain(pickedIds[3]);
   await page.evaluate((position) => {
     window.__KINEMA__.teleportPlayer(position);
     window.__KINEMA__.setCameraLook(-0.08, 0);
   }, THROW_PICKUP_POSITION);
   await waitForGrounded(page);
-  await expect(page.locator("#hud-prompt")).toContainText("Pick Up");
-  await page.keyboard.press("KeyF");
-  await expect.poll(() => page.evaluate(() => window.__KINEMA__.player.state)).toBe("carry");
-  await page.evaluate(() => window.__KINEMA__.setCameraLook(0.32, -0.26));
-  await canvas.dispatchEvent("mousedown", { button: 0 });
-  await expect.poll(() => page.evaluate(() => window.__KINEMA__.player.state)).not.toBe("carry");
-  await page.evaluate(() => window.dispatchEvent(new MouseEvent("mouseup", { button: 0 })));
-  await page.evaluate((position) => {
-    window.__KINEMA__.teleportPlayer(position);
-    window.__KINEMA__.setCameraLook(-0.08, 0);
-  }, THROW_PICKUP_POSITION);
-  await waitForGrounded(page);
-  await expect(page.locator("#hud-prompt")).toContainText("Pick Up", { timeout: 20_000 });
+  await expect(page.locator("#hud-prompt")).toContainText("Pick Up", { timeout: 30_000 });
 }
 
 async function proveCoinSupport(page: Page): Promise<void> {
@@ -296,8 +422,9 @@ async function proveCoinCollection(page: Page): Promise<void> {
       )
       .toBe(true);
     const before = await page.evaluate(() => window.__KINEMA__.getCollectibleCount());
-    // Stay 0.05 m outside the 1.15 m pickup radius so only real movement can increment the count.
-    const approachOffset = 1.2;
+    // The moving-platform sample needs extra pre-input drift margin; the physics-platform route is authored
+    // around the closer approach so its moving body does not carry the player past the coin.
+    const approachOffset = station === "platformsMoving" ? 1.8 : 1.2;
     await page.evaluate(
       ({ target, offset }) => {
         window.__KINEMA__.teleportPlayer({ x: target.x + offset, y: target.y, z: target.z });
@@ -305,7 +432,30 @@ async function proveCoinCollection(page: Page): Promise<void> {
       },
       { offset: approachOffset, target: coin.position },
     );
-    await waitForGrounded(page);
+    // Require a stable grounded window so a stale pre-teleport flag cannot pass this synchronization point.
+    expect(
+      await page.evaluate(
+        () =>
+          new Promise<boolean>((resolve) => {
+            const deadline = performance.now() + 60_000;
+            let consecutiveGroundedFrames = 0;
+            const sample = () => {
+              consecutiveGroundedFrames = window.__KINEMA__.player.isGrounded ? consecutiveGroundedFrames + 1 : 0;
+              if (consecutiveGroundedFrames >= 5) {
+                resolve(true);
+                return;
+              }
+              if (performance.now() >= deadline) {
+                resolve(false);
+                return;
+              }
+              requestAnimationFrame(sample);
+            };
+            requestAnimationFrame(sample);
+          }),
+      ),
+      `${station} approach remains grounded across physics frames`,
+    ).toBe(true);
     expect(await page.evaluate(() => window.__KINEMA__.getCollectibleCount())).toBe(before);
     const preCollection = await page.evaluate(() => ({
       count: window.__KINEMA__.getCollectibleCount(),
@@ -313,8 +463,14 @@ async function proveCoinCollection(page: Page): Promise<void> {
       player: window.__KINEMA__.player,
       pointerLocked: document.pointerLockElement === document.querySelector<HTMLCanvasElement>("canvas[data-engine]"),
     }));
+    await page.evaluate((target) => {
+      const player = window.__KINEMA__.player.position;
+      window.__KINEMA__.setCameraLook(0, Math.atan2(player.x - target.x, player.z - target.z));
+    }, coin.position);
+    await waitForRenderFrame(page);
+    await waitForRenderFrame(page);
     let postCollection = preCollection;
-    if (station === "materials") {
+    if (coin.position.y - preCollection.player.position.y > 0.9) {
       try {
         await page.keyboard.press("Space");
         await page.waitForFunction(
@@ -348,9 +504,8 @@ async function proveCoinCollection(page: Page): Promise<void> {
     try {
       try {
         await page.waitForFunction(
-          ({ expectedCount, targetX }) =>
-            window.__KINEMA__.getCollectibleCount() === expectedCount || window.__KINEMA__.player.position.x <= targetX,
-          { expectedCount: before + 1, targetX: coin.position.x },
+          (expectedCount) => window.__KINEMA__.getCollectibleCount() === expectedCount,
+          before + 1,
           { polling: "raf", timeout: 30_000 },
         );
         await expect
@@ -455,7 +610,7 @@ test.describe("showcase rollout validation", () => {
 
   for (const rendererCase of RENDERERS) {
     test(`${rendererCase.name} produces all profile and input observations`, async ({ page }) => {
-      test.setTimeout(600_000);
+      test.setTimeout(1_200_000);
       const consoleErrors: string[] = [];
       const pageErrors: string[] = [];
       page.on("console", (message) => {
@@ -476,7 +631,7 @@ test.describe("showcase rollout validation", () => {
       await expect.poll(() => page.evaluate(() => document.pointerLockElement?.tagName ?? null)).toBe("CANVAS");
       await waitForRenderFrame(page);
 
-      const observations: Array<{ renderer: string; profile: string; input: string }> = [];
+      const observations: Array<{ renderer: string; profile: string; input: string; vfxConfigured: number }> = [];
       for (const profile of PROFILES) {
         expect(await page.evaluate((value) => window.__KINEMA__.setGraphicsProfile(value), profile)).toBe(profile);
         await expect
@@ -496,15 +651,30 @@ test.describe("showcase rollout validation", () => {
           }
           await test.step(`${profile}/${input} door action and reset`, () => proveDoorActionAndReset(page, input));
           const flags = await page.evaluate(() => window.__KINEMA__.getRendererDebugFlags());
+          const vfxState = await page.evaluate(() => window.__KINEMA__.getVfxDebugState());
           expect(flags.activeBackend).toBe(rendererCase.backend);
           expect(flags.graphicsProfile).toBe(profile);
+          expect(vfxState.selectedProfile).toBe(profile);
+          expect(vfxState.selectedProfileTarget).toEqual(VFX_PROFILE_TARGETS[profile]);
           await expect(page.locator("#renderer-status-badge")).toHaveText(`${rendererCase.badge} · ${profile}`);
-          observations.push({ renderer: rendererCase.name, profile, input });
+          observations.push({
+            renderer: rendererCase.name,
+            profile,
+            input,
+            vfxConfigured: vfxState.selectedProfileTarget.configured,
+          });
           await releaseInputSource(page, input);
         }
       }
       expect(observations).toEqual(
-        PROFILES.flatMap((profile) => INPUTS.map((input) => ({ renderer: rendererCase.name, profile, input }))),
+        PROFILES.flatMap((profile) =>
+          INPUTS.map((input) => ({
+            renderer: rendererCase.name,
+            profile,
+            input,
+            vfxConfigured: VFX_PROFILE_TARGETS[profile].configured,
+          })),
+        ),
       );
 
       const signs = await page.evaluate(
@@ -513,6 +683,17 @@ test.describe("showcase rollout validation", () => {
       );
       expect(signs).toHaveLength(14);
       expect(signs.every((sign) => sign?.visible && sign.labelText)).toBe(true);
+      const reviewStructures = await page.evaluate(
+        (names) => {
+          return Object.fromEntries(names.map((name) => [name, window.__KINEMA__.getLevelObjectState(name)]));
+        },
+        ["StepsTooTallCue_col", "SlopesTooSteepMarker", "GrabGoalOutline", "GrabGoalCore", "GrabGoalLabel"],
+      );
+      expect(reviewStructures.StepsTooTallCue_col?.visible).toBe(true);
+      expect(reviewStructures.SlopesTooSteepMarker?.visible).toBe(true);
+      expect(reviewStructures.GrabGoalOutline?.visible).toBe(true);
+      expect(reviewStructures.GrabGoalCore?.visible).toBe(true);
+      expect(reviewStructures.GrabGoalLabel?.visible).toBe(true);
       expect(await page.evaluate(() => window.__KINEMA__.getLevelObjectState("StepsTooTallLabel")?.labelText)).toBe(
         "Too tall — jump",
       );
@@ -536,7 +717,28 @@ test.describe("showcase rollout validation", () => {
       expect(vfx.state.selectedProfile).toBe("cinematic");
       expect(vfx.state.buildProfile).toBe("balanced");
       expect(vfx.state.density).toBe(0.65);
-      expect(vfx.state.ambient.configured).toBeGreaterThan(0);
+      expect(vfx.state.selectedProfileTarget).toEqual(VFX_PROFILE_TARGETS.cinematic);
+      expect(vfx.state.ambient).toMatchObject(
+        rendererCase.backend === "WebGLRenderer"
+          ? {
+              configured: 299,
+              sparkles: { configuredCount: 260 },
+              motes: 39,
+              grassBlades: 0,
+              embers: 0,
+              rain: 0,
+              orbit: 0,
+            }
+          : {
+              configured: 2080,
+              sparkles: { configuredCount: 260 },
+              motes: 39,
+              grassBlades: 1560,
+              embers: 26,
+              rain: 130,
+              orbit: 65,
+            },
+      );
       expect(vfx.label).toBe(
         rendererCase.backend === "WebGLRenderer"
           ? "Compatibility VFX\nTornado • Fire • Lasers • Lightning Ribbons • Scanner"
@@ -544,8 +746,12 @@ test.describe("showcase rollout validation", () => {
       );
 
       if (rendererCase.name === "default") {
-        const passiveClassification = { interaction: "N/A", audio: "N/A", reset: "N/A" } as const;
-        expect(passiveClassification).toEqual({ interaction: "N/A", audio: "N/A", reset: "N/A" });
+        expect(SHOWCASE_NON_INTERACTIVE_BAY_CLASSIFICATIONS.materials).toEqual({
+          kind: "passive",
+          interaction: "N/A",
+          audio: "N/A",
+          reset: "N/A",
+        });
         await proveGrabGoalReset(page);
         await proveRealThrowRefill(page);
 
@@ -588,6 +794,23 @@ test.describe("showcase rollout validation", () => {
           .poll(() => page.evaluate(() => window.__KINEMA__.getVehicleState("car-1")?.active), { timeout: 10_000 })
           .toBe(false);
         await page.evaluate(() => window.__KINEMA__.clearSimulatedInput());
+        await waitForGrounded(page);
+
+        await activateInputSource(page, "gamepad");
+        await expect.poll(() => page.evaluate(() => window.__KINEMA__.getInputSource())).toBe("gamepad");
+        expect(await page.evaluate(() => window.__KINEMA__.enterVehicle("drone-1"))).toBe(true);
+        await expect.poll(() => page.evaluate(() => window.__KINEMA__.getVehicleState("drone-1")?.active)).toBe(true);
+        await expect(
+          page.locator("#hud-status-lane .hud-status-card", {
+            hasText: "Right Stick ↑ / ↓ to change drone altitude",
+          }),
+        ).toBeVisible();
+        await page.evaluate(() => window.__KINEMA__.simulateVehicleInput({ interactPressed: true }, 8));
+        await expect
+          .poll(() => page.evaluate(() => window.__KINEMA__.getVehicleState("drone-1")?.active), { timeout: 10_000 })
+          .toBe(false);
+        await page.evaluate(() => window.__KINEMA__.clearSimulatedInput());
+        await setGamepadButton(page, null);
         await waitForGrounded(page);
 
         const platformStart = await page.evaluate(() => window.__KINEMA__.getLevelObjectState("SideMovePlatform_col"));
@@ -646,12 +869,7 @@ test.describe("showcase rollout validation", () => {
       }
 
       const knownToneSchedulingError = "Start time must be strictly greater than previous start time";
-      expect(
-        consoleErrors.filter(
-          (message) =>
-            !message.includes("favicon") && !message.includes("404") && !message.includes(knownToneSchedulingError),
-        ),
-      ).toEqual([]);
+      expect(consoleErrors.filter((message) => !message.includes(knownToneSchedulingError))).toEqual([]);
       expect(pageErrors.filter((message) => !message.includes(knownToneSchedulingError))).toEqual([]);
     });
   }

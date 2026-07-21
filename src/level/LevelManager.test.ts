@@ -1277,11 +1277,35 @@ describe("LevelManager VFX timing", () => {
       { emit: vi.fn() } as unknown as EventBus,
     );
 
-    expect(manager.getVfxDebugState()).toMatchObject({ selectedProfile: "cinematic", buildProfile: null });
+    expect(manager.getVfxDebugState()).toMatchObject({
+      selectedProfile: "cinematic",
+      buildProfile: null,
+      selectedProfileTarget: {
+        configured: 3200,
+        sparkles: 400,
+        motes: 60,
+        grassBlades: 2400,
+        embers: 40,
+        rain: 200,
+        orbit: 100,
+      },
+    });
 
     manager.setGraphicsProfile("performance");
 
-    expect(manager.getVfxDebugState()).toMatchObject({ selectedProfile: "performance", buildProfile: null });
+    expect(manager.getVfxDebugState()).toMatchObject({
+      selectedProfile: "performance",
+      buildProfile: null,
+      selectedProfileTarget: {
+        configured: 1120,
+        sparkles: 140,
+        motes: 21,
+        grassBlades: 840,
+        embers: 14,
+        rain: 70,
+        orbit: 35,
+      },
+    });
   });
 
   it("excludes explicitly hidden motes and sparkles from the visible ambient count", () => {
