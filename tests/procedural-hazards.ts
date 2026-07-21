@@ -16,10 +16,10 @@ type HazardDebugEntry = {
   position: { x: number; y: number; z: number };
 };
 
-const CHECKPOINT_POSITION = {
-  x: 10,
+const BACK_CHECKPOINT_POSITION = {
+  x: 18,
   y: getShowcaseBayTopY() + 0.12,
-  z: getShowcaseStationZ("door"),
+  z: getShowcaseStationZ("vfx") - 15,
 };
 const BOOST_PAD_CONTACT_CLEARANCE = 0.01;
 
@@ -44,23 +44,27 @@ async function moveToSafeStationSpawn(page: Page): Promise<void> {
 }
 
 test.describe("Procedural Hazards", () => {
-  test("lethal damage recovers at an active checkpoint without reloading or losing coins", async ({ page }) => {
+  test("lethal damage recovers at the back-half checkpoint without reloading or losing coins", async ({ page }) => {
     test.setTimeout(420_000);
     await waitForRuntimeReady(page, "/?spawn=entrance");
     await page.evaluate(() => window.__KINEMA__.setGraphicsProfile("performance"));
     expect(await page.evaluate(() => window.__KINEMA__.getActiveCheckpoint())).toBeNull();
 
-    await page.evaluate((position) => window.__KINEMA__.teleportPlayer(position), CHECKPOINT_POSITION);
+    await page.evaluate((position) => window.__KINEMA__.teleportPlayer(position), BACK_CHECKPOINT_POSITION);
     await expect
       .poll(() => page.evaluate(() => window.__KINEMA__.getActiveCheckpoint()), { timeout: 20_000 })
-      .toMatchObject({ id: "showcase-checkpoint", position: CHECKPOINT_POSITION });
+      .toMatchObject({ id: "showcase-checkpoint-back", position: BACK_CHECKPOINT_POSITION });
 
     const firstCoinId = await page.evaluate(() => window.__KINEMA__.listCollectibles()[0]?.id ?? null);
     expect(firstCoinId).not.toBeNull();
-    await page.evaluate((id) => window.__KINEMA__.teleportToCollectible(id as string), firstCoinId);
-    await page.waitForFunction(() => window.__KINEMA__.getCollectibleCount() === 1, undefined, {
-      timeout: 20_000,
-    });
+    expect(await page.evaluate((id) => window.__KINEMA__.teleportToCollectible(id as string), firstCoinId)).toBe(true);
+    await page.waitForFunction(
+      (id) => !window.__KINEMA__.listCollectibles().some((coin) => coin.id === id),
+      firstCoinId,
+      { timeout: 20_000 },
+    );
+    const collectedBeforeDeath = await page.evaluate(() => window.__KINEMA__.getCollectibleCount());
+    expect(collectedBeforeDeath).toBeGreaterThan(0);
 
     const hazards = await listHazards(page);
     expect(hazards.length).toBeGreaterThanOrEqual(3);
@@ -80,22 +84,22 @@ test.describe("Procedural Hazards", () => {
     }
 
     await page.waitForFunction(
-      (checkpoint) => {
+      ({ checkpoint, expectedCollectibleCount }) => {
         const health = window.__KINEMA__.getHealth();
         const player = window.__KINEMA__.player.position;
         return (
           health.current === health.max &&
           health.invulnerable &&
-          window.__KINEMA__.getCollectibleCount() === 1 &&
+          window.__KINEMA__.getCollectibleCount() === expectedCollectibleCount &&
           Math.hypot(player.x - checkpoint.x, player.y - checkpoint.y, player.z - checkpoint.z) < 1.5
         );
       },
-      CHECKPOINT_POSITION,
+      { checkpoint: BACK_CHECKPOINT_POSITION, expectedCollectibleCount: collectedBeforeDeath },
       { timeout: 30_000 },
     );
     expect(await page.evaluate(() => window.__KINEMA__.getCollectibleTotal())).toBe(70);
-    expect(await page.evaluate(() => window.__KINEMA__.listCollectibles().length)).toBe(69);
-    await expect(page.locator(".collectible-count")).toHaveText("1/70");
+    expect(await page.evaluate(() => window.__KINEMA__.listCollectibles().length)).toBe(70 - collectedBeforeDeath);
+    await expect(page.locator(".collectible-count")).toHaveText(`${collectedBeforeDeath}/70`);
     await expect(page.locator(".hud-status-card", { hasText: "Respawned" })).toBeVisible();
   });
 

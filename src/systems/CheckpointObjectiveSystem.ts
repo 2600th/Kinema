@@ -70,6 +70,11 @@ export class CheckpointObjectiveSystem implements RuntimeSystem {
       new THREE.Vector3(10, getShowcaseBayTopY() + 0.12, getShowcaseStationZ("door")),
       2.2,
     );
+    this.checkpointManager.addCheckpoint(
+      "showcase-checkpoint-back",
+      new THREE.Vector3(18, getShowcaseBayTopY() + 0.12, getShowcaseStationZ("vfx") - 15),
+      2.2,
+    );
   }
 
   dispose(): void {

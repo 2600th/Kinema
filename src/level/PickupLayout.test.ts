@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getProceduralCoinPlacements } from "./CoinLayout";
-import { getShowcaseBayTopY } from "./ShowcaseLayout";
+import { getShowcaseBayTopY, getShowcaseStationZ } from "./ShowcaseLayout";
 import { getProceduralSpikePlacements } from "./SpikeLayout";
 
 interface Footprint {
@@ -43,6 +43,17 @@ function overlapsVolume(volume: Volume, x: number, y: number, z: number, radius:
 const COIN_VISUAL_RADIUS = 0.57;
 
 describe("procedural pickup layouts", () => {
+  it("keeps the reserved bay empty while preserving the showcase total in a VFX back trail", () => {
+    expect(getProceduralCoinPlacements()).toHaveLength(70);
+    expect(getProceduralCoinPlacements("futureA")).toEqual([]);
+
+    const backTrail = getProceduralCoinPlacements("vfx").filter(
+      (entry) => entry.position.z < getShowcaseStationZ("vfx") - 5,
+    );
+    expect(backTrail).toHaveLength(5);
+    expect(backTrail.at(-1)?.position.x).toBeCloseTo(18);
+  });
+
   it("keeps spike hazards out of the authored platform footprints in the overlap-prone bays", () => {
     const safetyPadding = 0.35;
     const movingPlatforms: Footprint[] = [

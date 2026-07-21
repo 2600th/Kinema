@@ -126,6 +126,15 @@ test.describe("Procedural Coins", () => {
     expect(stationCoins.every((coin) => coin.station === "door")).toBe(true);
   });
 
+  test("reserved bay exposes zero collectible total and no debug collectibles", async ({ page }) => {
+    await waitForRuntimeReady(page, "/?station=futureA");
+
+    expect(await getCoinCount(page)).toBe(0);
+    expect(await page.evaluate(() => window.__KINEMA__.getCollectibleTotal())).toBe(0);
+    await expect(page.locator(".collectible-count")).toHaveText("0/0");
+    expect(await listCoins(page)).toEqual([]);
+  });
+
   test("compat renderer completes an isolated station through the same celebration path", async ({ page }) => {
     await waitForRuntimeReady(page, "/?station=door&forceWebGL=1");
 

@@ -100,6 +100,11 @@ const STATION_LOCAL_COIN_LAYOUTS: Record<ShowcaseStationKey, readonly LocalCoinP
     coin([0, REWARD_COIN_HEIGHT + 0.65, 0]),
     coin([5, REWARD_COIN_HEIGHT + 0.15, 0]),
     coin([15, ROUTE_COIN_HEIGHT + 0.65, 0]),
+    coin([15, ROUTE_COIN_HEIGHT, -6]),
+    coin([15.75, ROUTE_COIN_HEIGHT, -8.25]),
+    coin([16.5, ROUTE_COIN_HEIGHT, -10.5]),
+    coin([17.25, ROUTE_COIN_HEIGHT, -12.75]),
+    coin([18, ROUTE_COIN_HEIGHT, -15]),
   ],
   navigation: [
     coin([-10, ROUTE_COIN_HEIGHT + 0.1, 4.6]),
@@ -108,13 +113,7 @@ const STATION_LOCAL_COIN_LAYOUTS: Record<ShowcaseStationKey, readonly LocalCoinP
     coin([8, ROUTE_COIN_HEIGHT + 0.25, -2.2]),
     coin([8.5, REWARD_COIN_HEIGHT + 0.25, -5.2]),
   ],
-  futureA: [
-    coin([-12, ROUTE_COIN_HEIGHT, 5]),
-    coin([-6, ROUTE_COIN_HEIGHT + 0.1, 2.2]),
-    coin([0, REWARD_COIN_HEIGHT, -0.8]),
-    coin([6, ROUTE_COIN_HEIGHT + 0.2, 2.2]),
-    coin([12, REWARD_COIN_HEIGHT + 0.2, -3.4]),
-  ],
+  futureA: [],
 };
 
 function toWorldPosition(station: ShowcaseStationKey, offset: readonly [number, number, number]): THREE.Vector3 {
