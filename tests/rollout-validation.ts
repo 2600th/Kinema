@@ -9,6 +9,7 @@ import {
   waitForLoadingGone,
   waitForRenderFrame,
 } from "./helpers/kinema";
+import { advanceStableGroundedFrameCount } from "./helpers/stableGrounded";
 
 const RENDERERS = [
   { name: "default", query: "", backend: "WebGPU (WebGL2 backend)", badge: "WebGPU / WebGL2" },
@@ -167,29 +168,18 @@ async function activateInputSource(page: Page, source: InputSource): Promise<voi
 }
 
 async function waitForStableGrounded(page: Page, message: string): Promise<void> {
-  expect(
-    await page.evaluate(
+  const deadline = Date.now() + 60_000;
+  let consecutiveGroundedFrames = 0;
+  while (Date.now() < deadline && consecutiveGroundedFrames < 5) {
+    const isGrounded = await page.evaluate(
       () =>
         new Promise<boolean>((resolve) => {
-          const deadline = performance.now() + 60_000;
-          let consecutiveGroundedFrames = 0;
-          const sample = () => {
-            consecutiveGroundedFrames = window.__KINEMA__.player.isGrounded ? consecutiveGroundedFrames + 1 : 0;
-            if (consecutiveGroundedFrames >= 5) {
-              resolve(true);
-              return;
-            }
-            if (performance.now() >= deadline) {
-              resolve(false);
-              return;
-            }
-            requestAnimationFrame(sample);
-          };
-          requestAnimationFrame(sample);
+          requestAnimationFrame(() => resolve(window.__KINEMA__.player.isGrounded));
         }),
-    ),
-    message,
-  ).toBe(true);
+    );
+    consecutiveGroundedFrames = advanceStableGroundedFrameCount(consecutiveGroundedFrames, isGrounded);
+  }
+  expect(consecutiveGroundedFrames, message).toBeGreaterThanOrEqual(5);
 }
 
 async function pulseDoorAction(page: Page, source: InputSource): Promise<void> {

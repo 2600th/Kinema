@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { advanceStableGroundedFrameCount } from "../../tests/helpers/stableGrounded";
 import { getProceduralCoinPlacements } from "./CoinLayout";
 import {
   getShowcaseBayTopY,
@@ -76,11 +77,25 @@ describe("procedural pickup layouts", () => {
         /async function proveCoinCollection[\s\S]*?(?=\nasync function provePhysicsPlatformSafety)/,
       )?.[0] ?? "";
 
-    expect(stableGroundedHelper).toContain("consecutiveGroundedFrames >= 5");
-    expect(stableGroundedHelper).toContain("performance.now() + 60_000");
+    expect(rolloutSource).toContain('from "./helpers/stableGrounded"');
+    expect(stableGroundedHelper).toContain("advanceStableGroundedFrameCount(");
+    expect(stableGroundedHelper).toContain("Date.now() + 60_000");
     expect(doorProof).toContain("await waitForStableGrounded(page");
     expect(doorProof).not.toContain("await waitForGrounded(page)");
     expect(coinProof).toContain("await waitForStableGrounded(page");
+  });
+
+  it("restarts the stable-grounded count after an ungrounded frame", () => {
+    const samples = [true, true, false, true, true, true, true, true];
+    const counts: number[] = [];
+    let consecutiveFrames = 0;
+
+    for (const isGrounded of samples) {
+      consecutiveFrames = advanceStableGroundedFrameCount(consecutiveFrames, isGrounded);
+      counts.push(consecutiveFrames);
+    }
+
+    expect(counts).toEqual([1, 2, 0, 1, 2, 3, 4, 5]);
   });
 
   it("keeps the reserved bay empty while preserving the showcase total in a VFX back trail", () => {
