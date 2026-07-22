@@ -165,3 +165,28 @@ The inspected performance/cinematic review captures and three vehicle renderer
 captures are retained under `output/kin026/`; the profile metrics JSON is under
 `output/kin026/vfx-review-final/`. These workspace-local artifacts are not
 committed.
+
+## KIN-031 final rollout proof
+
+Captured 2026-07-22 with installed headed Chrome `150.0.7871.129`, 1920 x 1080 at DPR1. The 14-bay table used fresh isolated-station contexts, balanced profile, true `WebGPU`, and reset 600-frame windows. The comparison gate is matched KIN-001 p95 x 1.10 + 2ms.
+
+| Station | Load ms | p50 ms | p95 ms | Gate ms |
+|---|---:|---:|---:|---:|
+| steps | 348.5 | 9.6 | 10.1 | 11.24 |
+| slopes | 342.4 | 9.6 | 10.1 | 11.24 |
+| movement | 287.6 | 9.7 | 10.1 | 11.24 |
+| doubleJump | 327.8 | 9.5 | 10.1 | 11.24 |
+| grab | 353.7 | 9.5 | 10.1 | 11.24 |
+| throw | 351.2 | 9.6 | 10.1 | 11.35 |
+| door | 404.7 | 9.6 | 10.1 | 11.24 |
+| vehicles | 371.0 | 9.6 | 10.1 | 11.24 |
+| platformsMoving | 355.1 | 9.6 | 10.1 | 11.24 |
+| platformsPhysics | 414.5 | 9.6 | 10.1 | 11.24 |
+| materials | 413.4 | 9.6 | 10.1 | 11.24 |
+| vfx | 463.2 | 9.6 | 10.1 | 11.24 |
+| navigation | 348.3 | 9.7 | 10.1 | 11.24 |
+| futureA | 554.8 | 9.6 | 10.1 | 11.24 |
+
+All 14 matched comparisons passed. The balanced full-showcase entrance measured `12.2ms` p95 against the retained KIN-030 ceiling of `20.895ms`. A four-scene x three-renderer x three-profile hardware spot matrix (36 windows) completed with zero unexpected errors. Compatibility VFX post-processing and bare-path medians were both `10.1ms`, ratio `1.00` against the `1.10` ceiling.
+
+Balanced GTAO denoise was evaluated in three fresh full-showcase runs. Current p95 was `10.1 / 10.2 / 10.1ms`; candidate p95 was `10.1 / 10.1 / 10.2ms`. Inspection showed no material quality win, so denoise remains cinematic-only. Exact renderer/profile/scene timings, the before/after gallery, error accounting, and limitations are recorded in [KIN-031 rollout evidence](./kin031-rollout.md). Raw harness JSON remains workspace-local under `.superpowers/sdd/`.

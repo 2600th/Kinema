@@ -95,7 +95,7 @@ These rules cover only what agents do not reliably do by default. Baseline behav
 
 At the start of non-trivial work, read `tasks/lessons.md`, then check `tasks/todo.md`. If it holds an unfinished plan for the same work, resume from it instead of re-planning. If it holds a finished or superseded plan, replace it. One active plan at a time.
 
-Create or update `tasks/todo.md` from `tasks/TEMPLATE.md` before editing when work involves 3+ meaningful steps, multiple files or packages, architecture, data model, auth, security, deployment, migration, new dependencies, unclear acceptance criteria, or broad refactors. Check off steps as they complete so an interrupted session can resume from the file.
+Create or update `tasks/todo.md` with `Goal`, `Constraints`, `Execution Plan`, and `Review` sections before editing when work involves 3+ meaningful steps, multiple files or packages, architecture, data model, auth, security, deployment, migration, new dependencies, unclear acceptance criteria, or broad refactors. Check off steps as they complete so an interrupted session can resume from the file.
 
 For large or ambiguous features, interview the user first and capture a short spec in the todo (goal, constraints, out of scope, end-to-end verification) before planning steps. The interview is exempt from the question cap below.
 
