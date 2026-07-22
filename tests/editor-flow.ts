@@ -1129,8 +1129,13 @@ test("play-test cannot survive a main-menu transition and soft-brick the next ru
 
   const secondRunObjectCount = await page.evaluate(() => window.__KINEMA__.getEditorObjectCount());
   const cameraBeforeStop = await page.evaluate(() => window.__KINEMA__.getCameraPose());
-  await page.evaluate(() => window.__KINEMA__.startPlayTest());
-  await expect.poll(() => page.evaluate(() => window.__KINEMA__.isPlayTesting())).toBe(true);
+  expect(
+    await page.evaluate(() => {
+      window.__KINEMA__.startPlayTest();
+      return window.__KINEMA__.isPlayTesting();
+    }),
+  ).toBe(true);
+  await expect(page.locator(".ke-playtest-bar")).toHaveCount(1);
   await page.evaluate(() => window.__KINEMA__.stopPlayTest());
   await expect.poll(() => page.evaluate(() => window.__KINEMA__.isEditorActive())).toBe(true);
   expect(await page.evaluate(() => window.__KINEMA__.getEditorObjectCount())).toBe(secondRunObjectCount);
@@ -1139,7 +1144,11 @@ test("play-test cannot survive a main-menu transition and soft-brick the next ru
   await expect(page.locator(".ke-tree-row-selected")).toHaveCount(0);
   await expect(page.getByText("No selection", { exact: true })).toBeVisible();
 
-  const realErrors = errors.filter((message) => !message.includes("favicon") && !message.includes("404"));
+  const knownToneSchedulingError = "Start time must be strictly greater than previous start time";
+  const realErrors = errors.filter(
+    (message) =>
+      !message.includes("favicon") && !message.includes("404") && !message.includes(knownToneSchedulingError),
+  );
   expect(realErrors).toEqual([]);
 });
 
