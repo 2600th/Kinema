@@ -47,7 +47,7 @@ Verification summarizes the strongest task-level proof recorded during implement
 | KIN-028 | Compatibility renderer parity floor | `4c09204`–`bd1ee5f` | Three-path parity specs and [compat evidence](./evidence/kin028-compat-parity.md) | Compatibility path remains intentionally simpler but is labeled and honest. |
 | KIN-029 | Load and physics-cost batch | `2a14d35`, `2105fd9` | Load/physics measurements and [evidence](./evidence/kin029-load-physics-cost.md) | Async nav/warmup/primitive conversions were bounded; no asset changes. |
 | KIN-030 | Dawn Slate art-direction pass | `a33857e`, `9f36191`, `29f582d` | 17-view gallery, three renderer paths, 118/118 browser suite twice, [evidence](./evidence/kin030-art-direction.md) | Dawn Slate auto-selected from three captured candidates under the standing “best recommended option” instruction. |
-| KIN-031 | 14-bay rollout and final matrix | `79eb9c4`–`960c860`, `08b8c5f`, `c8ea41f` | Task 4 independently approved; matrix 3/3 twice; 17-view gallery; 14 hardware bays; exact matched 36-window gate; runtime-authenticated GTAO evaluation; [rollout evidence](./evidence/kin031-rollout.md) | Targeted gaps only: readability cues, replayable grab goal, reserved-bay honesty, back checkpoint, and stronger validation. |
+| KIN-031 | 14-bay rollout and final matrix | `79eb9c4`–`960c860`, `08b8c5f`, `c8ea41f`, `e65eaf3` | Task 4 independently approved; matrix 3/3 twice; 17-view gallery; 14 hardware bays; exact matched 36-window gate; runtime-authenticated GTAO evaluation; [rollout evidence](./evidence/kin031-rollout.md) | Targeted gaps only: readability cues, replayable grab goal, reserved-bay honesty, back checkpoint, and stronger validation. |
 
 ## Design Approval Registry
 

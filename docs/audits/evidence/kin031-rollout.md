@@ -197,10 +197,31 @@ The hardware job completed with 17 gallery captures, two renderer spots, 14 bala
 npx playwright test tests/rollout-validation.ts --workers=1
 node .superpowers/sdd/kin031-hardware-evidence.mjs
 $env:KIN031_GTAO_VARIANT='current'; node .superpowers/sdd/kin031-gtao-evaluation.mjs
+
+# Recapture the matched pre-change baseline from the isolated historical tree.
+git worktree add --detach .worktrees/kin031-before 5cb3f28
+npm ci --prefix .worktrees/kin031-before
+$beforeServer = Start-Process -FilePath '.worktrees\kin031-before\node_modules\.bin\vite.cmd' -ArgumentList '--host','127.0.0.1' -WorkingDirectory "$PWD\.worktrees\kin031-before" -WindowStyle Hidden -PassThru
+node .superpowers/sdd/kin031-hardware-before.mjs
+$listenerPid = (Get-NetTCPConnection -LocalPort 5173 -State Listen).OwningProcess
+Stop-Process -Id $listenerPid -Force
+git worktree remove --force .worktrees/kin031-before
+```
+
+The denoise candidate was evaluated by temporarily replacing
+`const useAoDenoise = useAo && profile === "cinematic";` with
+`const useAoDenoise = useAo && profile !== "performance";` in
+`src/renderer/pipelineProfile.ts`, then running:
+
+```powershell
 $env:KIN031_GTAO_VARIANT='denoise-candidate'; node .superpowers/sdd/kin031-gtao-evaluation.mjs
 ```
 
-Raw JSON and harness scripts remain workspace-local under `.superpowers/sdd/`; the reviewed PNG evidence and this report are the durable record.
+The original cinematic-only line was restored immediately afterward, and
+`git diff -- src/renderer/pipelineProfile.ts` was required to be empty before
+verification or commit. Raw JSON and harness scripts remain workspace-local
+under `.superpowers/sdd/` during final review; the reviewed PNG evidence and
+this report are the durable record.
 
 ## Limitations
 
