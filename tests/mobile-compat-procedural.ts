@@ -85,8 +85,11 @@ test("iPhone-like compatibility renderer loads the full procedural level without
   expect(runtimeErrors).toEqual([]);
 });
 
-test("compatibility post p95 stays within the measured mobile proxy budget", async ({ browser, baseURL }, testInfo) => {
-  test.setTimeout(600_000);
+test("matched compatibility post p95 stays within the measured mobile proxy budget", async ({
+  browser,
+  baseURL,
+}, testInfo) => {
+  test.setTimeout(1_200_000);
   const origin = baseURL ?? "http://localhost:5173";
 
   async function measurePath(compatibilityPostEnabled: boolean) {
@@ -122,28 +125,48 @@ test("compatibility post p95 stays within the measured mobile proxy budget", asy
     await page.evaluate(() => window.__KINEMA__.resetFrameStats());
     await page.waitForFunction(() => window.__KINEMA__.getFrameStats().samples >= 300, undefined, { timeout: 60_000 });
 
-    const windows = [];
-    for (let windowIndex = 0; windowIndex < 3; windowIndex++) {
-      await page.evaluate(() => window.__KINEMA__.resetFrameStats());
-      await page.waitForFunction(() => window.__KINEMA__.getFrameStats().samples >= 300, undefined, {
-        timeout: 60_000,
-      });
-      windows.push(await page.evaluate(() => window.__KINEMA__.getFrameStats()));
-    }
+    await page.evaluate(() => window.__KINEMA__.resetFrameStats());
+    const measuredAt = performance.now();
+    await page.waitForFunction(() => window.__KINEMA__.getFrameStats().samples >= 300, undefined, {
+      timeout: 60_000,
+    });
+    const frameWindow = await page.evaluate(() => window.__KINEMA__.getFrameStats());
+    const measurementMs = performance.now() - measuredAt;
     await context.close();
-    return { compatibilityPostEnabled, cpuThrottleRate: 4, windows, runtimeErrors };
+    return { compatibilityPostEnabled, cpuThrottleRate: 4, frameWindow, measurementMs, runtimeErrors };
   }
 
-  const bare = await measurePath(false);
-  const enabled = await measurePath(true);
-  const medianP95 = (windows: Array<{ p95: number }>) =>
-    [...windows].map((entry) => entry.p95).sort((a, b) => a - b)[Math.floor(windows.length / 2)];
+  const pairOrders = [
+    [false, true],
+    [true, false],
+    [true, false],
+    [false, true],
+  ] as const;
+  type Measurement = Awaited<ReturnType<typeof measurePath>>;
+  const pairs: Array<{
+    order: (typeof pairOrders)[number];
+    bare: Measurement;
+    enabled: Measurement;
+    ratio: number;
+  }> = [];
+  for (const order of pairOrders) {
+    const measurements = [await measurePath(order[0]), await measurePath(order[1])];
+    const bare = measurements.find((measurement) => !measurement.compatibilityPostEnabled);
+    const enabled = measurements.find((measurement) => measurement.compatibilityPostEnabled);
+    if (!bare || !enabled) throw new Error("Matched compatibility measurement pair was incomplete.");
+    pairs.push({ order, bare, enabled, ratio: enabled.frameWindow.p95 / bare.frameWindow.p95 });
+  }
+  const median = (values: number[]) => {
+    const sorted = [...values].sort((a, b) => a - b);
+    const midpoint = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 0 ? (sorted[midpoint - 1] + sorted[midpoint]) / 2 : sorted[midpoint];
+  };
+  const medianPairwiseRatio = median(pairs.map((pair) => pair.ratio));
   const observation = {
     environment: "Chromium SwiftShader mobile proxy; not Safari hardware certification",
-    bare,
-    enabled,
-    bareMedianP95: medianP95(bare.windows),
-    enabledMedianP95: medianP95(enabled.windows),
+    method: "four fresh matched pairs; balanced AB/BA/BA/AB order; one warmup and one measurement per arm",
+    pairs,
+    medianPairwiseRatio,
   };
   await testInfo.attach("compat-post-mobile-proxy.json", {
     body: JSON.stringify(observation, null, 2),
@@ -151,7 +174,10 @@ test("compatibility post p95 stays within the measured mobile proxy budget", asy
   });
   console.info(`[compat-post-mobile-proxy] ${JSON.stringify(observation)}`);
 
-  expect(bare.runtimeErrors).toEqual([]);
-  expect(enabled.runtimeErrors).toEqual([]);
-  expect(observation.enabledMedianP95).toBeLessThanOrEqual(observation.bareMedianP95 * 1.1);
+  for (const measurement of pairs.flatMap((pair) => [pair.bare, pair.enabled])) {
+    expect(measurement.runtimeErrors).toEqual([]);
+    expect(Number.isFinite(measurement.frameWindow.p95)).toBe(true);
+    expect(measurement.frameWindow.samples).toBeGreaterThanOrEqual(300);
+  }
+  expect(medianPairwiseRatio).toBeLessThanOrEqual(1.1);
 });

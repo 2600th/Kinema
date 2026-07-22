@@ -113,10 +113,10 @@ function findField(menu: SettingsMenu, label: string): { wrapper: FakeElement; c
     .find(
       (element) =>
         element.classList.contains("menu-field") &&
-        element.children.some((child) => child.textContent === label || child.textContent.startsWith(`${label}:`)),
+        element.walk().some((child) => child.textContent === label || child.textContent.startsWith(`${label}:`)),
     );
   if (!wrapper) throw new Error(`Missing field ${label}`);
-  const control = wrapper.children.find((child) => child.type === "range" || child.type === "select");
+  const control = wrapper.walk().find((child) => ["checkbox", "range", "select"].includes(child.type));
   if (!control) throw new Error(`Missing control ${label}`);
   return { wrapper, control };
 }
@@ -149,7 +149,7 @@ describe("SettingsMenu comfort controls", () => {
     (globalThis as { window?: unknown }).window = originalWindow;
   });
 
-  function createMenu() {
+  function createMenu(inputManagerOverrides: Record<string, unknown> = {}) {
     let current = structuredClone(DEFAULT_USER_SETTINGS);
     let rendererStatus = {
       settingsLabel:
@@ -173,17 +173,22 @@ describe("SettingsMenu comfort controls", () => {
       setDamageFlashIntensity: vi.fn(() => order.push("live:damageFlashIntensity")),
       setReducedMotion: vi.fn(() => order.push("live:reducedMotion")),
     };
+    const inputManager = {
+      supportsTouchControls: false,
+      touchControlsEnabled: false,
+      isTouchActive: false,
+      setTouchControlsEnabled: vi.fn(),
+      setRawMouseInput: vi.fn(),
+      setGamepadTuning: vi.fn(),
+      setGamepadLookSensitivity: vi.fn(),
+      setTouchLookSensitivity: vi.fn(),
+      setSprintMode: vi.fn(),
+      setCrouchMode: vi.fn(),
+      ...inputManagerOverrides,
+    };
     const menu = new SettingsMenu({
       settings: settings as never,
-      inputManager: {
-        supportsTouchControls: false,
-        setRawMouseInput: vi.fn(),
-        setGamepadTuning: vi.fn(),
-        setGamepadLookSensitivity: vi.fn(),
-        setTouchLookSensitivity: vi.fn(),
-        setSprintMode: vi.fn(),
-        setCrouchMode: vi.fn(),
-      } as never,
+      inputManager: inputManager as never,
       camera: { setMouseSensitivity: vi.fn(), setInvertY: vi.fn(), setBaseFov: vi.fn() } as never,
       renderer: {
         camera: { fov: 75, updateProjectionMatrix: vi.fn() },
@@ -214,6 +219,7 @@ describe("SettingsMenu comfort controls", () => {
     return {
       menu,
       settings,
+      inputManager,
       comfortController,
       order,
       setRendererStatus: (settingsLabel: string) => {
@@ -246,6 +252,23 @@ describe("SettingsMenu comfort controls", () => {
 
     const { control: select } = findField(menu, "Reduced motion");
     expect(select.children.map((option) => option.value)).toEqual(["system", "on", "off"]);
+  });
+
+  it("shows the requested touch state while menu visibility hides the controls", () => {
+    const setTouchControlsEnabled = vi.fn();
+    const { menu } = createMenu({
+      supportsTouchControls: true,
+      touchControlsEnabled: true,
+      isTouchActive: false,
+      setTouchControlsEnabled,
+    });
+    const toggle = findField(menu, "Touch controls").control;
+
+    expect(toggle.checked).toBe(true);
+    toggle.checked = false;
+    toggle.dispatch("change");
+
+    expect(setTouchControlsEnabled).toHaveBeenCalledWith(false);
   });
 
   it("persists each value before applying its live callback", () => {

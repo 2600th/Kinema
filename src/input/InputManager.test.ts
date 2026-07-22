@@ -572,6 +572,7 @@ describe("InputManager", () => {
 
     expect(hide).toHaveBeenCalledTimes(1);
     expect(manager.isTouchActive).toBe(false);
+    expect(manager.touchControlsEnabled).toBe(true);
 
     eventBus.emit("menu:closed", undefined);
 

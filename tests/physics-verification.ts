@@ -1,11 +1,11 @@
 import { expect, type Page, test } from "@playwright/test";
-import { getPlayer, waitForGrounded, waitForLoadingGone } from "./helpers/kinema";
+import { getPlayer, installDesktopPointerCapabilities, waitForGrounded, waitForLoadingGone } from "./helpers/kinema";
 
 const SLOPES_URL = "/?station=slopes";
 
 async function waitForReady(page: Page): Promise<void> {
   await page.goto(SLOPES_URL, { waitUntil: "domcontentloaded" });
-  await page.locator("canvas").waitFor({ state: "visible", timeout: 60_000 });
+  await page.locator("canvas[data-engine]").waitFor({ state: "visible", timeout: 60_000 });
   await waitForGrounded(page);
 }
 
@@ -128,7 +128,7 @@ test.describe("Primitive collider integration", () => {
   for (const { station, required } of scenarios) {
     test(`${station} uses primitive collision for known shapes`, async ({ page }) => {
       await page.goto(`/?station=${station}`, { waitUntil: "domcontentloaded" });
-      await page.locator("canvas").waitFor({ state: "visible", timeout: 60_000 });
+      await page.locator("canvas[data-engine]").waitFor({ state: "visible", timeout: 60_000 });
       await waitForLoadingGone(page);
       await waitForGrounded(page);
       const stats = await page.evaluate(() => window.__KINEMA__.getColliderShapeStats());
@@ -173,7 +173,7 @@ test.describe("Bootstrap Verification", () => {
       try {
         const page = await context.newPage();
         await page.goto("/?station=throw", { waitUntil: "domcontentloaded" });
-        await page.locator("canvas").waitFor({ state: "visible", timeout: 60_000 });
+        await page.locator("canvas[data-engine]").waitFor({ state: "visible", timeout: 60_000 });
         await waitForLoadingGone(page);
         await waitForGrounded(page);
         await page.waitForTimeout(1_700);
@@ -195,8 +195,9 @@ test.describe("Bootstrap Verification", () => {
 
   test("a real post-grace prop throw emits one impact toast without a support-force flood", async ({ page }) => {
     await page.addInitScript(installImpactToastObserver);
+    await installDesktopPointerCapabilities(page);
     await page.goto("/?station=throw", { waitUntil: "domcontentloaded" });
-    const canvas = page.locator("canvas");
+    const canvas = page.locator("canvas[data-engine]");
     await canvas.waitFor({ state: "visible", timeout: 60_000 });
     await waitForLoadingGone(page);
     await waitForGrounded(page);

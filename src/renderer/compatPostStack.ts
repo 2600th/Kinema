@@ -4,7 +4,7 @@ import { FullScreenQuad, Pass } from "three/addons/postprocessing/Pass.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 
 const COMPAT_POST_SAMPLES = 2;
-const COMPAT_POST_RESOLUTION_SCALE = 0.75;
+const COMPAT_POST_RESOLUTION_SCALE = 0.7;
 
 export interface CompatPostStackState {
   lutTexture: THREE.Data3DTexture | null;
@@ -128,10 +128,13 @@ export class CompatGradePass extends Pass {
             displayColor = sRGBTransferOETF(displayColor);
           #endif
 
-          vec2 vignetteDistance = (vUv - 0.5) * 2.0;
-          float vignetteFactor = smoothstep(0.5, 1.15, length(vignetteDistance));
-          float vignetteMultiplier = max(0.0, 1.0 - vignetteDarkness * vignetteFactor);
-          vec4 withVignette = displayColor * vignetteMultiplier;
+          vec4 withVignette = displayColor;
+          if (vignetteDarkness > 0.0) {
+            vec2 vignetteDistance = (vUv - 0.5) * 2.0;
+            float vignetteFactor = smoothstep(0.5, 1.15, length(vignetteDistance));
+            float vignetteMultiplier = max(0.0, 1.0 - vignetteDarkness * vignetteFactor);
+            withVignette *= vignetteMultiplier;
+          }
 
           float pixelWidth = 1.0 / lutSize;
           float halfPixelWidth = 0.5 / lutSize;

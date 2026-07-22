@@ -44,7 +44,7 @@ const STEP_ASSIST_LEVEL: LevelDataV2 = {
 
 async function openMovementStation(page: Page): Promise<void> {
   await page.goto(MOVEMENT_STATION_URL, { waitUntil: "domcontentloaded" });
-  await page.locator("canvas").waitFor({ state: "visible", timeout: 60_000 });
+  await page.locator("canvas[data-engine]").waitFor({ state: "visible", timeout: 60_000 });
   await waitForKinema(page);
   await waitForGrounded(page);
 }

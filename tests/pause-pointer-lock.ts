@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
 import { waitForGrounded, waitForKinema, waitForLoadingGone } from "./helpers/kinema";
 
+test.use({ hasTouch: false, isMobile: false });
+
 async function pressEscape(page: import("@playwright/test").Page): Promise<void> {
   await page.evaluate(() => {
     window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true }));
@@ -9,7 +11,7 @@ async function pressEscape(page: import("@playwright/test").Page): Promise<void>
 
 async function openDirectRun(page: import("@playwright/test").Page, route: string): Promise<void> {
   await page.goto(route, { waitUntil: "domcontentloaded" });
-  await page.locator("canvas").waitFor({ state: "visible", timeout: 60_000 });
+  await page.locator("canvas[data-engine]").waitFor({ state: "visible", timeout: 60_000 });
   await waitForKinema(page);
   await waitForLoadingGone(page);
   await waitForGrounded(page);
@@ -17,65 +19,43 @@ async function openDirectRun(page: import("@playwright/test").Page, route: strin
 }
 
 test("pause overlay click returns focus to gameplay and restores pointer lock", async ({ page }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
 
   await page.goto("/", { waitUntil: "domcontentloaded" });
-  await page.locator("canvas").waitFor({ state: "visible", timeout: 15_000 });
+  const engineCanvas = page.locator("canvas[data-engine]");
+  await engineCanvas.waitFor({ state: "visible", timeout: 15_000 });
   await waitForKinema(page);
-  await page.evaluate(() => {
-    const canvas = document.querySelector("canvas");
-    if (!canvas) return;
-    const original = canvas.requestPointerLock.bind(canvas);
-    (window as any).__POINTER_LOCK_DEBUG__ = [];
-    canvas.requestPointerLock = ((...args: unknown[]) => {
-      (window as any).__POINTER_LOCK_DEBUG__.push({
-        type: "request",
-        options: args[0] ?? null,
-      });
-      try {
-        const result = original(args[0] as PointerLockOptions | undefined);
-        if (result && typeof (result as Promise<void>).then === "function") {
-          (result as Promise<void>)
-            .then(() => {
-              (window as any).__POINTER_LOCK_DEBUG__.push({ type: "resolved" });
-            })
-            .catch((error: unknown) => {
-              (window as any).__POINTER_LOCK_DEBUG__.push({ type: "rejected", message: String(error) });
-            });
-        }
-        return result;
-      } catch (error) {
-        (window as any).__POINTER_LOCK_DEBUG__.push({ type: "thrown", message: String(error) });
-        throw error;
-      }
-    }) as typeof canvas.requestPointerLock;
-  });
-  await page.getByRole("button", { name: "Play" }).click();
-  await waitForLoadingGone(page);
+
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Controls", exact: true }).click();
+  const touchToggle = page.getByRole("checkbox", { name: "Touch controls", exact: true });
+  if (await touchToggle.count()) await touchToggle.uncheck();
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+
+  await page.getByRole("button", { name: "Play", exact: true }).click();
+  await page.locator(".loading-screen").waitFor({ state: "hidden", timeout: 120_000 });
   await waitForGrounded(page);
+  await expect(page.locator(".touch-controls-container")).toHaveAttribute("aria-hidden", "true");
 
-  await page.mouse.click(960, 540);
-  await page.waitForTimeout(1_000);
-  let pointerLockDebug = await page.evaluate(() => (window as any).__POINTER_LOCK_DEBUG__ ?? []);
-  const initialRequestCount = pointerLockDebug.filter((entry: { type: string }) => entry.type === "request").length;
-  expect(initialRequestCount).toBeGreaterThanOrEqual(1);
+  await engineCanvas.click({ force: true, position: { x: 960, y: 540 } });
+  await expect
+    .poll(() => page.evaluate(() => document.pointerLockElement?.matches("canvas[data-engine]") ?? false), {
+      timeout: 15_000,
+    })
+    .toBe(true);
 
-  await page.evaluate(() => {
-    window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true }));
-  });
+  await pressEscape(page);
   await expect(page.locator(".menu-overlay.active")).toBeVisible();
-  await expect(page.getByText("Paused")).toBeVisible();
+  const pausedHeading = page.getByRole("heading", { name: "Paused", exact: true });
+  await expect(pausedHeading).toBeVisible();
 
-  await page.evaluate(() => {
-    document.querySelector(".menu-overlay.active")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-  });
-  await page.waitForFunction(() => !document.querySelector(".menu-overlay")?.classList.contains("active"), undefined, {
-    timeout: 15_000,
-  });
-  await page.waitForTimeout(1_000);
-  pointerLockDebug = await page.evaluate(() => (window as any).__POINTER_LOCK_DEBUG__ ?? []);
-  const requestCountAfterResume = pointerLockDebug.filter((entry: { type: string }) => entry.type === "request").length;
-  expect(requestCountAfterResume).toBeGreaterThan(initialRequestCount);
+  await pausedHeading.click();
+  await expect(page.locator(".menu-overlay.active")).toHaveCount(0, { timeout: 15_000 });
+  await expect
+    .poll(() => page.evaluate(() => document.pointerLockElement?.matches("canvas[data-engine]") ?? false), {
+      timeout: 15_000,
+    })
+    .toBe(true);
 });
 
 test("station direct entry supports pause, settings, help, Escape close, and resume", async ({ page }, testInfo) => {

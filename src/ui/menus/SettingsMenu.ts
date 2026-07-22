@@ -301,7 +301,7 @@ export class SettingsMenu {
     // Touch controls toggle — only visible on touch-capable devices
     if (inputManager.supportsTouchControls) {
       this.controlsSection.appendChild(
-        this.createToggle("Touch controls", inputManager.isTouchActive, (value) => {
+        this.createToggle("Touch controls", inputManager.touchControlsEnabled, (value) => {
           inputManager.setTouchControlsEnabled(value);
         }),
       );

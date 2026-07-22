@@ -1,6 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 import { getShowcaseBayTopY, getShowcaseStationZ } from "../src/level/ShowcaseLayout";
-import { waitForGrounded } from "./helpers/kinema";
+import { installDesktopPointerCapabilities, waitForGrounded } from "./helpers/kinema";
 
 test.describe.configure({ mode: "serial" });
 
@@ -40,7 +40,7 @@ test("interaction prompt follows keyboard and synthetic gamepad input sources", 
   });
 
   await page.goto("/?station=door", { waitUntil: "domcontentloaded" });
-  await page.locator("canvas").waitFor({ state: "visible", timeout: 15_000 });
+  await page.locator("canvas[data-engine]").waitFor({ state: "visible", timeout: 15_000 });
   await waitForGrounded(page);
   await page.evaluate((position) => {
     window.__KINEMA__.teleportPlayer(position);
@@ -151,8 +151,9 @@ test("interaction prompt follows keyboard and synthetic gamepad input sources", 
 });
 
 test("real keyboard input starts and cancels the beacon hold", async ({ page }) => {
+  await installDesktopPointerCapabilities(page);
   await page.goto("/?station=door", { waitUntil: "domcontentloaded" });
-  await page.locator("canvas").waitFor({ state: "visible", timeout: 15_000 });
+  await page.locator("canvas[data-engine]").waitFor({ state: "visible", timeout: 15_000 });
   await waitForGrounded(page);
   await page.evaluate((position) => {
     window.__KINEMA__.clearInteractionEvents();
@@ -163,7 +164,7 @@ test("real keyboard input starts and cancels the beacon hold", async ({ page }) 
   await expect.poll(() => page.evaluate(() => window.__KINEMA__.player.state)).toBe("idle");
   await expect(page.locator("#hud-prompt")).toContainText("Hold F to Activate Beacon");
 
-  await page.locator("canvas").click({ force: true, position: { x: 640, y: 360 } });
+  await page.locator("canvas[data-engine]").click({ force: true, position: { x: 640, y: 360 } });
   await expect.poll(() => page.evaluate(() => document.pointerLockElement?.tagName ?? null)).toBe("CANVAS");
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
   await page.evaluate(() => {
@@ -212,7 +213,7 @@ test("objective beacon requires a full hold and shows charge feedback", async ({
   test.setTimeout(120_000);
 
   await page.goto("/?station=door", { waitUntil: "domcontentloaded" });
-  await page.locator("canvas").waitFor({ state: "visible", timeout: 15_000 });
+  await page.locator("canvas[data-engine]").waitFor({ state: "visible", timeout: 15_000 });
   await waitForGrounded(page);
 
   await page.evaluate((position) => {
@@ -282,8 +283,9 @@ const CHECKPOINT_PLAYER_POSITION = {
 };
 
 async function completeProceduralBeacon(page: Page, url: string, useSimulatedInput = false): Promise<void> {
+  await installDesktopPointerCapabilities(page);
   await page.goto(url, { waitUntil: "domcontentloaded" });
-  await page.locator("canvas").waitFor({ state: "visible", timeout: 60_000 });
+  await page.locator("canvas[data-engine]").waitFor({ state: "visible", timeout: 60_000 });
   await waitForGrounded(page);
   await expect(page.locator("#hud-objective")).toContainText("Reach a checkpoint");
 
@@ -299,7 +301,7 @@ async function completeProceduralBeacon(page: Page, url: string, useSimulatedInp
   }, DOOR_BEACON_PLAYER_POSITION);
   await expect(page.locator("#hud-prompt")).toContainText("Activate Beacon", { timeout: 15_000 });
 
-  await page.locator("canvas").click({ position: { x: 960, y: 540 }, force: true });
+  await page.locator("canvas[data-engine]").click({ position: { x: 960, y: 540 }, force: true });
   await expect.poll(() => page.evaluate(() => document.pointerLockElement?.tagName ?? null)).toBe("CANVAS");
   if (useSimulatedInput) {
     await page.evaluate(() => window.__KINEMA__.simulateHoldInteract(720));

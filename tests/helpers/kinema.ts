@@ -9,6 +9,15 @@ declare global {
   }
 }
 
+export async function installDesktopPointerCapabilities(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "maxTouchPoints", {
+      configurable: true,
+      get: () => 0,
+    });
+  });
+}
+
 export async function waitForKinema(page: Page): Promise<void> {
   await page.waitForFunction(() => Boolean(window.__KINEMA__), undefined, {
     timeout: KINEMA_TIMEOUT_MS,

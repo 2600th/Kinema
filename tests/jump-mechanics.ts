@@ -5,7 +5,7 @@ const STATION_URL = "/?station=doubleJump";
 
 async function waitForReady(page: Page): Promise<void> {
   await page.goto(STATION_URL, { waitUntil: "domcontentloaded" });
-  await page.locator("canvas").waitFor({ state: "visible", timeout: 60_000 });
+  await page.locator("canvas[data-engine]").waitFor({ state: "visible", timeout: 60_000 });
   await waitForGrounded(page);
 }
 
@@ -50,9 +50,7 @@ test.describe("Jump Mechanics", () => {
   test("air jump adds new vertical impulse after the first jump", async ({ page }) => {
     await simulateJump(page);
     await waitForAirborne(page);
-    const apexReady = await page.evaluate(() =>
-      window.__KINEMA__.waitFor("p.vy < 2 && !p.isGrounded", 10_000),
-    );
+    const apexReady = await page.evaluate(() => window.__KINEMA__.waitFor("p.vy < 2 && !p.isGrounded", 10_000));
     expect(apexReady).toBe(true);
 
     const beforeAirJump = await getPlayer(page);
@@ -69,9 +67,7 @@ test.describe("Jump Mechanics", () => {
     const inAir = await page.evaluate(() => window.__KINEMA__.waitFor("p.state === 'air'", 10_000));
     expect(inAir).toBe(true);
 
-    const apexReady = await page.evaluate(() =>
-      window.__KINEMA__.waitFor("p.vy < 2 && !p.isGrounded", 10_000),
-    );
+    const apexReady = await page.evaluate(() => window.__KINEMA__.waitFor("p.vy < 2 && !p.isGrounded", 10_000));
     expect(apexReady).toBe(true);
 
     await simulateJump(page);

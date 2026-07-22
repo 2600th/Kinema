@@ -30,7 +30,7 @@ test("main menu renders correctly with no bootstrap errors", async ({ page }) =>
   const response = await page.goto("/", { waitUntil: "domcontentloaded" });
   expect(response?.status()).toBe(200);
 
-  await page.locator("canvas").waitFor({ state: "visible", timeout: 15_000 });
+  await page.locator("canvas[data-engine]").waitFor({ state: "visible", timeout: 15_000 });
   // Wait for the game to finish bootstrapping (assets, shaders, initial render)
   await waitForKinema(page);
 
@@ -57,7 +57,7 @@ test("main menu renders correctly with no bootstrap errors", async ({ page }) =>
 
 test("settings menu tabs are accessible", async ({ page }) => {
   await page.goto("/", { waitUntil: "domcontentloaded" });
-  await page.locator("canvas").waitFor({ state: "visible", timeout: 15_000 });
+  await page.locator("canvas[data-engine]").waitFor({ state: "visible", timeout: 15_000 });
   // Wait for the game to finish bootstrapping (assets, shaders, initial render)
   await waitForKinema(page);
 

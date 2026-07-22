@@ -80,7 +80,7 @@ for (const station of ALL_STATIONS) {
 
     // Navigate to the station
     await page.goto(`/?station=${station}`, { waitUntil: "domcontentloaded" });
-    await page.locator("canvas").waitFor({ state: "visible", timeout: 15_000 });
+    await page.locator("canvas[data-engine]").waitFor({ state: "visible", timeout: 15_000 });
 
     // Condition-based bootstrap wait — a fixed wall-clock wait flakes on slow
     // CI workers (SwiftShader bootstrap can exceed it under load).
@@ -142,7 +142,7 @@ test('station "navigation" patrols with the compatibility renderer', async ({ pa
   });
 
   await page.goto("/?station=navigation&forceWebGL=1", { waitUntil: "domcontentloaded" });
-  await page.locator("canvas").waitFor({ state: "visible", timeout: 15_000 });
+  await page.locator("canvas[data-engine]").waitFor({ state: "visible", timeout: 15_000 });
   await waitForKinema(page);
   await waitForGrounded(page);
   await page.evaluate(() => window.__KINEMA__.setCameraLook(-0.08, 0));

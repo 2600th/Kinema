@@ -49,13 +49,13 @@ type DynamicBodyState = {
 async function waitForVehiclesStationReady(page: Page, rendererQuery = ""): Promise<void> {
   const suffix = rendererQuery ? `&${rendererQuery}` : "";
   await page.goto(`/?station=vehicles${suffix}`, { waitUntil: "domcontentloaded" });
-  await page.locator("canvas").waitFor({ state: "visible", timeout: 60_000 });
+  await page.locator("canvas[data-engine]").waitFor({ state: "visible", timeout: 60_000 });
   await waitForGrounded(page);
 }
 
 async function waitForFullVehiclesReady(page: Page): Promise<void> {
   await page.goto("/?spawn=vehicles", { waitUntil: "domcontentloaded" });
-  await page.locator("canvas").waitFor({ state: "visible", timeout: 60_000 });
+  await page.locator("canvas[data-engine]").waitFor({ state: "visible", timeout: 60_000 });
   await waitForGrounded(page);
   await page.waitForFunction(() => window.__KINEMA__.listVehicles().includes("car-1"), undefined, {
     timeout: 60_000,

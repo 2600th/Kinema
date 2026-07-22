@@ -31,7 +31,7 @@ test("procedural review spawns render from reusable review points", async ({ pag
   });
 
   await page.goto("/?spawn=entrance", { waitUntil: "domcontentloaded" });
-  await page.locator("canvas").waitFor({ state: "visible", timeout: 15_000 });
+  await page.locator("canvas[data-engine]").waitFor({ state: "visible", timeout: 15_000 });
   await waitForKinema(page);
   await waitForLoadingGone(page);
   expect(await page.evaluate((profile) => window.__KINEMA__.setGraphicsProfile(profile), REVIEW_PROFILE)).toBe(

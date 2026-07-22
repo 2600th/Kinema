@@ -10,7 +10,7 @@ type CoinDebugEntry = {
 
 async function waitForRuntimeReady(page: Page, url: string): Promise<void> {
   await page.goto(url, { waitUntil: "domcontentloaded" });
-  await page.locator("canvas").waitFor({ state: "visible", timeout: 60_000 });
+  await page.locator("canvas[data-engine]").waitFor({ state: "visible", timeout: 60_000 });
   await waitForGrounded(page);
 }
 

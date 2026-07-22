@@ -5,7 +5,7 @@ import { waitForGrounded } from "./helpers/kinema";
 
 async function waitForGameReady(page: Page, station = "vehicles"): Promise<void> {
   await page.goto(`/?station=${station}`, { waitUntil: "domcontentloaded" });
-  await page.locator("canvas").waitFor({ state: "visible", timeout: 60_000 });
+  await page.locator("canvas[data-engine]").waitFor({ state: "visible", timeout: 60_000 });
   await waitForGrounded(page);
 }
 
@@ -77,7 +77,7 @@ async function observeVfxProfile(browser: Browser, profile: GraphicsProfile, tes
   const { context, page } = await createProfilePage(browser, profile);
   try {
     await page.goto("/?spawn=vfx", { waitUntil: "domcontentloaded" });
-    await page.locator("canvas").waitFor({ state: "visible", timeout: 60_000 });
+    await page.locator("canvas[data-engine]").waitFor({ state: "visible", timeout: 60_000 });
     await page.locator(".loading-screen").waitFor({ state: "hidden", timeout: 180_000 });
     await waitForGrounded(page);
     await page.waitForFunction(

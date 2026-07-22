@@ -4,7 +4,16 @@
  */
 import { expect, test } from "@playwright/test";
 import { PROCEDURAL_REVIEW_SPAWNS } from "../src/level/ShowcaseLayout";
-import { waitForGrounded, waitForKinema, waitForLoadingGone } from "./helpers/kinema";
+import {
+  installDesktopPointerCapabilities,
+  waitForGrounded,
+  waitForKinema,
+  waitForLoadingGone,
+} from "./helpers/kinema";
+
+test.beforeEach(async ({ page }) => {
+  await installDesktopPointerCapabilities(page);
+});
 
 const REVIEW_ANCHORS = [PROCEDURAL_REVIEW_SPAWNS.steps, PROCEDURAL_REVIEW_SPAWNS.materials] as const;
 const CAPTURE_OPTIONS = {
@@ -28,7 +37,7 @@ async function freezeForCapture(
     await window.__KINEMA__.freezeForCapture();
   });
   const state = await page.evaluate(() => {
-    const canvas = document.querySelector("canvas");
+    const canvas = document.querySelector<HTMLCanvasElement>("canvas[data-engine]");
     const cssWidth = canvas?.getBoundingClientRect().width ?? 0;
     return {
       backend: window.__KINEMA__.getRendererDebugFlags().activeBackend,
@@ -47,7 +56,7 @@ async function freezeForCapture(
 }
 
 async function getCanvasAntialias(page: import("@playwright/test").Page): Promise<boolean | null> {
-  return page.locator("canvas").evaluate((element) => {
+  return page.locator("canvas[data-engine]").evaluate((element) => {
     const canvas = element as HTMLCanvasElement;
     return canvas.getContext("webgl2")?.getContextAttributes()?.antialias ?? null;
   });

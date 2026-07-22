@@ -365,6 +365,10 @@ export class InputManager implements Disposable {
     return this.touchActive;
   }
 
+  get touchControlsEnabled(): boolean {
+    return this.desiredTouchEnabled;
+  }
+
   get hasTouchControls(): boolean {
     return this.touchControls !== null;
   }

@@ -55,10 +55,10 @@ describe("CompatPostStack", () => {
     expect(factory.createRenderTarget).toHaveBeenCalledWith(1280, 720, 2);
     expect(target.samples).toBe(2);
     expect(addedPasses).toEqual([renderPass, gradePass]);
-    expect(composer.setPixelRatio.mock.calls[0]?.[0]).toBeCloseTo(1.125);
+    expect(composer.setPixelRatio.mock.calls[0]?.[0]).toBeCloseTo(1.05);
     expect(composer.setSize).not.toHaveBeenCalled();
     expect(gradePass.setState).toHaveBeenCalledWith(INITIAL_STATE);
-    expect(stack.getDebugState()).toMatchObject({ samples: [2, 2], resolutionScale: 0.75 });
+    expect(stack.getDebugState()).toMatchObject({ samples: [2, 2], resolutionScale: 0.7 });
 
     stack.render();
     expect(composer.render).toHaveBeenCalledOnce();
@@ -178,7 +178,7 @@ describe("CompatPostStack", () => {
 
     stack.setSize(800, 600, 1.25);
     expect(composer.setPixelRatio).toHaveBeenCalledOnce();
-    expect(composer.setPixelRatio).toHaveBeenLastCalledWith(0.9375);
+    expect(composer.setPixelRatio).toHaveBeenLastCalledWith(0.875);
     expect(composer.setSize).not.toHaveBeenCalled();
 
     stack.setSize(1024, 576, 1.25);
@@ -209,6 +209,7 @@ describe("CompatGradePass", () => {
     expect(pass.material.uniforms.vignetteDarkness.value).toBe(0.3);
     expect(pass.material.fragmentShader).toContain("ACESFilmicToneMapping");
     expect(pass.material.fragmentShader).toContain("sRGBTransferOETF");
+    expect(pass.material.fragmentShader).toContain("if (vignetteDarkness > 0.0)");
     expect(pass.material.fragmentShader.indexOf("ACESFilmicToneMapping")).toBeLessThan(
       pass.material.fragmentShader.indexOf("withVignette"),
     );

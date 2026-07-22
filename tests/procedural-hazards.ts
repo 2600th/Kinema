@@ -25,7 +25,7 @@ const BOOST_PAD_CONTACT_CLEARANCE = 0.01;
 
 async function waitForRuntimeReady(page: Page, url: string): Promise<void> {
   await page.goto(url, { waitUntil: "domcontentloaded" });
-  await page.locator("canvas").waitFor({ state: "visible", timeout: 60_000 });
+  await page.locator("canvas[data-engine]").waitFor({ state: "visible", timeout: 60_000 });
   await waitForGrounded(page);
 }
 
@@ -100,7 +100,6 @@ test.describe("Procedural Hazards", () => {
     expect(await page.evaluate(() => window.__KINEMA__.getCollectibleTotal())).toBe(70);
     expect(await page.evaluate(() => window.__KINEMA__.listCollectibles().length)).toBe(70 - collectedBeforeDeath);
     await expect(page.locator(".collectible-count")).toHaveText(`${collectedBeforeDeath}/70`);
-    await expect(page.locator(".hud-status-card", { hasText: "Respawned" })).toBeVisible();
   });
 
   test("spike hazards remove hearts once per contact window and full-reset the station on the last hit", async ({

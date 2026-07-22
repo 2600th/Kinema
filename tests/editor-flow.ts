@@ -16,7 +16,7 @@ async function openEditor(page: import("@playwright/test").Page): Promise<void> 
 
 async function placeBlock(page: import("@playwright/test").Page): Promise<void> {
   await page.locator(".ke-brush-item").filter({ hasText: "Block" }).click();
-  await page.locator("canvas").evaluate(async (canvas: HTMLCanvasElement) => {
+  await page.locator("canvas[data-engine]").evaluate(async (canvas: HTMLCanvasElement) => {
     const bounds = canvas.getBoundingClientRect();
     const clientX = bounds.left + bounds.width * 0.5;
     const clientY = bounds.top + bounds.height * 0.6;
@@ -27,7 +27,7 @@ async function placeBlock(page: import("@playwright/test").Page): Promise<void> 
 }
 
 async function placeCurrentPreview(page: import("@playwright/test").Page): Promise<void> {
-  await page.locator("canvas").evaluate(async (canvas: HTMLCanvasElement) => {
+  await page.locator("canvas[data-engine]").evaluate(async (canvas: HTMLCanvasElement) => {
     const bounds = canvas.getBoundingClientRect();
     const clientX = bounds.left + bounds.width * 0.5;
     const clientY = bounds.top + bounds.height * 0.6;
@@ -155,7 +155,7 @@ async function beginTransformGizmoDrag(
     () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
   );
   await page.evaluate(() => window.__KINEMA__.resetEditorPhysicsSyncCounters());
-  const canvas = page.locator("canvas");
+  const canvas = page.locator("canvas[data-engine]");
   const bounds = await canvas.boundingBox();
   if (!bounds) throw new Error("Editor canvas has no bounding box.");
   const center = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };

@@ -34,9 +34,7 @@ test("mobile viewport updates when rotating to landscape", async ({ page }) => {
       page.evaluate(() => {
         const styles = getComputedStyle(document.documentElement);
         const hint = document.querySelector(".kinema-orientation-hint");
-        const rendererCanvas = Array.from(document.querySelectorAll("canvas")).find(
-          (canvas) => getComputedStyle(canvas).position === "fixed",
-        );
+        const rendererCanvas = document.querySelector<HTMLCanvasElement>("canvas[data-engine]");
         const rect = rendererCanvas?.getBoundingClientRect();
         return {
           appWidth: styles.getPropertyValue("--app-width").trim(),
@@ -64,9 +62,7 @@ test("mobile viewport updates when rotating to landscape", async ({ page }) => {
       page.evaluate(() => {
         const styles = getComputedStyle(document.documentElement);
         const hint = document.querySelector(".kinema-orientation-hint");
-        const rendererCanvas = Array.from(document.querySelectorAll("canvas")).find(
-          (canvas) => getComputedStyle(canvas).position === "fixed",
-        );
+        const rendererCanvas = document.querySelector<HTMLCanvasElement>("canvas[data-engine]");
         const rect = rendererCanvas?.getBoundingClientRect();
         return {
           appWidth: styles.getPropertyValue("--app-width").trim(),
