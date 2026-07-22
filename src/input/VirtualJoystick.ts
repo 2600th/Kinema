@@ -72,10 +72,10 @@ export class VirtualJoystick implements Disposable {
   private palette: JoystickPalette;
 
   private trackingId: number | null = null;
-  private originX = 0;
-  private originY = 0;
-  private thumbX = 0;
-  private thumbY = 0;
+  private originX: number;
+  private originY: number;
+  private thumbX: number;
+  private thumbY: number;
   private active = false;
 
   private _onTouchStart = this.handleTouchStart.bind(this);
@@ -89,6 +89,10 @@ export class VirtualJoystick implements Disposable {
     this.size = options.size ?? DEFAULT_SIZE;
     this.radius = this.size / 2;
     this.thumbRadius = this.radius * 0.35;
+    this.originX = this.radius;
+    this.originY = this.radius;
+    this.thumbX = this.radius;
+    this.thumbY = this.radius;
     this.deadzone = options.deadzone ?? DEFAULT_DEADZONE;
     this.fixed = options.fixed ?? false;
     this.palette = resolveJoystickPalette();

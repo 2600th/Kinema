@@ -6,6 +6,11 @@ const LANDSCAPE_VIEWPORTS = [
   { width: 932, height: 430 },
 ] as const;
 
+const PORTRAIT_VIEWPORTS = [
+  { width: 320, height: 568 },
+  { width: 390, height: 844 },
+] as const;
+
 async function emulateIPhoneBrowser(page: import("@playwright/test").Page): Promise<void> {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "userAgent", {
@@ -111,6 +116,73 @@ for (const viewport of LANDSCAPE_VIEWPORTS) {
       if (viewport.width === 844) {
         await page.screenshot({ path: testInfo.outputPath("kin023-mobile-landscape.png") });
       }
+    });
+  });
+}
+
+for (const viewport of PORTRAIT_VIEWPORTS) {
+  test.describe(`${viewport.width}x${viewport.height} portrait`, () => {
+    test.use({ viewport, hasTouch: true, isMobile: true });
+
+    test("keeps action controls clear of joystick canvases and gameplay HUD", async ({ page }) => {
+      test.setTimeout(120_000);
+      await emulateIPhoneBrowser(page);
+      await page.goto("/", { waitUntil: "domcontentloaded" });
+      await page.locator("canvas[data-engine]").waitFor({ state: "visible", timeout: 60_000 });
+      await waitForKinema(page);
+      await page.getByRole("button", { name: "Play", exact: true }).click();
+      await page.locator(".loading-screen").waitFor({ state: "visible", timeout: 60_000 });
+      await waitForLoadingGone(page);
+
+      await expect(page.locator(".touch-btn--jump")).toBeVisible();
+      await expect(page.locator(".touch-btn--sprint")).toBeVisible();
+      await expect(page.locator(".hud-collectible-chip")).toBeVisible();
+      await expect(page.locator(".hud-health-chip")).toBeVisible();
+      await expect(page.locator(".hud-objective-card.is-visible")).toBeVisible();
+      await expect(page.locator(".hud-objective-text")).not.toHaveText("");
+
+      const layout = await page.evaluate(() => {
+        type Rect = { left: number; top: number; right: number; bottom: number };
+        type LabeledRect = { label: string; rect: Rect };
+        const visibleRects = (selector: string): LabeledRect[] =>
+          Array.from(document.querySelectorAll<HTMLElement>(selector))
+            .filter((element) => {
+              const style = getComputedStyle(element);
+              const rect = element.getBoundingClientRect();
+              return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+            })
+            .map((element) => {
+              const value = element.getBoundingClientRect();
+              return {
+                label: element.className,
+                rect: { left: value.left, top: value.top, right: value.right, bottom: value.bottom },
+              };
+            });
+        const intersects = (a: Rect, b: Rect) =>
+          !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top);
+        const actionZones = visibleRects(".touch-zone--sprint, .touch-zone--buttons");
+        const obstacles = visibleRects(
+          ".touch-joystick, .hud-collectible-chip, .hud-health-chip, .hud-objective-card.is-visible",
+        );
+        const all = [...actionZones, ...obstacles];
+        return {
+          viewport: { width: innerWidth, height: innerHeight },
+          obstacleCount: obstacles.length,
+          outsideViewport: all.filter(
+            ({ rect }) => rect.left < 0 || rect.top < 0 || rect.right > innerWidth || rect.bottom > innerHeight,
+          ),
+          overlaps: actionZones.flatMap((action) =>
+            obstacles
+              .filter((obstacle) => intersects(action.rect, obstacle.rect))
+              .map((obstacle) => `${action.label} <-> ${obstacle.label}`),
+          ),
+        };
+      });
+
+      expect(layout.viewport).toEqual(viewport);
+      expect(layout.obstacleCount).toBe(5);
+      expect(layout.outsideViewport).toEqual([]);
+      expect(layout.overlaps).toEqual([]);
     });
   });
 }

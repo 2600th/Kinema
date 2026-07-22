@@ -155,6 +155,14 @@
   .touch-controls-container {
     --touch-joystick-zone-width: clamp(180px, 42dvw, 320px);
     --touch-joystick-zone-height: clamp(180px, 30dvh, 280px);
+    --touch-joystick-zone-half-height: clamp(90px, 15dvh, 140px);
+    --touch-joystick-canvas-radius: 70px;
+    --touch-portrait-action-bottom: calc(
+      max(var(--touch-safe-bottom), 12dvh) +
+      var(--touch-joystick-zone-half-height) +
+      var(--touch-joystick-canvas-radius) +
+      var(--k-space-3)
+    );
   }
 
   .touch-zone--left {
@@ -171,11 +179,11 @@
 
   .touch-zone--buttons {
     right: max(var(--touch-safe-right), 3dvw);
-    bottom: max(var(--touch-safe-bottom), 22dvh);
+    bottom: var(--touch-portrait-action-bottom);
   }
 
   .touch-zone--sprint {
     left: max(var(--touch-safe-left), 3dvw);
-    bottom: max(var(--touch-safe-bottom), 26dvh);
+    bottom: var(--touch-portrait-action-bottom);
   }
 }
