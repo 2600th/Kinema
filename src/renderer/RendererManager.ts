@@ -984,6 +984,7 @@ export class RendererManager implements Disposable {
       envRotationDegrees: this.envRotationDegrees,
       showcaseArtDirection: this.showcaseArtDirectionId,
       descriptor,
+      aoDenoisePassActive: this.aoDenoisePass !== null,
       aoOnlyView: qualityState.aoOnlyView,
       ssrOpacity: qualityState.ssrOpacity,
       ssrResolutionScale: qualityState.ssrResolutionScale,

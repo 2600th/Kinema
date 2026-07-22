@@ -120,6 +120,7 @@ export interface RendererDebugFlags {
   aaMode: AntiAliasingMode;
   aoOnly: boolean;
   ssaoEnabled: boolean;
+  aoDenoiseActive: boolean;
   ssrEnabled: boolean;
   ssrOpacity: number;
   ssrResolutionScale: number;
@@ -150,6 +151,7 @@ export interface BuildRendererDebugFlagsArgs {
   envRotationDegrees: number;
   showcaseArtDirection: ShowcaseArtDirectionId;
   descriptor: RendererPipelineDescriptor;
+  aoDenoisePassActive: boolean;
   aoOnlyView: boolean;
   ssrOpacity: number;
   ssrResolutionScale: number;
@@ -239,6 +241,7 @@ export function buildRendererDebugFlags(args: BuildRendererDebugFlagsArgs): Rend
     aaMode: args.descriptor.aaMode,
     aoOnly: args.aoOnlyView,
     ssaoEnabled: args.postEffectCapabilities.ssaoEnabled && args.descriptor.useAo,
+    aoDenoiseActive: args.aoDenoisePassActive,
     ssrEnabled: args.postEffectCapabilities.ssrEnabled && args.descriptor.useSSR,
     ssrOpacity: args.ssrOpacity,
     ssrResolutionScale: args.ssrResolutionScale,

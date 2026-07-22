@@ -48,6 +48,7 @@ describe("renderer post-effect state", () => {
       envRotationDegrees: 0,
       showcaseArtDirection: "aurora",
       descriptor,
+      aoDenoisePassActive: false,
       aoOnlyView: false,
       ssrOpacity: 0.4,
       ssrResolutionScale: 0.5,
@@ -63,6 +64,53 @@ describe("renderer post-effect state", () => {
     });
 
     expect(flags.showcaseArtDirection).toBe("aurora");
+    expect(flags.aoDenoiseActive).toBe(false);
+  });
+
+  it("reports AO denoising only when the applied pipeline has an active denoise pass", () => {
+    const descriptor = buildRendererPipelineDescriptor({
+      profile: "cinematic",
+      aaMode: "smaa",
+      postProcessingEnabled: true,
+      aoEnabled: true,
+      aoOnlyView: false,
+      bloomEnabled: true,
+      ssrEnabled: true,
+      casEnabled: true,
+      casStrength: 0.3,
+      vignetteEnabled: true,
+      lutEnabled: true,
+    });
+    const args = {
+      isWebGPUPipeline: true,
+      compatibilityPostActive: false,
+      backendInfo: { isWebGPUBackend: true },
+      postEffectCapabilities: getRendererPostEffectCapabilities(true),
+      postProcessingEnabled: true,
+      shadowsEnabled: true,
+      shadowQuality: "auto" as const,
+      shadowQualityResolvedProfile: "cinematic" as const,
+      exposure: 0.85,
+      graphicsProfile: "cinematic" as const,
+      envRotationDegrees: 0,
+      showcaseArtDirection: "aurora" as const,
+      descriptor,
+      aoOnlyView: false,
+      ssrOpacity: 0.5,
+      ssrResolutionScale: 1,
+      bloomStrength: 0.1,
+      casStrength: 0.3,
+      vignetteEnabled: true,
+      vignetteDarkness: 0.42,
+      lutEnabled: true,
+      lutStrength: 0.42,
+      lutName: "Cubicle 99",
+      lutReady: true,
+      envName: "Sunrise",
+    };
+
+    expect(buildRendererDebugFlags({ ...args, aoDenoisePassActive: true }).aoDenoiseActive).toBe(true);
+    expect(buildRendererDebugFlags({ ...args, aoDenoisePassActive: false }).aoDenoiseActive).toBe(false);
   });
 
   it("keeps the established profile defaults", () => {

@@ -52,6 +52,7 @@ interface RendererManagerHarness {
   } | null;
   bloomNodes: Array<{ strength: { value: number } }>;
   ssrNode: { resolutionScale: number } | null;
+  aoDenoisePass: { updateBeforeType?: string; dispose?: () => void } | null;
 }
 
 interface AppliedQualityDebugState {
@@ -402,6 +403,7 @@ describe("RendererManager quality mutation boundaries", () => {
       lutName: "Cubicle 99",
       lutReady: true,
       envName: "Sunrise",
+      aoDenoisePass: null,
     });
 
     expect(manager.getDebugFlags()).toMatchObject({
@@ -421,7 +423,14 @@ describe("RendererManager quality mutation boundaries", () => {
       ssrOpacity: 0.4,
       ssrResolutionScale: 0.5,
       bloomStrength: 0.1,
+      aoDenoiseActive: false,
     });
+
+    const candidateDescriptor = { ...appliedDescriptor, useAoDenoise: true };
+    const candidateManager = manager as unknown as RendererManagerHarness;
+    candidateManager.currentPipelineDescriptor = candidateDescriptor;
+    candidateManager.aoDenoisePass = {};
+    expect(manager.getDebugFlags().aoDenoiseActive).toBe(true);
     expect(manager.getRequestedPostEffectSettings()).toMatchObject({
       ssrEnabled: true,
       vignetteEnabled: false,
