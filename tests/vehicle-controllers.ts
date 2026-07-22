@@ -181,13 +181,14 @@ test.describe("Vehicle Controllers", () => {
     await page.evaluate(() => window.__KINEMA__.simulateVehicleInput({ moveY: -1 }, 90));
 
     await page.waitForFunction(
-      () => {
+      (startPosition) => {
         const s = window.__KINEMA__.getVehicleState("car-1");
         if (!s) return false;
         const speed = Math.hypot(s.velocity.x, s.velocity.z);
-        return speed > 0.05;
+        const moved = Math.hypot(s.position.x - startPosition.x, s.position.z - startPosition.z);
+        return speed > 0.05 && moved > 0.005;
       },
-      undefined,
+      before.position,
       { timeout: 10_000 },
     );
 

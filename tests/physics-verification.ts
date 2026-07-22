@@ -2,6 +2,8 @@ import { expect, type Page, test } from "@playwright/test";
 import { getPlayer, installDesktopPointerCapabilities, waitForGrounded, waitForLoadingGone } from "./helpers/kinema";
 
 const SLOPES_URL = "/?station=slopes";
+const VITE_HMR_CONNECTION_REFUSED =
+  /^WebSocket connection to 'ws:\/\/localhost:5173\/\?token=[A-Za-z0-9_-]+' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED$/;
 
 async function waitForReady(page: Page): Promise<void> {
   await page.goto(SLOPES_URL, { waitUntil: "domcontentloaded" });
@@ -159,7 +161,9 @@ test.describe("Bootstrap Verification", () => {
     const kinemaAvailable = await page.evaluate(() => Boolean(window.__KINEMA__));
     expect(kinemaAvailable).toBe(true);
 
-    const realErrors = consoleErrors.filter((e) => !e.includes("favicon") && !e.includes("404"));
+    const realErrors = consoleErrors.filter(
+      (error) => !error.includes("favicon") && !error.includes("404") && !VITE_HMR_CONNECTION_REFUSED.test(error),
+    );
     expect(realErrors).toHaveLength(0);
   });
 
