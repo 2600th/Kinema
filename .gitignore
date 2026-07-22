@@ -17,6 +17,7 @@ skills-lock.json
 tests/screenshots/
 test-results/
 .superpowers/
+.worktrees/
 
 # Agent operating manual: recommended local-only files
 

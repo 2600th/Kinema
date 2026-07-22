@@ -5,6 +5,7 @@
 - Hardware browser: installed headed Chrome `150.0.7871.129`
 - Hardware viewport: 1920 x 1080, DPR 1
 - Hardware renderer: true `WebGPU` for the 17-view gallery and 14-bay balanced measurements
+- Host: Windows 11 Pro 10.0.26200 (build 26200); AMD Ryzen 7 9800X3D 8-Core (16 logical processors); 30.9 GiB RAM; NVIDIA GeForce RTX 5090 32607 MiB, driver 610.62; AMD integrated graphics, driver 32.0.21030.2001
 - Automated browser renderer: Playwright Chromium/SwiftShader (`WebGPU (WebGL2 backend)` for default and forced-WebGPU-WebGL2; `WebGLRenderer` for compatibility)
 - Server: Vite development server at `127.0.0.1:5173`
 
@@ -135,11 +136,56 @@ The 36-cell hardware spot matrix below reports `p95 ms / load ms` for four scene
 | WebGLRenderer | balanced | 10.1 / 6179.7 | 10.1 / 289.4 | 10.1 / 541.8 | 10.1 / 135.1 |
 | WebGLRenderer | cinematic | 10.1 / 521.1 | 10.1 / 163.5 | 10.1 / 140.1 | 10.1 / 146.2 |
 
+### Exact matched pre/post gate
+
+KIN-001 was captured earlier on this same workstation. For the exact KIN-031 regression gate, all 36 prechange windows were recaptured on 2026-07-22 from an isolated worktree at commit `5cb3f28`, using the same host, installed Chrome 150, 1920 x 1080 viewport, DPR1, renderer routes, profiles, scenes, and 600-frame method as the postchange job. The prechange job recorded zero unexpected errors and zero harness failures; its one known Tone scheduling occurrence was accounted separately. Each result below applies `allowed = before p95 x 1.10 + 2ms` to the corresponding matched window.
+
+| Renderer | Profile | Scene | Before p95 ms | Post p95 ms | Allowed ms | Result |
+|---|---|---|---:|---:|---:|---|
+| WebGPU | performance | entrance | 10.1 | 10.2 | 13.11 | PASS |
+| WebGPU | performance | vehicles | 10.1 | 10.1 | 13.11 | PASS |
+| WebGPU | performance | vfx | 10.1 | 10.1 | 13.11 | PASS |
+| WebGPU | performance | navigation | 10.1 | 10.1 | 13.11 | PASS |
+| WebGPU | balanced | entrance | 19.1 | 12.2 | 23.01 | PASS |
+| WebGPU | balanced | vehicles | 10.1 | 10.1 | 13.11 | PASS |
+| WebGPU | balanced | vfx | 10.1 | 10.1 | 13.11 | PASS |
+| WebGPU | balanced | navigation | 10.1 | 10.1 | 13.11 | PASS |
+| WebGPU | cinematic | entrance | 20.1 | 20.1 | 24.11 | PASS |
+| WebGPU | cinematic | vehicles | 10.1 | 10.1 | 13.11 | PASS |
+| WebGPU | cinematic | vfx | 10.1 | 10.1 | 13.11 | PASS |
+| WebGPU | cinematic | navigation | 10.1 | 10.1 | 13.11 | PASS |
+| WebGPU on WebGL2 | performance | entrance | 19.5 | 20.1 | 23.45 | PASS |
+| WebGPU on WebGL2 | performance | vehicles | 10.1 | 10.1 | 13.11 | PASS |
+| WebGPU on WebGL2 | performance | vfx | 10.1 | 10.1 | 13.11 | PASS |
+| WebGPU on WebGL2 | performance | navigation | 10.1 | 10.1 | 13.11 | PASS |
+| WebGPU on WebGL2 | balanced | entrance | 38.4 | 38.4 | 44.24 | PASS |
+| WebGPU on WebGL2 | balanced | vehicles | 10.1 | 10.1 | 13.11 | PASS |
+| WebGPU on WebGL2 | balanced | vfx | 10.1 | 10.1 | 13.11 | PASS |
+| WebGPU on WebGL2 | balanced | navigation | 10.1 | 10.1 | 13.11 | PASS |
+| WebGPU on WebGL2 | cinematic | entrance | 57.6 | 56.7 | 65.36 | PASS |
+| WebGPU on WebGL2 | cinematic | vehicles | 10.1 | 10.1 | 13.11 | PASS |
+| WebGPU on WebGL2 | cinematic | vfx | 10.1 | 10.1 | 13.11 | PASS |
+| WebGPU on WebGL2 | cinematic | navigation | 10.1 | 10.1 | 13.11 | PASS |
+| WebGLRenderer | performance | entrance | 10.1 | 10.2 | 13.11 | PASS |
+| WebGLRenderer | performance | vehicles | 10.1 | 10.1 | 13.11 | PASS |
+| WebGLRenderer | performance | vfx | 10.1 | 10.1 | 13.11 | PASS |
+| WebGLRenderer | performance | navigation | 10.1 | 10.1 | 13.11 | PASS |
+| WebGLRenderer | balanced | entrance | 10.1 | 10.1 | 13.11 | PASS |
+| WebGLRenderer | balanced | vehicles | 10.1 | 10.1 | 13.11 | PASS |
+| WebGLRenderer | balanced | vfx | 10.1 | 10.1 | 13.11 | PASS |
+| WebGLRenderer | balanced | navigation | 10.1 | 10.1 | 13.11 | PASS |
+| WebGLRenderer | cinematic | entrance | 10.1 | 10.1 | 13.11 | PASS |
+| WebGLRenderer | cinematic | vehicles | 10.1 | 10.1 | 13.11 | PASS |
+| WebGLRenderer | cinematic | vfx | 10.1 | 10.1 | 13.11 | PASS |
+| WebGLRenderer | cinematic | navigation | 10.1 | 10.1 | 13.11 | PASS |
+
+All 36 matched gates passed.
+
 The balanced hardware-WebGPU entrance p95 was `12.2ms`, below the fixed KIN-030 `20.895ms` ceiling. The three compatibility-post VFX windows and three bare windows were each `10.1ms`; median ratio `1.00`, below the `1.10` ceiling.
 
 ## Balanced GTAO Evaluation
 
-The current balanced pipeline measured p95 `10.1`, `10.2`, and `10.1ms`; the denoise candidate measured `10.1`, `10.1`, and `10.2ms`. Both had zero captured errors. Inspection of [current](./kin031-gtao-balanced-current.png) and [candidate](./kin031-gtao-balanced-denoise-candidate.png) showed no material quality gain. Denoise therefore remains cinematic-only; no production change was justified.
+Commit `c8ea41f` added the read-only `aoDenoiseActive` renderer debug flag so this evaluation authenticates the runtime pipeline rather than inferring it from source. The current balanced pipeline reported `false / false / false` with p95 `10.1 / 10.1 / 10.1ms`; the candidate reported `true / true / true` with p95 `10.1 / 10.3 / 10.1ms`. Both jobs recorded zero unexpected errors and zero known errors. Inspection of [current](./kin031-gtao-balanced-current.png) and [candidate](./kin031-gtao-balanced-denoise-candidate.png) showed no material quality gain. Denoise therefore remains cinematic-only; no production change was justified.
 
 ## Error Accounting
 

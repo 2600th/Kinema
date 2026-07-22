@@ -168,7 +168,7 @@ committed.
 
 ## KIN-031 final rollout proof
 
-Captured 2026-07-22 with installed headed Chrome `150.0.7871.129`, 1920 x 1080 at DPR1. The 14-bay table used fresh isolated-station contexts, balanced profile, true `WebGPU`, and reset 600-frame windows. The comparison gate is matched KIN-001 p95 x 1.10 + 2ms.
+Captured 2026-07-22 with installed headed Chrome `150.0.7871.129`, 1920 x 1080 at DPR1 on the same workstation as KIN-001: Windows 11 Pro 10.0.26200 (build 26200), AMD Ryzen 7 9800X3D (8 cores / 16 logical processors), 30.9 GiB RAM, NVIDIA GeForce RTX 5090 32607 MiB (driver 610.62), plus AMD integrated graphics (driver 32.0.21030.2001). The 14-bay table used fresh isolated-station contexts, balanced profile, true `WebGPU`, and reset 600-frame windows. The comparison gate is matched KIN-001 p95 x 1.10 + 2ms.
 
 | Station | Load ms | p50 ms | p95 ms | Gate ms |
 |---|---:|---:|---:|---:|
@@ -187,6 +187,6 @@ Captured 2026-07-22 with installed headed Chrome `150.0.7871.129`, 1920 x 1080 a
 | navigation | 348.3 | 9.7 | 10.1 | 11.24 |
 | futureA | 554.8 | 9.6 | 10.1 | 11.24 |
 
-All 14 matched comparisons passed. The balanced full-showcase entrance measured `12.2ms` p95 against the retained KIN-030 ceiling of `20.895ms`. A four-scene x three-renderer x three-profile hardware spot matrix (36 windows) completed with zero unexpected errors. Compatibility VFX post-processing and bare-path medians were both `10.1ms`, ratio `1.00` against the `1.10` ceiling.
+All 14 matched comparisons passed. The balanced full-showcase entrance measured `12.2ms` p95 against the retained KIN-030 ceiling of `20.895ms`. KIN-001 was the earlier same-workstation baseline; KIN-031 also recaptured an exact four-scene x three-renderer x three-profile prechange baseline from isolated worktree commit `5cb3f28`. That 36-window job and the matched postchange job used the same host/browser/viewport/method, recorded zero unexpected errors and zero harness failures, and all 36 post p95 values passed `before x 1.10 + 2ms`. The exact row-level table is in [KIN-031 rollout evidence](./kin031-rollout.md#exact-matched-prepost-gate). Compatibility VFX post-processing and bare-path medians were both `10.1ms`, ratio `1.00` against the `1.10` ceiling.
 
-Balanced GTAO denoise was evaluated in three fresh full-showcase runs. Current p95 was `10.1 / 10.2 / 10.1ms`; candidate p95 was `10.1 / 10.1 / 10.2ms`. Inspection showed no material quality win, so denoise remains cinematic-only. Exact renderer/profile/scene timings, the before/after gallery, error accounting, and limitations are recorded in [KIN-031 rollout evidence](./kin031-rollout.md). Raw harness JSON remains workspace-local under `.superpowers/sdd/`.
+Balanced GTAO denoise was evaluated in three fresh full-showcase runs after commit `c8ea41f` exposed the applied `aoDenoiseActive` state. Current reported `false / false / false` at p95 `10.1 / 10.1 / 10.1ms`; candidate reported `true / true / true` at p95 `10.1 / 10.3 / 10.1ms`. Both jobs had zero unexpected and zero known errors. Inspection showed no material quality win, so denoise remains cinematic-only. Exact renderer/profile/scene timings, the before/after gallery, error accounting, and limitations are recorded in [KIN-031 rollout evidence](./kin031-rollout.md). Raw harness JSON remains workspace-local under `.superpowers/sdd/`.

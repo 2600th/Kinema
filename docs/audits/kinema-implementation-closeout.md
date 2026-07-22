@@ -44,10 +44,10 @@ Verification summarizes the strongest task-level proof recorded during implement
 | KIN-025 | Feedback, 70-coin completion, checkpoint respawn | `8e3986b`, `583919b` | Unit/browser death, checkpoint, completion, and HUD proof | Approved checkpoint respawn; a run with no checkpoint retains full-reset behavior. |
 | KIN-026 | VFX density and vehicle motion | `852e06f`, `492cd33` | Exact profile counts, lifecycle browser proof, and [hardware addendum](./evidence/frame-baseline.md#kin-026-vfx-density-and-vehicle-motion-proof) | High-refresh hardware cadence limited relative p95 interpretation, so exact density reduction is the deterministic gate. |
 | KIN-027 | Audio lifecycle/pooling | `ae46f66`, `04e31f8` | Unit/browser lifecycle and race proof | Perceptual listening review remains outside the automated environment. |
-| KIN-028 | Compatibility renderer parity floor | `4c09204`–`2a14d35` | Three-path parity specs and [compat evidence](./evidence/kin028-compat-parity.md) | Compatibility path remains intentionally simpler but is labeled and honest. |
+| KIN-028 | Compatibility renderer parity floor | `4c09204`–`bd1ee5f` | Three-path parity specs and [compat evidence](./evidence/kin028-compat-parity.md) | Compatibility path remains intentionally simpler but is labeled and honest. |
 | KIN-029 | Load and physics-cost batch | `2a14d35`, `2105fd9` | Load/physics measurements and [evidence](./evidence/kin029-load-physics-cost.md) | Async nav/warmup/primitive conversions were bounded; no asset changes. |
 | KIN-030 | Dawn Slate art-direction pass | `a33857e`, `9f36191`, `29f582d` | 17-view gallery, three renderer paths, 118/118 browser suite twice, [evidence](./evidence/kin030-art-direction.md) | Dawn Slate auto-selected from three captured candidates under the standing “best recommended option” instruction. |
-| KIN-031 | 14-bay rollout and final matrix | `79eb9c4`–`960c860` plus closeout evidence commit | Task 4 independently approved; matrix 3/3 twice; 17-view gallery; 14 hardware bays; 36 hardware spots; [rollout evidence](./evidence/kin031-rollout.md) | Targeted gaps only: readability cues, replayable grab goal, reserved-bay honesty, back checkpoint, and stronger validation. |
+| KIN-031 | 14-bay rollout and final matrix | `79eb9c4`–`960c860`, `08b8c5f`, `c8ea41f` | Task 4 independently approved; matrix 3/3 twice; 17-view gallery; 14 hardware bays; exact matched 36-window gate; runtime-authenticated GTAO evaluation; [rollout evidence](./evidence/kin031-rollout.md) | Targeted gaps only: readability cues, replayable grab goal, reserved-bay honesty, back checkpoint, and stronger validation. |
 
 ## Design Approval Registry
 
@@ -82,7 +82,7 @@ No approval was inferred for the remaining subjective choices: MOV-2 stop feel, 
 | KIN-T16 | Deferred | JSON-level rotated/trimesh collider and CCD schema changes would alter the public level format. |
 | KIN-T17 | Stale | `LVL-F14` assumed throw targets lacked CCD, but throwable/target CCD already existed before the audit. No fix is required. |
 | KIN-T18 | Deferred | No validated unused-asset manifest was established. Deleting binary assets without that evidence would be unsafe even though deletion authority was later broad; the purge needs its own manifest/review. |
-| KIN-T19 | Completed: no change | Balanced GTAO denoise had equal p95 and no material visual gain; production remains cinematic-only denoise. [Evidence](./evidence/kin031-rollout.md#balanced-gtao-evaluation). |
+| KIN-T19 | Completed: no change | `c8ea41f` exposed applied state: current `aoDenoiseActive=false` in 3/3 runs; candidate `true` in 3/3. Candidate p95 `10.1 / 10.3 / 10.1ms` showed no advantage over current `10.1 / 10.1 / 10.1ms`, and inspection found no material visual gain. [Evidence](./evidence/kin031-rollout.md#balanced-gtao-evaluation). |
 | KIN-T20 | Included / completed | Added `showcase-checkpoint-back` and a five-coin supported trail between VFX and Navigation. |
 | KIN-T21 | Included / completed | `AGENTS.md` now specifies the actual `Goal / Constraints / Execution Plan / Review` todo structure; the nonexistent template reference was removed. |
 | KIN-T22 | Deferred | Playwright WebKit needs separate configuration/runtime approval and still cannot replace real Safari/iOS hardware validation. |
@@ -109,7 +109,9 @@ At this documentation commit, the following durable KIN-031 evidence was complet
 
 - Rollout matrix: 3/3 twice consecutively (`25.0m`, then `25.6m`).
 - Hardware: installed Chrome `150.0.7871.129`, true WebGPU, 17 gallery views, two renderer spots, 14 balanced bay windows, 36 renderer/profile/scene windows.
+- Matched regression gate: 36 prechange windows recaptured from isolated worktree commit `5cb3f28` on the same workstation/browser/viewport; zero unexpected errors/failures and all 36 post windows passed `before x 1.10 + 2ms`.
 - Hardware errors: zero unexpected console/page errors, zero harness failures; three separately recorded known Tone scheduling errors.
+- GTAO proof: runtime flag authenticated current `false / false / false` and candidate `true / true / true`; both jobs recorded zero unexpected and zero known errors, with no evidence-backed reason to change production.
 - Visual inspection: all 19 KIN-031 captures readable, with the new cues/goal/reserved state visible and no new clipping or HUD overlap.
 - Independent KIN-031 Task 4 review: approved with zero remaining findings after the stable-grounding mutation proof.
 
