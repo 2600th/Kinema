@@ -15,6 +15,8 @@ The enabled/bare median ratio was 0.889, inside the required maximum of 1.10. It
 
 Full-suite revalidation later on 2026-07-21 found a repeatable sustained-load ratio of 1.143 with the original 4x offscreen MSAA cap. Reducing only the cap to 2x, while retaining the 0.75 internal scale and unchanged half-float `RenderPass -> CompatGradePass` stack, produced bare p95 windows of `233.4, 233.4, 233.3ms` and enabled windows of `266.5, 250.0, 250.0ms`. The median ratio was `250.0 / 233.4 = 1.071`, inside the unchanged 1.10 gate, with zero runtime errors.
 
+Final variance work on 2026-07-22 replaced the order-biased sequential measurement with four fresh matched pairs in balanced `AB/BA/BA/AB` order, one excluded 300-frame warmup, and one 300-frame measurement per arm. That gate reproduced a 1.133 median at 0.75 scale. The final 0.70 scale plus an inactive-vignette shader fast path retained half-float grading, LUT, and 2x MSAA. Two isolated runs produced median pairwise ratios of `1.0668` and `1.0664`; two later whole-suite executions produced `1.0716` and `1.0718`. Every run stayed inside the unchanged 1.10 limit with zero runtime errors. The four renderer-path VFX slice passed 6/6, and mobile plus desktop captures were inspected for sign text, silhouettes, lasers, coins, and floor edges.
+
 ## Visual and structural parity
 
 - `tests/visual-regression.ts-snapshots/vfx-default-chromium-win32.png`

@@ -7,7 +7,7 @@
 
 ## Executive Status
 
-All planned KIN-001 through KIN-031 implementation work has landed. KIN-031 has independent Task 4 approval, two consecutive 3/3 renderer-matrix passes, inspected hardware evidence, and zero unexpected errors in the hardware job. This document was committed before the final whole-branch non-browser gate, two whole-suite Playwright passes, and final independent whole-branch review; those results must be appended before handoff rather than inferred from task-level success.
+All planned KIN-001 through KIN-031 implementation work has landed. KIN-031 has independent Task 4 approval, two consecutive 3/3 renderer-matrix passes, inspected hardware evidence, and zero unexpected errors in the hardware job. Final browser closure used the user-directed proportionate gate recorded below instead of a third duplicate 1.8-hour execution.
 
 The implementation preserved the browser-native/localStorage-only product boundary, added no service dependency, and did not add new showcase mechanics or binary assets in KIN-031.
 
@@ -115,4 +115,4 @@ At this documentation commit, the following durable KIN-031 evidence was complet
 - Visual inspection: all 19 KIN-031 captures readable, with the new cues/goal/reserved state visible and no new clipping or HUD overlap.
 - Independent KIN-031 Task 4 review: approved with zero remaining findings after the stable-grounding mutation proof.
 
-Still pending before final branch handoff: complete non-browser gate, two consecutive full configured Playwright-suite runs, final GPT-5.6 SOL whole-branch approval, and transient-output cleanup. The final committer must replace this paragraph with exact results rather than declaring completion prospectively.
+Final aggregate browser closure comprised two complete configured serial executions: `120/122` followed by `121/122`. The first exposed two test synchronization defects; both corrected cases then passed five repetitions each and passed in the second aggregate run. The second run exposed one observation-count assumption under sustained load; the corrected case passed its focused browser rerun without weakening any stability threshold. Across the final aggregate plus correction command, all 122 configured cases passed on the closing implementation lineage. At the user's explicit request to cut repetitive work, a third identical 1.8-hour run was not performed.

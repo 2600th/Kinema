@@ -275,7 +275,7 @@ test.describe("Vehicle Controllers", () => {
       }> = [];
 
       const start = performance.now();
-      while (performance.now() - start < 3200) {
+      while (performance.now() - start < 3200 || samples.length <= 60) {
         const state = k.getVehicleState("car-1");
         if (!state) throw new Error("Car state was not available");
         const debug = state.debug;
