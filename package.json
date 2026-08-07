@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",
+    "@vercel/analytics": "^2.0.1",
     "navcat": "0.2.0",
     "three": "~0.183.0",
     "tone": "^15.1.22"

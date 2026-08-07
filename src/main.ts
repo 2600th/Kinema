@@ -2,6 +2,7 @@ import { shouldUseCompatibilityRenderer } from "@core/mobilePlatform";
 import type { InputState } from "@core/types";
 import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
+import { inject } from "@vercel/analytics";
 
 function showBootstrapError(err: unknown): void {
   const message = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
@@ -24,6 +25,9 @@ function showBootstrapError(err: unknown): void {
 }
 
 async function bootstrap(): Promise<void> {
+  // Initialize Vercel Web Analytics
+  inject();
+
   const bootstrapParams = new URLSearchParams(window.location.search);
   const forceWebGL = /^(1|true)$/i.test(bootstrapParams.get("forceWebGL") ?? "");
   const allowExperimentalRenderer = /^(1|true)$/i.test(bootstrapParams.get("experimentalRenderer") ?? "");
